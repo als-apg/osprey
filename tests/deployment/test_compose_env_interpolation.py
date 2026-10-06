@@ -233,7 +233,8 @@ def test_ensure_service_tokens_passes_a_clean_env(tmp_path) -> None:
 
 
 _CONFIG = {
-    "facility": {"name": "T", "prefix": "t", "timezone": "UTC"},
+    "facility": {"name": "T", "prefix": "t"},
+    "system": {"timezone": "UTC"},
     "llm": {"provider": "cborg", "api_key_env_var": "CBORG_API_KEY"},
     "modules": {
         "web_terminals": {"enabled": True, "image_source": "local"},

@@ -74,7 +74,7 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # which every Debian release the slim bases resolve to satisfies.
 #
 # npm is a runtime dependency, not a build-time convenience: the agent is
-# launched as `npx -y @anthropic-ai/claude-code@<version>` (claude_launcher.py),
+# launched as `npx -y @anthropic-ai/claude-code@<version>` (agent_runner/launcher.py),
 # so npm must remain in the final image.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     apt-get update \

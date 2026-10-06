@@ -91,6 +91,7 @@ TOOL_TYPES: dict[str, TypeDef] = {
     "channel_find": TypeDef("channel_find", "Channel Find", "#22c55e"),
     # memory_save and memory_recall removed — replaced by Claude Code native memory
     "ariel_search": TypeDef("ariel_search", "ARIEL Search", "#e879f9"),
+    "attachment_to_artifact": TypeDef("attachment_to_artifact", "Logbook Picture", "#e879f9"),
     "screenshot_capture": TypeDef("screenshot_capture", "Screenshot Capture", "#a78bfa"),
     "facility_description": TypeDef("facility_description", "Facility Description", "#fbbf24"),
     "artifact_register": TypeDef("artifact_register", "Artifact Register", "#94a3b8"),

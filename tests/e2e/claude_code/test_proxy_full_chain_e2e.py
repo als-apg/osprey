@@ -2,13 +2,13 @@
 
 Reproduces exactly what `osprey chat` does for a custom OpenAI-compatible provider:
 
-    resolve()  ->  inject_provider_env()  ->  start_proxy()  ->  ANTHROPIC_BASE_URL rewrite
+    resolve()  ->  inject_provider_env()  ->  start_proxy_for()  ->  ANTHROPIC_BASE_URL rewrite
 
 then sends a real Anthropic Messages request (text + tool) to the *running* proxy and
 checks the translated open-model response. Upstream is local Ollama, standing in for
 CBORG's self-hosted models (swap base_url + key + model = the CBORG case).
 
-Covers lifecycle.start_proxy/stop_proxy (the real daemon thread), which the in-process
+Covers lifecycle.start_proxy_for/stop_proxy (the real daemon thread), which the in-process
 TestClient tests in test_proxy_live_roundtrip.py do not.
 
 Experiment branch: experiment/cborg-claude-code (issue #259).
@@ -19,8 +19,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from osprey.build.claude_code_resolver import ClaudeCodeModelResolver, inject_provider_env
-from osprey.infrastructure.proxy.lifecycle import start_proxy, stop_proxy
+from osprey.agent_runner.provider_env import ClaudeCodeModelResolver, inject_provider_env
+from osprey.infrastructure.proxy.lifecycle import start_proxy_for, stop_proxy
 
 OLLAMA_BASE = "http://localhost:11434/v1"
 OLLAMA_MODEL = "qwen2.5:32b"
@@ -38,7 +38,7 @@ pytestmark = pytest.mark.skipif(not _ollama_up(), reason="local Ollama not runni
 
 @pytest.fixture
 def running_proxy():
-    """Run the resolve->inject->start_proxy chain; yield the rewritten base URL."""
+    """Run the resolve->inject->start_proxy_for chain; yield the rewritten base URL."""
     api_providers = {
         "local-oss": {
             "api_key": "${LOCAL_OSS_API_KEY}",
@@ -57,7 +57,7 @@ def running_proxy():
     inject_provider_env(environ, spec)
     assert environ["ANTHROPIC_AUTH_TOKEN"] == "ollama"
 
-    port = start_proxy(spec.upstream_base_url, environ.get(spec.auth_env_var))
+    port = start_proxy_for(spec, environ)
     base = f"http://127.0.0.1:{port}"  # what `osprey chat` writes to ANTHROPIC_BASE_URL
     try:
         yield base

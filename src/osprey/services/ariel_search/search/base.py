@@ -48,6 +48,9 @@ class ParameterDescriptor:
         section: Grouping label in the advanced panel (e.g. "Retrieval")
         placeholder: Placeholder text for text inputs
         options_endpoint: API endpoint for dynamic_select to fetch options
+        required: Whether a value must be supplied; serialized only when True
+        depends_on: Names of the parameters whose values this one's options
+            depend on; serialized only when non-empty
     """
 
     name: str
@@ -62,6 +65,8 @@ class ParameterDescriptor:
     section: str = "General"
     placeholder: str | None = None
     options_endpoint: str | None = None
+    required: bool = False
+    depends_on: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-friendly dict."""
@@ -85,6 +90,10 @@ class ParameterDescriptor:
             d["placeholder"] = self.placeholder
         if self.options_endpoint is not None:
             d["options_endpoint"] = self.options_endpoint
+        if self.required:
+            d["required"] = True
+        if self.depends_on:
+            d["depends_on"] = list(self.depends_on)
         return d
 
 
@@ -255,6 +264,13 @@ class SearchToolDescriptor:
             `QueryExpansion`, but only when an expansion was actually resolved
             for the request -- the argument is never passed as ``None``.
             Modules that leave this false are called exactly as they are today.
+        accepts_include_images: Whether this module can search attachment
+            pictures. When true, the service resolves the caller's
+            ``include_images`` advanced parameter against
+            ``ariel.enhancement_modules.image_embedding.enabled`` and always
+            passes the result as ``include_images=`` (a bool). The raw
+            parameter is stripped either way, so a module that leaves this
+            false never sees it.
         query_parser: Optional pure function turning the raw query string into
             a `ParsedKeywordQuery`. When set, the service calls it once per
             search and passes the result as `parsed=`; when unset, the module
@@ -271,6 +287,7 @@ class SearchToolDescriptor:
     format_result: Callable[..., dict[str, Any]]
     needs_embedder: bool = False
     accepts_expansion: bool = False
+    accepts_include_images: bool = False
     query_parser: Callable[[str], ParsedKeywordQuery] | None = None
 
 

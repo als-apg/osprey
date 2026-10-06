@@ -21,7 +21,9 @@ complete at every instant rather than at exit:
     and a wedged one leaves the same frames over and over, which is what "stuck"
     looks like. Covering the whole session is deliberate — it keeps dumping
     after the LAST test has finished, which is where a shutdown hang lives, and
-    a per-test timer would be cancelled by then and show nothing.
+    a per-test timer would be cancelled by then and show nothing. The one-shot
+    end-of-run counterpart, which names the non-daemon threads still alive at
+    ``pytest_unconfigure`` on every run, CI or not, is ``tests/_live_threads.py``.
 
 A third record is written only when a test fails:
 

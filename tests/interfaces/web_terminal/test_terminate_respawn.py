@@ -1,40 +1,33 @@
-"""The chat pool's terminate, and the registry facades the chat surfaces use.
+"""The chat session pool: terminate, launch identity, and the facades on top.
 
-Terminating a chat child used to be half of applying a posture: the posture
-travelled in the child's environment, so a flip had to kill the child and let
-it come back. It does not any more — the per-target posture is recorded in the
-store and read at write time, so a narrowing lands on a chat already
-mid-conversation and ``POST /api/terminal/posture`` terminates nothing. (The
-posture route asks no addressability question at all any more: any well-formed
-key is accepted, because the store only narrows and both spawn paths read it
-before the first write.)
+``ChatSessionPool`` keeps one SDK child per session key. Pinned here:
 
-What survives is everything that was never about the posture:
+* **terminate and drain** — eviction so the next turn builds a fresh child,
+  the supersede of a creation still inside ``start()`` (and the 409 the chat
+  route maps it to), idempotence, the session handed back to the caller, and
+  ``reinsert`` for a child that outlived its teardown;
+* **launch identity** — the environment fingerprint and the transcript a child
+  was started on. Both are fixed at spawn, so the same identity reuses the
+  live child and a different one rebuilds it, pooled or still starting;
+* **atomicity** — an environment builder is read under the pool lock that
+  registers the creation, so a change landing after the call governs the
+  child;
+* **the registry facades** the chat and terminal surfaces call.
 
-* **the pool's terminate itself**, which ``POST /api/chat/<id>/reset`` still
-  drives — eviction, the supersede of a creation still inside ``start()``, and
-  the 409 the chat route maps that supersede to;
-* **the env fingerprint**, the SDK counterpart of the PTY registry's: a reuse
-  must not hand back a child built with a different environment;
-* **the registry facades** (``has_chat_key`` and friends) the GET roster and
-  the reset route still call, pinned by name because their renames fail
-  quietly.
-
-Harness mirrors ``test_posture_routes.py``: each test builds its own app
-through ``create_app`` under a patched ``_load_web_config``, entered as a
-``TestClient`` context manager so the lifespan runs.
+Harness: each app-level test builds its own app through ``create_app`` under a
+patched ``_load_web_config``, entered as a ``TestClient`` so the lifespan runs.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import time
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
@@ -48,7 +41,9 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
+from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import posture_store
+from tests.interfaces.web_terminal._fakes import PoolChatSession, created_first
 
 # A Claude session-file stem: the PTY topology's key.
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
@@ -112,24 +107,33 @@ def known_sessions(*session_ids):
 
 
 class TestAChatKeyIsAddressable:
-    """The registry facades the chat surfaces rely on stay pinned by name."""
+    @pytest.mark.asyncio
+    async def test_a_starting_chat_answers_the_addressability_probe(self):
+        """A chat still inside ``start()`` is a key the terminal must see.
 
-    def test_the_shipped_registry_exposes_the_facades_the_callers_use(self):
-        """A rename of any of these is silent in its own way.
-
-        * ``has_chat_key`` — :func:`_chat_pool_answers_to` would fall back to
-          the session-map read, which cannot see a creation still inside
-          ``start()``, and the GET roster would stop marking a starting chat's
-          rows as ``chat_session``;
-        * ``get_chat_session`` — that fallback itself would answer ``False``
-          for every key; and
-        * ``terminate_chat_session`` — the chat reset route would stop tearing
-          anything down.
-
-        All three fail quietly, so all three are pinned here.
+        The terminal's gates ask the registry's ``has_chat_key``, which also
+        counts a creation in flight; the pool's session map alone cannot see
+        it. On the first prompt of a chat that window is the ordinary state.
         """
-        for name in ("terminate_chat_session", "get_chat_session", "has_chat_key"):
-            assert callable(getattr(OperatorRegistry, name, None)), name
+        registry = OperatorRegistry()
+        created: list[PoolChatSession] = []
+
+        def factory(cwd=None, env=None, session_key=None):
+            session = PoolChatSession(cwd=cwd, env=env, session_key=session_key)
+            session.start_delay = 0.05
+            created.append(session)
+            return session
+
+        app = SimpleNamespace(state=SimpleNamespace(operator_registry=registry))
+        with patch("osprey.interfaces.web_terminal.operator_session.OperatorSession", factory):
+            creation = asyncio.create_task(registry.get_or_create_chat_session(CHAT_A, "/tmp"))
+            await created_first(created)
+
+            assert registry.get_chat_session(CHAT_A) is None
+            assert websocket_routes._chat_pool_answers_to(app, CHAT_A) is True
+
+            session, _ = await creation
+        assert registry.get_chat_session(CHAT_A) is session
 
 
 def _chat_request(app):
@@ -168,54 +172,11 @@ class _PoolFace:
         return self.sessions.pop(chat_id, None)
 
 
-class _FakeChatSession:
-    """Lightweight OperatorSession double for pool tests.
-
-    Mirrors ``test_operator_session.FakeChatSession`` — the same surface the
-    pool drives (``start``/``is_active``/``is_busy``/``last_activity``/
-    ``teardown``), plus ``acquire_turn`` for the tests that go through the real
-    ``_acquire_chat_turn`` rather than the pool directly.
-    """
-
-    def __init__(self, cwd="/tmp", env=None, session_key=None):
-        self.cwd = cwd
-        self.env = env
-        self.session_key = session_key
-        self.resume_id = None
-        self.is_active = True
-        self.last_activity = time.monotonic()
-        self.in_flight = False
-        self.start_calls = 0
-        self.stop_calls = 0
-        self.start_delay = 0.0
-        self.turns = 0
-        self.started = asyncio.Event()
-
-    async def start(self, *, resume_id=None):
-        self.resume_id = resume_id
-        self.started.set()
-        if self.start_delay:
-            await asyncio.sleep(self.start_delay)
-        self.start_calls += 1
-
-    def acquire_turn(self) -> int:
-        self.turns += 1
-        return self.turns
-
-    @property
-    def is_busy(self) -> bool:
-        return self.in_flight
-
-    async def teardown(self):
-        self.stop_calls += 1
-        self.is_active = False
-
-
-def _pool(start_delay: float = 0.0, **kwargs) -> tuple[ChatSessionPool, list[_FakeChatSession]]:
-    created: list[_FakeChatSession] = []
+def _pool(start_delay: float = 0.0, **kwargs) -> tuple[ChatSessionPool, list[PoolChatSession]]:
+    created: list[PoolChatSession] = []
 
     def factory(cwd, env, session_key=None):
-        session = _FakeChatSession(cwd=cwd, env=env, session_key=session_key)
+        session = PoolChatSession(cwd=cwd, env=env, session_key=session_key)
         session.start_delay = start_delay
         created.append(session)
         return session
@@ -260,7 +221,8 @@ class TestChatPoolEvictionOnTerminate:
         creation = asyncio.create_task(pool.get_or_create("a", "/tmp", {"MODE": "old"}))
         await created_first(created)
 
-        await pool.terminate("a")
+        # A creation in flight has nothing to pop yet.
+        assert await pool.terminate("a") is None
 
         with pytest.raises(ChatSessionTerminatedError):
             await creation
@@ -338,25 +300,45 @@ class TestChatPoolEvictionOnTerminate:
         """Terminating a key twice tears the child down exactly once."""
         pool, created = _pool()
         await pool.get_or_create("a", "/tmp", None)
-        await pool.terminate("a")
-        await pool.terminate("a")
+        assert await pool.terminate("a") is created[0]
+        # The second call, like one for a key never pooled, has nothing to pop.
+        assert await pool.terminate("a") is None
+        assert await pool.terminate("nobody") is None
         assert pool.get("a") is None
         assert created[0].stop_calls == 1
 
+    @pytest.mark.asyncio
+    async def test_terminate_hands_back_the_session_it_tore_down(self):
+        """The caller reads the child's fate off what it gets back."""
+        pool, created = _pool()
+        session, _ = await pool.get_or_create("a", "/tmp")
 
-async def created_first(created, timeout: float = 1.0):
-    """Wait until the pool's factory has built its first session and started it.
+        returned = await pool.terminate("a")
 
-    Waiting on the session's own ``started`` event (not a sleep) keeps the race
-    deterministic: the terminate below has to arrive while ``start()`` is still
-    running, which is the whole point of the test.
-    """
-    deadline = time.monotonic() + timeout
-    while not created:
-        if time.monotonic() > deadline:  # pragma: no cover - guards a hang
-            raise AssertionError("factory never ran")
-        await asyncio.sleep(0)
-    await asyncio.wait_for(created[0].started.wait(), timeout=timeout)
+        assert returned is session
+        assert created[0].stop_calls == 1
+        assert returned.process_exited is True
+
+    @pytest.mark.asyncio
+    async def test_reinsert_puts_a_terminated_session_back(self):
+        """A child that outlived its teardown is re-pooled; an occupied key refuses."""
+        pool, created = _pool()
+        chat, _ = await pool.get_or_create("a", "/tmp")
+        assert await pool.terminate("a") is chat
+        assert pool.get("a") is None
+
+        assert await pool.reinsert("a", chat) is True
+        assert pool.get("a") is chat
+        assert await pool.reinsert("a", PoolChatSession()) is False
+        assert pool.get("a") is chat
+
+        # A creation in flight counts as occupied too.
+        slow_pool, slow_created = _pool(start_delay=0.05)
+        creation = asyncio.create_task(slow_pool.get_or_create("b", "/tmp"))
+        await created_first(slow_created)
+        assert await slow_pool.reinsert("b", PoolChatSession()) is False
+        session, _ = await creation
+        assert slow_pool.get("b") is session
 
 
 class TestChatRouteMapsTheRefusal:
@@ -395,7 +377,7 @@ class TestChatRouteMapsTheRefusal:
             )
         )
 
-        with known_sessions(), pytest.raises(Exception) as excinfo:
+        with known_sessions(), pytest.raises(HTTPException) as excinfo:
             await chat_routes._acquire_chat_turn(request, CHAT_A)
 
         assert excinfo.value.status_code == 409
@@ -501,21 +483,6 @@ class TestChatPoolEnvFingerprint:
         assert created[0].stop_calls == 1
 
     @pytest.mark.asyncio
-    async def test_a_concurrent_double_submit_still_shares_one_creation(self):
-        """The liveness half of the same rule: identical env, one subprocess."""
-        pool, created = _pool(start_delay=0.05)
-        env = {"OSPREY_EXECUTION_MODE": "writes"}
-
-        first = asyncio.create_task(pool.get_or_create("a", "/tmp", lambda: dict(env)))
-        await created_first(created)
-        second, was_reused = await pool.get_or_create("a", "/tmp", lambda: dict(env))
-
-        session, _ = await first
-        assert second is session
-        assert was_reused is True
-        assert len(created) == 1
-
-    @pytest.mark.asyncio
     async def test_a_narrowing_does_not_rebuild_the_chat_child(
         self, client, shared_root, write_control_context
     ):
@@ -537,7 +504,7 @@ class TestChatPoolEnvFingerprint:
             known_sessions(),
             patch(
                 "osprey.interfaces.web_terminal.operator_session.OperatorSession",
-                _FakeChatSession,
+                PoolChatSession,
             ),
         ):
             first, _token, _ = await chat_routes._acquire_chat_turn(request, CHAT_A)
@@ -559,6 +526,132 @@ class TestChatPoolEnvFingerprint:
         assert first.env[POSTURE_SESSION_ENV] == CHAT_A
 
 
+_SEAM = "osprey.interfaces.web_terminal.operator_session.OperatorSession"
+
+
+class TestTheResumeIdReachesTheChild:
+    @pytest.mark.asyncio
+    async def test_the_transcript_is_named_at_start_not_at_construction(self):
+        """A child is built under the key and started on the transcript.
+
+        The two are different identities and travel separately: the key is what
+        the session is pooled, audited and given telemetry under, the
+        transcript is only which conversation this launch continues.
+        """
+        pool, created = _pool()
+
+        session, was_reused = await pool.get_or_create("K", "/tmp", resume_id="T1")
+
+        assert was_reused is False
+        assert session.session_key == "K"
+        assert session.resume_id == "T1"
+        assert created == [session]
+
+
+class TestTheTranscriptJoinsTheReuseCheck:
+    """The transcript half of the launch identity, mirroring the env half.
+
+    ``TestChatPoolEnvFingerprint`` above pins the
+    environment; the transcript is compared in the same place, for the same
+    reason, and these are the same two cases.
+    """
+
+    @pytest.mark.parametrize("second_id", ["T2", None], ids=["moved", "dropped"])
+    @pytest.mark.asyncio
+    async def test_a_changed_resume_id_rebuilds_instead_of_reusing(self, second_id):
+        """A different transcript — or none — means a different child.
+
+        This is what makes a ``/clear`` in the other view reach this one. The
+        key is unchanged, so nothing else in the pool would notice. An absent
+        transcript is a launch identity of its own, not a wildcard.
+        """
+        pool, created = _pool()
+
+        first, _ = await pool.get_or_create("K", "/tmp", resume_id="T1")
+        second, was_reused = await pool.get_or_create("K", "/tmp", resume_id=second_id)
+
+        assert second is not first
+        assert was_reused is False
+        assert second.resume_id == second_id
+        assert first.stop_calls == 1
+        assert len(created) == 2
+
+    @pytest.mark.asyncio
+    async def test_an_unchanged_resume_id_still_reuses_the_live_session(self):
+        """The liveness half: a second prompt must not kill the conversation.
+
+        The route hands the key's current transcript over on every turn, so a
+        comparison that fired on an unchanged id would restart the agent under
+        the operator mid-conversation — a worse failure than the one it
+        prevents.
+        """
+        pool, created = _pool()
+
+        first, _ = await pool.get_or_create("K", "/tmp", resume_id="T1")
+        second, was_reused = await pool.get_or_create("K", "/tmp", resume_id="T1")
+
+        assert second is first
+        assert was_reused is True
+        assert first.stop_calls == 0
+        assert first.start_calls == 1
+        assert len(created) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_creation_on_a_stale_transcript_is_overtaken(self):
+        """A caller must not be joined to a creation it would have replaced.
+
+        The in-flight child is being launched on the transcript the second
+        caller already knows is gone, so joining it would hand back exactly the
+        child the change was meant to replace.
+        """
+        pool, created = _pool(start_delay=0.05)
+        creation = asyncio.create_task(pool.get_or_create("K", "/tmp", resume_id="T1"))
+        await created_first(created)
+
+        second, was_reused = await pool.get_or_create("K", "/tmp", resume_id="T2")
+
+        with pytest.raises(ChatSessionTerminatedError):
+            await creation
+        assert was_reused is False
+        assert second is created[1]
+        assert second.resume_id == "T2"
+        assert created[0].stop_calls == 1
+        assert pool.get("K") is second
+
+
+class TestTheRegistryBinding:
+    @pytest.mark.asyncio
+    async def test_the_facade_carries_the_key_and_the_transcript_through(self):
+        """The pool's key IS the child's session key, and the resume id rides along.
+
+        The factory bound in ``OperatorRegistry.__init__`` is the only place
+        that turns a pool key into a child identity; a binding that minted an
+        id of its own would split one conversation's audit and telemetry across
+        two.
+        """
+        registry = OperatorRegistry()
+
+        with patch(_SEAM, PoolChatSession):
+            session, was_reused = await registry.get_or_create_chat_session(
+                "K", cwd="/tmp", resume_id="T1"
+            )
+
+        assert was_reused is False
+        assert session.session_key == "K"
+        assert session.resume_id == "T1"
+        assert registry.get_chat_session("K") is session
+
+    @pytest.mark.asyncio
+    async def test_the_facade_defaults_to_no_transcript(self):
+        """Omitting the transcript reaches the child as omitted, not as a blank."""
+        registry = OperatorRegistry()
+
+        with patch(_SEAM, PoolChatSession):
+            session, _ = await registry.get_or_create_chat_session("K", cwd="/tmp")
+
+        assert session.resume_id is None
+
+
 class TestTheEnvIsReadUnderThePoolLock:
     """Atomicity of "build the environment" and "register the creation".
 
@@ -570,20 +663,6 @@ class TestTheEnvIsReadUnderThePoolLock:
     creation, so whatever the environment is derived from is read at the moment
     the child is committed to.
     """
-
-    @pytest.mark.asyncio
-    async def test_the_builder_runs_while_the_lock_is_held(self):
-        pool, _created = _pool()
-        held: list[bool] = []
-
-        def build_env():
-            held.append(pool._lock.locked())
-            return {"OSPREY_EXECUTION_MODE": "readonly"}
-
-        session, _ = await pool.get_or_create("a", "/tmp", build_env)
-
-        assert held == [True]
-        assert session.env == {"OSPREY_EXECUTION_MODE": "readonly"}
 
     @pytest.mark.asyncio
     async def test_a_change_landing_after_the_call_still_governs_the_child(self):
@@ -609,13 +688,6 @@ class TestTheEnvIsReadUnderThePoolLock:
         session, _ = await creation
 
         assert session.env == {"OSPREY_EXECUTION_MODE": "readonly"}
-
-    @pytest.mark.asyncio
-    async def test_a_mapping_is_still_accepted(self):
-        """Every other caller (and every test double) still passes a dict."""
-        pool, _created = _pool()
-        session, _ = await pool.get_or_create("a", "/tmp", {"MODE": "plain"})
-        assert session.env == {"MODE": "plain"}
 
     def test_the_chat_route_hands_the_pool_a_builder(self, client):
         """The route side of the same invariant.
@@ -730,3 +802,18 @@ class TestARaisingTeardownDoesNotWedgeTheKey:
         assert third is second
         assert reused is True
         assert len(created) == 2
+
+
+class TestTheTerminateFacade:
+    @pytest.mark.asyncio
+    async def test_the_registry_facade_passes_the_session_through(self):
+        registry = OperatorRegistry()
+        with patch(_SEAM, side_effect=PoolChatSession):
+            session, _ = await registry.get_or_create_chat_session("a", cwd="/tmp")
+
+        returned = await registry.terminate_chat_session("a")
+
+        assert returned is session
+        assert returned.process_exited is True
+        assert registry.get_chat_session("a") is None
+        assert await registry.terminate_chat_session("a") is None

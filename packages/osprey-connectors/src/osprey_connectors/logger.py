@@ -291,12 +291,12 @@ def configure_logging(level: int = logging.INFO) -> None:
 
 
 def get_logger(
-    component_name: str = None,
+    component_name: str | None = None,
     level: int = logging.INFO,
     *,
     state: Any = None,
-    name: str = None,
-    color: str = None,
+    name: str | None = None,
+    color: str | None = None,
 ) -> ComponentLogger:
     """
     Get a unified logger for CLI logging.

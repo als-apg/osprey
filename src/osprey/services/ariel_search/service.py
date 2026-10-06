@@ -13,6 +13,7 @@ Higher-level reasoning is handled by the Osprey agent layer.
 from __future__ import annotations
 
 import asyncio
+import copy
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.exceptions import (
@@ -39,9 +40,11 @@ from osprey.services.ariel_search.models import (
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from psycopg_pool import AsyncConnectionPool
 
-    from osprey.models.embeddings.base import BaseEmbeddingProvider
+    from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.search.base import (
@@ -57,6 +60,20 @@ logger = get_logger("ariel")
 #: The service resolves it and strips it from the kwargs a module receives --
 #: modules never see it (FR4).
 EXPAND_QUERY_PARAM = "expand_query"
+
+#: Advanced parameter a caller sets to ask for, or decline, picture search. The
+#: service resolves it against ``image_embedding.enabled`` and strips it from
+#: the kwargs a module receives; a module that opted in through
+#: ``SearchToolDescriptor.accepts_include_images`` gets the resolved bool as
+#: ``include_images=`` instead.
+INCLUDE_IMAGES_PARAM = "include_images"
+
+#: The config key that switches picture search on, named in the diagnostic a
+#: caller sees when it asks for pictures the deployment cannot search.
+_PICTURE_SEARCH_KEY = "ariel.enhancement_modules.image_embedding.enabled"
+
+#: Advanced parameters that are the service's own controls, never a module's.
+_SERVICE_PARAMS = frozenset({EXPAND_QUERY_PARAM, INCLUDE_IMAGES_PARAM})
 
 
 def _expansion_dicts(groups: tuple[ExpansionGroup, ...]) -> tuple[dict[str, Any], ...]:
@@ -126,30 +143,40 @@ class ARIELSearchService:
             pool: Database connection pool
             repository: Database repository
             readonly_pool: The same store reached as its SELECT-only role, for
-                the agent's raw-SQL path. ``None`` where this deployment has no
-                such role -- an explicit DSN, or a data volume older than the
-                role -- and the raw-SQL path then shares ``pool``.
+                the agent's raw-SQL path. ``None`` for a build that does not
+                host the raw-SQL tool, a project pointing at a database osprey
+                did not provision, or a data volume older than the role -- and
+                the raw-SQL path, where there is one, then shares ``pool``.
         """
         self.config = config
         self.pool = pool
         self.readonly_pool = readonly_pool
         self.repository = repository
-        self._embedder: BaseEmbeddingProvider | None = None
+        self._embedder: BaseProvider | None = None
         self._validated_search_model = False
 
-    def _get_embedder(self) -> BaseEmbeddingProvider:
-        """Lazy-load the embedding provider.
+    def _get_embedder(self) -> BaseProvider:
+        """Return the provider adapter that embeds semantic-search queries.
 
-        Uses Osprey's provider configuration system to select the appropriate
-        embedding provider based on config.embedding.provider.
+        The class is resolved once, from the provider
+        :func:`~osprey.services.ariel_search.search.semantic.semantic_provider`
+        names, so a query is embedded by the provider that built the table it
+        searches. Class resolution only: no network I/O, so a down server never
+        stalls the caller (the query path finds a reachable one off the event
+        loop). A preset ``_embedder`` is used as it is.
 
         Returns:
-            Configured embedding provider instance
+            The embedding provider adapter instance.
+
+        Raises:
+            ModuleConfigError: If the named provider is unknown or serves no
+                embeddings; the message names the config key it came from. A
+                ``ValueError``.
         """
         if self._embedder is None:
-            from osprey.models.embeddings import get_embedding_provider
+            from osprey.services.ariel_search.search.semantic import semantic_provider_class
 
-            self._embedder = get_embedding_provider(self.config.embedding.provider)
+            self._embedder = semantic_provider_class(self.config)()
         return self._embedder
 
     @staticmethod
@@ -491,6 +518,53 @@ class ARIELSearchService:
             return None, ()
         return expansion, ()
 
+    def _resolve_include_images(
+        self,
+        advanced_params: Mapping[str, Any],
+        descriptor: SearchToolDescriptor,
+    ) -> tuple[bool | None, tuple[SearchDiagnostic, ...]]:
+        """Resolve the caller's picture-search preference for one module.
+
+        The single source of truth for whether the picture lane runs. Read
+        only when the module opted in through ``accepts_include_images``; the
+        caller's mapping is never mutated.
+
+        * unset (or ``None``) -- on exactly when ``image_embedding`` is enabled;
+        * explicit ``False`` -- off;
+        * explicit ``True`` -- on when enabled; while disabled it is a no-op
+          reported by an INFO diagnostic naming the key that enables it, so the
+          caller learns why no picture matched rather than reading silence as
+          "no picture matched".
+
+        Args:
+            advanced_params: The request's advanced parameters, read-only.
+            descriptor: The descriptor of the module being dispatched.
+
+        Returns:
+            ``(effective, diagnostics)``. ``effective`` is None when the module
+            did not opt in -- it then receives no ``include_images=`` at all --
+            and otherwise the bool to pass.
+        """
+        if not descriptor.accepts_include_images:
+            return None, ()
+
+        enabled = self.config.is_enhancement_module_enabled("image_embedding")
+        flag = advanced_params.get(INCLUDE_IMAGES_PARAM)
+        if flag is None:
+            return enabled, ()
+        if not flag:
+            return False, ()
+        if enabled:
+            return True, ()
+        return False, (
+            SearchDiagnostic(
+                level=DiagnosticLevel.INFO,
+                source=f"service.{descriptor.search_mode}",
+                message=f"picture search is not enabled ({_PICTURE_SEARCH_KEY})",
+                category="picture_search",
+            ),
+        )
+
     async def _run_module(
         self,
         mode: str,
@@ -506,9 +580,12 @@ class ARIELSearchService:
         only when the descriptor declared a ``query_parser``, and
         ``query_expansion=`` only when it set ``accepts_expansion`` *and* an
         expansion was actually resolved. A module that declares neither is
-        called exactly as it is today. ``expand_query`` is stripped from the
-        advanced parameters -- it is the service's to resolve, never a
-        module's to read (FR4).
+        called exactly as it is today. ``expand_query`` and
+        ``include_images`` are stripped from the advanced parameters -- they
+        are the service's to resolve, never a module's to read (FR4). A module
+        that set ``accepts_include_images`` receives the resolved
+        ``include_images=`` bool, and any diagnostic the resolution produced
+        joins ``extra_diagnostics`` on the result.
 
         Args:
             mode: Search module name, normalized to lowercase by the request.
@@ -568,6 +645,11 @@ class ARIELSearchService:
                 config_key=f"search_modules.{mode}.enabled",
             )
 
+        include_images, image_diagnostics = self._resolve_include_images(
+            request.advanced_params, descriptor
+        )
+        extra_diagnostics = _merge_diagnostics(extra_diagnostics, image_diagnostics)
+
         start_date, end_date = request.time_range if request.time_range else (None, None)
 
         args: list[Any] = [request.query, self.repository, self.config]
@@ -575,10 +657,11 @@ class ARIELSearchService:
             args.append(self._get_embedder())
 
         # Advanced params come first so the request's own fields win on
-        # collision. ``expand_query`` is the service's own control and is
-        # dropped from the copy -- the caller's dict itself is untouched.
+        # collision. ``expand_query`` and ``include_images`` are the service's
+        # own controls and are dropped from the copy -- the caller's dict
+        # itself is untouched.
         kwargs: dict[str, Any] = {
-            **{k: v for k, v in request.advanced_params.items() if k != EXPAND_QUERY_PARAM},
+            **{k: v for k, v in request.advanced_params.items() if k not in _SERVICE_PARAMS},
             "max_results": request.max_results,
             "start_date": start_date,
             "end_date": end_date,
@@ -587,6 +670,8 @@ class ARIELSearchService:
             kwargs["parsed"] = parsed
         if descriptor.accepts_expansion and expansion is not None:
             kwargs["query_expansion"] = expansion
+        if include_images is not None:
+            kwargs["include_images"] = include_images
 
         parse_diagnostics = parsed.diagnostics if parsed is not None else ()
 
@@ -656,6 +741,8 @@ class ARIELSearchService:
     async def create_entry(
         self,
         request: FacilityEntryCreateRequest,
+        *,
+        local_metadata: dict[str, Any] | None = None,
     ) -> FacilityEntryCreateResult:
         """Create a logbook entry through the facility adapter.
 
@@ -665,8 +752,18 @@ class ARIELSearchService:
         3. Optimistic local upsert into ARIEL database
         4. For non-local adapters, attempt re-ingestion to sync
 
+        The optimistic local copy keeps ``local_metadata`` (declared values,
+        ``session_metadata``, ``created_via``) so that provenance stays with the
+        entry until re-ingestion; once the facility record is read back it
+        replaces the local copy as the authority, with nothing merged back.
+
         Args:
             request: Entry creation request
+            local_metadata: Metadata of ARIEL's own copy of the entry, as
+                resolved by :func:`~osprey.services.ariel_search.entry_fields.resolve_entry_write`.
+                Copied, never mutated; ``sync_status`` is always set by this
+                method. When omitted, the copy holds the request's ``logbook``,
+                ``shift`` and ``tags``.
 
         Returns:
             FacilityEntryCreateResult with entry ID and sync status
@@ -695,7 +792,17 @@ class ARIELSearchService:
         is_local = source_system == "Generic JSON"
         sync_status = SyncStatus.LOCAL_ONLY if is_local else SyncStatus.PENDING_SYNC
 
-        # Optimistic local upsert
+        # Optimistic local upsert; the service's sync_status is set last so no
+        # caller-supplied value overrides it.
+        if local_metadata is None:
+            metadata: dict[str, Any] = {
+                "logbook": request.logbook,
+                "shift": request.shift,
+                "tags": request.tags,
+            }
+        else:
+            metadata = copy.deepcopy(local_metadata)
+        metadata["sync_status"] = sync_status.value
         raw_text = f"{request.subject}\n\n{request.details}" if request.details else request.subject
         entry: EnhancedLogbookEntry = {
             "entry_id": facility_entry_id,
@@ -704,12 +811,7 @@ class ARIELSearchService:
             "author": request.author or "",
             "raw_text": raw_text,
             "attachments": [],
-            "metadata": {
-                "logbook": request.logbook,
-                "shift": request.shift,
-                "tags": request.tags,
-                "sync_status": sync_status.value,
-            },
+            "metadata": metadata,
             "created_at": now,
             "updated_at": now,
         }
@@ -753,6 +855,7 @@ class ARIELSearchService:
         entry_id: str,
         *,
         logbook: str | None = None,
+        fields: dict[str, Any] | None = None,
     ) -> FacilityEntryCreateResult:
         """Publish an existing ARIEL entry to the configured facility logbook.
 
@@ -760,9 +863,19 @@ class ARIELSearchService:
         the adapter call, optimistic upsert, and re-ingestion. The ARIEL DB is
         a derived view — the upstream source is always the authority.
 
+        The entry's stored declared values are merged with ``fields`` and the
+        ``logbook`` argument as overrides (the argument wins), and the merged
+        set is checked in full, live choices included. The adapter receives the
+        declared values only; ARIEL's own keys are rebuilt, never copied. The
+        local copy keeps the stored ``created_via`` and ``session_metadata``.
+        With no declared fields the request is the one built without them.
+
         Args:
             entry_id: ID of the existing ARIEL entry to publish
-            logbook: Target logbook name (required by some facility APIs)
+            logbook: Target logbook name (required by some facility APIs);
+                overrides the stored value
+            fields: Entry-field values overriding the stored ones; every key
+                must be a declared field
 
         Returns:
             FacilityEntryCreateResult with the facility-assigned entry ID
@@ -770,10 +883,54 @@ class ARIELSearchService:
         Raises:
             KeyError: If entry_id not found in ARIEL database
             NotImplementedError: If the adapter doesn't support writes
+            EntryFieldError: If a merged value is missing, invalid or
+                undeclared, naming the field
+            EntryFieldOptionsUnavailable: If a live choice check cannot list
+                the choices
         """
+        from osprey.services.ariel_search.entry_fields import (
+            entry_field_descriptors,
+            resolve_entry_write,
+            validate_entry_fields,
+        )
+        from osprey.services.ariel_search.ingestion import get_adapter
+
         entry = await self.repository.get_entry(entry_id)
         if entry is None:
             raise KeyError(f"Entry {entry_id} not found")
+
+        adapter = get_adapter(self.config)
+        if not adapter.supports_write:
+            raise NotImplementedError(
+                f"{adapter.source_system_name} adapter does not support creating entries"
+            )
+
+        stored: dict[str, Any] = entry.get("metadata") or {}
+        descriptors = entry_field_descriptors(self.config)
+        names = {descriptor.name for descriptor in descriptors}
+
+        merged = {
+            name: copy.deepcopy(stored[name]) for name in names if stored.get(name) is not None
+        }
+        merged.update(fields or {})
+        builtin_logbook = logbook
+        if "logbook" in names and logbook is not None and logbook.strip():
+            merged["logbook"] = logbook
+            builtin_logbook = None
+
+        declared = await validate_entry_fields(
+            adapter, descriptors, merged, partial=False, check_live=True, strict=True
+        )
+
+        resolved = resolve_entry_write(
+            descriptors,
+            declared,
+            logbook=builtin_logbook,
+            shift=None,
+            tags=stored.get("tags", []),
+            created_via=stored.get("created_via") or None,
+            session_metadata=stored.get("session_metadata"),
+        )
 
         subject = entry["raw_text"].split("\n", 1)[0].strip()
         details = entry["raw_text"]
@@ -782,11 +939,13 @@ class ARIELSearchService:
             subject=subject,
             details=details,
             author=entry["author"],
-            logbook=logbook,
-            tags=entry["metadata"].get("tags", []),
+            logbook=resolved.logbook,
+            shift=resolved.shift,
+            tags=stored.get("tags", []),
+            metadata=resolved.adapter_metadata,
         )
 
-        return await self.create_entry(request)
+        return await self.create_entry(request, local_metadata=resolved.local_metadata)
 
     async def health_check(self) -> tuple[bool, str]:
         """Check service health.
@@ -871,6 +1030,8 @@ class ARIELSearchService:
 
 async def create_ariel_service(
     config: ARIELConfig,
+    *,
+    serves_sql_tool: bool = False,
 ) -> ARIELSearchService:
     """Create and initialize an ARIEL search service.
 
@@ -878,6 +1039,11 @@ async def create_ariel_service(
 
     Args:
         config: ARIEL configuration
+        serves_sql_tool: True for the build that hosts the agent's raw-SQL
+            tool: it alone opens the SELECT-only pool that tool queries
+            through, and it alone reports when that pool falls back to the
+            ingestion role. Every other build -- ingestion, enhancement, the
+            web app -- opens the ingestion pool only.
 
     Returns:
         Initialized ARIELSearchService
@@ -891,7 +1057,7 @@ async def create_ariel_service(
 
     pool = await create_connection_pool(config.database)
     repository = ARIELRepository(pool, config)
-    readonly_pool = await _open_readonly_pool(config)
+    readonly_pool = await _open_readonly_pool(config) if serves_sql_tool else None
 
     return ARIELSearchService(
         config=config,

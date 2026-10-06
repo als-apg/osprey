@@ -78,16 +78,16 @@ def test_phoebus_bridge_url_full_env_wins(patch_config, monkeypatch):
         assert http.phoebus_bridge_url() == "http://phoebus.box:8080"
 
 
-def test_phoebus_bridge_url_port_env_overrides(patch_config, monkeypatch):
+def test_phoebus_bridge_url_port_env_does_not_override(patch_config, monkeypatch):
+    """Only PHOEBUS_BRIDGE_URL outranks the config; a bare port variable does not."""
     monkeypatch.delenv("PHOEBUS_BRIDGE_URL", raising=False)
     monkeypatch.setenv("PHOEBUS_BRIDGE_PORT", "7000")
     with patch_config({"phoebus": {"host": "1.2.3.4", "port": 7979}}):
-        assert http.phoebus_bridge_url() == "http://1.2.3.4:7000"
+        assert http.phoebus_bridge_url() == "http://1.2.3.4:7979"
 
 
 def test_phoebus_bridge_url_default(patch_config, monkeypatch):
     monkeypatch.delenv("PHOEBUS_BRIDGE_URL", raising=False)
-    monkeypatch.delenv("PHOEBUS_BRIDGE_PORT", raising=False)
     with patch_config({}):
         assert http.phoebus_bridge_url() == "http://127.0.0.1:7979"
 
@@ -95,7 +95,6 @@ def test_phoebus_bridge_url_default(patch_config, monkeypatch):
 def test_phoebus_bridge_url_config_values(patch_config, monkeypatch):
     """With no env overrides, phoebus.host/phoebus.port answer (#829)."""
     monkeypatch.delenv("PHOEBUS_BRIDGE_URL", raising=False)
-    monkeypatch.delenv("PHOEBUS_BRIDGE_PORT", raising=False)
     with patch_config({"phoebus": {"host": "127.0.0.1", "port": 19921}}):
         assert http.phoebus_bridge_url() == "http://127.0.0.1:19921"
 
@@ -222,8 +221,10 @@ def test_notify_panel_register_unreachable():
 def test_notify_panel_register_passes_health_endpoint():
     """The optional health_endpoint is forwarded in the payload."""
     captured: dict = {}
+    urls: list[str] = []
 
-    def _fake(_url, payload, *, timeout):  # noqa: ARG001 - _post_json_with_response fixes this keyword-only parameter
+    def _fake(url, payload, *, timeout):  # noqa: ARG001 - _post_json_with_response fixes this keyword-only parameter
+        urls.append(url)
         captured.update(payload)
         return 200, {}
 
@@ -232,9 +233,11 @@ def test_notify_panel_register_passes_health_endpoint():
         patch.object(http, "_post_json_with_response", side_effect=_fake),
     ):
         http.notify_panel_register("p1", "L", "http://up", path="/sub", health_endpoint="http://h")
+    assert urls == ["http://wt/api/panels/register"]
     assert captured["health_endpoint"] == "http://h"
     assert captured["path"] == "/sub"
     assert captured["id"] == "p1"
+    assert captured["source"] == "agent"
 
 
 # ---------------------------------------------------------------------------
@@ -406,13 +409,25 @@ def test_notify_panel_visibility_posts_payload():
     assert payload == {"panel": "errors", "visible": True, "source": "agent"}
 
 
+def test_notify_panel_close_posts_payload():
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "post_json") as post,
+    ):
+        http.notify_panel_close("errors")
+    url, payload = post.call_args.args
+    assert url == "http://wt/api/panel-close"
+    assert payload == {"panel": "errors", "source": "agent"}
+
+
 def test_notify_panel_focus_includes_url_when_given():
     with (
         patch.object(http, "web_terminal_url", return_value="http://wt"),
         patch.object(http, "post_json") as post,
     ):
         http.notify_panel_focus("p1", url="http://up")
-    _url, payload = post.call_args.args
+    url, payload = post.call_args.args
+    assert url == "http://wt/api/panel-focus"
     assert payload == {"panel": "p1", "url": "http://up", "source": "agent"}
 
 
@@ -422,7 +437,8 @@ def test_notify_panel_focus_omits_url_when_none():
         patch.object(http, "post_json") as post,
     ):
         http.notify_panel_focus("p1")
-    _url, payload = post.call_args.args
+    url, payload = post.call_args.args
+    assert url == "http://wt/api/panel-focus"
     assert payload == {"panel": "p1", "source": "agent"}
     assert "url" not in payload
 

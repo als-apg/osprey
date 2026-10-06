@@ -82,7 +82,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.virtual_accelerator.bindings import load_bindings
-from osprey.services.virtual_accelerator.lattice.response import orbit_response
+from osprey.services.virtual_accelerator.lattice.response import orbit_responses
 from osprey.services.virtual_accelerator.lattice.solve import OrbitSolveError
 from osprey.services.virtual_accelerator.manifest.classify import (
     PARTITION_PYAT_COUPLED,
@@ -628,7 +628,8 @@ def verify(
     One solve pass per actuator device, whatever the file states about it: the
     blocks that share an actuator family and a sweep width are driven together
     and every monitor they name is read off the same two arms, so a matrix of
-    ``n`` correctors costs ``3n`` solves rather than three per block.
+    ``n`` correctors costs ``2n + 1`` solves rather than three per device per
+    block.
 
     The blocks are reported in the order the document writes them, whether or
     not each one could be re-measured, so a reader holding the report beside
@@ -932,15 +933,19 @@ def _sweep(
     bindings = by_family[family]
     measured: dict[int, dict[str, tuple[float, float]]] = {}
     unsolved: dict[int, str] = {}
-    for device, delta in sorted(_driven(group, grain, judged_va, by_family).items()):
+    driven = sorted(_driven(group, grain, judged_va, by_family).items())
+    results = orbit_responses(
+        model, [(bindings[device], delta) for device, delta in driven], monitors=monitors
+    )
+    for (device, delta), result in zip(driven, results, strict=True):
         binding = bindings[device]
-        try:
-            measured[device] = orbit_response(model, binding, delta, monitors=monitors)
-        except OrbitSolveError as exc:
+        if isinstance(result, OrbitSolveError):
             unsolved[device] = (
                 f"sweeping {binding.setpoint_address} by {_figure(delta)} leaves the lattice "
-                f"without a stable closed orbit ({exc})"
+                f"without a stable closed orbit ({result})"
             )
+        else:
+            measured[device] = result
     return measured, unsolved
 
 

@@ -169,6 +169,11 @@ CONTAINER_PREFIX = "osprey-va-e2e-mml-tree"
 
 BOOT_TIMEOUT_S = 240.0
 
+#: Bound on ONE readiness probe. A probe worker that wedges is killed at this
+#: bound and the next probe dials afresh; without it a single hung worker holds
+#: the loop past the boot deadline and a server that is up is never asked again.
+PROBE_TIMEOUT_S = 45.0
+
 #: The facilities success criterion 1 names, and the trees this module opens a
 #: lane for. A literal tuple, because parametrisation is read at COLLECTION: a
 #: directory scan here fails the whole ``tests/va/e2e`` directory rather than
@@ -471,9 +476,13 @@ def _wait_until_ready(container: str, served: ServedTree) -> None:
     deadline = time.monotonic() + BOOT_TIMEOUT_S
     # Kept so a boot that never answers says what the client last saw.
     last_attempt = "no read completed"
-    while time.monotonic() < deadline:
+    while (remaining := deadline - time.monotonic()) > 0:
+        bound = min(PROBE_TIMEOUT_S, remaining)
         try:
-            if served.read(probe)[probe] is not None:
+            answer = served.call(
+                {"op": "read", "addresses": [probe], "timeout": min(30.0, bound)}, timeout=bound
+            )
+            if not answer["failed"] and answer["values"].get(probe) is not None:
                 return
             last_attempt = f"{probe} read back as None"
         except Exception as exc:  # "not up yet" is the expected case here

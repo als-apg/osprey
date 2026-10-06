@@ -22,9 +22,11 @@ or a deployment. Keeping them apart costs one constructor argument.
 
 Where the cloud comes from
 --------------------------
-The login host and the token scope are read off
-:class:`~osprey.bridges.teams.config.TeamsBridgeConfig` — its ``login_host`` and
-``token_scope`` properties resolve the ``TEAMS_CLOUD`` row. This module holds no
+The login host and the token scopes are read off
+:class:`~osprey.bridges.teams.config.TeamsBridgeConfig` — its ``login_host``,
+``token_scope`` and ``graph_scope`` properties resolve the ``TEAMS_CLOUD`` row. A
+:class:`TokenSource` mints for one :class:`Audience`, the Connector by default; the
+file library's Graph leg holds a second source with its own cache. This module holds no
 cloud table of its own: two tables would eventually disagree, and the failure
 would look like an authentication problem rather than a configuration one.
 
@@ -51,6 +53,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from enum import Enum
 from typing import Any
 
 import httpx
@@ -130,13 +133,33 @@ its ``error.code`` (``MessageSizeTooBig``, ``BotNotInConversationRoster``) leads
 the body, and the rest is not worth a log line."""
 
 
+class Audience(Enum):
+    """Which service a bot token is minted for.
+
+    Each member resolves its scope from the config at fetch time rather than
+    holding a copy, so a ``dataclasses.replace`` variant of the config cannot go
+    stale in a token source.
+    """
+
+    CONNECTOR = "connector"
+    """The Bot Connector, which every reply and member listing travels to."""
+
+    GRAPH = "graph"
+    """Microsoft Graph, which the file library is reached through."""
+
+    def scope(self, cfg: TeamsBridgeConfig) -> str:
+        """The scope requested for this audience in ``cfg``'s cloud."""
+        return cfg.graph_scope if self is Audience.GRAPH else cfg.token_scope
+
+
 class TokenError(RuntimeError):
-    """The bot could not obtain a Bot Connector token.
+    """The bot could not obtain a token for one audience.
 
     Covers every way the exchange can fail: a transport error reaching the login
     host, a non-2xx answer from it, and an answer that is not a usable token.
     They are one exception because the caller's options are the same in all three
-    cases — it cannot post, and the message is what says why.
+    cases — it cannot call that service, and the message is what says why. The
+    message ends by naming the audience, so the log says which grant is missing.
 
     Deliberately *not* a :class:`ConnectorError`. A missing secret or a wrong
     tenant is a deployment problem that every conversation shares, while a
@@ -188,7 +211,11 @@ def token_url(cfg: TeamsBridgeConfig) -> str:
 
 
 class TokenSource:
-    """A Bot Connector bearer token, fetched on demand and cached until it expires.
+    """A bearer token for one audience, fetched on demand and cached until it expires.
+
+    One instance caches one :class:`Audience`. Two instances share nothing but an
+    injected HTTP client, so a refused Graph grant never evicts or blocks the
+    Connector token replies travel on.
 
     Thread-safe, and deliberately *coarsely* so: the whole of :meth:`token` runs
     under one lock, so a refresh happens exactly once no matter how many threads
@@ -210,6 +237,7 @@ class TokenSource:
         http: httpx.Client | None = None,
         *,
         clock: Callable[[], float] = time.monotonic,
+        audience: Audience = Audience.CONNECTOR,
     ) -> None:
         """Wire the token source to a config and an HTTP client.
 
@@ -224,8 +252,11 @@ class TokenSource:
                 sleeping. Monotonic rather than wall-clock on purpose: ``expires_in``
                 is a duration, and a wall-clock step would otherwise expire a good
                 token early or keep a dead one alive.
+            audience: The service this source mints tokens for; its scope is
+                resolved from ``cfg`` on every fetch.
         """
         self._cfg = cfg
+        self._audience = audience
         self._http = (
             http
             if http is not None
@@ -270,9 +301,11 @@ class TokenSource:
 
         Raises:
             TokenError: On a transport failure, a non-2xx answer, a body that is
-                not JSON, or a body with no ``access_token``.
+                not JSON, or a body with no ``access_token``. The message ends with
+                ``(audience: <name>)``.
         """
         url = token_url(self._cfg)
+        audience = f" (audience: {self._audience.value})"
         try:
             response = self._http.post(
                 url,
@@ -280,31 +313,33 @@ class TokenSource:
                     "grant_type": GRANT_TYPE,
                     "client_id": self._cfg.app_id,
                     "client_secret": self._cfg.app_secret,
-                    "scope": self._cfg.token_scope,
+                    "scope": self._audience.scope(self._cfg),
                 },
             )
         except httpx.HTTPError as exc:
             # Deliberately not re-raised as-is: the ops layer routes on this
             # module's exception types, and "could not reach the login host" and
             # "the login host said no" are the same outcome to it.
-            raise TokenError(f"token request to {url} failed: {exc}") from exc
+            raise TokenError(f"token request to {url} failed: {exc}{audience}") from exc
 
         if not response.is_success:
             raise TokenError(
                 f"token endpoint answered HTTP {response.status_code}: "
-                f"{response.text[:_ERROR_BODY_CHARS]}"
+                f"{response.text[:_ERROR_BODY_CHARS]}{audience}"
             )
 
         try:
             body = response.json()
         except ValueError as exc:
-            raise TokenError(f"token endpoint answered a non-JSON body: {exc}") from exc
+            raise TokenError(f"token endpoint answered a non-JSON body: {exc}{audience}") from exc
         if not isinstance(body, dict):
-            raise TokenError("token endpoint answered a JSON value that is not an object")
+            raise TokenError(
+                f"token endpoint answered a JSON value that is not an object{audience}"
+            )
 
         token = body.get("access_token")
         if not isinstance(token, str) or not token:
-            raise TokenError("token response carried no access_token")
+            raise TokenError(f"token response carried no access_token{audience}")
 
         return token, _cacheable_seconds(body.get("expires_in"))
 
@@ -489,9 +524,14 @@ class ConnectorClient:
             )
 
     def list_members(
-        self, service_url: str, conversation_id: str, *, limit: int
+        self, service_url: str, conversation_id: str, *, limit: int | None
     ) -> tuple[list[dict[str, Any]], bool]:
         """Read up to ``limit`` members of ``conversation_id``, page by page.
+
+        Two callers want two listings. The room roster passes a limit: it names the
+        people in a question's payload and a bounded list is enough. A file share
+        passes ``None``: it reads the whole conversation at the largest page size,
+        because a capped list would silently leave people out of the share.
 
         Each page asks ``pageSize`` clamped to the documented bounds and, from the
         second page on, the ``continuationToken`` the previous page returned. A
@@ -505,11 +545,12 @@ class ConnectorClient:
             service_url: The ``serviceUrl`` the inbound activity carried.
             conversation_id: The conversation to list, exactly as it will be
                 addressed.
-            limit: The most members to return.
+            limit: The most members to return, or ``None`` to read to the last page.
 
         Returns:
             ``(members, more)``: at most ``limit`` ``ChannelAccount`` objects, and
-            whether the listing stopped on ``limit`` with more left to read.
+            whether the listing stopped on ``limit`` with more left to read — always
+            ``False`` without a limit.
 
         Raises:
             ConnectorError: On a transport failure, a non-2xx answer or a body
@@ -517,7 +558,11 @@ class ConnectorClient:
             TokenError: If no bearer could be obtained.
         """
         url = members_url(service_url, conversation_id)
-        page_size = max(MEMBERS_PAGE_MIN, min(limit, MEMBERS_PAGE_MAX))
+        page_size = (
+            MEMBERS_PAGE_MAX
+            if limit is None
+            else max(MEMBERS_PAGE_MIN, min(limit, MEMBERS_PAGE_MAX))
+        )
         members: list[dict[str, Any]] = []
         token: str | None = None
         seen_tokens: set[str] = set()
@@ -554,7 +599,7 @@ class ConnectorClient:
                 members.extend(item for item in items if isinstance(item, dict))
             token = next_token if isinstance(next_token, str) and next_token else None
 
-            if len(members) >= limit:
+            if limit is not None and len(members) >= limit:
                 return members[:limit], len(members) > limit or token is not None
             if token is None or token in seen_tokens:
                 return members, False

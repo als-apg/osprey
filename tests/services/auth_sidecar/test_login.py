@@ -70,6 +70,12 @@ PASSWORD_ENV = {
     "OSPREY_AUTH_TLS_ENABLED": "true",
 }
 
+BROKEN_HASH = "scrypt.16384.8.1.c2FsdA"
+"""A stored hash cut to five fields: provisioned, and impossible to evaluate."""
+
+BROKEN_ALICE_ENV = {**PASSWORD_ENV, "OSPREY_AUTH_PW_HASH_ALICE": BROKEN_HASH}
+"""The default roster with alice's stored hash unevaluable."""
+
 OIDC_ENV = {
     "OSPREY_AUTH_METHOD": "oidc",
     "OSPREY_AUTH_SESSION_SECRET": SESSION_SECRET,
@@ -1255,6 +1261,38 @@ def test_every_refusal_is_the_same_refusal() -> None:
         assert other.headers["content-type"] == wrong.headers["content-type"]
         assert other.headers["cache-control"] == wrong.headers["cache-control"]
         assert "set-cookie" not in other.headers
+
+
+def test_an_unevaluable_stored_hash_is_refused_like_a_wrong_password() -> None:
+    """A broken stored hash gets the ordinary refusal, whatever was typed."""
+    broken = _login(_client(BROKEN_ALICE_ENV), user="alice", password=ALICE_PASSWORD)
+    wrong = _login(_client(), user="alice", password="not-the-password")
+
+    assert broken.status_code == wrong.status_code == 401
+    assert broken.text == wrong.text
+    assert broken.headers["content-type"] == wrong.headers["content-type"]
+    assert broken.headers["cache-control"] == wrong.headers["cache-control"]
+    assert "set-cookie" not in broken.headers
+
+
+def test_an_unevaluable_stored_hash_still_grows_the_window() -> None:
+    """A broken stored hash is not an unthrottled path."""
+    client, _, _ = _throttled_client(BROKEN_ALICE_ENV)
+
+    assert _login(client, user="alice").status_code == 401
+    assert _login(client, user="alice").status_code == 429
+
+
+def test_an_openers_unevaluable_hash_is_the_ordinary_shared_refusal() -> None:
+    """On a shared card, an opener's broken hash answers like a wrong password."""
+    env = {**SHARED_ENV, "OSPREY_AUTH_PW_HASH_ALICE": BROKEN_HASH}
+    broken = _shared_login(_client(env), opener="alice")
+    wrong = _shared_login(_client(SHARED_ENV), opener="alice", password="not-the-password")
+
+    assert broken.status_code == wrong.status_code == 401
+    assert broken.text == wrong.text
+    assert broken.headers["content-type"] == wrong.headers["content-type"]
+    assert broken.headers["cache-control"] == wrong.headers["cache-control"]
 
 
 def test_the_throttle_fires_for_a_user_who_is_not_on_the_roster() -> None:

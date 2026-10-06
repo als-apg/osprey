@@ -192,11 +192,7 @@ def apply_discovered_panels(app) -> list[DiscoveredPanel]:
     if not getattr(app.state, "allow_runtime_panels", False):
         return []
 
-    project_cwd = getattr(app.state, "project_cwd", None)
-    if not project_cwd:
-        return []
-
-    discovered = discover_panels(Path(project_cwd) / PANELS_DIRNAME)
+    discovered = discover_panels(Path(app.state.project_cwd) / PANELS_DIRNAME)
     if not discovered:
         return []
 

@@ -55,9 +55,11 @@ def set_config(tmp_path, monkeypatch, control_system=None):
     """Point OSPREY_CONFIG at a config.yml declaring *control_system*.
 
     Also chdir into ``tmp_path`` so the workspace paths the phoebus tools
-    resolve (plot dir, snapshot dir) land there and not in the repo.
+    resolve (plot dir, snapshot dir) land there and not in the repo. The
+    config offers the drive, because this module tests the baseline refusal,
+    which only a deployment that offers the drive can reach.
     """
-    config: dict = {}
+    config: dict = {"phoebus": {"agent_access": "read_write"}}
     if control_system is not None:
         config["control_system"] = control_system
     config_file = tmp_path / "osprey_config.yml"

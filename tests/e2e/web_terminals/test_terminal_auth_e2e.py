@@ -72,7 +72,7 @@ import pytest
 import websockets
 from websockets.sync.client import connect as ws_connect
 
-pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke]
+pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 _READY_TIMEOUT = 20.0
 _LOGIN_URL_TIMEOUT = 20.0

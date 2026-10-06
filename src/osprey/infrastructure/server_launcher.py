@@ -20,6 +20,7 @@ import urllib.request
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from osprey.registry.web import (
     FRAMEWORK_WEB_SERVERS,
@@ -29,12 +30,21 @@ from osprey.registry.web import (
 )
 from osprey.utils.workspace import load_osprey_config
 
+if TYPE_CHECKING:
+    from starlette.types import ASGIApp
+
 logger = logging.getLogger("osprey.infrastructure.server_launcher")
+
+#: Every wait the launcher makes goes through this name, and a test that counts
+#: those waits replaces it here. ``time.sleep`` itself is shared by every thread
+#: in the process, so a stand-in put there also counts other threads' sleeps.
+_sleep = time.sleep
 
 # When a port is genuinely unbindable on first check, it may be a predecessor
 # that is still shutting down after a restart. Wait a bounded grace period for
-# it to release the port so we can bind (own) it ourselves rather than trusting
-# a possibly-dying external responder. See issue #327. A socket left in
+# it to release the port so we can bind (own) it ourselves. A dying responder
+# can still answer /health, and counting it as this launcher's server would
+# report a panel as available that nothing will serve. A socket left in
 # TIME_WAIT is *bindable* (the probe mirrors uvicorn's ``SO_REUSEADDR``), so it
 # never reaches this loop and never delays startup.
 _PORT_RELEASE_GRACE_ATTEMPTS = 5
@@ -169,7 +179,7 @@ class ServerLauncher:
         name: str,
         config_reader: Callable[[], tuple[str, int]],
         auto_launch_checker: Callable[[], bool],
-        app_factory: Callable[..., object],
+        app_factory: Callable[..., ASGIApp],
         pass_workspace: bool = False,
         release_grace_attempts: int = _PORT_RELEASE_GRACE_ATTEMPTS,
         release_grace_interval: float = _PORT_RELEASE_GRACE_INTERVAL,
@@ -274,7 +284,8 @@ class ServerLauncher:
         try:
             req = urllib.request.Request(_probe_url(host, port, "/health"), method="GET")
             with urllib.request.urlopen(req, timeout=1) as resp:
-                return resp.status == 200
+                status: int = resp.status
+                return status == 200
         except Exception:
             return False
 
@@ -588,9 +599,9 @@ class ServerLauncher:
         # Brief health-check to verify *our* server came up. Liveness is checked
         # first: if the thread has exited (e.g. the bind failed in a TOCTOU race
         # with another process), a /health 200 would be a foreign responder, not
-        # ours — trusting it would recreate the #327 false positive.
+        # ours — and a foreign responder never counts as this launcher's server.
         for _attempt in range(3):
-            time.sleep(0.5)
+            _sleep(0.5)
             if not t.is_alive():
                 logger.warning("%s thread exited before health check passed", self._name)
                 self._launched = False
@@ -691,7 +702,7 @@ class ServerLauncher:
             # check above that every call makes first.
             if not self._refused_once:
                 for _attempt in range(self._release_grace_attempts):
-                    time.sleep(self._release_grace_interval)
+                    _sleep(self._release_grace_interval)
                     if self._port_is_bindable(host, port):
                         self._launch_in_thread(host, port)
                         return
@@ -741,11 +752,11 @@ def _resolve_dotted(config: dict, dotted: str) -> object:
     return obj
 
 
-def _make_app_factory(defn: WebServerDefinition) -> Callable[..., object]:
+def _make_app_factory(defn: WebServerDefinition) -> Callable[..., ASGIApp]:
     """Return a callable that dynamically imports and invokes the factory."""
     module_path, attr_name = defn.factory_path.rsplit(":", 1)
 
-    def _factory(workspace_root: Path | None = None) -> object:
+    def _factory(workspace_root: Path | None = None) -> ASGIApp:
         try:
             mod = importlib.import_module(module_path)
         except ImportError as err:
@@ -761,7 +772,8 @@ def _make_app_factory(defn: WebServerDefinition) -> Callable[..., object]:
             config = load_osprey_config()
             for kwarg_name, dotted_path in defn.factory_config_kwargs.items():
                 kwargs[kwarg_name] = _resolve_dotted(config, dotted_path)
-        return create_app(**kwargs)
+        app: ASGIApp = create_app(**kwargs)
+        return app
 
     return _factory
 

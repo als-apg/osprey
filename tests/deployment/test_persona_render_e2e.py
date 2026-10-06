@@ -390,8 +390,10 @@ def _remove_persona_layer(repo: Path) -> None:
     del web_terminals["personas"]
     del web_terminals["default_persona"]
     # `image_source: local` means "one image per catalog entry, built here",
-    # so it cannot outlive the catalog; unset, the deployment pulls one image.
+    # so it cannot outlive the catalog; unset, the deployment pulls one image,
+    # and a pulled image is named under the registry it comes from.
     del web_terminals["image_source"]
+    profile["config"]["registry"] = {"url": "registry.example.org/demo"}
     for user in web_terminals["users"]:
         user.pop("persona", None)
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")

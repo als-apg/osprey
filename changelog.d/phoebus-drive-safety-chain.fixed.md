@@ -1,0 +1,1 @@
+The safety-chain page names `phoebus_drive` as a write path that does not reach the connector: the Phoebus product writes the value through its own connections, so connector limits, the write-time narrowing check and read-back do not apply to a drive. The architecture server list now includes the `phoebus` server.

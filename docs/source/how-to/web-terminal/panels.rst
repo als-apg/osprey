@@ -74,6 +74,27 @@ menu (or the command palette) at any time. The choice is remembered per
 browser, and each user's own pick wins over the configured default. (Pair it
 with the retro theme for a navy-and-teal terminal — see :doc:`theming`.)
 
+When a panel stops answering
+----------------------------
+
+Panels with a health check are polled every 10 seconds. One that has answered
+and then misses two polls in a row dims its rail entry, which stays clickable
+and reads "not answering since <time>" in its tooltip. Its open tile shows a
+warning strip with the same time across the top and greys the page below it,
+so the out-of-date view is not mistaken for a live one. The page underneath is
+left exactly as it was, stays readable, and can still be scrolled and clicked,
+because a slow backend often still serves what is loaded. Both clear on the
+next answer. A panel that has not answered since the page loaded keeps its
+greyed-out entry and does not open.
+
+This applies to panels that have a health check: Jupyter, SYSTEM, and any
+URL-backed panel whose entry names a ``health_endpoint``.
+
+Clicking a dimmed entry closes its tile as usual, but the panel cannot be
+opened again until its backend answers.
+If the agent points a panel that is not answering at a new page, the page
+loads on the backend's next answer.
+
 Panels backed by a URL
 ----------------------
 
@@ -181,6 +202,14 @@ whichever ones the service's own build happened to ship. Every OSPREY color is
 a CSS variable there, and all eight themes are defined in that one file, so a
 service that restates its colors in terms of those variables gets the whole
 theme switch for free.
+
+**The fonts come from the terminal too.** Like ``/design-system/``, the
+terminal serves ``/static/fonts/fonts.css`` to every embedded panel, so a
+URL-backed panel links it and does not vendor the fonts:
+
+.. code-block:: html
+
+   <link rel="stylesheet" href="/static/fonts/fonts.css">
 
 Two boundaries are worth saying out loud:
 

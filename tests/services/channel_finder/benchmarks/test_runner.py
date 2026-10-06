@@ -31,7 +31,11 @@ from osprey.services.channel_finder.benchmarks.runner import (
     model_slug,
     read_db_path_from_config,
 )
-from osprey.services.channel_finder.core.exceptions import PipelineModeError
+from osprey.services.channel_finder.core.exceptions import (
+    ConfigurationError,
+    CoverageJudgeError,
+    PipelineModeError,
+)
 
 # Module path for patching
 _RUNNER_MOD = "osprey.services.channel_finder.benchmarks.runner"
@@ -89,11 +93,13 @@ def _make_project_dir(
     *,
     pipeline_mode: str = "in_context",
     queries: list[dict] | None = None,
+    api: dict | None = None,
 ) -> Path:
     """Create a fake project directory with config.yml and benchmark queries.
 
     The runner does not read ``claude_code.provider`` (the model is passed
-    in directly), so the config only needs the channel_finder section.
+    in directly), so the config only needs the channel_finder section, plus
+    an ``api`` block when a test resolves the coverage judge.
     """
     project_dir = tmp_path / "project"
     project_dir.mkdir(exist_ok=True)
@@ -120,6 +126,8 @@ def _make_project_dir(
             },
         },
     }
+    if api is not None:
+        config["api"] = api
     (project_dir / "config.yml").write_text(yaml.dump(config), encoding="utf-8")
     return project_dir
 
@@ -201,6 +209,13 @@ class TestConfigReading:
         (project_dir / "config.yml").unlink()
         with pytest.raises(FileNotFoundError):
             runner._read_config()
+
+    def test_a_malformed_config_refuses_the_runner(self, tmp_path: Path):
+        # The auto backend reads the pipeline mode while the runner is built.
+        project_dir = _make_project_dir(tmp_path)
+        (project_dir / "config.yml").write_text("channel_finder: [unclosed\n")
+        with pytest.raises(ConfigurationError, match="config.yml"):
+            BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
 
     def test_resolve_pipeline_mode(self, tmp_path: Path):
         project_dir = _make_project_dir(tmp_path, pipeline_mode="hierarchical")
@@ -501,6 +516,120 @@ class TestNumFailed:
 
 
 # ---------------------------------------------------------------------------
+# TestCoverageJudge
+# ---------------------------------------------------------------------------
+
+_JUDGE_PROVIDERS = {
+    "providers": {
+        "anthropic": {
+            "api_key": "${ANTHROPIC_API_KEY}",
+            "default_model": "claude-sonnet-5",
+        },
+        "als-apg": {
+            "api_key": "${ALS_APG_API_KEY}",
+            "base_url": "https://gateway.example.org/v1",
+            "default_model": "claude-sonnet-5",
+        },
+    }
+}
+
+
+class TestCoverageJudge:
+    """The judge resolves from the project's api.providers when the runner is built."""
+
+    @pytest.fixture(autouse=True)
+    def _judge_keys(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+        monkeypatch.setenv("ALS_APG_API_KEY", "als-apg-key")
+        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+
+    def test_the_judge_runs_on_the_benchmarked_models_provider(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path, api=_JUDGE_PROVIDERS)
+
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk", use_llm_judge=True)
+
+        assert runner.judge is not None
+        assert runner.judge.provider == "anthropic"
+        assert runner.judge.model_id == "claude-sonnet-5"
+
+    def test_judge_provider_names_another_configured_provider(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path, api=_JUDGE_PROVIDERS)
+
+        runner = BenchmarkRunner(
+            project_dir,
+            model=_HAIKU_MODEL,
+            backend="sdk",
+            use_llm_judge=True,
+            judge_provider="als-apg",
+        )
+
+        assert runner.judge is not None
+        assert runner.judge.provider == "als-apg"
+
+    def test_a_judge_it_cannot_resolve_is_refused_before_any_backend(
+        self, tmp_path: Path, monkeypatch
+    ):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        project_dir = _make_project_dir(tmp_path, api=_JUDGE_PROVIDERS)
+
+        with patch(f"{_RUNNER_MOD}.create_backend") as mock_create:
+            with pytest.raises(CoverageJudgeError, match="ANTHROPIC_API_KEY"):
+                BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk", use_llm_judge=True)
+
+        mock_create.assert_not_called()
+
+    def test_judge_options_need_use_llm_judge(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path, api=_JUDGE_PROVIDERS)
+
+        with pytest.raises(ValueError, match="use_llm_judge"):
+            BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk", judge_model="x")
+
+    def test_no_judge_unless_asked(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path)
+
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk")
+
+        assert runner.judge is None
+
+    @pytest.mark.asyncio()
+    async def test_the_runner_hands_its_judge_to_the_evaluator(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path, api=_JUDGE_PROVIDERS)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk", use_llm_judge=True)
+        fake_result = _make_fake_sdk_result(SAMPLE_QUERIES[0]["targeted_pv"])
+        mock_evaluate = MagicMock(
+            side_effect=lambda text, expected, **kwargs: (expected, {"stage": 2})
+        )
+
+        with (
+            patch(f"{_SDK_BACKEND_MOD}.run_sdk_query", AsyncMock(return_value=fake_result)),
+            patch(f"{_RUNNER_MOD}.evaluate_response", mock_evaluate),
+        ):
+            await runner.run_queries()
+
+        assert mock_evaluate.call_count == 2
+        for call in mock_evaluate.call_args_list:
+            assert call.kwargs["judge"] is runner.judge
+
+    @pytest.mark.asyncio()
+    async def test_a_failing_judge_fails_its_query(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path, api=_JUDGE_PROVIDERS)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk", use_llm_judge=True)
+        fake_result = _make_fake_sdk_result(SAMPLE_QUERIES[0]["targeted_pv"])
+
+        with (
+            patch(f"{_SDK_BACKEND_MOD}.run_sdk_query", AsyncMock(return_value=fake_result)),
+            patch(
+                "osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage",
+                side_effect=CoverageJudgeError("boom"),
+            ),
+        ):
+            result = await runner.run_queries()
+
+        assert result.num_failed == 2
+        assert result.query_results == []
+
+
+# ---------------------------------------------------------------------------
 # Helper tests (unchanged functions)
 # ---------------------------------------------------------------------------
 
@@ -544,6 +673,14 @@ class TestReadDbPathFromConfig:
     def test_missing_config_raises(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError):
             read_db_path_from_config(tmp_path, "in_context")
+
+    def test_malformed_config_is_refused_by_path(self, tmp_path: Path):
+        (tmp_path / "config.yml").write_text("- a\n- b\n")
+
+        with pytest.raises(ConfigurationError) as info:
+            read_db_path_from_config(tmp_path, "in_context")
+
+        assert str(tmp_path / "config.yml") in str(info.value)
 
     def test_missing_key_raises(self, tmp_path: Path):
         project_dir = tmp_path / "proj"

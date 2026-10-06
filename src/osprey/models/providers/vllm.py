@@ -37,6 +37,7 @@ class VLLMProviderAdapter(BaseProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = "http://localhost:8000/v1"
+    models_probe = "bearer"
     default_model_id = None  # Model depends on what's served
     health_check_model_id = None  # Will query the server for available models
 
@@ -60,6 +61,15 @@ class VLLMProviderAdapter(BaseProvider):
         "If authentication is configured, use the key provided by your admin",
     ]
     api_key_note = "API key optional - set VLLM_API_KEY or use 'EMPTY' as placeholder"
+
+    # Provider facts (see BaseProvider)
+    api_key_env_var = None
+    api_protocol = "openai"
+    supports_interactive_login = False
+    # Image input depends on the model each site serves, so none is assumed.
+    supports_images = False
+    supports_thinking = False
+    self_hosted = True
 
     # LiteLLM integration - vLLM is an OpenAI-compatible server
     is_openai_compatible = True

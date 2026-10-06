@@ -15,7 +15,9 @@ The rule these tests hold it to:
   (``modules.web_terminals.external_origin``, else ``deploy.fqdn``), the same
   authority every other browser-facing URL comes from;
 * an exposed store with no derivable origin renders NOTHING. An unset variable
-  already means "hide the link", which beats a link nothing serves.
+  already means "hide the link", which beats a link nothing serves;
+* the link's organization is the one ``store_org`` resolves, emitted under the
+  same gate as the URL.
 """
 
 from __future__ import annotations
@@ -67,7 +69,7 @@ class TestLinkHost:
 class TestRender:
     """What the dispatcher compose template does with it."""
 
-    def _render(self, host: str | None) -> str:
+    def _render(self, host: str | None, org: str = "default") -> str:
         from tests.deployment.test_compose_generator import (
             _dispatcher_context,
             _packaged_compose_template,
@@ -78,6 +80,7 @@ class TestRender:
             TELEMETRY_ON,
             services={**context["services"], "openobserve": {"port": 15080}},
             osprey_telemetry_host=host,
+            osprey_telemetry_org=org,
         )
         return _packaged_compose_template("services/event_dispatcher/docker-compose.yml.j2").render(
             **context
@@ -88,5 +91,36 @@ class TestRender:
             "ctl-01.example.org"
         )
 
+    def test_org_is_rendered_beside_the_url(self) -> None:
+        assert 'OSPREY_TELEMETRY_ORG: "ops"' in self._render("ctl-01.example.org", org="ops")
+
     def test_no_host_renders_no_variable(self) -> None:
         assert "OSPREY_TELEMETRY_URL" not in self._render(None)
+        assert "OSPREY_TELEMETRY_ORG" not in self._render(None)
+
+
+class TestOrgContext:
+    """The organization the render context carries for the link."""
+
+    @staticmethod
+    def _config(**root: object) -> dict:
+        return {
+            "project_name": "p",
+            "project_root": "/r/p",
+            "system": {"timezone": "UTC"},
+            **root,
+        }
+
+    def test_configured_org_reaches_the_context(self) -> None:
+        from osprey.deployment.compose_generator import _inject_project_metadata
+
+        config = self._config(claude_code={"telemetry": {"openobserve": {"org": "ops"}}})
+        assert _inject_project_metadata(config)["osprey_telemetry_org"] == "ops"
+
+    def test_absent_org_takes_the_store_default(self) -> None:
+        from osprey.deployment.compose_generator import _inject_project_metadata
+        from osprey.deployment.openobserve_provision import store_org
+
+        config = self._config()
+        context = _inject_project_metadata(config)
+        assert context["osprey_telemetry_org"] == store_org(config) == "default"

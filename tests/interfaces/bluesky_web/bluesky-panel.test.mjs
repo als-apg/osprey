@@ -21,6 +21,8 @@ import { cwd } from 'node:process';
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
+
 import {
   ABORT_LABEL,
   CLEAR_LABEL,
@@ -1079,7 +1081,25 @@ function removal(overrides = {}) {
   };
 }
 
+/**
+ * *iso* rendered in *zone* with *opts*, straight from Intl, so every
+ * expectation is computed independently of the module under test.
+ * @param {string} zone
+ * @param {Intl.DateTimeFormatOptions} opts
+ * @param {string} iso
+ */
+const at = (zone, opts, iso) =>
+  new Intl.DateTimeFormat(undefined, { ...opts, timeZone: zone }).format(new Date(iso));
+
+/** @type {Intl.DateTimeFormatOptions} */
+const CLOCK = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+/** @type {Intl.DateTimeFormatOptions} */
+const DATED = { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+
 describe('removalRecords', () => {
+  beforeEach(() => stampFacilityZone(FACILITY_ZONE));
+  afterEach(() => stampFacilityZone(null));
+
   test('a removal names who did it and what they took', () => {
     const [record] = removalRecords([removal()]);
     expect(record.text).toBe('anna removed count_scan');
@@ -1104,24 +1124,42 @@ describe('removalRecords', () => {
     expect(removed.text).toBe('anna removed a queued plan');
   });
 
-  test("today's record shows the clock alone", () => {
-    // Built from local fields on both sides, so the row and the "now" it is
-    // compared against are in one zone whatever the machine's is.
-    const at = new Date(2026, 8, 19, 21, 5);
-    const [record] = removalRecords([removal({ at: at.toISOString() })], new Date(2026, 8, 19, 23, 0));
-    expect(record.time).toBe('21:05');
+  test("today's record shows the facility clock alone", () => {
+    // Both instants fall on one calendar day in every candidate facility zone.
+    const now = new Date('2026-09-19T21:30:00Z');
+    const [record] = removalRecords([removal({ at: '2026-09-19T21:05:00Z' })], now);
+    expect(record.time).toBe(at(FACILITY_ZONE, CLOCK, '2026-09-19T21:05:00Z'));
   });
 
-  test('an older record carries its date, so yesterday cannot read as today', () => {
-    const at = new Date(2026, 8, 18, 21, 5);
-    const [record] = removalRecords([removal({ at: at.toISOString() })], new Date(2026, 8, 19, 0, 30));
-    expect(record.time).toBe('09-18 21:05');
+  test('an older record carries its facility date, so yesterday cannot read as today', () => {
+    const now = new Date('2026-09-19T21:30:00Z');
+    const [record] = removalRecords([removal({ at: '2026-09-18T21:05:00Z' })], now);
+    expect(record.time).toBe(at(FACILITY_ZONE, DATED, '2026-09-18T21:05:00Z'));
   });
 
   test('the same clock time in another year is still dated', () => {
-    const at = new Date(2025, 8, 19, 21, 5);
-    const [record] = removalRecords([removal({ at: at.toISOString() })], new Date(2026, 8, 19, 21, 30));
-    expect(record.time).toBe('09-19 21:05');
+    const now = new Date('2026-09-19T21:30:00Z');
+    const [record] = removalRecords([removal({ at: '2025-09-19T21:05:00Z' })], now);
+    expect(record.time).toBe(at(FACILITY_ZONE, DATED, '2025-09-19T21:05:00Z'));
+  });
+
+  test('"today" is the facility calendar\'s day', () => {
+    stampFacilityZone('Asia/Tokyo');
+    // 00:30 on the 20th in Tokyo.
+    const now = new Date('2026-09-19T15:30:00Z');
+    // 00:10 on the 20th: today.
+    const [today] = removalRecords([removal({ at: '2026-09-19T15:10:00Z' })], now);
+    expect(today.time).toBe(at('Asia/Tokyo', CLOCK, '2026-09-19T15:10:00Z'));
+    // 23:30 on the 19th, the same UTC day as now: dated.
+    const [yesterday] = removalRecords([removal({ at: '2026-09-19T14:30:00Z' })], now);
+    expect(yesterday.time).toBe(at('Asia/Tokyo', DATED, '2026-09-19T14:30:00Z'));
+  });
+
+  test('a viewer on the facility clock reads the same digits unlabelled', () => {
+    stampFacilityZone(VIEWER_ZONE);
+    const now = new Date('2026-09-19T21:30:00Z');
+    const [record] = removalRecords([removal({ at: '2026-09-19T21:05:00Z' })], now);
+    expect(record.time).toBe(at(VIEWER_ZONE, CLOCK, '2026-09-19T21:05:00Z'));
   });
 
   test('unparseable stays empty rather than Invalid Date', () => {
@@ -2514,6 +2552,21 @@ describe('booting the shipped bundle', () => {
     document.body.innerHTML = '';
   });
 
+  test('the plan browser width is read under the storage scope', async () => {
+    document.documentElement.setAttribute('data-osprey-storage-scope', 'bob');
+    localStorage.setItem('osprey-plan-sidebar-width', '420');
+    localStorage.setItem('osprey-plan-sidebar-width--bob', '300');
+    try {
+      boot();
+      await import(`${BUNDLE}panel.js`);
+      const sidebar = /** @type {HTMLElement} */ (document.getElementById('plan-sidebar'));
+      expect(sidebar.style.flexBasis).toBe('300px');
+    } finally {
+      document.documentElement.removeAttribute('data-osprey-storage-scope');
+      localStorage.clear();
+    }
+  });
+
   test('the halt is live from first paint, before any frame arrives', async () => {
     const panel = boot();
     // Pre-import: the shipped markup itself must not disable it.
@@ -2756,23 +2809,32 @@ describe('booting the shipped bundle', () => {
       return { ok: true, status: 200, json: async () => ({}) };
     });
     vi.stubGlobal('fetch', fetchMock);
-    boot();
-    await import(`${BUNDLE}panel.js`);
-    const list = /** @type {any} */ (document.getElementById('history-items'));
-    await vi.waitFor(() => expect(list.querySelectorAll('.queue-row.removal')).toHaveLength(1));
+    stampFacilityZone(FACILITY_ZONE);
+    // Only Date is faked, so vi.waitFor's timers stay real.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-19T21:30:00Z'));
+    try {
+      boot();
+      await import(`${BUNDLE}panel.js`);
+      const list = /** @type {any} */ (document.getElementById('history-items'));
+      await vi.waitFor(() => expect(list.querySelectorAll('.queue-row.removal')).toHaveLength(1));
 
-    const row = list.querySelector('.queue-row.removal');
-    // Either time shape: whether this fixed record is "today" depends on the
-    // day the suite runs, and the two shapes are pinned in the unit rows above.
-    expect(row.querySelector('.queue-time').textContent).toMatch(/^(\d{2}-\d{2} )?\d{2}:\d{2}$/);
-    expect(row.querySelector('.queue-name').textContent).toBe('anna removed count_scan');
-    // Not a run: nothing to select, nothing to open, no control on it.
-    expect(row.querySelector('button')).toBeNull();
-    expect(row.querySelector('.badge')).toBeNull();
-    expect(row.querySelector('[data-run-id]')).toBeNull();
-    // And it sits under the completed runs, not among them.
-    const rows = [...list.querySelectorAll('.queue-row')];
-    expect(rows[rows.length - 1]).toBe(row);
+      const row = list.querySelector('.queue-row.removal');
+      expect(row.querySelector('.queue-time').textContent).toBe(
+        at(FACILITY_ZONE, CLOCK, '2026-09-19T21:05:00Z'),
+      );
+      expect(row.querySelector('.queue-name').textContent).toBe('anna removed count_scan');
+      // Not a run: nothing to select, nothing to open, no control on it.
+      expect(row.querySelector('button')).toBeNull();
+      expect(row.querySelector('.badge')).toBeNull();
+      expect(row.querySelector('[data-run-id]')).toBeNull();
+      // And it sits under the completed runs, not among them.
+      const rows = [...list.querySelectorAll('.queue-row')];
+      expect(rows[rows.length - 1]).toBe(row);
+    } finally {
+      vi.useRealTimers();
+      stampFacilityZone(null);
+    }
   });
 
   test('the history Clear is dead until runs are listed, then two clicks send DELETE /history', async () => {

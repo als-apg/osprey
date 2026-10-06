@@ -14,6 +14,7 @@ import yaml
 from osprey.errors import ConfigurationError
 from osprey.mcp_server.control_system.server_context import (
     ControlSystemContext,
+    MCPServerConfig,
     get_server_context,
     initialize_server_context,
     reset_server_context,
@@ -53,7 +54,6 @@ def test_initialize_loads_config(tmp_path, monkeypatch):
     assert registry.config.control_system["type"] == "mock"
     assert registry.config.archiver["type"] == "mock_archiver"
     assert registry.config.channel_finder["db_path"] == "/data/channels.db"
-    assert registry.config.writes_enabled is True
 
 
 def test_initialize_missing_config(tmp_path, monkeypatch):
@@ -65,7 +65,6 @@ def test_initialize_missing_config(tmp_path, monkeypatch):
 
     assert registry.config.raw == {}
     assert registry.config.control_system == {}
-    assert registry.config.writes_enabled is False
 
 
 def test_initialize_idempotent(tmp_path, monkeypatch):
@@ -373,7 +372,6 @@ def test_mcp_server_config_properties(tmp_path, monkeypatch):
     assert cfg.archiver["type"] == "mock_archiver"
     assert cfg.channel_finder["db_path"] == "/test"
     assert cfg.ariel["api_url"] == "https://ariel.test"
-    assert cfg.writes_enabled is False
 
 
 async def test_unknown_connector_raises(tmp_path, monkeypatch):
@@ -554,3 +552,8 @@ def test_every_honest_pairing_still_starts(tmp_path, monkeypatch, config):
     registry = initialize_server_context()
 
     assert registry.config.raw == config
+
+
+def test_an_empty_server_section_reads_as_an_empty_mapping():
+    """A bare ``control_system:`` section reads as no settings."""
+    assert MCPServerConfig(raw={"control_system": None}).control_system == {}

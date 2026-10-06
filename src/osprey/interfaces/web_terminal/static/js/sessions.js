@@ -3,6 +3,7 @@
 import { fetchJSON } from './api.js';
 import { stopTerminal, startTerminal, restartTerminal, getCurrentSessionId, notifySessionChange, switchSession, setSessionLabel } from './terminal.js';
 import { escapeHtml } from '/design-system/js/dom.js';
+import { formatFacilityTime } from '/design-system/js/facility-time.js';
 
 /**
  * A session summary as returned by the (prefix-aware) `/api/sessions` endpoint.
@@ -170,13 +171,16 @@ function renderSessionList() {
 
   list.innerHTML = sessionsData.map(s => {
     const isActive = s.session_id === currentId;
-    const shortId = s.session_id.slice(0, 8);
+    // Every server-supplied value is escaped, the id included: it lands in two
+    // attributes and the markup, and an unescaped quote would end the attribute.
+    const id = escapeHtml(s.session_id);
+    const shortId = escapeHtml(s.session_id.slice(0, 8));
     const timeAgo = relativeTime(s.last_modified);
     const preview = escapeHtml(s.first_message || '(no message)');
     return `
       <button class="session-item${isActive ? ' active' : ''}"
-              data-session-id="${s.session_id}"
-              title="${s.session_id}">
+              data-session-id="${id}"
+              title="${id}">
         <div class="session-item-header">
           <span class="session-item-id">${shortId}</span>
           <span class="session-item-time">${timeAgo}</span>
@@ -207,7 +211,7 @@ function renderSessionList() {
  * for warm sessions). Cold fallback: full stop/start cycle if no WS is open.
  * @param {string} sessionId
  */
-export async function resumeSession(sessionId) {
+async function resumeSession(sessionId) {
   if (switchSession(sessionId)) {
     // Fast path — server handles everything.
     // terminal.js onMessage updates UI on session_switched.
@@ -247,5 +251,5 @@ function relativeTime(isoString) {
   if (diffHr < 24) return `${diffHr}h ago`;
   const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 7) return `${diffDay}d ago`;
-  return date.toLocaleDateString();
+  return formatFacilityTime(date, { year: 'numeric', month: 'numeric', day: 'numeric' });
 }

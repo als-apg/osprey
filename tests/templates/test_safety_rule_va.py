@@ -94,8 +94,7 @@ def _assert_epics_prohibitions_present(content: str) -> None:
     assert "epics.caget" in content
     assert "epics.caput" in content
     assert "Bypasses audit logging" in content
-    assert "Bypasses limits + approval" in content
-    assert "Bypasses all safety layers" in content
+    assert "pv.put(150)  # Refused at runtime: RAW_CLIENT_WRITE" in content
 
 
 def test_epics_prohibitions_present(tmp_path):

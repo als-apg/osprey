@@ -4,7 +4,7 @@
  * Sidebar collapse, stacked/grid layout toggle, sidebar tab switching, and
  * figure-panel drag-and-drop rearrangement — the dashboard's persistent UI
  * chrome. Each preference is held in one of the four `lattice-*`
- * localStorage keys below.
+ * localStorage keys below, resolved per person through scopedStorageKey().
  *
  * The full drag-and-drop feature (`setupDragAndDrop`, `savePanelOrder`,
  * `restorePanelOrder`) lives together in one Drag-and-Drop section below.
@@ -15,6 +15,7 @@
  */
 
 import { initSplitter } from '/design-system/js/splitter.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 const SIDEBAR_TAB_KEY = 'lattice-sidebar-tab';
 const PANEL_ORDER_KEY = 'lattice-panel-order';
@@ -74,7 +75,7 @@ export function createUI(figureNames) {
     sidebarSplitter = initSplitter({
       handle: document.getElementById('sidebar-resizer'),
       pane: sidebar,
-      storageKey: SIDEBAR_KEY,
+      storageKey: scopedStorageKey(SIDEBAR_KEY),
       axis: 'x',
       anchor: 'start',
       // #sidebar is a plain flex child sized by `width`, and its
@@ -114,7 +115,7 @@ export function createUI(figureNames) {
   // ── Layout Mode ─────────────────────────────────────────
 
   function initLayout() {
-    const mode = localStorage.getItem(LAYOUT_KEY) || 'stacked';
+    const mode = localStorage.getItem(scopedStorageKey(LAYOUT_KEY)) || 'stacked';
     applyLayout(mode);
   }
 
@@ -146,7 +147,7 @@ export function createUI(figureNames) {
       }
     }
 
-    localStorage.setItem(LAYOUT_KEY, mode);
+    localStorage.setItem(scopedStorageKey(LAYOUT_KEY), mode);
     _reflowFigures();
   }
 
@@ -165,7 +166,7 @@ export function createUI(figureNames) {
     });
 
     // Restore last active tab
-    const savedTab = localStorage.getItem(SIDEBAR_TAB_KEY);
+    const savedTab = localStorage.getItem(scopedStorageKey(SIDEBAR_TAB_KEY));
     if (savedTab) switchTab(savedTab);
   }
 
@@ -179,7 +180,7 @@ export function createUI(figureNames) {
     document.querySelectorAll('.sidebar-tab-content').forEach(panel => {
       panel.classList.toggle('sidebar-tab-content--active', panel.id === `tab-${tabName}`);
     });
-    localStorage.setItem(SIDEBAR_TAB_KEY, tabName);
+    localStorage.setItem(scopedStorageKey(SIDEBAR_TAB_KEY), tabName);
   }
 
   // ── Drag-and-Drop Panel Rearrangement (unified) ────────
@@ -204,7 +205,7 @@ export function createUI(figureNames) {
   function savePanelOrder() {
     const cells = document.querySelectorAll('.figure-cell');
     const order = Array.from(cells).map(c => /** @type {HTMLElement} */ (c).dataset.figure);
-    localStorage.setItem(PANEL_ORDER_KEY, JSON.stringify(order));
+    localStorage.setItem(scopedStorageKey(PANEL_ORDER_KEY), JSON.stringify(order));
   }
 
   function setupDragAndDrop() {
@@ -274,7 +275,7 @@ export function createUI(figureNames) {
   }
 
   function restorePanelOrder() {
-    const saved = localStorage.getItem(PANEL_ORDER_KEY);
+    const saved = localStorage.getItem(scopedStorageKey(PANEL_ORDER_KEY));
     if (!saved) return;
 
     try {
@@ -306,7 +307,7 @@ export function createUI(figureNames) {
       const currentNames = new Set(Object.keys(cellMap));
       const savedNames = new Set(order);
       if (order.length !== allSlots.length || ![...currentNames].every(n => savedNames.has(n))) {
-        localStorage.removeItem(PANEL_ORDER_KEY);
+        localStorage.removeItem(scopedStorageKey(PANEL_ORDER_KEY));
         return;
       }
 
@@ -332,7 +333,7 @@ export function createUI(figureNames) {
       });
     } catch (e) {
       console.warn('Failed to restore panel order:', e);
-      localStorage.removeItem(PANEL_ORDER_KEY);
+      localStorage.removeItem(scopedStorageKey(PANEL_ORDER_KEY));
     }
   }
 

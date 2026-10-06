@@ -6,6 +6,7 @@ create descriptive, self-documenting channel names via batch LLM calls.
 
 import logging
 from collections import defaultdict
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 from tqdm import tqdm
@@ -153,8 +154,10 @@ class LLMChannelNamer:
 
             if isinstance(result, dict):
                 names = result.get("names", [])
-            else:
+            elif isinstance(result, ChannelNames):
                 names = result.names
+            else:
+                raise TypeError(f"expected ChannelNames, got {type(result).__name__}")
 
             if len(names) != len(channels):
                 logger.error(f"Expected {len(channels)} names, got {len(names)}.")
@@ -281,6 +284,8 @@ class LLMChannelNamer:
                 output_model=ChannelNames,
             )
 
+            if not isinstance(response, ChannelNames):
+                raise TypeError(f"expected ChannelNames, got {type(response).__name__}")
             new_names = response.names
 
             result = names.copy()
@@ -324,7 +329,7 @@ class LLMChannelNamer:
         return all_names
 
 
-def create_namer_from_config(config_path: str | None = None) -> LLMChannelNamer:
+def create_namer_from_config(config_path: str | Path | None = None) -> LLMChannelNamer:
     """Create an LLM channel namer from configuration file.
 
     Args:

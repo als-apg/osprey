@@ -33,11 +33,19 @@ from rich.text import Text
 from osprey.cli import output
 from osprey.cli.styles import Styles, data_table
 from osprey.deployment.compose_generator import (
+    PROJECT_LABEL,
     REPO_ID_LABEL,
     audit_identity_dir,
     repo_identity,
     resolve_project_name,
     resolve_user_volume_names,
+)
+from osprey.deployment.container_ownership import (
+    ClaimBasis,
+    container_label,
+    container_names,
+    deployment_containers,
+    first_container_name,
 )
 from osprey.deployment.errors import NoComposeFilesError
 from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
@@ -47,13 +55,6 @@ from osprey.utils.config import load_project_config
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.status")
-
-#: Label naming the compose project a container belongs to. Spelled here as
-#: every service template spells it (``osprey.project.name:`` in each
-#: ``docker-compose.yml.j2``) because there is no shared constant to import —
-#: this module only ever reads it, and a divergence would show up immediately as
-#: containers filed under the wrong project.
-PROJECT_LABEL = "osprey.project.name"
 
 #: How much of a pre-flight refusal reason a state cell carries. The findings
 #: are written for a log line and can be a sentence each; the Container column
@@ -280,43 +281,9 @@ def _extract_web_terminal_user_names(users_raw):
 # ---------------------------------------------------------------------------
 
 
-def _container_label(container, key):
-    """Read one label off a runtime ``ps --format json`` record.
-
-    Two shapes, because two runtimes: podman emits ``Labels`` as an object,
-    docker as a comma-joined ``k=v`` string. ``None`` when the label is absent,
-    and that absence is a real answer here rather than a parse failure — a
-    container created by an OSPREY that did not stamp :data:`REPO_ID_LABEL`
-    carries none.
-
-    :param container: One decoded ``ps`` record
-    :param key: Label key to read
-    :return: The label's value, or ``None``
-    """
-    labels = container.get("Labels", {})
-    if isinstance(labels, dict):
-        value = labels.get(key)
-        return value if isinstance(value, str) else None
-    if isinstance(labels, str):
-        for label in labels.split(","):
-            if "=" in label:
-                name, value = label.split("=", 1)
-                if name.strip() == key:
-                    return value.strip()
-    return None
-
-
-def _container_names(container):
-    """Every name a ``ps`` record carries, without docker's leading ``/``."""
-    names = container.get("Names", [])
-    candidates = names if isinstance(names, list) else [names]
-    return [str(name).lstrip("/") for name in candidates if name]
-
-
 def _container_display_name(container):
     """The one name to show for a container; ``"unknown"`` when it has none."""
-    names = _container_names(container)
-    return names[0] if names else "unknown"
+    return first_container_name(container) or "unknown"
 
 
 def _query_containers(config):
@@ -458,7 +425,7 @@ def _format_ports(container):
 
 def _add_container_to_table(table, container):
     """Add a container as a row in the status table."""
-    project_name = _container_label(container, PROJECT_LABEL) or "unknown"
+    project_name = container_label(container, PROJECT_LABEL) or "unknown"
     if len(project_name) > 12:
         project_name = project_name[:9] + "..."
 
@@ -514,7 +481,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
 
     by_name = {}
     for container in all_containers:
-        for name in _container_names(container):
+        for name in container_names(container):
             by_name.setdefault(name, container)
 
     existing_volumes = _existing_volume_names(config)
@@ -602,18 +569,11 @@ def show_status(
     if all_containers is None:
         return
 
-    project_containers = []
-    other_containers = []
-    for container in all_containers:
-        container_project = _container_label(container, PROJECT_LABEL) or "unknown"
-        names_str = " ".join(_container_names(container)).lower()
-        matches_service = any(
-            service.split(".")[-1].lower() in names_str for service in deployed_service_names
-        )
-        if container_project == current_project or matches_service:
-            project_containers.append(container)
-        elif container_project != "unknown":
-            other_containers.append(container)
+    owned = deployment_containers(
+        all_containers, project_name=current_project, services=deployed_service_names
+    )
+    project_containers = [c.row for c in owned.ours]
+    other_containers = list(owned.other_projects)
 
     output.report("")
     output.section("Service Status:", ())
@@ -718,49 +678,55 @@ def _stamped_version(manifest_path):
     return version if isinstance(version, str) and version else None
 
 
-def _partition_by_checkout(containers, identity, project_name):
+def _partition_by_checkout(containers, identity, project_name, services):
     """Sort every container on the host by which deployment it belongs to.
 
-    Four buckets, and the split is by LABEL rather than by name because two
-    checkouts of one repo on a single host share a project name and a volume
-    namespace — the repo-id label is the only thing that tells them apart.
+    Which rows belong to this deployment is
+    :func:`~osprey.deployment.container_ownership.deployment_containers`'s
+    rule, the one the ``container`` health probe grades by. Five buckets, split
+    by LABEL first because two checkouts of one repo on a single host share a
+    project name and a volume namespace — the repo-id label is the only thing
+    that tells them apart.
 
     * ``mine`` — :data:`REPO_ID_LABEL` equals this checkout's identity. The
       label wins outright, over a project name that disagrees: it is what
       ``osprey down``'s build-less fallback selects on, and a status that
       answered differently would describe a different set of containers than
       the verb acting on them.
-    * ``unlabelled`` — the project name matches but there is no repo-id label at
-      all — created by an OSPREY that did not stamp it. Shown as part of the
-      deployment and flagged, because the label-driven paths cannot find them.
-    * ``foreign`` — the project name matches and the repo-id does not. Another
+    * ``unlabelled`` — labelled for this project, with no repo-id label at all.
+      Shown as part of the deployment and flagged, because the label-driven
+      paths cannot find them.
+    * ``foreign`` — labelled for this project with another repo-id. Another
       checkout of the same deployment, running on this host.
-    * ``others`` — some other OSPREY project entirely.
+    * ``by_name`` — no project label at all, and a name matches one of
+      *services*. Shown as part of the deployment and flagged, because only the
+      name ties them to it.
+    * ``others`` — labelled for some other OSPREY project entirely.
 
-    A container that is not labelled for this checkout AND carries no project
-    label appears nowhere: it is either not OSPREY's or unattributable, and
-    both are somebody else's business.
+    Any other container appears nowhere: it belongs to another compose project,
+    or it is unlabelled and named for no deployed service, and both are
+    somebody else's business.
 
     :param containers: Decoded ``ps`` records
     :param identity: This checkout's :func:`repo_identity`
     :param project_name: This deployment's resolved compose project name
-    :return: ``(mine, unlabelled, foreign, others)``
+    :param services: Deployed service names an unlabelled container may match
+    :return: ``(mine, unlabelled, foreign, by_name, others)``
     """
-    mine, unlabelled, foreign, others = [], [], [], []
-    for container in containers:
-        repo_id = _container_label(container, REPO_ID_LABEL)
-        project = _container_label(container, PROJECT_LABEL)
-        if repo_id == identity:
-            mine.append(container)
-        elif project is None:
-            continue
-        elif project != project_name:
-            others.append(container)
-        elif repo_id is None:
-            unlabelled.append(container)
+    owned = deployment_containers(
+        containers, project_name=project_name, services=services, identity=identity
+    )
+    mine, unlabelled, foreign, by_name = [], [], [], []
+    for claimed in owned.ours:
+        if claimed.basis is ClaimBasis.CHECKOUT:
+            mine.append(claimed.row)
+        elif claimed.basis is ClaimBasis.NAME:
+            by_name.append(claimed.row)
+        elif container_label(claimed.row, REPO_ID_LABEL) is None:
+            unlabelled.append(claimed.row)
         else:
-            foreign.append(container)
-    return mine, unlabelled, foreign, others
+            foreign.append(claimed.row)
+    return mine, unlabelled, foreign, by_name, list(owned.other_projects)
 
 
 def _print_containers_section(repo_root, config):
@@ -779,6 +745,9 @@ def _print_containers_section(repo_root, config):
     """
     identity = repo_identity(repo_root)
     project_name = resolve_project_name(config) if config else Path(repo_root).name
+    # Without a build there is no deployed service list, so nothing is claimed
+    # by name.
+    services = [str(s) for s in config.get("deployed_services", []) or []] if config else ()
     provenance = "project" if config else "project, from the directory name"
 
     output.report("")
@@ -787,12 +756,12 @@ def _print_containers_section(repo_root, config):
     if all_containers is None:
         return None
 
-    mine, unlabelled, foreign, others = _partition_by_checkout(
-        all_containers, identity, project_name
+    mine, unlabelled, foreign, by_name, others = _partition_by_checkout(
+        all_containers, identity, project_name, services
     )
 
-    if mine or unlabelled:
-        output.table(_container_table([*mine, *unlabelled]))
+    if mine or unlabelled or by_name:
+        output.table(_container_table([*mine, *unlabelled, *by_name]))
     else:
         output.note("Nothing is running for this deployment.")
         output.note("Start it with `osprey up -d`.")
@@ -803,12 +772,17 @@ def _print_containers_section(repo_root, config):
         # build/ and runs `down` would be told nothing was found while these
         # kept running.
         output.warn(
-            f"{len(unlabelled)} of these were matched by name, not by label "
+            f"{len(unlabelled)} of these carry no {REPO_ID_LABEL} label "
             f"({', '.join(_container_display_name(c) for c in unlabelled)})",
-            f"They carry no {REPO_ID_LABEL} label, because they were started before this "
-            f"repo began labelling its containers. `osprey down` finds them through "
-            f"build/'s compose files, but not through the label fallback that takes over "
-            f"when build/ is gone.",
+            "`osprey down` finds them through build/'s compose files, but not through "
+            "the label fallback that takes over when build/ is gone.",
+        )
+
+    if by_name:
+        output.warn(
+            f"{len(by_name)} of these were matched by container name only "
+            f"({', '.join(_container_display_name(c) for c in by_name)})",
+            "They carry no project label, so only their name ties them to this deployment.",
         )
 
     if foreign:
@@ -822,7 +796,7 @@ def _print_containers_section(repo_root, config):
         output.warn(
             f"{len(foreign)} container(s) named for '{project_name}' were started from a "
             f"DIFFERENT copy of this deployment "
-            f"({', '.join(sorted({_container_label(c, REPO_ID_LABEL) or '?' for c in foreign}))}; "
+            f"({', '.join(sorted({container_label(c, REPO_ID_LABEL) or '?' for c in foreign}))}; "
             f"this copy is {identity})",
             "They share a name with yours, so `osprey down` run here stops them too. "
             "Only their label tells the two copies apart.",
@@ -1051,9 +1025,11 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     """
     import os
 
-    from osprey.build.claude_code_resolver import (
+    from osprey.agent_runner.provider_env import (
         ALIAS_SUBSTITUTION_REMEDY,
+        DROPPED_ALIAS_KEY_REMEDY,
         alias_substitution,
+        dropped_alias_key_facts,
         load_provider_spec,
     )
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
@@ -1147,9 +1123,12 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             rows.append(("Claude Code aliases", ""))
             for alias, model_id in spec.alias_models.items():
                 rows.append((alias, f"{model_id} ({spec.alias_origin.get(alias, '?')})"))
-            # Said here, from the spec this section already holds, because the
-            # resolver's own record is INFO and the drift check below resolves
-            # the provider a second time: one report, one sentence.
+            # Ignored alias keys and the alias substitution are said here, from
+            # the spec this section already holds, because the resolver's own
+            # records for them are INFO and the drift check below resolves the
+            # provider a second time: one report, one sentence per fact.
+            for sentence in dropped_alias_key_facts(spec):
+                troubles.append((sentence, DROPPED_ALIAS_KEY_REMEDY))
             substitution = alias_substitution(spec)
             if substitution:
                 troubles.append((substitution, ALIAS_SUBSTITUTION_REMEDY))

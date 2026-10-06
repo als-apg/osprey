@@ -16,6 +16,7 @@ from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
 
+from osprey.agent_runner.tool_names import FOREIGN_MCP_NAMESPACES, READ_ONLY_DENIED_BUILTINS
 from osprey.bluesky_tool_names import DESTRUCTIVE_MARKERS
 
 logger = logging.getLogger(__name__)
@@ -31,25 +32,6 @@ _FALLBACK_WRITE_TOOLS = [
     "mcp__phoebus__phoebus_drive",
     "mcp__python__execute",
     "mcp__python__execute_file",
-]
-
-# Built-in (non-MCP) Claude Code tools that can write to disk, execute shell
-# commands, or reach the network. Under ``permission_mode=bypassPermissions``
-# the settings.json allow/deny/ask layer is INERT, so for the headless,
-# read-only ``osprey query`` path these MUST be blocked via ``disallowed_tools``
-# or the read-only guarantee is hollow — e.g. ``Bash`` could ``caput`` a PV
-# (a hardware write) or ``rm`` files, entirely bypassing the MCP write guard.
-# This is a superset of the built-in (non-``mcp__``) entries in
-# settings.json.j2's ``deny_defaults``; test_write_tools.py guards that the
-# headless floor never drifts below the interactive deny policy.
-_BUILTIN_UNSAFE_TOOLS = [
-    "Bash",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
-    "WebFetch",
-    "WebSearch",
 ]
 
 
@@ -300,8 +282,11 @@ def read_only_disallowed_tools(project_dir: Path) -> list[str]:
 
     It is the union of:
 
-    * ``_BUILTIN_UNSAFE_TOOLS`` — built-in ``Bash`` (arbitrary shell, incl.
-      hardware writes via ``caput``), ``Write``, ``Edit``, etc.
+    * :data:`~osprey.agent_runner.tool_names.READ_ONLY_DENIED_BUILTINS` —
+      built-in ``Bash`` (arbitrary shell, incl. hardware writes via ``caput``),
+      ``Write``, ``Edit``, etc.
+    * :data:`~osprey.agent_runner.tool_names.FOREIGN_MCP_NAMESPACES` — every
+      Claude Code plugin's and claude.ai connector's MCP tools.
     * :func:`load_write_tools` — the project's hardware-write kill-switch tools
       (facility-custom writes included, fail-closed fallback).
     * :func:`_registry_side_effect_tools` — every framework server's
@@ -321,7 +306,8 @@ def read_only_disallowed_tools(project_dir: Path) -> list[str]:
     """
     result = load_write_tools(project_dir)
     for tool in (
-        *_BUILTIN_UNSAFE_TOOLS,
+        *READ_ONLY_DENIED_BUILTINS,
+        *FOREIGN_MCP_NAMESPACES,
         *_registry_side_effect_tools(),
         *_custom_server_side_effect_tools(project_dir),
     ):

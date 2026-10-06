@@ -659,7 +659,9 @@ class TestPipelinePreStep:
     def test_ingest_resyncs_first(self, monkeypatch, _observed) -> None:
         async def _fake_ingest(*args: Any, **kwargs: Any):
             _observed.append("ingest")
-            return ops.IngestResult(count=0, enhanced_count=0, failed_count=0, dry_run=True)
+            return ops.IngestResult(
+                count=0, enhanced_count=0, failed_count=0, unreadable_count=0, dry_run=True
+            )
 
         monkeypatch.setattr(ops, "run_ingest", _fake_ingest)
 

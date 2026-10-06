@@ -51,21 +51,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import get_repo_root
+from osprey_hook_log import repo_agent_data_root
 
 _ID_PATTERN = re.compile(r"\(id=([^)]+)\)")
-
-# The framework DEFAULT agent-data root, imported rather than spelled out here
-# so the two cannot drift apart. It does not follow a project that overrides
-# `agent_data.base_dir` — this hook reads two files the artifact gallery
-# writes, and under an overridden root it would look in the wrong directory,
-# find no focus file, strip nothing, and report success. The fallback covers a
-# hook running with osprey off the path, the one case where guessing beats
-# crashing.
-try:
-    from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR as _AGENT_DATA_ROOT
-except Exception:  # pragma: no cover - hooks must never crash the agent
-    _AGENT_DATA_ROOT = "var/agent_data"
 
 
 def _read_text(path: Path) -> str:
@@ -117,11 +105,9 @@ def _clean(raw: str, valid_ids: set[str]) -> str:
 
 def main() -> int:
     try:
-        # The REPO root, not the render this hook runs in: the gallery writes
-        # both files below through ArtifactStore, which anchors on the config's
-        # project_root. Anchored on the render, this hook found no focus file,
-        # stripped nothing and reported success — a silent no-op.
-        agent_data = Path(get_repo_root()) / _AGENT_DATA_ROOT
+        # The root the gallery writes both files under: agent_data.base_dir,
+        # anchored on the repo rather than the render this hook runs in.
+        agent_data = Path(repo_agent_data_root())
         focus_file = agent_data / "focus_state.txt"
         artifacts_index = agent_data / "artifacts" / "artifacts.json"
 

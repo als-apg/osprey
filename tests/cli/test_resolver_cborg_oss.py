@@ -11,7 +11,7 @@ Experiment branch: experiment/cborg-claude-code (issue #259).
 
 from __future__ import annotations
 
-from osprey.build.claude_code_resolver import (
+from osprey.agent_runner.provider_env import (
     ClaudeCodeModelResolver,
     inject_provider_env,
 )

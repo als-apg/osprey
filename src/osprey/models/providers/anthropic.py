@@ -20,6 +20,8 @@ class AnthropicProviderAdapter(LiteLLMDelegatingProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = None
+    models_probe = "anthropic"
+    models_probe_base_url = "https://api.anthropic.com"
     default_model_id = "claude-haiku-4-5"
     health_check_model_id = "claude-haiku-4-5"
 
@@ -32,6 +34,15 @@ class AnthropicProviderAdapter(LiteLLMDelegatingProvider):
         "Copy the key (shown only once!)",
     ]
     api_key_note = None
+
+    # Provider facts (see BaseProvider)
+    api_key_env_var = "ANTHROPIC_API_KEY"
+    api_protocol = "anthropic"
+    # A launch with no key signs in to a Claude subscription instead.
+    supports_interactive_login = True
+    supports_images = True
+    supports_thinking = False
+    self_hosted = False
 
     # LiteLLM integration
     litellm_prefix = "anthropic"

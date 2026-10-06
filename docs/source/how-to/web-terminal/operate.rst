@@ -201,9 +201,10 @@ the actions. What writing to a machine means (*Writes move hardware*, or one
 of the *nothing moves* lines) sits with its endpoint and the server's own
 label behind the small ⓘ beside each name, on hover or keyboard focus:
 
-- **The writes switch** --- per machine, for the whole deployment. The switch
-  position is the write state and clicking it is the gesture that changes it;
-  where writes are locked the switch is disabled, with the reason on hover.
+- **The writes switch** --- per machine, for every session of this login. The
+  switch position is the write state and clicking it is the gesture that
+  changes it; where writes are locked the switch is disabled, with the reason
+  on hover.
 - **Switch to** --- moves the deployment onto that machine. Where a switch is
   not available, the button's place is taken by a short phrase for the reason
   --- ``not set up``, ``needs gateway ack`` --- with the server's full
@@ -312,12 +313,12 @@ posture, the archive --- is :doc:`../control-systems/switch-control-target`.
 Where the control target and the write state live
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Both belong to **the deployment**, not to any one session, and nothing is
-written to ``config.yml``. Two people working on the same deployment see the
-same machine and the same write states: one of them turning writes off on a
-machine takes them away from everyone, and a switch made in one window applies
-in the other. That is the point --- a write state you can only see from the
-page you happen to be on is not a safety control.
+Both belong to **the login the terminal acts as**, not to any one session,
+and nothing is written to ``config.yml``. Every session, window and notebook
+kernel of that login sees the same machine and the same write states: turning
+writes off on a machine takes them away from all of them, and a switch made in
+one window applies in the other. That is the point --- a write state you can
+only see from the page you happen to be on is not a safety control.
 
 Both are recorded together on disk, written as soon as you click and read back
 when a server starts, so restarting the container never quietly turns writes
@@ -369,12 +370,12 @@ sends you to the wrong control:
   the header; config.yml is not the gate here."*
 - The connector --- *"Write to '<channel>' blocked: writes are off for the
   '<target>' control target --- turned off from the control-target chip in the
-  header; applies deployment-wide. Turn writes back on for '<target>' from the
-  chip if the write is intended; config.yml is not the gate here. The store
-  answered narrowing."*
+  header; applies to every session of this login. Turn writes back on for
+  '<target>' from the chip if the write is intended; config.yml is not the gate
+  here. The store answered narrowing."*
 - The executor --- *"Writes are off for the '<target>' control target ---
-  turned off from the control-target chip in the header; applies
-  deployment-wide."* --- offering a re-run as ``readonly``, and saying to turn
+  turned off from the control-target chip in the header; applies to every
+  session of this login."* --- offering a re-run as ``readonly``, and saying to turn
   writes back on from the chip if the write is intended.
 
 Those three are what writes you turned off from the chip sound like, and the
@@ -465,8 +466,9 @@ there is, drawn as it will look in the bar. From there:
   header. Drag an item already in a bar to move it, within its own bar or
   across to the other one.
 - **Drag an item off both bars** to take it away.
-- **Click an item** to open its options — the clock's zone, 24- or 12-hour
-  format and seconds, a space's width, what the Bluesky queue shows and which
+- **Click an item** to open its options — the clock's zone (yours, the
+  facility's, UTC, or yours beside UTC), 24- or 12-hour format and seconds, a
+  space's width, what the Bluesky queue shows and which
   of its controls it offers, what the system-health chip says and lists — along
   with **Move left** and **Move right** within its bar, **Move to status bar**
   (or back to the header) and **Remove**. Every item can go in either bar: the

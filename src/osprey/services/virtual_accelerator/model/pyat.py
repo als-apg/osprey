@@ -95,6 +95,7 @@ from typing import TYPE_CHECKING, Any
 import at
 import numpy as np
 from lume.actions import WritableActionMixin
+from lume.variables import ConfigEnum
 from lume_pyat.actions import ElementBinding, PyATWritableScalarVariable
 from lume_pyat.exceptions import OrbitSolveError, UnknownElementError
 from lume_pyat.model import LUMEPyATModel
@@ -130,6 +131,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Mapping
     from pathlib import Path
 
+    from lume.actions import ActionVariable
     from lume.variables import ScalarVariable, Variable
 
     from osprey.services.virtual_accelerator.bindings import BindingsDocument
@@ -305,7 +307,7 @@ def _monitor_fault_variables(
             "element_name": element,
             "attribute": _MONITOR_ATTRIBUTE_PREFIX + field,
             "default_value": seeded[field],
-            "default_validation_config": "error",
+            "default_validation_config": ConfigEnum.ERROR,
         }
         if field in BPM_POLARITY_FIELDS:
             variables.append(
@@ -372,7 +374,7 @@ def _magnet_fault_variables(
             default_value=seeded[field],
             value_range=MAGNET_CAL_BOUNDS.get(field),
             unit=unit if field == "cal_offset" else None,
-            default_validation_config="error",
+            default_validation_config=ConfigEnum.ERROR,
         )
         for field in MAGNET_CAL_FIELDS
     ]
@@ -444,13 +446,18 @@ def _seed_fault_attributes(ring: at.Lattice, variables: list[FaultVariable]) -> 
 
     Raises:
         UnknownDeviceError: a fault device has no element in ``ring``.
+        ValueError: a fault variable declares no seed.
     """
     elements = {element.FamName: element for element in ring}
-    bound = [(variable.bindings[0], variable.default_value) for variable in variables]
+    bound: list[tuple[ElementBinding, float]] = []
+    for variable in variables:
+        if variable.default_value is None:
+            raise ValueError(f"fault variable {variable.name!r} declares no seed")
+        bound.append((variable.bindings[0], float(variable.default_value)))
     if missing := sorted({binding.element_name for binding, _ in bound} - set(elements)):
         raise UnknownDeviceError(f"the ring has no element for fault devices {missing}")
     for binding, default in bound:
-        setattr(elements[binding.element_name], binding.attribute, float(default))
+        setattr(elements[binding.element_name], binding.attribute, default)
 
 
 class PyATRingModel(LUMEPyATModel):
@@ -557,10 +564,13 @@ class PyATRingModel(LUMEPyATModel):
         _refuse_name_collisions(channels, [*faults, *optics])
         _seed_fault_attributes(ring, faults)
 
+        # lume's ActionVariable is a union of hinting stubs in lume/actions.py
+        # (ReadOnlyActionVariable, WritableActionVariable) that no variable class inherits.
+        variables: list[ActionVariable[PyATSimulator]] = [*catalog.values(), *faults, *optics]  # type: ignore[list-item]
         try:
             super().__init__(
                 simulator=PyATSimulator(ring, element_misalignments=element_misalignments),
-                action_variables=[*catalog.values(), *faults, *optics],
+                action_variables=variables,
             )
         except OrbitSolveError as exc:
             raise OrbitSolveError(

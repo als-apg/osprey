@@ -49,7 +49,7 @@ from .ops import (
     TeamsOps,
     ack_text,
     quote_prefix,
-    skipped_images_note,
+    skipped_files_note,
 )
 from .receiver import (
     QueueReceiver,
@@ -86,5 +86,5 @@ __all__ = [
     "require_boot",
     "resolve_reply_context",
     "serve",
-    "skipped_images_note",
+    "skipped_files_note",
 ]

@@ -1,0 +1,1 @@
+The Simple view's message box suggests the project's skills and commands when a message starts with `/`. Arrow keys move through the list, and Tab or Enter fills the chosen command in; Enter again sends it.

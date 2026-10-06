@@ -47,19 +47,36 @@ diverts that to one throwaway root per worker session, so the stores are then
 isolated from the checkout but shared with every other test in the worker.
 
 The second autouse fixture here keeps the panel-register route's deploy-host
-check off the real machine, and resets that check's TTL cache between tests. It
-is the same class of leak-guard — machine state reaching into a test that never
-asked for it. Its target constant is exported as ``HOST_ADDRS_TARGET`` for the
-tests that patch the helper again from the inside to exercise the check itself.
+check off the real machine, and resets that check's TTL cache between tests
+through ``routes.panels.reset_host_addrs_cache()``. It is the same class of
+leak-guard — machine state reaching into a test that never asked for it. Its
+target constant is exported as ``HOST_ADDRS_TARGET`` for the tests that patch
+the helper again from the inside to exercise the check itself.
+
+Two more process-wide memos are reset around every test through their named
+seams — the parsed-render memo in ``routes.websocket`` and the once-per-process
+no-durable-store notice in ``ownership`` — and the deployment-identity
+variables a developer shell may export are unset, so an "unset" row means
+unset.
+
+Two non-autouse builders serve the tests that ask for them:
+:func:`bar_items_app` boots the whole app with both agent-data stores on
+``tmp_path``, and :func:`bare_route_app` mounts routers on a bare ``FastAPI``
+carrying the ``app.state`` the lifespan would have seeded.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections import deque
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import ExitStack, contextmanager
 from pathlib import Path, PurePath
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import APIRouter, FastAPI
+from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster
 
@@ -125,7 +142,7 @@ HOST_ADDRS_TARGET = "osprey.interfaces.web_terminal.routes.panels._host_interfac
 
 
 @pytest.fixture(autouse=True)
-def _stub_host_interface_addresses(monkeypatch):
+def _stub_host_interface_addresses():
     """Keep the register route's deploy-host check off the real machine.
 
     ``_host_interface_addresses`` calls ``socket.getaddrinfo`` itself, so the
@@ -144,6 +161,173 @@ def _stub_host_interface_addresses(monkeypatch):
     """
     from osprey.interfaces.web_terminal.routes import panels
 
-    monkeypatch.setattr(panels, "_host_addrs_cache", None)
+    panels.reset_host_addrs_cache()
     with patch(HOST_ADDRS_TARGET, return_value=frozenset()):
         yield
+    panels.reset_host_addrs_cache()
+
+
+@pytest.fixture(autouse=True)
+def reset_rendered_config_memo():
+    """Isolate every test from the process-wide parsed-render memo.
+
+    ``routes.websocket`` parses the rendered ``config.yml`` once and memoizes
+    it on ``(path, stat signature)``. Two tests that write a render at the same
+    path within one mtime tick share a signature, so the second would be
+    answered the first one's parse — its posture, its targets, its labels.
+    """
+    from osprey.interfaces.web_terminal.routes import websocket
+
+    websocket.reset_rendered_config_memo()
+    yield
+    websocket.reset_rendered_config_memo()
+
+
+@pytest.fixture(autouse=True)
+def reset_store_notice():
+    """Re-arm the once-per-process no-durable-store notice around every test.
+
+    ``ownership`` warns once per process that a container render records no
+    claim that outlives the container. Whichever container-mode
+    ``resolve_ownership`` runs first on an xdist worker spends that warning,
+    and a later test asserting the notice is said out loud then sees silence.
+    """
+    from osprey.interfaces.web_terminal import ownership
+
+    ownership.reset_store_notice()
+    yield
+    ownership.reset_store_notice()
+
+
+#: Deployment-identity variables ``create_app`` and its lifespan read.
+_WEB_IDENTITY_ENV = (
+    "OSPREY_WEB_THEME",
+    "OSPREY_WEB_TOUR",
+    "OSPREY_WEB_APP_NAME",
+    "OSPREY_TERMINAL_USER",
+    "OSPREY_TERMINAL_LANDING_URL",
+)
+
+
+@pytest.fixture(autouse=True)
+def web_identity_env_unset(monkeypatch):
+    """Unset the deployment-identity variables for every test.
+
+    ``tests/conftest.py::restore_environ`` restores the environment after a
+    test but does not clear these on the way in, so a developer shell that
+    exports one — a theme, a terminal user, a landing URL — changes what the
+    app renders, and every row asserting the unset case goes red on that
+    machine only. A test that needs a value sets it itself; it runs after this.
+    """
+    for name in _WEB_IDENTITY_ENV:
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def bar_items_app(tmp_path) -> Callable[..., Any]:
+    """A factory booting the whole app with both agent-data stores on ``tmp_path``.
+
+    The feedback and bar-items stores sit under ``resolve_shared_data_root()``,
+    which an unpatched lifespan resolves to the per-worker shared root — so a
+    bar-items test booted without this shares its document with every other
+    test on the worker, and passes or fails by run order. Here the resolver
+    always answers ``tmp_path / "agent_data"``, the watched tree is
+    ``tmp_path / "_watch"``, the panel roster is fixed and no panel server is
+    launched.
+
+    Call it as a context manager; it yields the started ``TestClient``
+    (``client.app`` is the app)::
+
+        with bar_items_app(stored=b"{...}") as client:
+            ...
+
+    Keyword Args:
+        enabled_panels: Enabled built-in panel ids; ``None`` means ``{"artifacts"}``.
+        custom_panels: Config-declared panel dicts; ``None`` means none.
+        env: Environment overrides applied across ``create_app`` and the lifespan.
+        stored: Document bytes written to the bar-items store before boot.
+        web: The ``web:`` section ``_load_web_ui_config`` answers; ``None``
+            leaves the real reader in place.
+        config_path: Set on ``app.state.config_path`` once the app has started.
+        project_dir: Passed to ``create_app``.
+    """
+    from osprey.interfaces.web_terminal.app import create_app
+    from osprey.interfaces.web_terminal.bar_items_store import LAYOUT_FILENAME
+
+    @contextmanager
+    def _boot(
+        *,
+        enabled_panels: set[str] | None = None,
+        custom_panels: list[dict] | None = None,
+        env: dict[str, str] | None = None,
+        stored: bytes | None = None,
+        web: dict | None = None,
+        config_path: Path | None = None,
+        project_dir: Path | None = None,
+    ) -> Iterator[TestClient]:
+        agent_data_root = tmp_path / "agent_data"
+        agent_data_root.mkdir(exist_ok=True)
+        watch_dir = tmp_path / "_watch"
+        watch_dir.mkdir(exist_ok=True)
+        if stored is not None:
+            store = agent_data_root / "bar_items"
+            store.mkdir(parents=True, exist_ok=True)
+            (store / LAYOUT_FILENAME).write_bytes(stored)
+        panels = {"artifacts"} if enabled_panels is None else set(enabled_panels)
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "osprey.interfaces.web_terminal.app._load_web_config",
+                    return_value={"watch_dir": str(watch_dir)},
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "osprey.utils.workspace.resolve_shared_data_root",
+                    return_value=agent_data_root,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "osprey.interfaces.web_terminal.app._load_panel_config",
+                    return_value=(panels, list(custom_panels or []), None),
+                )
+            )
+            stack.enter_context(patch("osprey.interfaces.web_terminal.app._launch_panel_server"))
+            if web is not None:
+                stack.enter_context(
+                    patch(
+                        "osprey.interfaces.web_terminal.app._load_web_ui_config",
+                        return_value=web,
+                    )
+                )
+            stack.enter_context(patch.dict("os.environ", env or {}, clear=False))
+            app = create_app(shell_command="echo", project_dir=project_dir)
+            with TestClient(app) as client:
+                if config_path is not None:
+                    app.state.config_path = config_path
+                yield client
+
+    return _boot
+
+
+def bare_route_app(*routers: APIRouter, **state: Any) -> FastAPI:
+    """A bare ``FastAPI`` mounting *routers*, with the lifespan's shared state seeded.
+
+    Route suites that skip ``create_app`` still reach code that reads
+    ``app.state.broadcaster`` and ``app.state.agent_activity_ring`` — every
+    agent-origin panel command records into the ring — so a bare mount without
+    them tests a state the shipped app never has. Both are seeded here, a
+    ``MagicMock`` broadcaster and an empty bounded ring; *state* sets further
+    ``app.state`` attributes and overrides either default.
+    """
+    from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+
+    app = FastAPI()
+    for router in routers:
+        app.include_router(router)
+    app.state.broadcaster = MagicMock()
+    app.state.agent_activity_ring = deque(maxlen=ACTIVITY_RING_MAX)
+    for name, value in state.items():
+        setattr(app.state, name, value)
+    return app

@@ -21,9 +21,10 @@
  * arrives once, at boot, and every gallery that renders afterwards must agree
  * with it — including ones constructed before it landed.
  *
- * Absence of the field means ENABLED, matching the server's own
- * `getattr(app.state, "scaffold_write_enabled", True)` default: only an
- * explicit `false` withdraws the controls. A null payload — a failed or hung
+ * Absence of the field means ENABLED on the client only as a boot-time
+ * placeholder: the server always sends it, and a server app that never
+ * resolved the tier refuses writes. Only an explicit `false` withdraws the
+ * controls. A null payload — a failed or hung
  * `/api/panels` — leaves the posture as it stands; a read that never landed is
  * not a statement about the deployment.
  *
@@ -48,14 +49,36 @@ export const WRITES_DISABLED_REASON =
 let writesEnabled = true;
 
 /**
+ * The config file the server could not read, which closed writes, or null.
+ * @type {string|null}
+ */
+let unreadablePath = null;
+
+/**
  * Record the deployment's gallery-write posture from a `/api/panels` payload.
  *
  * @param {any} panelsPayload - the `GET /api/panels` response, or null.
  * @returns {boolean} the posture in force after this call.
  */
 export function applyScaffoldWriteGate(panelsPayload) {
-  if (panelsPayload) writesEnabled = panelsPayload.scaffold_write_enabled !== false;
+  if (panelsPayload) {
+    writesEnabled = panelsPayload.scaffold_write_enabled !== false;
+    const p = panelsPayload.config_unreadable_path;
+    unreadablePath = typeof p === 'string' && p ? p : null;
+  }
   return writesEnabled;
+}
+
+/**
+ * Why the gallery may not write: the unreadable config file when one closed
+ * writes, else the deployment's posture.
+ *
+ * @returns {string}
+ */
+export function writesDisabledReason() {
+  return unreadablePath
+    ? `Editing is off: ${unreadablePath} could not be read.`
+    : WRITES_DISABLED_REASON;
 }
 
 /**

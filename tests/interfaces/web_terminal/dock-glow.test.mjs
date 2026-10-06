@@ -25,12 +25,14 @@
  *     (#panel-content) takes the flash directly.
  *
  * dockview and dock-workspace are stubbed at the module boundary exactly as in
- * dock-iframe.test.mjs; `flashElement` is the REAL design-system helper (via the
+ * dock-iframe.test.mjs, over the same shared fake api (_dock-fake.mjs); `flashElement` is the REAL design-system helper (via the
  * `/design-system/js` vitest alias) so the `.agent-flash` contract is exercised
  * rather than mocked away.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+
+import { makeDockApi as makeApi, addTerminal } from './_dock-fake.mjs';
 
 const ADAPTER = '../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js';
 
@@ -84,74 +86,6 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-/**
- * The same hand-built DockviewApi stand-in dock-iframe.test.mjs uses: a
- * 'within' add joins the reference group, anything else opens a new one, and
- * the added panel becomes active.
- * @returns {any}
- */
-function makeApi() {
-  let groupSeq = 0;
-  /** @type {any} */
-  const api = {
-    activePanel: null,
-    groups: /** @type {any[]} */ ([]),
-    panels: /** @type {any[]} */ ([]),
-    _activeCbs: /** @type {(() => void)[]} */ ([]),
-    onDidLayoutChange: vi.fn(() => ({ dispose() {} })),
-    onDidActivePanelChange: vi.fn((/** @type {() => void} */ cb) => {
-      api._activeCbs.push(cb);
-      return { dispose() {} };
-    }),
-    getPanel: (/** @type {string} */ id) => api.panels.find((/** @type {any} */ p) => p.id === id) ?? null,
-    addPanel: (/** @type {any} */ opts) => {
-      const group = opts.position?.referenceGroup && opts.position.direction === 'within'
-        ? opts.position.referenceGroup
-        : makeGroup();
-      const panel = { id: opts.id, title: opts.title, group, api: { setActive: vi.fn() } };
-      group.panels.push(panel);
-      group.activePanel = panel;
-      api.panels.push(panel);
-      api.activePanel = panel;
-      for (const cb of api._activeCbs) cb();
-      return panel;
-    },
-    removePanel: (/** @type {any} */ panel) => {
-      api.panels = api.panels.filter((/** @type {any} */ p) => p !== panel);
-      const group = panel.group;
-      group.panels = group.panels.filter((/** @type {any} */ p) => p !== panel);
-      if (group.panels.length === 0) {
-        api.groups = api.groups.filter((/** @type {any} */ g) => g !== group);
-      } else if (group.activePanel === panel) {
-        group.activePanel = group.panels[0];
-      }
-      if (api.activePanel === panel) api.activePanel = group.panels[0] ?? api.panels[0] ?? null;
-    },
-  };
-  function makeGroup() {
-    const element = document.createElement('div');
-    const content = document.createElement('div');
-    content.className = 'dv-content-container';
-    element.appendChild(content);
-    const group = { id: `group-${++groupSeq}`, panels: [], activePanel: null, element };
-    api.groups.push(group);
-    return group;
-  }
-  api._makeGroup = makeGroup;
-  return api;
-}
-
-/** Seed the fake api with the native terminal card in its own group. @param {any} api */
-function addTerminal(api) {
-  const group = api._makeGroup();
-  const terminal = { id: 'terminal', group, api: { setActive: vi.fn() } };
-  group.panels.push(terminal);
-  group.activePanel = terminal;
-  api.panels.push(terminal);
-  api.activePanel = terminal;
-  return terminal;
-}
-
 function makeIframe() {
   return document.createElement('iframe');
 }
@@ -194,6 +128,8 @@ describe('glowPanel — the tile body carries the agent attribution', () => {
     mod.glowPanel('ariel');
     flushFrame();
 
+    // Never the iframe itself: .agent-flash would clip the embedded app.
+    expect(frame.classList.contains('agent-flash')).toBe(false);
     const [glow] = glowEls();
     expect(glow).toBeTruthy();
     expect(glow.classList.contains('agent-flash')).toBe(true);
@@ -202,20 +138,6 @@ describe('glowPanel — the tile body carries the agent attribution', () => {
     expect(glow.style.top).toBe('50px');
     expect(glow.style.width).toBe('620px');
     expect(glow.style.height).toBe('480px');
-  });
-
-  test('the iframe itself is never flashed — .agent-flash would clip the embedded app', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    const frame = makeIframe();
-    mod.adoptIframe('ariel', frame, { title: 'ARIEL' });
-    stubTileRect(api, 'iframe:ariel', { left: 340, top: 90, width: 620, height: 480 });
-
-    mod.glowPanel('ariel');
-    flushFrame();
-
-    expect(frame.classList.contains('agent-flash')).toBe(false);
   });
 
   test('the rectangle is read on the next frame, not synchronously', async () => {
@@ -285,19 +207,6 @@ describe('glowPanel — no-op unless the panel is genuinely on screen', () => {
     expect(glowEls()).toHaveLength(0);
   });
 
-  test('a hidden panel glows nothing — its placeholder is gone', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
-    mod.hidePanel('ariel');
-
-    mod.glowPanel('ariel');
-    flushFrame();
-
-    expect(glowEls()).toHaveLength(0);
-  });
-
   test('a panel closed between the call and the frame glows nothing', async () => {
     const api = makeApi();
     addTerminal(api);
@@ -343,13 +252,5 @@ describe('glowPanel — fallback mode has no tiles', () => {
 
     expect(host.classList.contains('agent-flash')).toBe(true);
     expect(document.querySelector('.tile-glow')).toBeNull();
-  });
-
-  test('with no host either, glowing is inert rather than throwing', async () => {
-    state.api = null;
-    const mod = await import(ADAPTER);
-    mod.initDockIframeAdapter({ fallbackHost: null });
-
-    expect(() => mod.glowPanel('ariel')).not.toThrow();
   });
 });

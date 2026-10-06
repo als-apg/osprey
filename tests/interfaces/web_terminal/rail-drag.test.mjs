@@ -102,18 +102,13 @@ async function wire(api, onDropPanel = vi.fn()) {
 }
 
 describe('drag-over acceptance (paints dockview\'s drop overlay)', () => {
-  test('accepts a rail drag on a split geometry', async () => {
+  test.each([
+    ['a split geometry', 'content', 'right'],
+    ['an edge-of-grid target', 'edge', 'left'],
+  ])('accepts a rail drag on %s', async (_name, target, position) => {
     const api = makeApi();
     await wire(api);
-    const e = overEvent({ target: 'content', position: 'right' });
-    api._overCb(e);
-    expect(e.accepted).toBe(true);
-  });
-
-  test('accepts edge-of-grid targets', async () => {
-    const api = makeApi();
-    await wire(api);
-    const e = overEvent({ target: 'edge', position: 'left' });
+    const e = overEvent({ target, position });
     api._overCb(e);
     expect(e.accepted).toBe(true);
   });
@@ -141,32 +136,19 @@ describe('drag-over acceptance (paints dockview\'s drop overlay)', () => {
 });
 
 describe('drop routing', () => {
-  test('resolves the payload and hands (id, {referenceGroup, direction}) to onDropPanel', async () => {
+  test.each([
+    ['bottom', 'below'],
+    ['top', 'above'],
+  ])('resolves the payload and hands overlay "%s" to onDropPanel as direction "%s"', async (position, direction) => {
     const api = makeApi();
     const group = { id: 'g1' };
     const { onDropPanel } = await wire(api);
 
-    api._dropCb(dropEvent({ id: 'okf', position: 'bottom', group }));
+    api._dropCb(dropEvent({ id: 'okf', position, group }));
 
-    // Overlay 'bottom' translates to addPanel's 'below' — the two vocabularies
-    // differ on the vertical axis and the untranslated value throws.
-    expect(onDropPanel).toHaveBeenCalledExactlyOnceWith('okf', {
-      referenceGroup: group,
-      direction: 'below',
-    });
-  });
-
-  test('overlay "top" translates to direction "above"', async () => {
-    const api = makeApi();
-    const group = { id: 'g1' };
-    const { onDropPanel } = await wire(api);
-
-    api._dropCb(dropEvent({ id: 'okf', position: 'top', group }));
-
-    expect(onDropPanel).toHaveBeenCalledExactlyOnceWith('okf', {
-      referenceGroup: group,
-      direction: 'above',
-    });
+    // The two vocabularies differ on the vertical axis, and addPanel throws on
+    // the untranslated value.
+    expect(onDropPanel).toHaveBeenCalledExactlyOnceWith('okf', { referenceGroup: group, direction });
   });
 
   test('a groupless (grid-edge) drop passes a direction-only position', async () => {

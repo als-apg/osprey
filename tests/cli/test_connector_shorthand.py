@@ -488,3 +488,14 @@ def test_init_still_refuses_the_stand_in_as_a_flag(tmp_path: Path) -> None:
     assert result.exit_code != 0
     assert "There is no --connector option" in _flat(result.output)
     assert not (target / "profile.yml").exists()
+
+
+def test_init_help_names_every_initable_connector_and_the_stand_in() -> None:
+    """The help is the first place a user meets the connector names, and it
+    reads them from the list the shorthand is validated against."""
+    result = CliRunner().invoke(init, ["--help"])
+
+    assert result.exit_code == 0, result.output
+    flat = _flat(result.output)
+    assert ", ".join(CLI_CONTROL_SYSTEM_TYPES) in flat
+    assert LIVE_STANDIN in flat

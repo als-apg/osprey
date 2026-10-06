@@ -16,11 +16,23 @@ import logging
 
 import pytest
 
+import osprey.models.provider_registry
 from osprey.cli.build_environment import (
     CredentialStatus,
     detect_provider_credentials,
     report_provider_credentials,
 )
+from osprey.models.provider_registry import ProviderRegistry
+from osprey.models.providers.base import BaseProvider
+
+SITE_GATEWAY_VAR = "SITE_GATEWAY_TOKEN"
+
+
+class _SiteGatewayAdapter(BaseProvider):
+    name = "site-gateway"
+    description = "A gateway a site registers for itself"
+    requires_api_key = True
+    api_key_env_var = SITE_GATEWAY_VAR
 
 
 @pytest.fixture
@@ -58,6 +70,16 @@ def _clear_provider_keys(monkeypatch):
     for var in PROVIDER_API_KEYS.values():
         if var is not None:
             monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture
+def a_registered_site_gateway(monkeypatch):
+    """A fresh singleton registry holding a site's own provider class."""
+    registry = ProviderRegistry()
+    registry.register_provider("site-gateway", __name__, "_SiteGatewayAdapter")
+    monkeypatch.setattr(osprey.models.provider_registry, "_registry", registry)
+    monkeypatch.delenv(SITE_GATEWAY_VAR, raising=False)
+    return registry
 
 
 def _status_for(statuses: list[CredentialStatus], provider: str) -> CredentialStatus:
@@ -164,6 +186,17 @@ class TestDetectProviderCredentials:
         expected = {p for p, v in PROVIDER_API_KEYS.items() if v is not None}
         assert {s.provider for s in statuses} == expected
 
+    @pytest.mark.usefixtures("a_registered_site_gateway")
+    def test_a_registered_provider_is_checked(self, project, profile_dir):
+        (profile_dir / ".env").write_text(f"{SITE_GATEWAY_VAR}=x\n", encoding="utf-8")
+
+        statuses = detect_provider_credentials(project, profile_dir=profile_dir)
+
+        gateway = _status_for(statuses, "site-gateway")
+        assert gateway.var == SITE_GATEWAY_VAR
+        assert gateway.found is True
+        assert gateway.source == "repo .env"
+
 
 class TestReportProviderCredentials:
     """The summary leads with the selected provider and prints found keys."""
@@ -252,6 +285,15 @@ class TestReportProviderCredentials:
         assert "ollama" in caplog.text
         warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert not warnings, "a keyless provider must not warn about a missing key"
+
+    @pytest.mark.usefixtures("a_registered_site_gateway")
+    def test_a_registered_provider_missing_its_key_warns(self, project, profile_dir, caplog):
+        with caplog.at_level(logging.DEBUG):
+            report_provider_credentials(project, "site-gateway", profile_dir=profile_dir)
+
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(SITE_GATEWAY_VAR in r.getMessage() for r in warnings)
+        assert "skipped" not in caplog.text
 
     def test_unknown_provider_does_not_crash_the_build(self, project, profile_dir, caplog):
         with caplog.at_level(logging.DEBUG):

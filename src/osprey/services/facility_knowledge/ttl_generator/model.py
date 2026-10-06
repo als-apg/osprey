@@ -36,8 +36,11 @@ import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from typing import TypeVar
 
 from osprey.services.facility_knowledge.seeder import NARAD_PREFIXES
+
+_K = TypeVar("_K")
 
 # ---------------------------------------------------------------------------
 # Namespaces and fixed vocabulary
@@ -241,11 +244,13 @@ def resolve_hierarchy_descriptions(
     }
     _collect_descriptions(tree, (), 0, collected)
     return HierarchyDescriptions(
-        ring=dict(sorted(collected["ring"].items())),
-        system=dict(sorted(collected["system"].items())),
-        family=dict(sorted(collected["family"].items())),
-        field=dict(sorted(collected["field"].items())),
-        subfield=dict(sorted(collected["subfield"].items())),
+        ring={(r,): t for (r,), t in sorted(collected["ring"].items())},
+        system={(r, s): t for (r, s), t in sorted(collected["system"].items())},
+        family={(r, s, f): t for (r, s, f), t in sorted(collected["family"].items())},
+        field={(r, s, f, d): t for (r, s, f, d), t in sorted(collected["field"].items())},
+        subfield={
+            (r, s, f, d, u): t for (r, s, f, d, u), t in sorted(collected["subfield"].items())
+        },
     )
 
 
@@ -300,7 +305,7 @@ def _collect_descriptions(
         _collect_descriptions(child, key, level_index + 1, collected)
 
 
-def _lookup_description(source: Mapping[object, object] | None, key: object) -> str | None:
+def _lookup_description(source: Mapping[_K, str] | None, key: _K) -> str | None:
     """Return the prose *source* holds for *key*, or ``None``.
 
     The join is exact: a key the mapping does not hold contributes no text.

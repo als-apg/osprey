@@ -23,7 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
+from osprey.services.ariel_search.enhancement._offload import run_blocking
+from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule, HealthResult
 from osprey.services.ariel_search.enhancement.qmd_export.writer import write_entry
 from osprey.utils.config_paths import resolve_config_relative_path
 from osprey.utils.logger import get_logger
@@ -203,20 +204,28 @@ class QmdExportModule(BaseEnhancementModule):
             return True
         return False
 
-    async def health_check(self) -> tuple[bool, str]:
+    async def health_check(self) -> HealthResult:
         """Check if module is ready.
 
+        The mirror root is created off the event loop.
+
         Returns:
-            Tuple of (healthy, message). Unhealthy when no ``mirror_path`` is
-            configured or the mirror root cannot be created.
+            Healthy when the mirror root exists or can be created; reason
+            ``config`` when no ``mirror_path`` is configured or the root cannot
+            be created.
         """
         if self._mirror_root is None:
-            return (False, "mirror_path is not configured")
+            return HealthResult(False, "mirror_path is not configured", "config")
+        return await run_blocking(self._mirror_health, self._mirror_root)
+
+    @staticmethod
+    def _mirror_health(root: Path) -> HealthResult:
+        """Create *root* if needed and report whether that worked."""
         try:
-            self._mirror_root.mkdir(parents=True, exist_ok=True)
+            root.mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            return (False, f"mirror path {self._mirror_root} is not writable: {e}")
-        return (True, "OK")
+            return HealthResult(False, f"mirror path {root} is not writable: {e}", "config")
+        return HealthResult(True, "OK", None)
 
 
 def _atomic_write_text(path: Path, text: str) -> None:

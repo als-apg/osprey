@@ -102,6 +102,13 @@ _COLD_CHANGE_NOTES = {
             "(start a new agent session) to pick up the new value. The switch "
             "itself is the `control_target_set` tool, not a config change."
         ),
+        "control_system.target_switch.probe_timeout_s": (
+            "cold — the controls server reads this when a switch probes the new "
+            "connection, through the config it cached at launch, so a patch does "
+            "not change the switch you are about to run. Restart the MCP server "
+            "(start a new agent session) to pick up the new value. The switch "
+            "itself is the `control_target_set` tool, not a config change."
+        ),
         "control_system.target_switch.probe_interval_s": (
             "cold — the target prober reads its interval once, when the controls "
             "server starts. Restart the MCP server (start a new agent session) to "
@@ -259,9 +266,10 @@ def _read_json_file(path: Path) -> dict | list | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        document: dict | list = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+    return document
 
 
 def _read_text_file(path: Path) -> str | None:

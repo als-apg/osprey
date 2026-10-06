@@ -983,7 +983,7 @@ def test_the_collect_all_preflight_reports_the_open_mode_refusal(
 def _open_mode_terminal_config(root: Path, *, lift: str) -> dict:
     """The rendered deployment above, opened up, with *lift* missing from one
     persona's shipped deny list and every other persona clean."""
-    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS
 
     config = _shared_card_config(root)
     del config["modules"]["web_terminals"]["users"][1]["access"]

@@ -98,10 +98,9 @@ def phoebus_bridge_url() -> str:
        definition; wins outright. The definition's rendered fallback is
        :func:`phoebus_bridge_default`, so on a rendered project this step
        already answers with the configured host/port.
-    2. ``PHOEBUS_BRIDGE_PORT`` env var overrides only the port.
-    3. ``phoebus.host`` / ``phoebus.port`` in config.yml
-       (:func:`phoebus_bridge_default`).
-    4. ``127.0.0.1:7979`` default (matches ``bridge_preferences.properties``).
+    2. ``phoebus.host`` / ``phoebus.port`` in config.yml, each defaulting to
+       ``127.0.0.1`` / ``7979`` (:func:`phoebus_bridge_default`) — what a
+       server launched outside a rendered entry resolves to.
     """
     import os
 
@@ -111,20 +110,17 @@ def phoebus_bridge_url() -> str:
     if full:
         return full.rstrip("/")
 
-    config = load_osprey_config()
-    port_env = os.environ.get("PHOEBUS_BRIDGE_PORT")
-    if port_env:
-        ph = config.get("phoebus", {}) or {}
-        host = ph.get("host", "127.0.0.1")
-        return f"http://{host}:{int(port_env)}"
-    return phoebus_bridge_default(config)
+    return phoebus_bridge_default(load_osprey_config())
 
 
 _PANEL_TOKEN_LATCH: str | None = None
 
 
 def reset_panel_token_latch() -> None:
-    """Forget the last panel token :func:`_panel_auth_headers` saw (tests only)."""
+    """Forget the last panel token :func:`_panel_auth_headers` saw.
+
+    The latch is process state: one caller's token is otherwise sent by the next.
+    """
     global _PANEL_TOKEN_LATCH
     _PANEL_TOKEN_LATCH = None
 
@@ -512,7 +508,9 @@ def resolve_activity_target() -> str | None:
         from osprey.mcp_server.control_system.target_banner import resolve_control_target
 
         target = resolve_control_target(_NO_TARGET)
-    except Exception as exc:  # pragma: no cover - defensive; resolver is total
+    except Exception as exc:
+        # Reachable: the resolver does not guard its record reader, so a reader
+        # that raises lands here and the event goes out unstamped.
         logger.debug("Could not resolve the session control-system target: %s", exc)
         return None
     return target or None

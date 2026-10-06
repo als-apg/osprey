@@ -1,6 +1,7 @@
 """Tests for the public extension types in `search/base.py`.
 
-Covers the descriptor's opt-in fields (`accepts_expansion`, `query_parser`),
+Covers the parameter descriptor's opt-in fields (`required`, `depends_on`),
+the tool descriptor's opt-in fields (`accepts_expansion`, `query_parser`),
 the parsed-query types (`PatternSpan`, `ParsedKeywordQuery`), the expansion
 transparency types (`ExpansionGroup`, `QueryExpansion`) and the richer module
 return shape (`ModuleOutput`), plus their package re-exports.
@@ -13,10 +14,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
+from osprey.services.ariel_search.search import keyword, qmd, semantic
 from osprey.services.ariel_search.search.base import (
     ExpansionGroup,
     ModuleOutput,
+    ParameterDescriptor,
     ParsedKeywordQuery,
     PatternSpan,
     QueryExpansion,
@@ -112,6 +116,195 @@ class TestBuiltInDescriptors:
         assert isinstance(desc, SearchToolDescriptor)
         assert isinstance(desc.accepts_expansion, bool)
         assert desc.query_parser is None or callable(desc.query_parser)
+
+
+def _image_search_config() -> ARIELConfig:
+    """A config under which the hybrid module also offers picture search."""
+    return ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://test"},
+            "search_modules": {"hybrid": {"enabled": True}},
+            "enhancement_modules": {"image_embedding": {"enabled": True}},
+        }
+    )
+
+
+class TestParameterDescriptorRequiredDependsOn:
+    """The `required` and `depends_on` opt-in fields on ParameterDescriptor."""
+
+    def test_fields_default_to_opted_out(self):
+        """A descriptor built with only the pre-existing fields opts into nothing."""
+        desc = ParameterDescriptor("book", "Book", "Logbook", "text", None)
+        assert desc.required is False
+        assert desc.depends_on == ()
+
+    def test_unset_fields_are_omitted_from_to_dict(self):
+        """Unset fields add no keys to the serialized form."""
+        d = ParameterDescriptor("book", "Book", "Logbook", "text", None).to_dict()
+        assert "required" not in d
+        assert "depends_on" not in d
+
+    def test_set_fields_are_serialized(self):
+        """A descriptor that declares both fields serializes them JSON-friendly."""
+        desc = ParameterDescriptor(
+            name="scan",
+            label="Scan",
+            description="Scan of the chosen day",
+            param_type="dynamic_select",
+            default=None,
+            required=True,
+            depends_on=("book", "day"),
+        )
+        d = desc.to_dict()
+        assert d["required"] is True
+        assert d["depends_on"] == ["book", "day"]
+        assert isinstance(d["depends_on"], list)
+
+    def test_fields_serialize_independently(self):
+        """Each field is emitted on its own when only it is set."""
+        only_required = ParameterDescriptor("a", "A", "", "text", None, required=True).to_dict()
+        assert only_required["required"] is True
+        assert "depends_on" not in only_required
+
+        only_depends = ParameterDescriptor("b", "B", "", "text", None, depends_on=("a",)).to_dict()
+        assert only_depends["depends_on"] == ["a"]
+        assert "required" not in only_depends
+
+    def test_positional_construction_is_unchanged(self):
+        """The pre-existing fields keep their positional order."""
+        desc = ParameterDescriptor(
+            "threshold",
+            "Threshold",
+            "help",
+            "float",
+            0.5,
+            0.0,
+            1.0,
+            0.1,
+            None,
+            "Retrieval",
+            "type here",
+            "/api/options",
+        )
+        assert desc.section == "Retrieval"
+        assert desc.options_endpoint == "/api/options"
+        assert desc.required is False
+        assert desc.depends_on == ()
+
+    def test_fields_are_frozen(self):
+        """The new fields cannot be rebound after construction."""
+        desc = ParameterDescriptor("book", "Book", "Logbook", "text", None)
+        with pytest.raises(FrozenInstanceError):
+            desc.required = True  # type: ignore[misc]
+        with pytest.raises(FrozenInstanceError):
+            desc.depends_on = ("x",)  # type: ignore[misc]
+
+
+_KEYWORD_SNAPSHOT = [
+    {
+        "name": "include_highlights",
+        "label": "Include Highlights",
+        "description": "Include highlighted snippets in search results",
+        "type": "bool",
+        "default": True,
+        "section": "Options",
+    },
+    {
+        "name": "fuzzy_fallback",
+        "label": "Fuzzy Fallback",
+        "description": "Fall back to fuzzy matching when no exact matches are found",
+        "type": "bool",
+        "default": True,
+        "section": "Options",
+    },
+]
+
+_SEMANTIC_SNAPSHOT = [
+    {
+        "name": "similarity_threshold",
+        "label": "Similarity Threshold",
+        "description": "Minimum cosine similarity score for results (0-1)",
+        "type": "float",
+        "default": 0.5,
+        "section": "Retrieval",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+    },
+]
+
+_HYBRID_SNAPSHOT = [
+    {
+        "name": "rerank",
+        "label": "Rerank Results",
+        "description": (
+            "Re-order candidates with the sidecar's reranker model for better ordering. "
+            "Significantly slower \u2014 an LLM reviews each result. If reranking fails, "
+            "the results are shown without it."
+        ),
+        "type": "bool",
+        "default": True,
+        "section": "Retrieval",
+    },
+    {
+        "name": "candidate_limit",
+        "label": "Candidate Limit",
+        "description": (
+            "How many candidates the reranker considers. Lowering it trades recall for latency."
+        ),
+        "type": "int",
+        "default": 40,
+        "section": "Retrieval",
+        "min": 1,
+        "max": 200,
+        "step": 1,
+    },
+]
+
+_HYBRID_IMAGE_SNAPSHOT = [
+    *_HYBRID_SNAPSHOT,
+    {
+        "name": "include_images",
+        "label": "Search Pictures",
+        "description": (
+            "Also match entries by what their attached plots, screenshots and photos show."
+        ),
+        "type": "bool",
+        "default": True,
+        "section": "Retrieval",
+    },
+]
+
+
+class TestShippedParameterDescriptorSnapshot:
+    """Every shipped module's parameter descriptors serialize exactly as before."""
+
+    @pytest.mark.parametrize(
+        ("build", "expected"),
+        [
+            pytest.param(keyword.get_parameter_descriptors, _KEYWORD_SNAPSHOT, id="keyword"),
+            pytest.param(semantic.get_parameter_descriptors, _SEMANTIC_SNAPSHOT, id="semantic"),
+            pytest.param(
+                lambda: semantic.get_parameter_descriptors(_image_search_config()),
+                _SEMANTIC_SNAPSHOT,
+                id="semantic-config",
+            ),
+            pytest.param(qmd.get_parameter_descriptors, _HYBRID_SNAPSHOT, id="hybrid"),
+            pytest.param(
+                lambda: qmd.get_parameter_descriptors(_image_search_config()),
+                _HYBRID_IMAGE_SNAPSHOT,
+                id="hybrid-images",
+            ),
+        ],
+    )
+    def test_output_matches_snapshot(self, build, expected):
+        """The serialized list is identical, including key order, and adds no new keys."""
+        serialized = [p.to_dict() for p in build()]
+        assert serialized == expected
+        assert [list(d) for d in serialized] == [list(d) for d in expected]
+        for d in serialized:
+            assert "required" not in d
+            assert "depends_on" not in d
 
 
 class TestPatternSpan:

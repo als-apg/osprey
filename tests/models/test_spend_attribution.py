@@ -18,6 +18,7 @@ from osprey.models.spend_attribution import (
     acting_surface,
     apply_attribution_env,
     attribution_headers,
+    declared_header_names,
     gateway_for,
     merge_custom_headers,
     render_custom_headers,
@@ -162,6 +163,26 @@ class TestApplyAttributionEnv:
         environ2: dict[str, str] = {}
         apply_attribution_env(environ2, None)
         assert environ2 == {}
+
+
+class TestDeclaredHeaderNames:
+    def test_names_every_header_the_variable_carries(self):
+        environ = {CUSTOM_HEADERS_ENV: "X-Corp-Trace: abc\nx-litellm-tags: osprey"}
+        assert declared_header_names(environ) == frozenset({"x-corp-trace", "x-litellm-tags"})
+
+    def test_an_unset_or_blank_variable_declares_nothing(self):
+        assert declared_header_names({}) == frozenset()
+        assert declared_header_names({CUSTOM_HEADERS_ENV: "\n  \n"}) == frozenset()
+
+    def test_a_line_without_a_header_name_declares_nothing(self):
+        environ = {CUSTOM_HEADERS_ENV: "no-colon-here\n: value\nX-A: 1"}
+        assert declared_header_names(environ) == frozenset({"x-a"})
+
+    def test_the_attribution_headers_are_declared_once_applied(self, monkeypatch):
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
+        environ = {CUSTOM_HEADERS_ENV: "X-Corp-Trace: abc123"}
+        apply_attribution_env(environ, LITELLM_GATEWAY)
+        assert declared_header_names(environ) == {END_USER_HEADER, TAGS_HEADER, "x-corp-trace"}
 
 
 class TestBuiltinTableAgreesWithAdapters:

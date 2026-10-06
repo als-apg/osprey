@@ -14,6 +14,9 @@ from osprey.interfaces.ariel.api.drafts import (
     read_draft,
     write_draft,
 )
+from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by name
+    example_entry_fields_fixture,
+)
 
 # ---------------------------------------------------------------------------
 # Draft file store tests
@@ -146,3 +149,38 @@ def test_read_draft_resolves_dir_without_dict_injection(tmp_path, monkeypatch):
 
     # No NameError, no crash — just a clean "not found".
     assert read_draft("draft-missing") is None
+
+
+@pytest.mark.usefixtures("example_entry_fields")
+async def test_mcp_draft_fields_read_back_through_api(tmp_path, monkeypatch):
+    """A draft written by entry_create with fields serves them from GET /api/drafts/{id}."""
+    import osprey.interfaces.ariel.api.drafts as drafts_mod
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+    from osprey.mcp_server.ariel.server_context import initialize_ariel_context
+    from osprey.mcp_server.ariel.tools.entry import entry_create
+    from tests.mcp_server.ariel.conftest import get_tool_fn
+
+    monkeypatch.chdir(tmp_path)
+    ariel = {
+        "database": {"uri": "postgresql://localhost/test"},
+        "ingestion": {"adapter": "generic_json", "source_url": str(tmp_path / "x.json")},
+    }
+    (tmp_path / "config.yml").write_text(json.dumps({"ariel": ariel}))
+    initialize_ariel_context()
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+    monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: drafts_dir)
+
+    result = await get_tool_fn(entry_create)(
+        subject="Scan notes", details="Body", fields={"book": "physics", "day": "2026-10-01"}
+    )
+    draft_id = json.loads(result)["draft_id"]
+
+    app = FastAPI()
+    app.include_router(draft_router)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(f"/api/drafts/{draft_id}")
+
+    assert resp.status_code == 200
+    assert resp.json()["fields"] == {"book": "physics", "day": "2026-10-01"}

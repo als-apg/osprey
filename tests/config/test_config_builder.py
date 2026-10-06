@@ -324,11 +324,12 @@ class TestConfigFileShape:
         ):
             ConfigBuilder(str(config_file))
 
-    def test_a_non_mapping_execution_section_is_passed_through_untouched(self, tmp_path):
+    def test_a_non_mapping_execution_section_is_refused(self, tmp_path):
         config_file = tmp_path / "config.yml"
         config_file.write_text("execution: subprocess\n")
 
-        assert ConfigBuilder(str(config_file))._get_execution_config() == "subprocess"
+        with pytest.raises(ValueError, match="'execution' in .* must be a mapping, got str"):
+            ConfigBuilder(str(config_file))
 
 
 class TestGetFacilityTimezone:

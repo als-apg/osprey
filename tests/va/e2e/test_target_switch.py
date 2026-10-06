@@ -367,7 +367,7 @@ def raw_config(
 
     def block(port: int, probe: str | None) -> dict:
         configured = {
-            "timeout": CONNECTOR_TIMEOUT_S,
+            "timeout_s": CONNECTOR_TIMEOUT_S,
             "gateways": {
                 "read_only": {"address": "localhost", "port": port, "use_name_server": True},
                 "write_access": {"address": "localhost", "port": port, "use_name_server": True},

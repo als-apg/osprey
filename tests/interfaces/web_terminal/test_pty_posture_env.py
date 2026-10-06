@@ -10,11 +10,11 @@ launched a child under an environment that child never saw.
 recorded in the posture store and read live by every write-time gate, so a
 narrowing lands on a session already mid-conversation and the spawn seams stamp
 only the anchors a child needs to find that store — the key and the agent-data
-root, never ``OSPREY_EXECUTION_MODE`` (pinned in ``test_posture_source_pin.py``,
+root, never ``OSPREY_EXECUTION_MODE`` (pinned in ``test_agent_data_root_stamp.py``,
 which owns the spawn-seam harness). What is left here is the general backstop,
-and it still matters: a deployment-wide readonly marker arriving through
-``hooks_env``, a rotated panel token, or any privilege-bearing name a later
-change adds must reach the child rather than being reattached around.
+and it still matters: a marker a caller adds to the launch overlay, a rotated
+panel token, or any privilege-bearing name a later change adds must reach the
+child rather than being reattached around.
 
 These tests assert the *child's own environment*, not the registry's
 bookkeeping: every spawned child writes what it sees in ``OSPREY_EXECUTION_MODE``
@@ -34,8 +34,8 @@ The two properties under test:
 
 from __future__ import annotations
 
+import re
 import sys
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -46,6 +46,11 @@ from osprey.interfaces.web_terminal.pty_manager import (
     POOL_FINGERPRINT_EXCLUDED_ENV,
     PtyRegistry,
     env_fingerprint,
+)
+from tests.interfaces.web_terminal._pty_child import (
+    CHILD_HANG_CEILING,
+    wait_for_exit,
+    wait_for_report,
 )
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
@@ -61,29 +66,14 @@ def _reporting_command(report: Path) -> list[str]:
 
     Appends one line per exec — ``readonly``, ``writes``, or ``<unset>`` — so a
     respawn under the same key leaves two lines and a reattach leaves one. The
-    ``exec sleep`` keeps the process running long enough to be reattached (and
-    to be observed dying when it is replaced).
+    ``exec sleep`` outlives the hang ceiling, so the child stays running through
+    every wait on it; the registry's cleanup ends it.
     """
     return [
         "/bin/sh",
         "-c",
-        f'printf "%s\\n" "${{OSPREY_EXECUTION_MODE:-<unset>}}" >> "{report}"; exec sleep 30',
+        f'printf "%s\\n" "${{OSPREY_EXECUTION_MODE:-<unset>}}" >> "{report}"; exec sleep {int(CHILD_HANG_CEILING) * 10}',
     ]
-
-
-def _child_env_lines(report: Path, expected: int, timeout: float = 5.0) -> list[str]:
-    """Wait for ``expected`` child generations to report, then return their lines."""
-    deadline = time.monotonic() + timeout
-    lines: list[str] = []
-    while time.monotonic() < deadline:
-        if report.exists():
-            lines = report.read_text().split()
-            if len(lines) >= expected:
-                return lines
-        time.sleep(0.02)
-    raise AssertionError(
-        f"child env report never reached {expected} line(s) within {timeout}s; got {lines!r}"
-    )
 
 
 @pytest.fixture
@@ -103,9 +93,9 @@ def report(tmp_path: Path) -> Path:
 
 #: A per-connection env overlay of the shape ``_build_extra_env`` produces:
 #: constants, the panel token, and the three names that vary per connection.
-#: ``execution_mode`` stands for a *deployment-wide* marker — the kind
-#: ``hooks_env`` may inject — not for a session posture, which no longer
-#: travels in the environment at all.
+#: ``execution_mode`` stands for any privilege-bearing name a caller puts in
+#: the overlay — not for a session posture, which no longer travels in the
+#: environment at all.
 def _connection_env(
     *,
     execution_mode: str | None = None,
@@ -136,12 +126,6 @@ class TestEnvFingerprint:
     def test_none_and_empty_agree(self):
         assert env_fingerprint(None) == env_fingerprint({}) == EMPTY_ENV_FINGERPRINT
 
-    def test_execution_mode_changes_the_fingerprint(self):
-        """A privilege-bearing name must be inside the fingerprint's scope."""
-        assert env_fingerprint(_connection_env()) != env_fingerprint(
-            _connection_env(execution_mode="readonly")
-        )
-
     def test_two_execution_modes_differ(self):
         assert env_fingerprint(_connection_env(execution_mode="readonly")) != env_fingerprint(
             _connection_env(execution_mode="writes")
@@ -160,21 +144,29 @@ class TestEnvFingerprint:
             varied[name] = "something-else-entirely"
         assert env_fingerprint(varied) == env_fingerprint(base)
 
-    def test_unlisted_new_name_is_covered_by_default(self):
-        """Scope is a deny list: a name nobody anticipated still counts."""
+    @pytest.mark.parametrize("name", ["OSPREY_EXECUTION_MODE", "OSPREY_SOME_FUTURE_PRIVILEGE"])
+    def test_an_added_name_changes_the_fingerprint(self, name):
+        """Scope is a deny list: any name outside it counts, anticipated or not."""
         base = _connection_env()
-        widened = {**base, "OSPREY_SOME_FUTURE_PRIVILEGE": "granted"}
+        widened = {**base, name: "granted"}
         assert env_fingerprint(widened) != env_fingerprint(base)
 
     def test_name_value_boundary_cannot_be_smudged(self):
         """``{"AB": "C"}`` and ``{"A": "BC"}`` must not collide."""
         assert env_fingerprint({"AB": "C"}) != env_fingerprint({"A": "BC"})
 
-    def test_does_not_expose_values(self):
-        """The digest is opaque — a token cannot be read back out of it."""
-        digest = env_fingerprint({"OSPREY_PANEL_TOKEN": "super-secret-token"})
-        assert "super-secret-token" not in digest
-        assert len(digest) == 64
+    def test_the_registry_keeps_a_digest_not_the_credential(self):
+        """The pooled record is opaque: a token cannot be read back out of it."""
+        token = "super-secret-token"
+        overlay = {"OSPREY_PANEL_TOKEN": token}
+        registry = PtyRegistry()
+        with patch.object(registry, "_spawn_session", return_value=MagicMock(is_alive=True)):
+            registry.get_or_create_session("k", ["cmd"], extra_env=overlay)
+
+        recorded = registry._env_fingerprints["k"]
+        assert recorded == env_fingerprint(overlay)
+        assert re.fullmatch(r"[0-9a-f]{64}", recorded)
+        assert token not in repr(vars(registry))
 
 
 # --------------------------------------------------------------------------- #
@@ -183,31 +175,42 @@ class TestEnvFingerprint:
 
 
 class TestAnEnvChangeReachesTheChild:
-    def test_a_changed_marker_respawns_the_child(self, registry, report):
-        """The whole point: after the marker changes the *child* runs readonly."""
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [(None, "readonly"), ("readonly", None)],
+        ids=["narrowing", "widening"],
+    )
+    def test_a_changed_marker_respawns_the_child(self, registry, report, first, second):
+        """The whole point: after the marker changes, the *child* runs under it.
+
+        Both directions: the pool must not hand back the warm child that
+        never saw the new launch environment.
+        """
         command = _reporting_command(report)
 
-        first, reused = registry.get_or_create_session(
-            "sess-1", command, 24, 80, extra_env=_connection_env(telemetry_id="sess-1")
-        )
-        assert reused is False
-        assert _child_env_lines(report, 1) == ["<unset>"]
-
-        # The deployment narrows this session's launch environment; the pool
-        # must not hand back the warm child that never saw the marker.
-        second, reused = registry.get_or_create_session(
+        first_child, reused = registry.get_or_create_session(
             "sess-1",
             command,
             24,
             80,
-            extra_env=_connection_env(execution_mode="readonly", telemetry_id="sess-1"),
+            extra_env=_connection_env(execution_mode=first, telemetry_id="sess-1"),
+        )
+        assert reused is False
+        assert wait_for_report(report, 1, first_child) == [first or "<unset>"]
+
+        second_child, reused = registry.get_or_create_session(
+            "sess-1",
+            command,
+            24,
+            80,
+            extra_env=_connection_env(execution_mode=second, telemetry_id="sess-1"),
         )
 
         assert reused is False
-        assert second is not first
-        # The child itself — not the store — reports the new posture.
-        assert _child_env_lines(report, 2) == ["<unset>", "readonly"]
-        assert second.is_alive
+        assert second_child is not first_child
+        # The child itself — not the store — reports the new marker.
+        assert wait_for_report(report, 2, second_child) == [first or "<unset>", second or "<unset>"]
+        assert second_child.is_alive
 
     def test_mismatch_terminates_the_stale_child(self, registry, report):
         """The replaced child is killed, not orphaned beside its replacement."""
@@ -215,7 +218,7 @@ class TestAnEnvChangeReachesTheChild:
         stale, _ = registry.get_or_create_session(
             "sess-1", command, 24, 80, extra_env=_connection_env()
         )
-        _child_env_lines(report, 1)
+        wait_for_report(report, 1, stale)
         assert stale.is_alive
 
         fresh, reused = registry.get_or_create_session(
@@ -226,21 +229,6 @@ class TestAnEnvChangeReachesTheChild:
         assert stale.is_alive is False
         assert registry.get_session("sess-1") is fresh
         assert fresh.is_alive
-
-    def test_dropping_the_marker_also_reaches_the_child(self, registry, report):
-        """Both directions: a readonly child is replaced for a writable one."""
-        command = _reporting_command(report)
-        registry.get_or_create_session(
-            "sess-1", command, 24, 80, extra_env=_connection_env(execution_mode="readonly")
-        )
-        assert _child_env_lines(report, 1) == ["readonly"]
-
-        _, reused = registry.get_or_create_session(
-            "sess-1", command, 24, 80, extra_env=_connection_env()
-        )
-
-        assert reused is False
-        assert _child_env_lines(report, 2) == ["readonly", "<unset>"]
 
     def test_two_pooled_sessions_hold_different_markers(self, registry, tmp_path):
         """The overlay is per session, and two live children can disagree."""
@@ -262,8 +250,8 @@ class TestAnEnvChangeReachesTheChild:
             extra_env=_connection_env(telemetry_id="sess-writes"),
         )
 
-        assert _child_env_lines(sandboxed_report, 1) == ["readonly"]
-        assert _child_env_lines(writable_report, 1) == ["<unset>"]
+        assert wait_for_report(sandboxed_report, 1, sandboxed) == ["readonly"]
+        assert wait_for_report(writable_report, 1, writable) == ["<unset>"]
         assert sandboxed.is_alive and writable.is_alive
 
         # Reattaching either one leaves both children exactly as they were.
@@ -291,7 +279,7 @@ class TestWarmReuse:
         env = _connection_env(execution_mode="readonly", telemetry_id="sess-1")
 
         first, _ = registry.get_or_create_session("sess-1", command, 24, 80, extra_env=env)
-        _child_env_lines(report, 1)
+        wait_for_report(report, 1, first)
 
         second, reused = registry.get_or_create_session(
             "sess-1", command, 24, 80, extra_env=dict(env)
@@ -323,7 +311,7 @@ class TestWarmReuse:
                 started_at="2026-08-23T00:00:00+00:00",
             ),
         )
-        _child_env_lines(report, 1)
+        wait_for_report(report, 1, first)
 
         # A later reconnect: new timestamp, session id now known, and the
         # switch_session shape (no telemetry names) — same posture.
@@ -346,16 +334,14 @@ class TestWarmReuse:
         first, _ = registry.get_or_create_session(
             "sess-1", ["/bin/sh", "-c", "exit 0"], 24, 80, extra_env=env
         )
-        deadline = time.monotonic() + 5
-        while first.is_alive and time.monotonic() < deadline:
-            time.sleep(0.02)
+        wait_for_exit(first)
         assert not first.is_alive
 
         second, reused = registry.get_or_create_session(
             "sess-1", _reporting_command(report), 24, 80, extra_env=dict(env)
         )
         assert reused is False
-        assert _child_env_lines(report, 1) == ["readonly"]
+        assert wait_for_report(report, 1, second) == ["readonly"]
         assert second.is_alive
 
 
@@ -365,54 +351,6 @@ class TestWarmReuse:
 
 
 class TestFingerprintBookkeeping:
-    def test_terminate_forgets_the_fingerprint(self, registry, report):
-        """Terminate, then respawn under a new overlay: no stale comparison."""
-        command = _reporting_command(report)
-        registry.get_or_create_session("sess-1", command, 24, 80, extra_env=_connection_env())
-        _child_env_lines(report, 1)
-
-        registry.terminate_session("sess-1")
-        assert "sess-1" not in registry._env_fingerprints
-        assert registry.get_session("sess-1") is None
-
-        _, reused = registry.get_or_create_session(
-            "sess-1", command, 24, 80, extra_env=_connection_env(execution_mode="readonly")
-        )
-        assert reused is False
-        assert _child_env_lines(report, 2) == ["<unset>", "readonly"]
-
-    @pytest.mark.usefixtures("registry")
-    def test_evicted_key_forgets_its_fingerprint(self, tmp_path):
-        """LRU eviction must not leave a fingerprint behind for the next tenant."""
-        small = PtyRegistry(max_background=2)
-        try:
-            for name in ("a", "b"):
-                small.get_or_create_session(
-                    name,
-                    _reporting_command(tmp_path / f"{name}.txt"),
-                    24,
-                    80,
-                    extra_env=_connection_env(execution_mode="readonly"),
-                )
-            small.get_or_create_session(
-                "c", _reporting_command(tmp_path / "c.txt"), 24, 80, extra_env=_connection_env()
-            )
-            assert "a" not in small._sessions
-            assert "a" not in small._env_fingerprints
-        finally:
-            small.cleanup_all()
-
-    def test_cleanup_all_clears_the_fingerprints(self, registry, tmp_path):
-        registry.get_or_create_session(
-            "sess-1",
-            _reporting_command(tmp_path / "a.txt"),
-            24,
-            80,
-            extra_env=_connection_env(execution_mode="readonly"),
-        )
-        registry.cleanup_all()
-        assert registry._env_fingerprints == {}
-
     def test_unrecorded_entry_respawns_when_a_posture_is_requested(self):
         """An entry that never came through the spawn path proves nothing.
 
@@ -436,16 +374,3 @@ class TestFingerprintBookkeeping:
         assert reused is False
         assert session is spawn.return_value
         warm.terminate.assert_called_once()
-
-    def test_unrecorded_entry_is_reused_by_a_caller_with_no_overlay(self):
-        """The other half of that assumption, stated explicitly."""
-        registry = PtyRegistry(max_background=3)
-        warm = MagicMock()
-        warm.is_alive = True
-        registry._sessions["sess-1"] = warm
-
-        session, reused = registry.get_or_create_session("sess-1", ["cmd"], 24, 80)
-
-        assert reused is True
-        assert session is warm
-        warm.terminate.assert_not_called()

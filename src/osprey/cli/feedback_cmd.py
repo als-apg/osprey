@@ -817,12 +817,12 @@ def pair_records(
     try:
         for context in contexts:
             context_id = context.get("id")
-            header = pending.pop(context_id, None) if isinstance(context_id, str) else None
-            if header is None:
+            paired_header = pending.pop(context_id, None) if isinstance(context_id, str) else None
+            if paired_header is None:
                 orphans += 1
                 logger.debug("Dropped feedback context %r: no header carries that id", context_id)
                 continue
-            sink(_merged_record(header, context))
+            sink(_merged_record(paired_header, context))
             paired += 1
     except BaseException:
         # Best-effort on the way out: the failure already travelling is the one
@@ -1162,7 +1162,7 @@ class _JsonArrayWriter:
     single record in memory.
     """
 
-    def __init__(self, write: Callable[[str], None]) -> None:
+    def __init__(self, write: Callable[[str], object]) -> None:
         self._write = write
         #: Records written so far -- read afterwards for the summary line.
         self.count = 0
@@ -1212,7 +1212,7 @@ def _silence_stdout() -> None:
 
 
 @contextmanager
-def _export_sink(output_path: Path | None) -> Iterator[Callable[[str], None]]:
+def _export_sink(output_path: Path | None) -> Iterator[Callable[[str], object]]:
     """Yield the function an export writes its text through."""
     if output_path is None:
         # ALLOWLISTED raw click.echo, not a renderer primitive: with no

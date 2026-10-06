@@ -125,6 +125,23 @@ its share of the machine. A facility whose hosts publish no such statistics has
 to measure them itself, which is a ``health.plugins`` module rather than a YAML
 check.
 
+Recipe: a large shared volume
+-----------------------------
+
+``file_system.disk_space`` warns when the filesystem holding the project is at
+least 90 % full or has less than 1 GB free. On a multi-terabyte shared volume
+that runs at 91 % by design, hundreds of GB are still free, yet the row warns
+on every run and ``osprey health`` exits 1. Raise the limits from the build
+profile's ``config:`` block:
+
+.. code-block:: yaml
+
+   config:
+     health.disk.max_used_percent: 97
+     health.disk.min_free_gb: 50
+
+The rules for both keys are in :ref:`config-health`.
+
 Recipe: archive freshness, without declaring a check
 -----------------------------------------------------
 
@@ -152,6 +169,27 @@ time, because the two would be one fact in two homes.
    On a ``mock`` control system the recorder idles by design, so the check
    reports the archive as **stale** — a ``warning``, never an ``error``, and
    an honest answer: the store is reachable, it is simply not being written.
+
+Which account each card and worker writes as
+--------------------------------------------
+
+The control system records the account name a write arrives under. The built-in
+``web_terminals`` category needs no configuration: it asks every web-terminal
+card and every dispatch worker which name its process runs as (``ca_user`` on
+its ``/health``) and compares that with the name your config intends, one row
+each.
+
+- A card behind a login wall (``auth.method: password`` or ``oidc``) should run
+  as its roster ``control_identity``. Every other card runs as ``osprey``.
+- Dispatch worker *i* should run as ``osprey-dispatch-<i>``.
+
+A row is an ``error`` when the name differs, or when the image is too old to
+report one while a name other than ``osprey`` is expected — that image ignores
+the setting, so rebuild and redeploy. It is a ``warning`` when the container
+started without root and so could not apply the name (``/health`` then carries
+``control_identity_skipped``), or when the process does not answer. Workers on
+a bridge network publish no host port, so their rows are ``skip`` rows; check
+those with ``docker exec <worker> whoami``.
 
 Checks that need real Python
 ----------------------------

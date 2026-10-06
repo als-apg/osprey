@@ -154,7 +154,7 @@ class TestDockerfileContent:
         """npm is a runtime dependency, not a build-time convenience.
 
         The agent is launched as ``npx -y @anthropic-ai/claude-code@<version>``
-        (claude_launcher.py), so an apt cleanup that treats npm as build-only
+        (agent_runner/launcher.py), so an apt cleanup that treats npm as build-only
         breaks the agent at run time, not at build time. The reason is pinned
         alongside the absence of any purge in this layer, so a future edit has
         to confront it.
@@ -1057,8 +1057,8 @@ class TestSetupCapabilityConditional:
         """
         from fnmatch import fnmatchcase
 
+        from osprey.agent_runner.tool_names import DENY_DEFAULTS
         from osprey.cli.profile_conventions import SETUP_PATCH_TOOL
-        from osprey.cli.templates.claude_code import DENY_DEFAULTS
 
         assert not [e for e in DENY_DEFAULTS if fnmatchcase(SETUP_PATCH_TOOL, e)]
 

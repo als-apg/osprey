@@ -1,0 +1,1 @@
+An empty section in `config.yml` (for example a bare `services:`) now reads as no settings instead of failing on first use. A section that is not a mapping is refused at load with its key and file named.

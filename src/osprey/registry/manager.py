@@ -64,7 +64,7 @@ class RegistryManager:
         self.registry_path = registry_path
         self._initialized = False
 
-        self._registries = {
+        self._registries: dict[str, dict[str, Any]] = {
             "services": {},
             "providers": {},
             "ariel_search_modules": {},
@@ -159,7 +159,7 @@ class RegistryManager:
         return self._registries["providers"].get(name)
 
     def list_providers(self) -> list[str]:
-        """Get list of all registered provider names.
+        """Names of the providers this registry loaded: the configured ones, never an excluded one.
 
         :return: List of provider names
         :rtype: list[str]
@@ -240,7 +240,7 @@ class RegistryManager:
     # Export
     # ------------------------------------------------------------------
 
-    def export_registry_to_json(self, output_dir: str = None) -> dict[str, Any]:
+    def export_registry_to_json(self, output_dir: str | None = None) -> dict[str, Any]:
         """Export registry metadata for external tools and plan editors.
 
         :param output_dir: Directory path for saving JSON files; *None* = data only.
@@ -500,7 +500,9 @@ def initialize_registry(
 
 
 def reset_registry() -> None:
-    """Clear the global registry singleton so the next access creates a fresh one.
+    """Clear the global registry singleton, and the provider registry its
+    initialization wrote registrations and exclusions into, so the next access
+    creates fresh ones.
 
     Primarily used for test isolation.
     """
@@ -509,3 +511,7 @@ def reset_registry() -> None:
         _registry.clear()
     _registry = None
     _registry_config_path = None
+
+    from osprey.models.provider_registry import reset_provider_registry
+
+    reset_provider_registry()

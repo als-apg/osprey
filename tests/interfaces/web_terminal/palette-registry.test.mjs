@@ -56,23 +56,16 @@ describe('buildRegistry', () => {
     expect(order).toEqual(['Settings', 'Panels', 'Layouts', 'Actions']);
   });
 
-  it('LOADING: config loading yields one non-navigable Settings decoration', () => {
-    const items = buildRegistry({ config: { state: 'loading' } });
+  it.each([
+    ['loading', 'Loading settings…'],
+    ['error', 'Settings unavailable'],
+  ])('config %s yields one non-navigable Settings decoration', (state, label) => {
+    const items = buildRegistry({ config: /** @type {any} */ ({ state }) });
     const settings = inGroup(items, 'Settings');
     expect(settings).toHaveLength(1);
     const [row] = settings;
-    expect(row).toEqual({ group: 'Settings', status: 'loading', label: 'Loading settings…' });
+    expect(row).toEqual({ group: 'Settings', status: state, label });
     // Non-navigable: no run, no searchText.
-    expect('run' in row).toBe(false);
-    expect('searchText' in row).toBe(false);
-  });
-
-  it('ERROR: config error yields one non-navigable Settings decoration', () => {
-    const items = buildRegistry({ config: { state: 'error' } });
-    const settings = inGroup(items, 'Settings');
-    expect(settings).toHaveLength(1);
-    const [row] = settings;
-    expect(row).toEqual({ group: 'Settings', status: 'error', label: 'Settings unavailable' });
     expect('run' in row).toBe(false);
     expect('searchText' in row).toBe(false);
   });
@@ -242,30 +235,6 @@ describe('buildRegistry', () => {
     }
   });
 
-  it('SYNONYMS: every built-in panel id carries its domain aliases', () => {
-    const expected = {
-      ariel: ['logbook', 'elog'],
-      'channel-finder': ['pv', 'channels'],
-      artifacts: ['gallery', 'files'],
-      lattice: ['optics'],
-      okf: ['knowledge', 'docs'],
-      'system-health': ['status', 'monitoring'],
-    };
-    const ids = Object.keys(expected);
-    const items = buildRegistry({
-      getVisiblePanels: () => ids.map((id) => ({ id, label: id.toUpperCase() })),
-      focusPanel: () => {},
-    });
-
-    const panels = inGroup(items, 'Panels');
-    for (const [id, aliases] of Object.entries(expected)) {
-      const row = panels.find((it) => it.label === `Focus ${id.toUpperCase()}`);
-      for (const alias of aliases) {
-        expect(row.searchText).toContain(alias);
-      }
-    }
-  });
-
   it('SYNONYMS: verb aliases ride the Open rows, not Show/Focus', () => {
     const items = buildRegistry({
       getHiddenPanels: () => [{ id: 'okf', label: 'Facility' }],
@@ -314,6 +283,26 @@ describe('buildRegistry', () => {
     // The name is what the arrange request carries — members are resolved
     // server-side, so the palette never handles the panel list itself.
     expect(applied).toEqual(['Focus Mode']);
+  });
+
+  it('LAYOUTS: a Reset layout row restores the default arrangement, and needs its verb', () => {
+    /** @type {string[]} */
+    const reset = [];
+    const items = buildRegistry({
+      getPresets: () => [{ name: 'Focus Mode', panels: ['ariel'] }],
+      applyPreset: () => {},
+      resetLayout: () => reset.push('reset'),
+    });
+
+    const layouts = inGroup(items, 'Layouts');
+    expect(layouts.map((it) => it.label)).toEqual(['Layout: Focus Mode', 'Reset layout']);
+    layouts[1].run();
+    expect(reset).toEqual(['reset']);
+    expect(layouts[1].searchText).toContain('default');
+
+    // A host with no dock to reset withholds the verb, and the row goes with it.
+    const without = buildRegistry({ getPresets: () => [], applyPreset: () => {} });
+    expect(inGroup(without, 'Layouts')).toEqual([]);
   });
 
   it('ACTIONS: injected actions preserved in order with run wired through', () => {

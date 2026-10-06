@@ -214,11 +214,13 @@ def connected_pv(
     pv_type=None,
     labels=None,
     timestamp=1_750_000_000.0,
+    count=1,
 ):
     """A fake pyepics PV that is connected and reports a value and an alarm state.
 
     ``pv_type`` sets ``pv.type`` and ``labels`` sets ``pv.enum_strs``; each is
-    left as a ``MagicMock`` attribute when not given.
+    left as a ``MagicMock`` attribute when not given. ``count`` is the element
+    count, so a scalar reading is a scalar and not a ``MagicMock``.
     """
     pv = MagicMock()
     pv.wait_for_connection.return_value = True
@@ -229,6 +231,7 @@ def connected_pv(
     pv.precision = 3
     pv.status = status
     pv.severity = severity
+    pv.count = count
     if pv_type is not None:
         pv.type = pv_type
     if labels is not None:

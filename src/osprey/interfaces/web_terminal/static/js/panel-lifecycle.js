@@ -20,12 +20,15 @@
  * panel-sse's own surfaces, since it holds no panel state of its own.
  */
 
-import { fetchJSON } from './api.js';
-import { setKnownServicePanels } from './dock-iframe.js';
+import { apiRequest, fetchJSON } from './api.js';
+import { setKnownServicePanels, setPanelReachable } from './dock-iframe.js';
 import { PANELS, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
-import { startHealthPolling as startPolling } from './panel-health.js';
+import { startHealthPolling as startPolling, stopHealthPolling } from './panel-health.js';
+import { buildEmbedSrc } from './panel-iframe-sync.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
-import { createRail, addEntry, setActive, setEntryEnabled } from './panel-rail.js';
+import {
+  clockTime, createRail, addEntry, setActive, setEntryEnabled, setEntryReachable, setEntryStatus,
+} from './panel-rail.js';
 
 /** @typedef {import('./panel-catalog.js').Panel} Panel */
 /** @typedef {import('./panel-manager.js').PanelState} PanelState */
@@ -41,6 +44,8 @@ import { createRail, addEntry, setActive, setEntryEnabled } from './panel-rail.j
  * @property {() => HTMLElement} getRailEl - the rail nav the entries live in
  * @property {() => string | null} getActive - the locally surfaced panel id
  * @property {() => void} ensureActive - give the empty workspace slot to the best panel available
+ * @property {(id: string, options?: {userInitiated?: boolean}) => void} activate - surface a healthy panel
+ * @property {(id: string) => void} navigatePending - load the address a panel was pointed at while it was not answering
  */
 
 /** @type {LifecycleDeps | null} */
@@ -69,7 +74,10 @@ function ctx() {
 /** A panel's cold state — shared by the init loop and runtime addPanel().
  *  @returns {PanelState} */
 export function freshPanelState() {
-  return { url: null, healthy: false, iframe: null, pollTimer: null, polling: false, configLoaded: false };
+  return {
+    url: null, healthy: false, iframe: null, pollTimer: null, polling: false, configLoaded: false,
+    misses: 0, missSince: null,
+  };
 }
 
 /**
@@ -104,7 +112,11 @@ function applyEntryState(panelId) {
   const c = ctx();
   const ps = c.panelState[panelId];
   if (!ps) return;
-  if (ps.healthy) setEntryEnabled(c.getRailEl(), panelId, true);
+  if (ps.healthy || ps.misses > 0) setEntryEnabled(c.getRailEl(), panelId, true);
+  if (ps.misses >= MISSES_BEFORE_UNREACHABLE) {
+    setEntryReachable(c.getRailEl(), panelId, false, ps.missSince ?? undefined);
+  }
+  if (ps.failedMessage) setEntryStatus(c.getRailEl(), panelId, { failed: true, message: ps.failedMessage });
   if (c.getActive() === panelId) setActive(c.getRailEl(), panelId);
 }
 
@@ -183,8 +195,10 @@ export async function initPanel(panel) {
   // /api/panels. Skip the fetch and leave the panel disabled until then.
   if (!panel.configEndpoint) { state.configLoaded = true; return; }
 
+  /** @type {any} */
+  let config = null;
   try {
-    const config = await fetchJSON(panel.configEndpoint);
+    config = await fetchJSON(panel.configEndpoint);
     // Artifact server returns { url }, ARIEL returns { url, available }
     if (config.url && (config.available === undefined || config.available)) {
       state.url = config.url;
@@ -195,7 +209,11 @@ export async function initPanel(panel) {
     state.configLoaded = true;
   }
 
-  if (state.url) {
+  // A sidecar reports its start outcome with its config: a failed one gets
+  // its clickable failed entry, a starting one is followed until it settles.
+  if (config?.state === 'failed') showFailed(panel, config.message);
+  else if (config?.state === 'starting') followStart(panel);
+  else if (state.url) {
     // External panels (healthEndpoint === null) skip health polling —
     // mark healthy immediately so the tab is enabled.
     if (panel.healthEndpoint == null) {  // null or undefined → skip polling
@@ -212,25 +230,162 @@ export async function initPanel(panel) {
 // ---- Health Polling ----
 
 /**
- * Poll-settle hook handed to panel-health.js's timing machinery: on the FIRST
- * healthy settle enable the entry and let the shared policy decide whether the
- * newly-healthy panel should take an empty slot. The rail itself shows no
- * per-poll readout — the SYSTEM panel's `web_panels` category is where
- * liveness is reported.
+ * Consecutive unanswered polls, counted only after a panel has answered once,
+ * before its rail entry is marked unreachable. At the 10 s maintenance cadence
+ * two misses mean ~20 s of silence, so one slow answer never flickers the rail.
+ */
+const MISSES_BEFORE_UNREACHABLE = 2;
+
+/**
+ * Poll-settle hook handed to panel-health.js's timing machinery. The rail shows
+ * no per-poll readout — coarse reachability only:
+ *
+ *   - the FIRST healthy settle enables the entry and lets the shared policy
+ *     decide whether the newly-healthy panel should take an empty slot;
+ *   - a panel that answered before and then misses MISSES_BEFORE_UNREACHABLE
+ *     polls in a row is marked unreachable on both of its surfaces: the rail
+ *     entry (dimmed, still clickable, tooltip "not answering since HH:MM") and
+ *     its tile (a notice over the body, the same time);
+ *   - the next healthy settle clears both;
+ *   - a sidecar that answered before and then misses a poll is checked once
+ *     against its config endpoint, and one that reports `failed` shows its
+ *     failed entry instead.
+ *
+ * A panel that never answered keeps its `.disabled` boot state and is never
+ * counted, and its tile, which never opens, carries no notice. Liveness
+ * detail lives in the SYSTEM panel's `web_panels` category.
  * @param {Panel} panel
  * @param {boolean} wasHealthy
  */
 function onHealthSettled(panel, wasHealthy) {
   const c = ctx();
-  if (c.panelState[panel.id].healthy && !wasHealthy) {
-    setEntryEnabled(c.getRailEl(), panel.id, true);
-    c.ensureActive();
+  const state = c.panelState[panel.id];
+  if (state.healthy) {
+    if (state.misses >= MISSES_BEFORE_UNREACHABLE) setEntryReachable(c.getRailEl(), panel.id, true);
+    // Unconditional: showFailed resets misses while the tile keeps its notice,
+    // so a retried sidecar's first answer must still clear the tile.
+    setPanelReachable(panel.id, true);
+    state.misses = 0;
+    state.missSince = null;
+    if (!wasHealthy) {
+      setEntryEnabled(c.getRailEl(), panel.id, true);
+      c.navigatePending(panel.id);
+      if (state.activateOnHealthy) {
+        // The operator asked for this panel by clicking its failed entry.
+        state.activateOnHealthy = false;
+        c.activate(panel.id, { userInitiated: true });
+      } else c.ensureActive();
+    }
+    return;
+  }
+  if (wasHealthy && panel.startEndpoint && panel.configEndpoint) {
+    // A sidecar that stopped answering may have died: ask the terminal once,
+    // so a live page shows the failed entry without a reload.
+    fetchJSON(panel.configEndpoint).then((config) => {
+      if (config?.state !== 'failed') return;
+      stopHealthPolling(state);
+      state.url = null;
+      state.healthy = false;
+      showFailed(panel, config.message);
+    }).catch(() => {});
+  }
+  if (!wasHealthy && state.misses === 0) return; // never answered: stays .disabled
+  state.misses += 1;
+  if (state.missSince === null) state.missSince = Date.now();
+  if (state.misses === MISSES_BEFORE_UNREACHABLE) {
+    setEntryReachable(c.getRailEl(), panel.id, false, state.missSince);
+    setPanelReachable(panel.id, false, clockTime(state.missSince));
   }
 }
 
 /** @param {Panel} panel  Start panel-health's polling loop with this module's hook. */
 export function startHealthPolling(panel) {
   startPolling(panel, ctx().panelState[panel.id], onHealthSettled);
+}
+
+// ---- Sidecar Start Recovery ----
+
+/**
+ * Show a sidecar's failed entry: dimmed, clickable, the server's sentence as
+ * its tooltip. The message is kept on the state so a rebuilt entry shows it too.
+ * @param {Panel} panel
+ * @param {string | null} message
+ */
+function showFailed(panel, message) {
+  const c = ctx();
+  const state = c.panelState[panel.id];
+  state.failedMessage = message;
+  // The failed entry names the reason; an unreachable notice would hide it.
+  if (state.misses >= MISSES_BEFORE_UNREACHABLE) setEntryReachable(c.getRailEl(), panel.id, true);
+  state.misses = 0;
+  state.missSince = null;
+  setEntryStatus(c.getRailEl(), panel.id, { failed: true, message });
+}
+
+/**
+ * Start a failed sidecar again: POST its start endpoint, show the server's
+ * "is starting" sentence on a disabled entry, then follow the start until it
+ * settles. The click on a failed entry lands here; the entry is no longer
+ * `.failed` once it has, so a second click sends nothing.
+ * @param {Panel} panel
+ */
+export async function retryPanelStart(panel) {
+  const c = ctx();
+  const state = c.panelState[panel.id];
+  if (!panel.startEndpoint || !state) return;
+  const lastMessage = state.failedMessage ?? null;
+  state.failedMessage = null;
+  setEntryStatus(c.getRailEl(), panel.id, { failed: false, message: null });
+  setEntryEnabled(c.getRailEl(), panel.id, false);
+  let answer;
+  try {
+    answer = await apiRequest(panel.startEndpoint, { errorPrefix: 'Could not start the panel' });
+  } catch {
+    showFailed(panel, lastMessage);
+    return;
+  }
+  state.activateOnHealthy = true;
+  settleStart(panel, answer, lastMessage);
+}
+
+/**
+ * Follow a start already in flight (a page loaded while the sidecar started).
+ * @param {Panel} panel
+ */
+function followStart(panel) {
+  settleStart(panel, { state: 'starting', message: null }, null);
+}
+
+/**
+ * Apply one config answer during a start, polling the config endpoint once a
+ * second while it still says `starting`. `running` publishes the url, reloads
+ * an open iframe (same proxy path, new backend) and starts health polling;
+ * `failed` shows the new reason; a fetch error restores the last known one.
+ * @param {Panel} panel
+ * @param {any} answer
+ * @param {string | null} lastMessage
+ */
+function settleStart(panel, answer, lastMessage) {
+  const c = ctx();
+  const state = c.panelState[panel.id];
+  if (answer?.state === 'starting') {
+    setEntryStatus(c.getRailEl(), panel.id, { failed: false, message: answer.message ?? null });
+    setTimeout(() => {
+      if (!panel.configEndpoint) return;
+      fetchJSON(panel.configEndpoint).then(
+        (next) => settleStart(panel, next, lastMessage),
+        () => showFailed(panel, lastMessage),
+      );
+    }, 1000);
+    return;
+  }
+  if (answer?.state === 'failed') { showFailed(panel, answer.message ?? lastMessage); return; }
+  setEntryStatus(c.getRailEl(), panel.id, { failed: false, message: null });
+  if (!answer?.url || !answer.available) { showFailed(panel, lastMessage); return; }
+  state.url = answer.url;
+  if (state.iframe) state.iframe.src = buildEmbedSrc(answer.url);
+  stopHealthPolling(state);
+  startHealthPolling(panel);
 }
 
 // ---- Entry State ----

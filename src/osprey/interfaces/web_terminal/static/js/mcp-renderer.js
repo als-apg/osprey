@@ -324,14 +324,10 @@ function _fetchAndEnrichCards(cardMap) {
 /**
  * Parse a Google-style docstring into summary, args, and returns.
  *
- * Exported (despite the underscore) for direct unit testing (see
- * mcp-renderer.test.mjs) -- same convention config-render-helpers.js
- * already uses for `_section`/`_groupPermissions`/`_renderHookEvents`.
- *
  * @param {string} desc
  * @returns {{summary: string, args: ParsedToolArg[], returns: string}}
  */
-export function _parseToolDescription(desc) {
+function _parseToolDescription(desc) {
   /** @type {{summary: string, args: ParsedToolArg[], returns: string}} */
   const result = { summary: '', args: [], returns: '' };
   if (!desc) return result;

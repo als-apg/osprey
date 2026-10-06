@@ -26,9 +26,10 @@ ever reclaimed: context documents are deleted oldest-first and their headers are
 rewritten with ``context_pruned: true``, so the submission history stays
 complete however small the ceiling is.
 
-The module is deliberately free of application imports (pure standard library):
-the CLI reads stores out of container volumes with no web-terminal app in
-scope, and reuses the naming contract defined here.
+The module is deliberately free of application imports (pure standard library).
+The CLI reads stores out of container volumes with no web-terminal app in scope,
+and spells the two globs as literals it can hand to ``find``; those literals
+must match :data:`HEADER_GLOB` and :data:`CONTEXT_GLOB`.
 """
 
 from __future__ import annotations
@@ -50,7 +51,6 @@ __all__ = [
     "HEADER_PREFIX",
     "context_filename",
     "header_filename",
-    "list_headers",
     "new_record_id",
     "prune_store",
     "write_record",
@@ -101,32 +101,32 @@ def write_record(
     header: dict[str, Any],
     context: dict[str, Any],
     *,
-    record_id: str | None = None,
+    record_id: str,
 ) -> str:
     """Write one feedback record into *feedback_dir* and return its id.
 
     *feedback_dir* is created if absent. The context document is written first
-    and the header last; both are stamped with the allocated id, and the header
+    and the header last; both are stamped with *record_id*, and the header
     additionally carries a ``context_file`` pointer at its paired context
     document. Those two keys are authoritative — values supplied by the caller
     under the same names are overwritten. The caller's dicts are not mutated.
 
-    *record_id* lets the caller allocate the id (with :func:`new_record_id`)
-    before the header exists, which is what a caller who has to *name* the
-    record inside the record needs — the web-terminal route digests a payload
-    whose truncation marker carries the id, and a digest of a payload naming a
-    different id would not match the bytes the operator pasted. Omitted, the id
-    is minted here as before. Either way it is the id both documents are stamped
-    and filed under, and the id returned.
+    The caller allocates *record_id* (with :func:`new_record_id`) before the
+    header exists, because the caller has to *name* the record inside the
+    record: the web-terminal route digests a payload whose truncation marker
+    carries the id, and a digest of a payload naming a different id would not
+    match the bytes the operator pasted. It is the id both documents are
+    stamped and filed under, and the id returned.
 
     Raises:
         ValueError: if *record_id* does not start with :data:`HEADER_PREFIX`.
             The id **is** the header's filename stem, so an id without the
             prefix files a header that :data:`HEADER_GLOB` cannot see — the
-            submission would vanish from ``list_headers`` and the pruner, while
-            its context document stayed behind as a prunable orphan.
+            submission would be invisible to every store reader and to the
+            pruner, while its context document stayed behind as a prunable
+            orphan.
     """
-    if record_id is not None and not record_id.startswith(HEADER_PREFIX):
+    if not record_id.startswith(HEADER_PREFIX):
         raise ValueError(
             f"record_id must start with {HEADER_PREFIX!r} (it is the header filename stem); "
             f"got {record_id!r}"
@@ -135,7 +135,6 @@ def write_record(
     feedback_dir = Path(feedback_dir)
     feedback_dir.mkdir(parents=True, exist_ok=True)
 
-    record_id = record_id or new_record_id()
     context_name = context_filename(record_id)
 
     context_doc: dict[str, Any] = {"id": record_id}
@@ -243,28 +242,3 @@ def prune_store(feedback_dir: Path, max_bytes: int) -> list[str]:
         total += _mark_context_pruned(directory / header_filename(record_id))
 
     return pruned
-
-
-def list_headers(feedback_dir: Path) -> list[dict[str, Any]]:
-    """Return every readable header in *feedback_dir*, sorted by record id.
-
-    Only :data:`HEADER_GLOB` is read: context documents and in-flight temporary
-    files are ignored. A missing directory (or a path that is not a directory)
-    yields an empty list — an unused store is a normal state, not an error — as
-    does a header that cannot be parsed as a JSON object, which is logged at
-    debug level and skipped so one damaged file cannot hide the rest.
-    """
-    directory = Path(feedback_dir)
-    if not directory.is_dir():
-        return []
-
-    headers: list[dict[str, Any]] = []
-    for path in sorted(directory.glob(HEADER_GLOB)):
-        document = read_json_object(path)
-        if document is None:
-            continue
-        document.setdefault("id", path.stem)
-        headers.append(document)
-
-    headers.sort(key=lambda doc: str(doc.get("id", "")))
-    return headers

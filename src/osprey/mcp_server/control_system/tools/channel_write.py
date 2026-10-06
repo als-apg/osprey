@@ -111,9 +111,10 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 from typing import Any
 
-from osprey.audit.call import note
+from osprey.audit.call import note, write_stamps
 from osprey.audit.posture import posture_session
 from osprey.errors import ChannelWriteBlockedError
 from osprey.mcp_server.control_system import target_state
@@ -122,6 +123,8 @@ from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey_connectors import control_context
+from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_write")
 
@@ -267,6 +270,23 @@ def _full_record_enabled() -> bool:
         return tool_call.settings()[0]
     except Exception:  # pragma: no cover - defensive: settings never raises
         return False
+
+
+def _note_attribution() -> None:
+    """Note who this write goes out as: ``ca_user``, ``ca_host`` and ``owner``. Never raises.
+
+    ``ca_user`` and ``ca_host`` are read in this process, because this process
+    is the one whose account and host the control system sees. ``owner`` is
+    the dispatch job's stamp, read straight from :data:`CONTROL_OWNER_ENV_VAR`
+    and noted only when set: the owner ladder's last rung answers with the
+    card's own identity, which would attribute every card's write to itself.
+    A stamp that cannot be read is left out rather than guessed.
+    """
+    stamps = write_stamps()
+    owner = os.environ.get(CONTROL_OWNER_ENV_VAR, "").strip()
+    if owner:
+        stamps["owner"] = owner
+    note(**stamps)
 
 
 async def _note_old_values(connector: Any, channels: list[str]) -> None:
@@ -711,6 +731,11 @@ async def channel_write(
     # different target, which needs a fresh approval rather than a wait.
     _check_convergence(entry_record)
 
+    # Who the write goes out as. Noted on every call that got this far, on
+    # both record surfaces: the stamps are identifiers, so the default record
+    # carries them too.
+    _note_attribution()
+
     # The full tool-call record wants the limits verdict and the old values;
     # nothing extra is done for them when that record is off.
     full_record = _full_record_enabled()
@@ -761,14 +786,15 @@ async def channel_write(
                     "violation_type": getattr(exc, "violation_type", "unknown"),
                     "reason": getattr(exc, "violation_reason", str(exc)),
                 }
-                if getattr(exc, "min_value", None) is not None:
-                    violation["min_value"] = exc.min_value
-                if getattr(exc, "max_value", None) is not None:
-                    violation["max_value"] = exc.max_value
-                if getattr(exc, "max_step", None) is not None:
-                    violation["max_step"] = exc.max_step
-                if getattr(exc, "current_value", None) is not None:
-                    violation["current_value"] = exc.current_value
+                if isinstance(exc, ChannelLimitsViolationError):
+                    if exc.min_value is not None:
+                        violation["min_value"] = exc.min_value
+                    if exc.max_value is not None:
+                        violation["max_value"] = exc.max_value
+                    if exc.max_step is not None:
+                        violation["max_step"] = exc.max_step
+                    if exc.current_value is not None:
+                        violation["current_value"] = exc.current_value
                 violations.append(violation)
 
     if full_record:

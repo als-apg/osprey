@@ -33,8 +33,8 @@ class TestExtendFrameworkRegistry:
         assert cfg.services == []
         assert cfg.providers == []
         assert cfg.connectors == []
-        # No exclusions requested → the field is None, not an empty dict.
-        assert cfg.framework_exclusions is None
+        # No exclusions requested → an empty table, the field's declared default.
+        assert cfg.framework_exclusions == {}
 
     def test_additive_components_are_carried_through(self):
         svc = ServiceRegistration(

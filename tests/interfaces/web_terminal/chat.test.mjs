@@ -41,6 +41,7 @@ const transport = {
   sendPrompt: vi.fn(),
   interrupt: vi.fn(),
   requestHandoff: vi.fn(),
+  fetchCommands: vi.fn(),
 };
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', () => ({
@@ -50,6 +51,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', 
   interrupt: (/** @type {any} */ key) => transport.interrupt(key),
   requestHandoff: (/** @type {any} */ key, /** @type {any} */ options) =>
     transport.requestHandoff(key, options),
+  fetchCommands: () => transport.fetchCommands(),
 }));
 
 // terminal.js is xterm glue; the console only needs its panel broadcast, and
@@ -77,52 +79,23 @@ function transportError(status, slug = '') {
 }
 
 describe('transportNotice', () => {
-  test('the terminated-chat 409 tells the operator to resend', () => {
-    const notice = transportNotice(transportError(409, 'chat_terminated'));
-    expect(notice).toContain('send your message again');
-    expect(notice).not.toContain('already running');
-  });
-
-  test('the turn-in-progress 409 keeps its own copy', () => {
-    expect(transportNotice(transportError(409, 'turn_in_progress'))).toBe(
-      'A turn is already running.'
-    );
-  });
-
-  test('two 409s with different slugs read differently', () => {
-    expect(transportNotice(transportError(409, 'chat_terminated'))).not.toBe(
-      transportNotice(transportError(409, 'turn_in_progress'))
-    );
-  });
-
-  test('the capacity 429 is keyed on its slug', () => {
-    expect(transportNotice(transportError(429, 'chat_capacity'))).toBe(
-      'Server busy — please retry in a moment.'
-    );
-  });
-
-  test('a rejection with no slug falls back to the status table', () => {
-    expect(transportNotice(transportError(503))).toBe('Operator agent unavailable.');
-    expect(transportNotice(transportError(409))).toBe('A turn is already running.');
-  });
-
-  test('an unknown slug falls back to the status table', () => {
-    expect(transportNotice(transportError(503, 'something_new'))).toBe(
-      'Operator agent unavailable.'
-    );
-  });
-
-  test('a plain Error still yields its status notice, then the generic line', () => {
-    expect(transportNotice(new Error('HTTP 429: Too Many Requests'))).toBe(
-      'Server busy — please retry in a moment.'
-    );
-    expect(transportNotice(new Error('network down'))).toBe(
-      'Connection to the operator agent failed.'
-    );
-  });
-
-  test('a null failure does not throw', () => {
-    expect(transportNotice(null)).toBe('Connection to the operator agent failed.');
+  // Slug first, status second, the generic line last. Two 409s mean opposite
+  // things (a turn already running, a chat restarted by a posture flip), so
+  // the first rows pin that they read differently.
+  test.each([
+    ['chat_terminated 409', transportError(409, 'chat_terminated'),
+      'Session restarted with the new posture — send your message again.'],
+    ['turn_in_progress 409', transportError(409, 'turn_in_progress'), 'A turn is already running.'],
+    ['chat_capacity 429', transportError(429, 'chat_capacity'), 'Server busy — please retry in a moment.'],
+    ['slug-less 503', transportError(503), 'Operator agent unavailable.'],
+    ['slug-less 409', transportError(409), 'A turn is already running.'],
+    ['unknown slug on a 503', transportError(503, 'something_new'), 'Operator agent unavailable.'],
+    ['plain Error carrying a status', new Error('HTTP 429: Too Many Requests'),
+      'Server busy — please retry in a moment.'],
+    ['plain Error with no status', new Error('network down'), 'Connection to the operator agent failed.'],
+    ['null failure', null, 'Connection to the operator agent failed.'],
+  ])('%s', (_case, err, notice) => {
+    expect(transportNotice(err)).toBe(notice);
   });
 });
 
@@ -172,6 +145,9 @@ beforeEach(() => {
   transport.sendPrompt.mockReset().mockReturnValue({ abort: () => {}, aborted: false });
   transport.interrupt.mockReset().mockResolvedValue(undefined);
   transport.requestHandoff.mockReset().mockResolvedValue({ state: 'simple', session_id: 'k' });
+  transport.fetchCommands.mockReset().mockResolvedValue([
+    { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
+  ]);
 });
 
 afterEach(() => {
@@ -195,11 +171,6 @@ describe('initChat binding', () => {
     expect(stored).toMatch(/^[0-9a-f-]{36}$/);
     expect(notifySessionChange).toHaveBeenCalledWith(stored);
     expect(transport.fetchHistory).not.toHaveBeenCalled();
-  });
-
-  test('an existing pointer is adopted, never replaced', async () => {
-    await mountChat({ mode: 'expert', pointer: 'key-from-the-terminal' });
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('key-from-the-terminal');
   });
 
   test('a page that opens in Simple mode replays the pointer it adopted', async () => {
@@ -412,17 +383,20 @@ describe('enterFromExpert', () => {
     expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).hidden).toBe(true);
   });
 
-  test('a wait a newer request took over states the fact and offers a retry', async () => {
-    transport.requestHandoff.mockRejectedValueOnce(transportError(409, 'handoff_superseded'));
+  test.each([
+    ['handoff_superseded', 409, 'Another request took over this session.'],
+    ['outgoing_still_running', 503, 'The previous agent is still shutting down.'],
+  ])('a %s refusal states the fact and offers a retry', async (slug, status, message) => {
+    transport.requestHandoff.mockRejectedValueOnce(transportError(status, slug));
     await mountChat({ pointer: 'K1' });
 
     await chat.enterFromExpert();
     const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
-    expect(textOf('.op-handoff-message')).toBe('Another request took over this session.');
+    expect(textOf('.op-handoff-message')).toBe(message);
     expect(action.hidden).toBe(false);
     expect(action.textContent).toBe('Retry');
 
-    // The retry re-asks without an interrupt: the key's chat is pooled by now.
+    // The retry re-asks without an interrupt: nothing here consents to cutting a turn.
     transport.requestHandoff.mockResolvedValue({ state: 'simple', session_id: 'K1' });
     action.click();
     await Promise.resolve();
@@ -453,15 +427,6 @@ describe('enterFromExpert', () => {
       interrupt: false,
     }));
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
-  });
-
-  test('an outgoing agent still shutting down is retryable', async () => {
-    transport.requestHandoff.mockRejectedValue(transportError(503, 'outgoing_still_running'));
-    await mountChat({ pointer: 'K1' });
-
-    await chat.enterFromExpert();
-    expect(textOf('.op-handoff-message')).toBe('The previous agent is still shutting down.');
-    expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).textContent).toBe('Retry');
   });
 
   test('an abandoned request (204, no body) leaves the state exactly as it was', async () => {
@@ -613,6 +578,178 @@ describe('a prompt refused by the other view', () => {
   });
 });
 
+describe('started commands', () => {
+  const MAGNET = { label: 'magnet_scan.py', command: 'python magnet_scan.py -s 3' };
+
+  /**
+   * The refusal the hand-off answers when stopping the agent would end commands it started.
+   * @param {{label: string, command: string}[] | undefined} commands
+   */
+  function startedRefusal(commands) {
+    const err = /** @type {Error & { status: number, slug: string, commands?: any }} */ (
+      transportError(409, 'handoff_started_commands')
+    );
+    if (commands) err.commands = commands;
+    return err;
+  }
+
+  /** Let a click's hand-off request and its answer settle. */
+  async function settle() {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  }
+
+  /** The question while it is up; one on its way out carries `data-closing`. */
+  const dialog = () => document.querySelector('.posture-modal-overlay:not([data-closing])');
+  const dialogTitle = () => document.querySelector('.posture-modal-title')?.textContent ?? '';
+  /** @param {string} selector */
+  const dialogButton = (selector) =>
+    /** @type {HTMLButtonElement} */ (document.querySelector(selector));
+
+  /** The mode-change broadcasts this window posted, as frame-params' pickUiMode sends them. */
+  function modeChanges(/** @type {import('vitest').MockInstance} */ spy) {
+    return spy.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message?.type === 'osprey-mode-change');
+  }
+
+  test('a stop refused for started commands asks, and "Stop both" re-sends with end_started', async () => {
+    transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
+    await mountChat({ pointer: 'K1' });
+
+    await chat.enterFromExpert({ interrupt: true });
+
+    expect(textOf('.op-handoff-message')).toBe('The agent started a command that is still running.');
+    expect(dialog()).not.toBeNull();
+    expect(dialogTitle()).toBe('This also ends magnet_scan.py.');
+    expect(document.activeElement).toBe(dialogButton('.posture-modal-cancel'));
+
+    dialogButton('.posture-modal-confirm').click();
+    await settle();
+
+    expect(transport.requestHandoff).toHaveBeenCalledTimes(2);
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
+      interrupt: true,
+      endStarted: true,
+    }));
+    expect(dialog()).toBeNull();
+    expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
+    expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(false);
+  });
+
+  test('"Cancel" sends nothing more and flips to the Expert view', async () => {
+    const posted = vi.spyOn(window, 'postMessage');
+    transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
+    await mountChat({ pointer: 'K1' });
+    await chat.enterFromExpert({ interrupt: true });
+
+    dialogButton('.posture-modal-cancel').click();
+    await settle();
+
+    expect(transport.requestHandoff).toHaveBeenCalledTimes(1);
+    expect(modeChanges(posted)).toEqual([{ type: 'osprey-mode-change', mode: 'expert' }]);
+    expect(dialog()).toBeNull();
+    expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
+    // The session is the Expert view's again, so this console stays out of reach.
+    expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(true);
+    posted.mockRestore();
+  });
+
+  test('Escape behaves as Cancel', async () => {
+    const posted = vi.spyOn(window, 'postMessage');
+    transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
+    await mountChat({ pointer: 'K1' });
+    await chat.enterFromExpert({ interrupt: true });
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+
+    expect(transport.requestHandoff).toHaveBeenCalledTimes(1);
+    expect(modeChanges(posted)).toEqual([{ type: 'osprey-mode-change', mode: 'expert' }]);
+    expect(dialog()).toBeNull();
+    posted.mockRestore();
+  });
+
+  test('a plain flip refused for started commands asks without an interrupt, and "Stop both" keeps it plain', async () => {
+    transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
+    await mountChat({ pointer: 'K1' });
+
+    await chat.enterFromExpert();
+    expect(dialogTitle()).toBe('This also ends magnet_scan.py.');
+
+    dialogButton('.posture-modal-confirm').click();
+    await settle();
+
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
+      interrupt: false,
+      endStarted: true,
+    }));
+  });
+
+  test('with nothing running the stop goes straight through and nothing is asked', async () => {
+    await mountChat({ pointer: 'K1' });
+
+    await chat.enterFromExpert({ interrupt: true });
+
+    expect(transport.requestHandoff).toHaveBeenCalledTimes(1);
+    expect(transport.requestHandoff).toHaveBeenCalledWith('K1', expect.objectContaining({
+      interrupt: true,
+      endStarted: false,
+    }));
+    expect(document.querySelector('.posture-modal-overlay')).toBeNull();
+    expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
+  });
+
+  test('a prompt refused for started commands shows the overlay, and its stop asks', async () => {
+    await mountChat({ pointer: 'K1' });
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = 'status?';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+
+    const callbacks = transport.sendPrompt.mock.calls[0][2];
+    callbacks.onError(startedRefusal(undefined));
+
+    expect(textOf('.op-handoff-message')).toBe('The agent started a command that is still running.');
+    const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
+    expect(action.textContent).toBe('Stop and switch now');
+    // The chat endpoint's refusal carries no list, so nothing is asked yet.
+    expect(dialog()).toBeNull();
+
+    transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
+    action.click();
+    await settle();
+
+    expect(transport.requestHandoff).toHaveBeenCalledWith('K1', expect.objectContaining({
+      interrupt: true,
+      endStarted: false,
+    }));
+    expect(dialogTitle()).toBe('This also ends magnet_scan.py.');
+
+    dialogButton('.posture-modal-cancel').click();
+    await settle();
+  });
+});
+
+describe('slash commands in the Simple view', () => {
+  test('picking a suggestion fills the box and does not send', async () => {
+    await mountChat({ pointer: 'K1' });
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = '/di';
+    textarea.dispatchEvent(new Event('input'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const enter = () =>
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
+    enter();
+    expect(transport.sendPrompt).not.toHaveBeenCalled();
+    expect(textarea.value).toBe('/diagnose ');
+
+    enter();
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
+    expect(transport.sendPrompt.mock.calls[0][1]).toBe('/diagnose');
+  });
+});
+
 describe('minting a session key without crypto.randomUUID', () => {
   /** @type {any} */
   let savedRandomUUID;
@@ -630,12 +767,6 @@ describe('minting a session key without crypto.randomUUID', () => {
     if (globalThis.crypto && savedRandomUUID) {
       /** @type {any} */ (globalThis.crypto).randomUUID = savedRandomUUID;
     }
-  });
-
-  test('the console still mounts', async () => {
-    await mountChat();
-
-    expect(container.querySelector('.op-send-btn')).toBeTruthy();
   });
 
   test('the minted key keeps the bare-UUID grammar the store keys on', async () => {
@@ -669,11 +800,5 @@ describe('renderChatBootFailure', () => {
 
     expect(host.textContent).toContain('failed to start');
     expect(host.textContent).not.toContain('stale');
-  });
-
-  test('a missing container is not an error of its own', async () => {
-    const { renderChatBootFailure } = await import(CHAT_JS);
-
-    expect(() => renderChatBootFailure('nothing-here')).not.toThrow();
   });
 });

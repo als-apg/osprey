@@ -18,32 +18,22 @@ Covers:
 from __future__ import annotations
 
 import logging
-from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import (
-    DEFAULT_UI_MODE,
-    UI_MODES,
-    create_app,
-    resolve_ui_mode,
-)
+from osprey.interfaces.web_terminal.app import DEFAULT_UI_MODE, resolve_ui_mode
+from tests.interfaces.web_terminal._started_app import started_client
 
 
 class TestResolveUiMode:
-    """Pure resolver: config value -> concrete UI mode."""
+    """Pure resolver: config value -> concrete UI mode, never raising."""
 
-    def test_expert_passes_through(self):
-        assert resolve_ui_mode("expert") == "expert"
-
-    def test_simple_passes_through(self):
-        assert resolve_ui_mode("simple") == "simple"
-
-    def test_default_is_expert(self):
-        """The default mode is the full expert surface, never the reduced one."""
-        assert DEFAULT_UI_MODE == "expert"
-        assert DEFAULT_UI_MODE in UI_MODES
+    @pytest.mark.parametrize(
+        ("configured", "expected"),
+        [("expert", "expert"), ("simple", "simple"), ("", "expert"), (None, "expert")],
+    )
+    def test_resolves_to_a_mode(self, configured, expected):
+        assert resolve_ui_mode(configured) == expected
 
     def test_unknown_value_warns_and_falls_back_to_default(self, caplog):
         """An unrecognized value logs a warning and falls back to the default mode."""
@@ -56,24 +46,6 @@ class TestResolveUiMode:
             for record in caplog.records
         ), "expected a WARNING mentioning the unknown value"
 
-    def test_empty_and_none_never_raise(self):
-        """The resolver never raises on bad input — it only warns and falls back."""
-        try:
-            assert resolve_ui_mode("") == DEFAULT_UI_MODE
-            assert resolve_ui_mode(None) == DEFAULT_UI_MODE  # type: ignore[arg-type]
-        except Exception as exc:  # pragma: no cover - failure path
-            pytest.fail(f"resolve_ui_mode raised unexpectedly: {exc}")
-
-    def test_result_is_always_a_valid_mode(self):
-        """Whatever is returned must be one of the concrete supported modes.
-
-        This is the contract the pre-paint mode-boot rung depends on: an
-        invalid mode server-rendered onto `<html data-ui-mode>` would leave
-        the client with nothing real to honor.
-        """
-        for configured in ("expert", "simple", "", "bogus", None):
-            assert resolve_ui_mode(configured) in UI_MODES  # type: ignore[arg-type]
-
 
 # ---- Render + API paths: startup resolves web.ui_mode from config ----
 
@@ -85,96 +57,22 @@ def workspace_dir(tmp_path):
     return ws
 
 
-def _make_client(workspace_dir, configured_mode):
-    """TestClient whose lifespan resolves `web.ui_mode` = configured_mode.
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        pytest.param("expert", "expert", id="expert"),
+        pytest.param("simple", "simple", id="simple"),
+        pytest.param("nonsense", "expert", id="unknown"),
+        # The default is the full surface, never the reduced one.
+        pytest.param(None, "expert", id="absent"),
+    ],
+)
+def test_ui_mode_reaches_page_and_payload(workspace_dir, configured, expected):
+    """The SSR attribute is the first-paint rung; the payload mirrors it."""
+    web = {} if configured is None else {"ui_mode": configured}
+    with started_client(workspace_dir, web=web) as client:
+        body = client.get("/").text
+        payload = client.get("/api/panels").json()
 
-    ``configured_mode`` of ``None`` omits the ``ui_mode`` key entirely, exercising
-    the "key absent -> default" path. ``load_osprey_config`` is patched because
-    the lifespan reads the top-level ``web`` section through it (the same reader
-    the panel loaders use); with no ``panels`` key only the universal panels are
-    enabled.
-    """
-    web_section: dict = {}
-    if configured_mode is not None:
-        web_section["ui_mode"] = configured_mode
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.utils.workspace.load_osprey_config",
-            return_value={"web": web_section},
-        ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield c
-
-
-class TestRenderedDataUiMode:
-    def test_expert_config_renders_expert(self, workspace_dir):
-        gen = _make_client(workspace_dir, "expert")
-        client = next(gen)
-        try:
-            body = client.get("/").text
-            assert 'data-ui-mode="expert"' in body
-        finally:
-            next(gen, None)
-
-    def test_simple_config_renders_simple(self, workspace_dir):
-        gen = _make_client(workspace_dir, "simple")
-        client = next(gen)
-        try:
-            body = client.get("/").text
-            assert 'data-ui-mode="simple"' in body
-        finally:
-            next(gen, None)
-
-    def test_unknown_config_renders_default_fallback(self, workspace_dir):
-        gen = _make_client(workspace_dir, "nonsense")
-        client = next(gen)
-        try:
-            body = client.get("/").text
-            assert f'data-ui-mode="{DEFAULT_UI_MODE}"' in body
-        finally:
-            next(gen, None)
-
-    def test_missing_key_renders_default(self, workspace_dir):
-        """No `web.ui_mode` key at all -> the default mode is rendered."""
-        gen = _make_client(workspace_dir, None)
-        client = next(gen)
-        try:
-            body = client.get("/").text
-            assert f'data-ui-mode="{DEFAULT_UI_MODE}"' in body
-        finally:
-            next(gen, None)
-
-
-class TestPanelsPayloadUiMode:
-    def test_payload_carries_resolved_simple_mode(self, workspace_dir):
-        gen = _make_client(workspace_dir, "simple")
-        client = next(gen)
-        try:
-            payload = client.get("/api/panels").json()
-            assert payload["ui_mode"] == "simple"
-        finally:
-            next(gen, None)
-
-    def test_payload_carries_resolved_expert_mode(self, workspace_dir):
-        gen = _make_client(workspace_dir, "expert")
-        client = next(gen)
-        try:
-            payload = client.get("/api/panels").json()
-            assert payload["ui_mode"] == "expert"
-        finally:
-            next(gen, None)
-
-    def test_payload_unknown_mode_falls_back_to_default(self, workspace_dir):
-        gen = _make_client(workspace_dir, "nonsense")
-        client = next(gen)
-        try:
-            payload = client.get("/api/panels").json()
-            assert payload["ui_mode"] == DEFAULT_UI_MODE
-        finally:
-            next(gen, None)
+    assert f'data-ui-mode="{expected}"' in body
+    assert payload["ui_mode"] == expected

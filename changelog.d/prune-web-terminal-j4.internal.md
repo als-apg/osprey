@@ -1,0 +1,1 @@
+Remove the control-target chip and JupyterLab bar injection points no page passed (the event-source factory and the embedded override), the unused `isExpanded` export, the popover's `lockReason` re-export, and the chip's teardown-only `mounted` flag.

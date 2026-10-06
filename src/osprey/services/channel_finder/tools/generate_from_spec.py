@@ -429,7 +429,8 @@ def verify_cross_paradigm_identity(hier_path: Path, ctx_path: Path, ml_path: Pat
 
 def _load(path: Path) -> dict[str, Any]:
     with path.open() as f:
-        return json.load(f)
+        data: dict[str, Any] = json.load(f)
+    return data
 
 
 def _dump(path: Path, data: dict[str, Any]) -> None:

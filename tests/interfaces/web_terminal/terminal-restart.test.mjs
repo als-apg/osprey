@@ -24,22 +24,16 @@ afterEach(() => {
 });
 
 describe('restartTerminal', () => {
-  test('prepends window.__OSPREY_PREFIX__ to the restart POST (multi-user deployments)', async () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
+  test.each([
+    ['/u/alice', '/u/alice/api/terminal/restart'],
+    [undefined, '/api/terminal/restart'],
+  ])('POSTs the restart through the multi-user prefix (prefix %s)', async (prefix, expected) => {
+    if (prefix !== undefined) window.__OSPREY_PREFIX__ = prefix;
     const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
     await restartTerminal();
 
-    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/terminal/restart', { method: 'POST' });
-  });
-
-  test('is byte-identical to the unprefixed request when the prefix is absent', async () => {
-    const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    await restartTerminal();
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/terminal/restart', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith(expected, { method: 'POST' });
   });
 });

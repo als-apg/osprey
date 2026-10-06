@@ -80,6 +80,8 @@ def _history_status(item: dict[str, Any]) -> str:
     """The record state for a history entry, from its recorded ``exit_status``."""
     result = item.get("result")
     exit_status = result.get("exit_status") if isinstance(result, dict) else None
+    if not isinstance(exit_status, str):
+        return _UNKNOWN_EXIT_STATUS
     return _EXIT_STATUS_TO_STATUS.get(exit_status, _UNKNOWN_EXIT_STATUS)
 
 

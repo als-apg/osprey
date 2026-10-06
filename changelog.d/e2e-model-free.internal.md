@@ -1,0 +1,1 @@
+End-to-end tests that reach no model carry the `model_free` marker and run without `OSPREY_E2E_PROVIDER`; a run that selects any other e2e test without naming a provider is refused, and the refusal lists those tests.

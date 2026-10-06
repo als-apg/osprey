@@ -57,6 +57,7 @@ afterEach(() => {
   customize = null;
   sync = null;
   delete document.documentElement.dataset.landingUrl;
+  delete document.documentElement.dataset.uiMode;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -102,5 +103,27 @@ describe('Log out', () => {
     await openPalette();
 
     expect(paletteLabels()).not.toContain('Log out');
+  });
+});
+
+describe('Open activity log', () => {
+  test.each([
+    ['Expert', undefined],
+    ['Simple', 'simple'],
+  ])('is offered in %s and opens the page in a new tab', async (_view, uiMode) => {
+    ({ customize, sync } = await boot());
+    if (uiMode) document.documentElement.dataset.uiMode = uiMode;
+    const open = vi.fn();
+    vi.stubGlobal('open', open);
+
+    await openPalette();
+    expect(paletteLabels()).toContain('Open activity log');
+    paletteRow('Open activity log')?.click();
+
+    expect(open).toHaveBeenCalledTimes(1);
+    const [url, target, features] = open.mock.calls[0];
+    expect(String(url).startsWith('/static/session.html')).toBe(true);
+    expect(target).toBe('_blank');
+    expect(features).toBe('noopener');
   });
 });

@@ -53,9 +53,10 @@ def _install_fake_stream_client(monkeypatch, *, stream_resp=None, post_behavior=
 
         # The httpx client this stands in for is called with the body and the headers
         # by keyword.
-        def stream(self, _method, url, json=None, headers=None):  # noqa: ARG002
+        def stream(self, _method, url, json=None, headers=None):
             captured["stream_url"] = url
             captured["stream_json"] = json
+            captured["stream_headers"] = headers
             return stream_resp
 
         # The httpx client this stands in for is called with the body and the headers
@@ -66,6 +67,23 @@ def _install_fake_stream_client(monkeypatch, *, stream_resp=None, post_behavior=
 
     monkeypatch.setattr(app_module.httpx, "AsyncClient", _FakeAsyncClient)
     return captured
+
+
+#: A request carrying one base64 image.
+_IMAGE_MESSAGES = [
+    {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "see"},
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="},
+            },
+        ],
+    }
+]
+
+_IMAGE_REFUSAL = {"error": {"message": "model does not support images"}}
 
 
 def _parse_sse(raw: str) -> list[tuple[str, dict]]:
@@ -216,6 +234,25 @@ class TestStreaming:
         assert events[0][0] == "error"
         assert "upstream boom" in events[0][1]["error"]["message"]
 
+    def test_a_refused_image_stream_names_the_image(self, monkeypatch):
+        _install_fake_stream_client(
+            monkeypatch,
+            stream_resp=_FakeStreamResp(400, body=json.dumps(_IMAGE_REFUSAL).encode()),
+        )
+        app = create_proxy_app(
+            "https://up.example/v1", upstream_api_key="k", provider="vllm", supports_images=True
+        )
+
+        resp = TestClient(app).post(
+            "/v1/messages", json={"model": "m", "stream": True, "messages": _IMAGE_MESSAGES}
+        )
+        events = _parse_sse(resp.text)
+        assert events[0][0] == "error"
+        error = events[0][1]["error"]
+        assert error["type"] == "invalid_request_error"
+        assert "Provider 'vllm' refused a request carrying 1 image" in error["message"]
+        assert "model does not support images" in error["message"]
+
     def test_malformed_sse_line_is_skipped(self, monkeypatch):
         lines = [
             "event: ignored-non-data-line",
@@ -239,6 +276,32 @@ class TestStreaming:
             if e == "content_block_delta" and d.get("delta", {}).get("type") == "text_delta"
         ]
         assert "".join(text_deltas) == "ok"
+
+    def test_stream_forwards_exactly_the_declared_headers(self, monkeypatch):
+        lines = [
+            _sse_line({"choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}]}),
+            "data: [DONE]",
+        ]
+        captured = _install_fake_stream_client(
+            monkeypatch, stream_resp=_FakeStreamResp(200, lines=lines)
+        )
+        app = create_proxy_app(
+            "https://up.example/v1", upstream_api_key="k", forward_headers={"X-Corp-Trace"}
+        )
+        client = TestClient(app)
+
+        resp = client.post(
+            "/v1/messages",
+            json={"model": "m", "stream": True, "messages": [{"role": "user", "content": "x"}]},
+            headers={"X-Corp-Trace": "abc123", "X-Other": "1"},
+        )
+        assert resp.status_code == 200
+
+        sent = captured["stream_headers"]
+        lowered = {k.lower() for k in sent}
+        assert "x-corp-trace" in lowered
+        assert "x-other" not in lowered
+        assert sent["Authorization"] == "Bearer k"
 
 
 class TestNonStreamErrorTranslation:
@@ -291,6 +354,51 @@ class TestNonStreamErrorTranslation:
         )
         assert out.status_code == 404
         assert out.json()["error"]["type"] == "not_found_error"
+
+    def _post_error(self, monkeypatch, status, payload, messages=None, **app_kwargs):
+        resp = self._error_resp(status, payload)
+        _install_fake_stream_client(monkeypatch, post_behavior=lambda: _NonRaisingResp(resp))
+        app = create_proxy_app("https://up.example/v1", upstream_api_key="k", **app_kwargs)
+        messages = messages or [{"role": "user", "content": "x"}]
+        return TestClient(app).post("/v1/messages", json={"model": "m", "messages": messages})
+
+    def test_400_maps_to_invalid_request_error(self, monkeypatch):
+        out = self._post_error(monkeypatch, 400, {"error": {"message": "bad field"}})
+        assert out.status_code == 400
+        assert out.json()["error"] == {"type": "invalid_request_error", "message": "bad field"}
+
+    def test_413_maps_to_request_too_large(self, monkeypatch):
+        out = self._post_error(monkeypatch, 413, {"error": {"message": "too big"}})
+        assert out.status_code == 413
+        assert out.json()["error"] == {"type": "request_too_large", "message": "too big"}
+
+    def test_a_refused_image_request_names_the_image(self, monkeypatch):
+        out = self._post_error(
+            monkeypatch,
+            400,
+            _IMAGE_REFUSAL,
+            _IMAGE_MESSAGES,
+            provider="vllm",
+            supports_images=True,
+        )
+        assert out.status_code == 400
+        error = out.json()["error"]
+        assert error["type"] == "invalid_request_error"
+        assert "Provider 'vllm' refused a request carrying 1 image" in error["message"]
+        assert "model does not support images" in error["message"]
+        assert "supports_images: false" in error["message"]
+
+    def test_a_server_error_on_an_image_request_is_not_blamed_on_the_image(self, monkeypatch):
+        out = self._post_error(
+            monkeypatch,
+            500,
+            {"error": {"message": "internal"}},
+            _IMAGE_MESSAGES,
+            provider="vllm",
+            supports_images=True,
+        )
+        assert out.status_code == 500
+        assert out.json()["error"] == {"type": "api_error", "message": "internal"}
 
     def test_request_error_maps_to_502(self, monkeypatch):
         def _post():

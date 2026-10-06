@@ -34,6 +34,10 @@ from osprey.interfaces.fs_watch import (
 
 logger = logging.getLogger("osprey.interfaces.artifacts.store_watcher")
 
+#: ``origin`` of an audit spill (``osprey.stores.artifact_store.AUDIT_ORIGIN``),
+#: kept literal so watching an index does not import the store module.
+_AUDIT_ORIGIN = "tool_call"
+
 
 class _IndexFileHandler(FileSystemEventHandler):
     """Watchdog handler that reacts to modifications of known index files."""
@@ -233,6 +237,9 @@ class _IndexFileHandler(FileSystemEventHandler):
         added = new_ids - old_ids
         for entry in store._entries:
             if getattr(entry, id_attr) in added:
+                if getattr(entry, "origin", "") == _AUDIT_ORIGIN:
+                    # An audit spill is a record, not an artifact: never live.
+                    continue
                 self._broadcaster.broadcast(
                     {
                         "type": event_type,

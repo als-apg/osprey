@@ -85,7 +85,7 @@ VA_PROBE_CHANNEL = "SR:VAC:GAUGE:SR01:PRESSURE:RB"
 #: build must render untouched whether or not a stand-in was asked for. The
 #: gateways and probe channel ship commented out (authoring them is the
 #: go-live edit), so untouched means the timeout and nothing else.
-SHIPPED_EPICS_BLOCK = {"timeout": 5.0}
+SHIPPED_EPICS_BLOCK = {"timeout_s": 5.0}
 
 #: The opening of the note ``osprey build`` used to write above an
 #: acknowledgment it derived for the operator. Nothing derives one now — the

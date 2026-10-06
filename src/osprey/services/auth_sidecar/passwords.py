@@ -27,6 +27,11 @@ with a salt or key, and no shell or compose layer ascribes meaning to it. The
 separator is :data:`FIELD_SEP` rather than a literal so the writer and
 :func:`_parse_stored` cannot drift apart.
 
+A stored string the service cannot evaluate is a configuration fault, not a
+wrong password: :func:`check_password` reports it as
+:attr:`PasswordCheck.UNEVALUABLE`, and :func:`stored_hash_problem` names it
+without deriving a key.
+
 The module also mints *credential-generation tags* — truncated one-way digests
 of a stored-hash string. Session cookies are signed but not encrypted, so the
 stored hash must never enter one; a tag lets the sidecar detect that a user's
@@ -37,6 +42,7 @@ stored hash) without keeping server-side session state.
 from __future__ import annotations
 
 import base64
+import enum
 import hashlib
 import hmac
 import secrets
@@ -80,6 +86,18 @@ GENERATION_TAG_CHARS = 16
 """Number of hex characters kept from the generation-tag digest."""
 
 _FIELD_COUNT = 6
+
+
+class PasswordCheck(enum.Enum):
+    """The three outcomes of checking a password.
+
+    :attr:`UNEVALUABLE` means the stored string, not the submitted password, is
+    at fault: no password could have matched it.
+    """
+
+    MATCH = "match"
+    MISMATCH = "mismatch"
+    UNEVALUABLE = "unevaluable"
 
 
 def _b64encode(raw: bytes) -> str:
@@ -137,6 +155,10 @@ def hash_password(
 def _parse_stored(stored: str) -> tuple[int, int, int, bytes, bytes]:
     """Split a stored-hash string into its cost parameters, salt and key.
 
+    The refusals mirror what :func:`hashlib.scrypt` refuses under
+    :data:`SCRYPT_MAXMEM`, so a string this function accepts is one the KDF will
+    evaluate. No refusal message carries any part of ``stored``.
+
     Args:
         stored: A string previously produced by :func:`hash_password`.
 
@@ -152,7 +174,7 @@ def _parse_stored(stored: str) -> tuple[int, int, int, bytes, bytes]:
 
     scheme, n_text, r_text, p_text, salt_text, key_text = fields
     if scheme != SCHEME:
-        raise ValueError(f"unsupported hash scheme: {scheme!r}")
+        raise ValueError(f"hash scheme is not {SCHEME!r}")
 
     try:
         n, r, p = int(n_text), int(r_text), int(p_text)
@@ -160,32 +182,49 @@ def _parse_stored(stored: str) -> tuple[int, int, int, bytes, bytes]:
         raise ValueError("scrypt parameters must be integers") from exc
     if n < 2 or r < 1 or p < 1:
         raise ValueError("scrypt parameters out of range")
+    if n & (n - 1):
+        raise ValueError("scrypt cost factor is not a power of two")
+    # RFC 7914 requires n < 2**(16*r); for r >= 4 the memory check below already
+    # refuses every n this rule would, so the shift stays small.
+    if r < 4 and n >= 1 << (16 * r):
+        raise ValueError("scrypt cost factor is too large for its block size")
+    if 128 * r * (n + p + 2) > SCRYPT_MAXMEM:
+        raise ValueError("scrypt parameters need more memory than the ceiling allows")
 
-    salt, key = _b64decode(salt_text), _b64decode(key_text)
+    try:
+        salt, key = _b64decode(salt_text), _b64decode(key_text)
+    except ValueError as exc:
+        raise ValueError("salt or key is not unpadded base64url") from exc
     if not salt or not key:
         raise ValueError("stored hash carries an empty salt or key")
     return n, r, p, salt, key
 
 
-def verify_password(password: str, stored: str) -> bool:
-    """Check a plaintext password against a stored-hash string.
+def check_password(password: str, stored: str) -> PasswordCheck:
+    """Check a plaintext password against a stored-hash string, in three outcomes.
 
-    The cost parameters come from ``stored``, so hashes minted under an older
-    cost keep verifying. Comparison is constant-time. A malformed or unusable
-    ``stored`` value verifies as ``False`` rather than raising — the sidecar
-    treats an unreadable credential as a failed login, not a crash.
+    The parse runs first, so a broken ``stored`` value is reported as
+    :attr:`PasswordCheck.UNEVALUABLE` whatever was typed. An empty ``password``
+    is a mismatch without deriving a key. The cost parameters come from
+    ``stored``, so hashes minted under an older cost keep verifying, and the
+    comparison is constant-time. The ``except`` around the KDF is a backstop for
+    a refusal the parse did not predict.
 
     Args:
         password: The plaintext password to check.
         stored: A string previously produced by :func:`hash_password`.
 
     Returns:
-        ``True`` if the password matches, ``False`` otherwise.
+        :attr:`PasswordCheck.MATCH`, :attr:`PasswordCheck.MISMATCH`, or
+        :attr:`PasswordCheck.UNEVALUABLE` when ``stored`` cannot be evaluated.
     """
-    if not password:
-        return False
     try:
         n, r, p, salt, key = _parse_stored(stored)
+    except ValueError:
+        return PasswordCheck.UNEVALUABLE
+    if not password:
+        return PasswordCheck.MISMATCH
+    try:
         candidate = hashlib.scrypt(
             password.encode("utf-8"),
             salt=salt,
@@ -196,8 +235,49 @@ def verify_password(password: str, stored: str) -> bool:
             dklen=len(key),
         )
     except (ValueError, MemoryError):
-        return False
-    return hmac.compare_digest(candidate, key)
+        return PasswordCheck.UNEVALUABLE
+    if hmac.compare_digest(candidate, key):
+        return PasswordCheck.MATCH
+    return PasswordCheck.MISMATCH
+
+
+def stored_hash_problem(stored: str) -> str | None:
+    """Name what makes a stored-hash string impossible to evaluate.
+
+    The one shape test every pre-login surface shares, and the same parse
+    :func:`check_password` runs. It never derives a key, and its answer never
+    contains any part of ``stored``.
+
+    Args:
+        stored: A stored-hash string, as read from its environment entry.
+
+    Returns:
+        ``None`` when ``stored`` is well formed, otherwise a short description of
+        the problem.
+    """
+    try:
+        _parse_stored(stored)
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def verify_password(password: str, stored: str) -> bool:
+    """Check a plaintext password against a stored-hash string.
+
+    The cost parameters come from ``stored``, so hashes minted under an older
+    cost keep verifying. Comparison is constant-time. A stored value that cannot
+    be evaluated verifies as ``False``; a caller that must tell that apart from a
+    wrong password uses :func:`check_password`.
+
+    Args:
+        password: The plaintext password to check.
+        stored: A string previously produced by :func:`hash_password`.
+
+    Returns:
+        ``True`` if the password matches, ``False`` otherwise.
+    """
+    return check_password(password, stored) is PasswordCheck.MATCH
 
 
 def generation_tag(stored: str) -> str:

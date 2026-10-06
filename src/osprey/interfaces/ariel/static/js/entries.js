@@ -12,12 +12,13 @@ import {
   renderEmptyState,
   renderErrorState,
 } from './components.js';
-import { showEntry, closeEntryModal, showImageLightbox, getCurrentEntry, initEntryDetail } from './entries-detail.js';
+import { showEntry, openEntry, closeEntryModal, showImageLightbox, getCurrentEntry, initEntryDetail } from './entries-detail.js';
 import { handleCreateEntry, handleTagInput, handleFilePreview, loadDraft, initEntryTags } from './entries-form.js';
+import { renderEntryFields } from './entry-fields.js';
 
 // Re-export the detail-view and form public surface — app.js and window.app
 // import these from entries.js, so this module stays their single point of entry.
-export { showEntry, closeEntryModal, showImageLightbox, getCurrentEntry };
+export { showEntry, openEntry, closeEntryModal, showImageLightbox, getCurrentEntry };
 export { loadDraft };
 
 /**
@@ -67,29 +68,43 @@ export function initEntries() {
   initEntryDetail();
   initEntryTags();
 
-  // Adapt the publishing section to the configured logbook adapter.
-  adaptPublishingSection();
+  // Adapt the publishing section and the declared entry fields to the
+  // configured logbook adapter.
+  adaptCreateForm();
 }
 
 /**
- * Adapt the "Logbook Publishing" section to the configured adapter.
+ * Adapt the create form to the configured adapter, from one publish-info read.
  *
  * The adapter declares whether publishing needs credentials, so the form shows
  * the credential fields only when they can actually be used and tells the
  * operator what leaving the form will do — instead of fixed, possibly-wrong text.
+ * It also declares the entry fields the form renders; when it declares none, or
+ * publish-info cannot be read, the form keeps its built-in inputs unchanged.
+ * @returns {Promise<void>}
  */
-async function adaptPublishingSection() {
-  const helper = document.getElementById('publish-helper');
-  const credentials = document.getElementById('publish-credentials');
-  if (!helper) return;
-
+export async function adaptCreateForm() {
   let info;
   try {
     info = await entriesApi.getPublishInfo();
   } catch {
-    // Service/DB unavailable — keep the neutral default text.
+    // Service/DB unavailable — keep the neutral default text and built-in inputs.
+    await renderEntryFields([]);
     return;
   }
+
+  adaptPublishingSection(info);
+  await renderEntryFields(Array.isArray(info.entry_fields) ? info.entry_fields : []);
+}
+
+/**
+ * Adapt the "Logbook Publishing" section to the adapter's publish-info.
+ * @param {{supports_write: boolean, requires_auth: boolean, source_system: ?string}} info
+ */
+function adaptPublishingSection(info) {
+  const helper = document.getElementById('publish-helper');
+  const credentials = document.getElementById('publish-credentials');
+  if (!helper) return;
 
   const where = info.source_system ? ` to ${info.source_system}` : '';
   if (!info.supports_write) {

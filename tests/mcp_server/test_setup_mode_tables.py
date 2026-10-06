@@ -39,6 +39,7 @@ CONTROL_SYSTEM_TYPE = "control_system.type"
 #: Keys added for the target switch that the tool classifies by exact path.
 TARGET_SWITCH_KEYS = [
     "control_system.target_switch.drain_timeout_s",
+    "control_system.target_switch.probe_timeout_s",
     "control_system.target_switch.probe_interval_s",
     "control_system.target_switch.live_gateway_acknowledged",
 ]

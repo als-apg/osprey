@@ -8,7 +8,9 @@ and endpoint construction from ``bind_address`` + ``port``.
 from __future__ import annotations
 
 import httpx
+import pytest
 
+from osprey.build.claude_code_telemetry import openobserve_published_port
 from osprey.health.core.openobserve import openobserve
 from osprey.health.models import CheckResult, Status
 from osprey.port_layout import default_port
@@ -98,6 +100,29 @@ async def test_healthz_url_follows_the_port_base() -> None:
     captured: list[str] = []
     await _run(config, transport=_ok_transport(captured))
     assert captured == ["http://127.0.0.1:20050/healthz"]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{}, {"services": {"openobserve": {"port": 9999}}}, {"deployment": {"port_base": 20000}}],
+    ids=["default", "configured-port", "moved-base"],
+)
+async def test_healthz_port_is_the_published_port_derivation(extra) -> None:
+    """The probe dials the port the agent's exporter and the provisioner dial."""
+    config = {"deployed_services": ["openobserve"], **extra}
+    captured: list[str] = []
+    await _run(config, transport=_ok_transport(captured))
+    assert captured == [f"http://127.0.0.1:{openobserve_published_port(config)}/healthz"]
+
+
+async def test_an_unreadable_port_is_a_warning_row_not_a_probe() -> None:
+    config = {"deployed_services": ["openobserve"], "services": {"openobserve": {"port": "abc"}}}
+    captured: list[str] = []
+    by_name = await _run(config, transport=_ok_transport(captured))
+    assert captured == []
+    assert by_name["openobserve_healthz"].status is Status.WARNING
+    assert "services.openobserve.port" in by_name["openobserve_healthz"].message
+    assert "openobserve_retention" in by_name
 
 
 async def test_retention_default_is_ok() -> None:

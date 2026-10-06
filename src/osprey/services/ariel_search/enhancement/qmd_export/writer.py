@@ -19,6 +19,8 @@ that rewrote unchanged entries would turn qmd's free "nothing changed" scan into
 a full reindex and re-embed pass on every tick — at ~135k entries
 that is tens of minutes of work per tick instead of ~12 seconds. Rendering is
 therefore fully deterministic: no wall-clock stamps, no dict-iteration order.
+The body depends on the configured facility zone, so changing that zone
+rewrites the mirror once.
 
 **Lossless, invertible filenames.** ``entry_id`` is percent-encoded so that any
 identifier — including ``a/b``, ``..``, unicode, and control characters — maps
@@ -41,6 +43,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
+
+from osprey.utils.config import to_facility_iso
 
 # Maximum size of one rendered document, including the truncation marker.
 BODY_CAP_BYTES = 256 * 1024
@@ -194,6 +198,7 @@ def render_entry(entry: Mapping[str, Any]) -> str:
     raw_text = sanitize_text(entry.get("raw_text")).strip()
     summary = sanitize_text(entry.get("summary")).strip()
     keywords = _render_keywords(entry.get("keywords"))
+    captions = _render_captions(entry.get("attachment_text"))
     stamp = _format_timestamp(entry.get("timestamp"))
 
     lines = [
@@ -209,6 +214,8 @@ def render_entry(entry: Mapping[str, Any]) -> str:
         lines.append(f"Summary: {_sentence(summary)}")
     if keywords:
         lines.append(f"Keywords: {_sentence(keywords)}")
+    if captions:
+        lines.append(f"Captions: {captions}")
     lines.extend(["", raw_text])
 
     document = "\n".join(lines).rstrip("\n") + "\n"
@@ -324,18 +331,19 @@ def _shard(timestamp: Any) -> tuple[str, ...]:
 
 
 def _format_timestamp(timestamp: Any) -> str:
-    """Render an entry timestamp as UTC prose for the document body.
+    """Render an entry timestamp for the document body.
 
     Args:
         timestamp: A ``datetime``, an ISO-8601 string, or anything else.
 
     Returns:
-        ``YYYY-MM-DD HH:MM:SS UTC``, or ``unknown time`` when unusable.
+        Facility-local ISO-8601 with its offset, through the same transform as
+        the ARIEL web API and MCP output, or ``unknown time`` when unusable.
     """
     moment = _coerce_datetime(timestamp)
     if moment is None:
         return "unknown time"
-    return moment.strftime("%Y-%m-%d %H:%M:%S UTC")
+    return str(to_facility_iso(moment))
 
 
 def _coerce_datetime(timestamp: Any) -> datetime | None:
@@ -403,6 +411,12 @@ def _render_keywords(keywords: Any) -> str:
     if not rendered:
         return ""
     return f"{', '.join(rendered)}"
+
+
+def _render_captions(attachment_text: Any) -> str:
+    """Render an entry's picture text as one line: its non-blank lines joined by spaces."""
+    parts = [line.strip() for line in sanitize_text(attachment_text).splitlines()]
+    return " ".join(part for part in parts if part)
 
 
 def _sentence(text: str) -> str:

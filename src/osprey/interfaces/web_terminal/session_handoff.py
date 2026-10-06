@@ -59,8 +59,12 @@ and the entry point sequences them.
     ``interrupt=True`` the wait is cut short: the PTY is sent Escape and
     given :data:`INTERRUPT_GRACE_S` to show the interrupt marker or an idle
     edge, after which it is terminated — the operator asked for exactly that.
-    The phase ends in a :class:`WaitOutcome` naming *why* the wait ended, and
-    that outcome is what (c) is handed.
+    Before either wait reports an agent it would end idle, and before it
+    interrupts one, it looks for commands the agent started and refuses with
+    the list unless the request agreed to end them (``end_started``). The
+    phase ends in a
+    :class:`WaitOutcome` naming *why* the wait ended, and that outcome is
+    what (c) is handed.
 
 (c) *Under the lock again, shielded* — :func:`_phase_c`. Tear the outgoing
     process down, confirm it is dead, spawn the incoming surface's process,
@@ -94,10 +98,10 @@ import inspect
 import logging
 import os
 import time
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from osprey.interfaces.web_terminal import transcript_map
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
@@ -108,6 +112,7 @@ from osprey.mcp_server.workspace.transcript_reader import TranscriptReader, tail
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
     from osprey.interfaces.web_terminal.operator_session import OperatorSession
+    from osprey.interfaces.web_terminal.process_tree import ProcessGroup
     from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
 
 logger = logging.getLogger(__name__)
@@ -190,11 +195,16 @@ ERROR_HANDOFF_NEEDS_INTERRUPT = "handoff_needs_interrupt"
 ERROR_HANDOFF_SUPERSEDED = "handoff_superseded"
 ERROR_OUTGOING_VANISHED = "outgoing_vanished"
 ERROR_SPAWN_NOT_POOLED = "spawn_not_pooled"
+ERROR_HANDOFF_STARTED_COMMANDS = "handoff_started_commands"
 
 #: Websocket close codes for the refusals a terminal socket can meet. The
 #: browser side treats both as terminal (no reconnect); see ``api.js``.
 WS_CLOSE_SESSION_ATTACHED = 4409
 WS_CLOSE_OUTGOING_RUNNING = 4503
+#: The outgoing agent started commands that are still running and the request
+#: did not agree to end them. Its own code, because the client answers it with
+#: a question, not a notice.
+WS_CLOSE_STARTED_COMMANDS = 4428
 
 _WS_CLOSE_BY_STATUS: dict[int, int] = {
     409: WS_CLOSE_SESSION_ATTACHED,
@@ -208,12 +218,15 @@ class HandoffRefused(Exception):
     Routes send ``status`` with a body of ``{"detail": {"error": <error>}}``;
     the terminal websocket closes with :attr:`ws_close_code`. Every refusal
     is a classmethod, so a caller never assembles a status/slug pair by hand.
+    :attr:`extra` holds the fields a refusal adds to its ``detail`` and to its
+    websocket frame.
     """
 
     def __init__(self, status: int, error: str, message: str | None = None) -> None:
         super().__init__(message or error)
         self.status = status
         self.error = error
+        self.extra: dict[str, Any] = {}
 
     @property
     def ws_close_code(self) -> int | None:
@@ -263,6 +276,14 @@ class HandoffRefused(Exception):
         See :class:`HandoffSuperseded`.
         """
         return HandoffSuperseded(key)
+
+    @classmethod
+    def started_commands(cls, key: str, commands: Sequence[ProcessGroup]) -> HandoffStartedCommands:
+        """409 — the agent the hand-off would end started commands still running.
+
+        See :class:`HandoffStartedCommands`.
+        """
+        return HandoffStartedCommands(key, commands)
 
 
 class HandoffNeedsInterrupt(HandoffRefused):
@@ -320,6 +341,29 @@ class HandoffSuperseded(HandoffRefused):
         return None
 
 
+class HandoffStartedCommands(HandoffRefused):
+    """The agent this hand-off would end started commands that are still running.
+
+    Ending the agent ends them too, so the hand-off does not proceed until the
+    request carries the operator's agreement (``end_started``). The commands
+    are in :attr:`commands` and, for the client, in :attr:`extra`.
+    """
+
+    def __init__(self, key: str, commands: Sequence[ProcessGroup]) -> None:
+        super().__init__(
+            409,
+            ERROR_HANDOFF_STARTED_COMMANDS,
+            f"session {key!r}: the agent this hand-off would end started commands "
+            "that are still running",
+        )
+        self.commands = list(commands)
+        self.extra = {"commands": [c.to_json() for c in commands]}
+
+    @property
+    def ws_close_code(self) -> int | None:
+        return WS_CLOSE_STARTED_COMMANDS
+
+
 class HandoffError(Exception):
     """A hand-off that cannot be carried out because its premise no longer holds.
 
@@ -374,7 +418,6 @@ class ChannelClosed(asyncio.CancelledError):
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
 class AcquireChannel(Protocol):
     """What phase (b) asks of the channel token: is the caller still there?
 
@@ -433,18 +476,22 @@ class PendingAcquire:
 
     Registered at the end of phase (a), released at the end of phase (c) — or
     by phase (b) itself when its wait is cancelled, so (c) never runs. Callers
-    never release the slot; the phases own it. While it stands, any other
-    connection's acquire of the same key sees a holder.
+    never release the slot; the phases own it, and each record is owned by the
+    one call that registered it. While it stands, any other connection's
+    acquire of the same key sees a holder.
 
     Attributes:
         channel: The token identifying the connection that made the call —
             the terminal socket's attach token or a per-request object for a
-            POST. Compared by identity; the same channel re-acquiring replaces
-            its own slot rather than blocking on it.
+            POST. Compared by identity.
         surface: Which surface the call is acquiring for.
         task: The task running the acquire, so a diagnostic or a shutdown can
             see what is in flight — and so a superseding acquire can cancel
-            it. ``None`` outside a task.
+            it. ``None`` outside a task. With ``channel`` it identifies the
+            record's owner — the call that registered it — for the release and
+            for the phases' reads of their own record, so a later acquire from
+            the same channel that replaced the record is never touched by the
+            earlier call.
         superseded: A newer Simple acquire with an interrupt has cancelled
             this call's wait. Set before the cancel is delivered, so the
             waiter can tell it from any other cancellation and end in
@@ -468,8 +515,8 @@ class PendingAcquire:
 class HandoffState:
     """Everything this module keeps beyond the pools themselves.
 
-    Lives on ``app.state.handoff``; :func:`get_state` builds it lazily so an
-    app assembled without it (tests) still works.
+    Lives on ``app.state.handoff``, where :func:`get_state` builds it on
+    first use; nothing else creates it.
 
     Attributes:
         locks: One lock per session key, created on first use and kept for the
@@ -601,12 +648,18 @@ class AcquirePlan:
             hand-off is what tells the Simple view when the session is free.
             False for an Expert reattaching or taking over: a TUI keeps
             running and the newcomer simply sees its output.
+        spawn: The caller's :data:`SpawnCallback`, carried through for phase
+            (c), which calls it only when the incoming surface's entry is not
+            already pooled.
         displaced_owner: On ``takeover``, the attach token of the Expert
             connection currently holding the PTY, to be closed with 4409 by
             phase (c). ``None`` otherwise.
-        spawn: The caller's :data:`SpawnCallback`, carried through for phase
-            (c). ``None`` when the caller has nothing to start — legal only
-            for a plan whose incoming surface's entry is already pooled.
+        end_started: The operator agreed that the hand-off ends the commands
+            the outgoing agent started.
+        task: The task that registered the call's pending record — set by
+            registration, ``None`` on a plan not yet registered. The owner the
+            phases match the record against, carried on the plan because
+            phase (c) releases from a task of its own.
     """
 
     key: str
@@ -617,8 +670,10 @@ class AcquirePlan:
     outgoing: OutgoingEntry | None
     teardown: bool
     wait_for_idle: bool
+    spawn: SpawnCallback
     displaced_owner: object | None = None
-    spawn: SpawnCallback | None = None
+    end_started: bool = False
+    task: asyncio.Task[Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -702,8 +757,9 @@ async def acquire_surface(
     surface: Surface,
     channel: object,
     *,
+    spawn: SpawnCallback,
     interrupt: bool = False,
-    spawn: SpawnCallback | None = None,
+    end_started: bool = False,
 ) -> AcquireResult:
     """Take session key *key* for *surface* on behalf of *channel*.
 
@@ -717,7 +773,9 @@ async def acquire_surface(
     another connection or view is consuming it (or, as
     :class:`HandoffNeedsInterrupt`, when a hook-less PTY holds it and no
     interrupt was asked for; or, as :class:`HandoffSuperseded`, when a newer
-    Simple acquire with an interrupt ended this call's wait), 503 when the
+    Simple acquire with an interrupt ended this call's wait; or, as
+    :class:`HandoffStartedCommands`, when the agent the hand-off would end
+    started commands still running and *end_started* is False), 503 when the
     outgoing process survived its kill, 429 when the chat pool is full; the
     caller maps ``.status`` and
     ``.error`` to its channel (HTTP status with a ``detail.error`` body, or
@@ -748,32 +806,45 @@ async def acquire_surface(
             implementing :class:`AcquireChannel` is polled for closure during
             the wait; see :class:`ChannelToken`.
         interrupt: Abort the outgoing turn instead of waiting for it.
+        end_started: The operator agreed that ending the outgoing agent also
+            ends the commands it started. Without it, a hand-off that would
+            end an agent with started commands still running is refused with
+            :class:`HandoffStartedCommands`, which lists them.
         spawn: How the incoming surface starts its process; see
             :data:`SpawnCallback`. Called only when the key holds no live
             entry of the incoming surface, so a Simple caller that is merely
             taking its next turn on its own pooled chat is handed that chat
-            back without a spawn. Omitted, the call can only hand back an
-            entry that is already pooled.
+            back without a spawn.
     """
-    plan = await _phase_a(app, key, surface, channel, interrupt=interrupt, spawn=spawn)
+    plan = await _phase_a(
+        app, key, surface, channel, interrupt=interrupt, spawn=spawn, end_started=end_started
+    )
     outcome = await _phase_b(app, plan)
     return await _phase_c(app, plan, outcome)
 
 
-def release_pending(app: Any, key: str, channel: object) -> bool:
+def release_pending(app: Any, key: str, channel: object, *, task: asyncio.Task[Any] | None) -> bool:
     """Drop *channel*'s pending acquire of *key* and the reservation that came with it.
 
-    Owner-checked: a slot held by another channel is left alone, so a caller
-    cleaning up after its own cancelled wait cannot release the acquire that
-    took the key after it. Safe to call when nothing is pending. The phases
-    call it themselves; a caller of :func:`acquire_surface` never has to.
+    Owner-checked by *channel* and *task* — the registering call's own pair,
+    which is ``plan.task`` and not necessarily the current task — so a call
+    cleaning up after its own cancelled wait cannot release an acquire that
+    took the key after it, from another connection or from the same one. Safe
+    to call when nothing is pending. The phases call it themselves; a caller
+    of :func:`acquire_surface` never has to.
+
+    Args:
+        app: The application holding the hand-off state and the PTY registry.
+        key: The session key whose slot is released.
+        channel: The channel token the slot was registered with.
+        task: The task that registered the slot.
 
     Returns:
         True when a slot was released.
     """
     state = get_state(app)
     pending = state.pending.get(key)
-    if pending is None or pending.channel is not channel:
+    if pending is None or pending.channel is not channel or pending.task is not task:
         return False
     del state.pending[key]
     _pty_registry(app).unreserve(key)
@@ -800,7 +871,8 @@ async def _phase_a(
     channel: object,
     *,
     interrupt: bool,
-    spawn: SpawnCallback | None = None,
+    spawn: SpawnCallback,
+    end_started: bool = False,
 ) -> AcquirePlan:
     """Decide what acquiring *key* for *surface* means right now.
 
@@ -820,7 +892,14 @@ async def _phase_a(
         async with lock:
             try:
                 return await _inspect_and_register(
-                    app, state, key, surface, channel, interrupt=interrupt, spawn=spawn
+                    app,
+                    state,
+                    key,
+                    surface,
+                    channel,
+                    interrupt=interrupt,
+                    spawn=spawn,
+                    end_started=end_started,
                 )
             except _Blocked as blocked:
                 reason = blocked.reason
@@ -847,7 +926,8 @@ async def _inspect_and_register(
     channel: object,
     *,
     interrupt: bool,
-    spawn: SpawnCallback | None = None,
+    spawn: SpawnCallback,
+    end_started: bool = False,
 ) -> AcquirePlan:
     """One look at the key. Caller holds the key's lock.
 
@@ -902,6 +982,7 @@ async def _inspect_and_register(
             wait_for_idle=False,
             displaced_owner=registry.attached_owner(key),
             spawn=spawn,
+            end_started=end_started,
         )
         return _register(state, registry, plan)
 
@@ -920,6 +1001,7 @@ async def _inspect_and_register(
             teardown=False,
             wait_for_idle=False,
             spawn=spawn,
+            end_started=end_started,
         )
         return _register(state, registry, plan)
 
@@ -972,6 +1054,7 @@ async def _inspect_and_register(
         teardown=teardown,
         wait_for_idle=wait_for_idle,
         spawn=spawn,
+        end_started=end_started,
     )
     return _register(state, registry, plan)
 
@@ -992,12 +1075,15 @@ def _register(state: HandoffState, registry: PtyRegistry, plan: AcquirePlan) -> 
 
     Caller holds the key's lock. The reservation keeps the outgoing PTY — now
     attached to nobody — off the eviction pass for as long as the slot
-    stands; :func:`release_pending` drops both together.
+    stands; :func:`release_pending` drops both together. The returned plan
+    carries the registering task, which is the record's owner for the rest of
+    the call.
     """
+    plan = replace(plan, task=asyncio.current_task())
     state.pending[plan.key] = PendingAcquire(
         channel=plan.channel,
         surface=plan.surface,
-        task=asyncio.current_task(),
+        task=plan.task,
     )
     registry.reserve(plan.key)
     return plan
@@ -1060,7 +1146,7 @@ async def _phase_b(app: Any, plan: AcquirePlan) -> WaitOutcome:
     acquire superseded (see :func:`_supersede`) ends in
     :class:`HandoffSuperseded` instead, so the route that made it answers a
     refusal rather than dying cancelled. The mark is read off this call's own
-    pending record before the record is released — a record another channel
+    pending record before the record is released — a record another call
     holds by then says nothing about this wait. The task's cancellation
     request is withdrawn with ``uncancel`` — safe because an acquire never
     runs under ``asyncio.timeout``, ``wait_for`` or a ``TaskGroup``, whose
@@ -1078,7 +1164,7 @@ async def _phase_b(app: Any, plan: AcquirePlan) -> WaitOutcome:
         return await _wait_for_idle(app, plan)
     except asyncio.CancelledError as cancelled:
         superseded = _superseded(get_state(app), plan) and not isinstance(cancelled, ChannelClosed)
-        release_pending(app, plan.key, plan.channel)
+        release_pending(app, plan.key, plan.channel, task=plan.task)
         if superseded and _withdraw_cancellation():
             logger.info(
                 "The %s acquire of session %s was superseded by a newer request",
@@ -1088,14 +1174,22 @@ async def _phase_b(app: Any, plan: AcquirePlan) -> WaitOutcome:
             raise HandoffRefused.superseded(plan.key) from None
         raise
     except BaseException:
-        release_pending(app, plan.key, plan.channel)
+        release_pending(app, plan.key, plan.channel, task=plan.task)
         raise
 
 
 def _superseded(state: HandoffState, plan: AcquirePlan) -> bool:
     """Whether *plan*'s own pending record — still registered — carries the superseded mark."""
+    pending = _own_pending(state, plan)
+    return pending is not None and pending.superseded
+
+
+def _own_pending(state: HandoffState, plan: AcquirePlan) -> PendingAcquire | None:
+    """*plan*'s own pending record, or ``None`` once it has been released or replaced."""
     pending = state.pending.get(plan.key)
-    return pending is not None and pending.channel is plan.channel and pending.superseded
+    if pending is None or pending.channel is not plan.channel or pending.task is not plan.task:
+        return None
+    return pending
 
 
 def _withdraw_cancellation() -> bool:
@@ -1136,11 +1230,16 @@ async def _wait_for_chat_idle(app: Any, state: HandoffState, plan: AcquirePlan) 
     here: the turn is left to phase (c), which on ``interrupted`` must cancel
     it — ``pool.terminate(key)`` when ``plan.teardown`` is True, ``await
     session.cancel()`` on the ``OperatorSession`` when the plan is ``reuse``.
+
+    Before it reports a chat it would end idle or interrupted, the wait looks
+    for commands the agent started and refuses with the list unless the
+    request agreed to end them (:func:`_check_started`).
     """
     assert plan.outgoing is not None
     session = cast("OperatorSession", plan.outgoing.session)
     pool = _chat_pool(app)
     if plan.interrupt:
+        await _check_started(state, plan, session.started_commands)
         return WaitOutcome(REASON_INTERRUPTED)
     while True:
         _raise_if_superseded(state, plan)
@@ -1152,6 +1251,7 @@ async def _wait_for_chat_idle(app: Any, state: HandoffState, plan: AcquirePlan) 
             return WaitOutcome(REASON_EXITED)
         if not session.is_busy:
             _raise_if_superseded(state, plan)
+            await _check_started(state, plan, session.started_commands)
             return WaitOutcome(REASON_IDLE)
         await state.sleep(IDLE_POLL_S)
 
@@ -1167,12 +1267,14 @@ async def _wait_for_pty_idle(app: Any, state: HandoffState, plan: AcquirePlan) -
     the transcript, or an idle edge, ends it as ``interrupted``; the grace
     expiring ends it as ``forced`` after ``terminate`` has been called on the
     PTY in a worker thread. A PTY already idle when an interrupt arrives is
-    not sent anything.
+    not sent anything. Before it interrupts, and before it reports a PTY
+    idle, the wait looks for commands the agent started and refuses with the
+    list unless the request agreed to end them (:func:`_check_started`).
     """
     assert plan.outgoing is not None
     session = cast("PtySession", plan.outgoing.session)
     registry = _pty_registry(app)
-    if not plan.interrupt and not getattr(app.state, "turn_hook_present", False):
+    if not plan.interrupt and not app.state.turn_hook_present:
         raise HandoffRefused.needs_interrupt(plan.key)
 
     interrupt_sent = False
@@ -1188,8 +1290,14 @@ async def _wait_for_pty_idle(app: Any, state: HandoffState, plan: AcquirePlan) -
             return WaitOutcome(REASON_EXITED)
         if await _pty_turn_idle(app, plan.key, memo):
             _raise_if_superseded(state, plan)
-            return WaitOutcome(REASON_INTERRUPTED if interrupt_sent else REASON_IDLE)
+            if interrupt_sent:
+                return WaitOutcome(REASON_INTERRUPTED)
+            await _check_started(state, plan, session.started_commands)
+            return WaitOutcome(REASON_IDLE)
         if plan.interrupt and not interrupt_sent:
+            # Escape is how the TUI itself stops a running command, so nothing
+            # is sent before the operator has agreed to end what it started.
+            await _check_started(state, plan, session.started_commands)
             try:
                 session.write_input(_INTERRUPT_KEY)
             except OSError as exc:
@@ -1210,6 +1318,38 @@ async def _wait_for_pty_idle(app: Any, state: HandoffState, plan: AcquirePlan) -
             _raise_if_superseded(state, plan)
             return WaitOutcome(REASON_FORCED)
         await state.sleep(IDLE_POLL_S)
+
+
+async def _check_started(
+    state: HandoffState,
+    plan: AcquirePlan,
+    started: Callable[[], Sequence[ProcessGroup]],
+) -> None:
+    """Refuse a hand-off that would end commands the outgoing agent started.
+
+    Only a plan that ends the outgoing agent (``plan.teardown``) and does not
+    carry the operator's agreement (``plan.end_started``) looks. *started*
+    runs ``ps``, so it runs in a worker thread. The look runs right before
+    the door would act, so it is never stale; a command started between the
+    question and the consent is ended with the rest.
+
+    Raises:
+        HandoffStartedCommands: Commands the agent started are still running.
+    """
+    if plan.end_started or not plan.teardown:
+        return
+    running = list(await asyncio.to_thread(started))
+    _raise_if_superseded(state, plan)
+    if running:
+        assert plan.outgoing is not None
+        logger.info(
+            "Session %s: the %s agent has %d started command(s) running; asking before "
+            "the hand-off ends them",
+            plan.key,
+            plan.outgoing.surface,
+            len(running),
+        )
+        raise HandoffRefused.started_commands(plan.key, running)
 
 
 async def _raise_if_channel_closed(plan: AcquirePlan) -> None:
@@ -1355,8 +1495,8 @@ async def _phase_c(app: Any, plan: AcquirePlan, outcome: WaitOutcome) -> Acquire
     # must not reach it. Cleared before the shielded task exists, in the same
     # loop step that left phase (b), so no look at the key sees a waiting
     # record with a phase (c) behind it.
-    pending = get_state(app).pending.get(plan.key)
-    if pending is not None and pending.channel is plan.channel:
+    pending = _own_pending(get_state(app), plan)
+    if pending is not None:
         pending.waiting = False
     task = asyncio.ensure_future(_carry_out(app, plan, outcome))
     abandoned = False
@@ -1391,7 +1531,7 @@ async def _carry_out(app: Any, plan: AcquirePlan, outcome: WaitOutcome) -> Acqui
         try:
             return await _teardown_and_spawn(app, state, plan, outcome)
         finally:
-            release_pending(app, plan.key, plan.channel)
+            release_pending(app, plan.key, plan.channel, task=plan.task)
 
 
 async def _teardown_and_spawn(
@@ -1438,11 +1578,6 @@ async def _teardown_and_spawn(
     if pooled is not None:
         session = pooled
     else:
-        if plan.spawn is None:
-            raise RuntimeError(
-                f"acquire_surface for session {key!r} was given no spawn callback "
-                f"and nothing of the {plan.surface} surface is pooled"
-            )
         request = await _spawn_request(app, key, plan.surface)
         resume_id = request.resume_id
         logger.info(

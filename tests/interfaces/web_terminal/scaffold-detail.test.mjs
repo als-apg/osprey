@@ -111,22 +111,16 @@ describe('renderDetailModes -- tab availability by ownership', () => {
     return [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')].map((b) => b.textContent);
   }
 
-  test('a framework artifact offers Preview and Edit, but no Diff', () => {
-    const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+  test.each([
+    ['a framework artifact: no Diff', { status: 'framework' }, ['Preview', 'Edit']],
+    ['a user-owned, non-custom artifact: Diff against the framework default',
+      { status: 'user-owned', custom: false }, ['Preview', 'Diff', 'Edit']],
+    ['a user-owned, custom artifact has no framework default: no Diff',
+      { status: 'user-owned', custom: true }, ['Preview', 'Edit']],
+  ])('%s', (_label, flags, expected) => {
+    const gallery = makeGallery({ selectedArtifact: { name: 'a', ...flags } });
     const detail = createScaffoldGalleryDetail(gallery);
-    expect(modeLabels(gallery, detail)).toEqual(['Preview', 'Edit']);
-  });
-
-  test('a user-owned, non-custom artifact offers Preview, Diff, and Edit', () => {
-    const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'user-owned', custom: false } });
-    const detail = createScaffoldGalleryDetail(gallery);
-    expect(modeLabels(gallery, detail)).toEqual(['Preview', 'Diff', 'Edit']);
-  });
-
-  test('a user-owned, custom artifact has no framework default to diff against -- no Diff tab', () => {
-    const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'user-owned', custom: true } });
-    const detail = createScaffoldGalleryDetail(gallery);
-    expect(modeLabels(gallery, detail)).toEqual(['Preview', 'Edit']);
+    expect(modeLabels(gallery, detail)).toEqual(expected);
   });
 
   test('Discard/Save action buttons only appear in edit mode', () => {
@@ -144,6 +138,11 @@ describe('renderDetailModes -- tab availability by ownership', () => {
     expect(saveBtn).toBeTruthy();
     expect(discardBtn.disabled).toBe(false);
     expect(saveBtn.disabled).toBe(false);
+
+    gallery.detailMode = 'preview';
+    detail.renderDetailModes();
+    expect(gallery.detailModesEl.querySelector('.prompts-discard-btn')).toBeNull();
+    expect(gallery.detailModesEl.querySelector('.prompts-save-btn')).toBeNull();
   });
 });
 
@@ -167,9 +166,12 @@ describe('mode-switch state machine', () => {
   });
 
   test('clicking the already-active mode is a no-op', () => {
+    // Dirty, so a switch would have to ask; fetch unstubbed, so a re-render
+    // would be refused by the suite's unstubbed-request guard.
     const gallery = makeGallery({
       selectedArtifact: { name: 'a', status: 'user-owned', custom: false },
       detailMode: 'preview',
+      editDirty: true,
     });
     const detail = createScaffoldGalleryDetail(gallery);
     detail.renderDetailModes();
@@ -180,6 +182,7 @@ describe('mode-switch state machine', () => {
     previewBtn.dispatchEvent(new Event('click'));
 
     expect(confirm).not.toHaveBeenCalled();
+    expect(gallery.editDirty).toBe(true);
     expect(gallery.detailMode).toBe('preview');
   });
 
@@ -271,14 +274,12 @@ describe('openDetail', () => {
 });
 
 describe('showCreateDialog', () => {
-  test('POSTs the new artifact, prefix-aware via window.__OSPREY_PREFIX__ (multi-user deployments)', async () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
-    vi.stubGlobal('prompt', vi.fn(() => 'my new agent'));
+  test('POSTs the category and the sanitised name', async () => {
+    vi.stubGlobal('prompt', vi.fn(() => 'My New Agent!'));
     const load = vi.fn(() => Promise.resolve());
-    const fetchMock = vi.fn(() => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({ canonical_name: 'my-new-agent' }),
-    }));
+    const fetchMock = vi.fn(/** @type {(url: string, init: RequestInit) => Promise<any>} */ (
+      () => Promise.resolve({ ok: true, json: () => Promise.resolve({ canonical_name: 'my-new-agent' }) })
+    ));
     vi.stubGlobal('fetch', fetchMock);
 
     const gallery = makeGallery({ load });
@@ -286,11 +287,11 @@ describe('showCreateDialog', () => {
     detail.showCreateDialog('agents');
     // showCreateDialog's fetch chain is .then-based, not awaited internally.
     await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/scaffold/create', expect.objectContaining({
-      method: 'POST',
-    }));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/scaffold/create');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(/** @type {string} */ (init.body))).toEqual({ category: 'agents', name: 'my-new-agent' });
   });
 
   test('opens the new artifact straight in Edit, fetching its content once', async () => {
@@ -337,18 +338,6 @@ describe('showCreateDialog', () => {
 // ---------------------------------------------------------------------------
 
 describe('renderDetailContent -- mode dispatch', () => {
-  test('edit mode delegates to gallery.renderEdit()', async () => {
-    const gallery = makeGallery({
-      selectedArtifact: { name: 'a', status: 'user-owned' },
-      detailMode: 'edit',
-    });
-    const detail = createScaffoldGalleryDetail(gallery);
-
-    await detail.renderDetailContent();
-
-    expect(gallery.renderEdit).toHaveBeenCalledOnce();
-  });
-
   test('preview mode fetches and renders artifact content', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
       ok: true, json: () => Promise.resolve({ content: 'plain body', language: 'text' }),
@@ -531,8 +520,8 @@ describe('renderPreview', () => {
 
     await content.renderPreview();
 
-    expect(gallery.detailContentEl.textContent).toContain('my-agent');
-    expect(gallery.detailContentEl.textContent).toContain('Some instructions.');
+    expect(qs(gallery.detailContentEl, '.prompts-frontmatter .prompts-fm-value').textContent).toBe('my-agent');
+    expect(qs(gallery.detailContentEl, '.osprey-md-rendered').textContent).toBe('Some instructions.');
   });
 
   test('settings-json renders the structured view with nothing to type into', async () => {
@@ -552,5 +541,42 @@ describe('renderPreview', () => {
     expect(gallery.detailContentEl.textContent).toContain('anthropic/claude');
     expect(gallery.detailContentEl.querySelectorAll('input, select, textarea')).toHaveLength(0);
     expect(gallery.editDirty).toBe(false);
+  });
+
+  // Scaffold files are agent-writable, so their markdown is untrusted HTML
+  // once parsed. Only the sanitiser's output may reach the DOM, and without a
+  // sanitiser the body is text. The real DOMPurify cannot run under happy-dom,
+  // so a passthrough parser and a sentinel sanitiser pin the seam instead.
+  const HOSTILE_BODY = '<img src=x onerror=alert(1)><script>alert(2)</script>';
+  const SANITISING_PATHS = [
+    ['a markdown file', 'markdown', `---\nname: my-agent\n---\n${HOSTILE_BODY}`],
+    ['a Python hook docstring', 'python', `"""\n---\nname: my_hook\n---\n${HOSTILE_BODY}\n"""\n`],
+  ];
+
+  test.each(SANITISING_PATHS)('%s renders only what the sanitiser returns', async (_label, language, content) => {
+    vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
+    vi.stubGlobal('DOMPurify', { sanitize: () => '<em>safe</em>' });
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true, json: () => Promise.resolve({ content, language }),
+    })));
+
+    const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+    await createScaffoldGalleryDetailContent(gallery).renderPreview();
+
+    expect(qs(gallery.detailContentEl, '.osprey-md-rendered').innerHTML).toBe('<em>safe</em>');
+    expect(gallery.detailContentEl.querySelector('img, script')).toBeNull();
+  });
+
+  test.each(SANITISING_PATHS)('%s degrades to text when no sanitiser is loaded', async (_label, language, content) => {
+    vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true, json: () => Promise.resolve({ content, language }),
+    })));
+
+    const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+    await createScaffoldGalleryDetailContent(gallery).renderPreview();
+
+    expect(qs(gallery.detailContentEl, '.osprey-md-rendered').textContent).toBe(HOSTILE_BODY);
+    expect(gallery.detailContentEl.querySelector('img, script')).toBeNull();
   });
 });

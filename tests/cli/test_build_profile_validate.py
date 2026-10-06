@@ -139,6 +139,17 @@ def test_valid_profile_validates_silently(tmp_path: Path) -> None:
     assert _profile(name="x").validate(tmp_path) is None
 
 
+def test_a_docker_url_probe_address_beside_web_terminals_is_refused(tmp_path: Path) -> None:
+    """A web-terminal deployment probes MCP servers at the host address only."""
+    profile = _profile(
+        name="x",
+        config={"modules.web_terminals.enabled": True, "health.auto.mcp.url_key": "docker_url"},
+    )
+    errors = _errors(profile, tmp_path)
+    assert len(errors) == 1
+    assert errors[0].startswith("config: health.auto.mcp.url_key is 'docker_url'")
+
+
 # --- scalar fields: name, deploy_services, tier, channel_finder_mode -------
 
 
@@ -367,6 +378,14 @@ def test_invalid_env_var_name_is_rejected(tmp_path: Path) -> None:
     """Required env var names must be upper-snake shell identifiers."""
     profile = _profile(name="x", env=EnvConfig(required=["OK_VAR", "not-a-var"]))
     assert _errors(profile, tmp_path) == ["Invalid env var name: not-a-var"]
+
+
+def test_an_env_var_name_with_a_trailing_newline_is_rejected(tmp_path: Path) -> None:
+    profile = _profile(name="x", env=EnvConfig(required=["OK_VAR\n"], pinned=["OK_PIN\n"]))
+    assert _errors(profile, tmp_path) == [
+        "Invalid env var name: OK_VAR\n",
+        "Invalid env.pinned var name: 'OK_PIN\\n'",
+    ]
 
 
 def test_pinned_env_var_names_are_held_to_the_required_pattern(tmp_path: Path) -> None:

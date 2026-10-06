@@ -30,6 +30,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from osprey_connectors.config import config_flag
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.types import (
     MOCK,
@@ -168,11 +169,12 @@ def _config_writes_enabled(config: Any, target: str) -> bool:
     return target_writes_enabled(_section(config, "control_system"), target)
 
 
-def _mode(gateway: dict[str, Any]) -> str:
-    return MODE_NAME_SERVER if gateway.get("use_name_server", False) else MODE_ADDR_LIST
+def _mode(gateway: dict[str, Any], key: str) -> str:
+    name_server = config_flag(gateway.get("use_name_server"), key=f"{key}.use_name_server")
+    return MODE_NAME_SERVER if name_server else MODE_ADDR_LIST
 
 
-def _row(gateway: Any, default_port: int | None) -> Endpoint | None:
+def _row(gateway: Any, default_port: int | None, key: str) -> Endpoint | None:
     """One endpoint row, or ``None`` for a gateway ``connect()`` would ignore.
 
     ``connect()`` guards its environment derivation with ``if gateway_config:``,
@@ -184,7 +186,7 @@ def _row(gateway: Any, default_port: int | None) -> Endpoint | None:
     return Endpoint(
         host=gateway.get("address", ""),
         port=gateway.get("port", default_port),
-        mode=_mode(gateway),
+        mode=_mode(gateway, key),
     )
 
 
@@ -255,7 +257,8 @@ def derive_endpoints(
         ValueError: Propagated from
             :func:`~osprey_connectors.types.resolve_target` when the target is
             unknown, or is ``live`` on a deployment that has never named its real
-            machine.
+            machine, and from :func:`~osprey_connectors.config.config_flag` when a
+            ``use_name_server`` spells neither true nor false.
             :func:`~osprey.mcp_server.control_system.target_eligibility.evaluate_eligibility`
             is where that becomes a reason rather than an exception.
     """
@@ -281,10 +284,11 @@ def derive_endpoints(
 
         block = fill_gateway_ports(block, config_path)
 
+    block_key = f"control_system.connector.{connector_type}"
     gateways = _sub(block, "gateways")
     endpoints: dict[str, Endpoint] = {}
     for role in (ROLE_READ_ONLY, ROLE_WRITE_ACCESS):
-        row = _row(gateways.get(role), DEFAULT_CA_PORT)
+        row = _row(gateways.get(role), DEFAULT_CA_PORT, f"{block_key}.gateways.{role}")
         if row is not None:
             endpoints[role] = row
 
@@ -295,8 +299,11 @@ def derive_endpoints(
         pva_gateway = block.get("pva_gateway")
         # connect() appends no port to an address list unless one is set; the
         # TCP default applies to name servers only.
-        name_server = isinstance(pva_gateway, dict) and _mode(pva_gateway) == MODE_NAME_SERVER
-        pva_row = _row(pva_gateway, DEFAULT_PVA_PORT if name_server else None)
+        pva_key = f"{block_key}.pva_gateway"
+        name_server = (
+            isinstance(pva_gateway, dict) and _mode(pva_gateway, pva_key) == MODE_NAME_SERVER
+        )
+        pva_row = _row(pva_gateway, DEFAULT_PVA_PORT if name_server else None, pva_key)
         if pva_row is not None:
             endpoints[ROLE_PVA] = pva_row
 

@@ -1,7 +1,7 @@
 """Tests for the shared python-executor response builder.
 
-``build_execution_response`` turns an ``ExecutionResult`` into either a
-``CallToolResult`` (success) or a raised ``ToolError`` carrying the OSPREY error
+``build_execution_response`` turns an ``ExecutionResult`` into either the
+reply's JSON text (success) or a raised ``ToolError`` carrying the OSPREY error
 envelope (execution reported errors) — the fastmcp-safe error path. Tests run
 against a real ArtifactStore in a tmp workspace and cover: the inline
 (save_output=False) and persisted (save_output=True) branches, error handling in
@@ -84,7 +84,7 @@ async def _build(exec_result, *, save_output, patterns=None):
 
 async def test_inline_success_returns_summary():
     result = await _build(_ok_result(), save_output=False)
-    assert result.isError is False
+    assert isinstance(result, str)
     data = extract_response_dict(result)
     assert data["description"] == "demo run"
     assert data["execution_mode"] == "readonly"
@@ -156,7 +156,7 @@ async def test_timeout_is_an_execution_error_with_its_own_kind():
 
 async def test_persisted_success_returns_tool_response_with_notebook():
     result = await _build(_ok_result(), save_output=True)
-    assert result.isError is False
+    assert isinstance(result, str)
     data = extract_response_dict(result)
     # A notebook artifact is auto-saved for every execution and surfaced.
     assert "notebook_artifact_id" in data
@@ -223,7 +223,7 @@ async def test_bad_figure_path_is_non_fatal():
         _ok_result(figures=[Path("/nonexistent/does-not-exist.png")]),
         save_output=False,
     )
-    assert result.isError is False
+    assert isinstance(result, str)
 
 
 async def test_bad_subprocess_artifact_is_non_fatal():
@@ -236,7 +236,7 @@ async def test_bad_subprocess_artifact_is_non_fatal():
         "mime_type": "text/csv",
     }
     result = await _build(_ok_result(artifacts=[art]), save_output=False)
-    assert result.isError is False
+    assert isinstance(result, str)
 
 
 async def test_notebook_creation_failure_is_non_fatal():
@@ -246,7 +246,7 @@ async def test_notebook_creation_failure_is_non_fatal():
         side_effect=RuntimeError("nbformat exploded"),
     ):
         result = await _build(_ok_result(), save_output=True)
-    assert result.isError is False
+    assert isinstance(result, str)
     data = extract_response_dict(result)
     assert "notebook_artifact_id" not in data
 
@@ -261,4 +261,73 @@ async def test_gallery_url_failure_is_swallowed(tmp_path):
     ):
         # A saved artifact drives the gallery_url branch on the persisted path.
         result = await _build(_ok_result(figures=[fig]), save_output=True)
-    assert result.isError is False
+    assert isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# Wire shape: what an MCP client receives from the registered ``execute`` tool
+# ---------------------------------------------------------------------------
+
+_WIRE_ARGS = {
+    "code": "print(6 * 7)",
+    "description": "wire probe",
+    "execution_mode": "readonly",
+    "save_output": False,
+}
+
+
+def _wire_patches():
+    from unittest.mock import AsyncMock
+
+    return (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection."
+            "detect_control_system_operations",
+            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            new=AsyncMock(
+                return_value=ExecutionResult(
+                    success=True,
+                    stdout="42\n",
+                    stderr="",
+                    execution_method_used="subprocess",
+                )
+            ),
+        ),
+    )
+
+
+@pytest.fixture
+def _wire_env(monkeypatch, tmp_path):
+    """Run the registered tool in a throwaway cwd with agent data under tmp_path."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(tmp_path / "agent_data"))
+
+
+async def test_execute_reply_reaches_a_client_as_the_run_json(_wire_env):
+    import fastmcp
+
+    import osprey.mcp_server.python_executor.tools.python_execute  # noqa: F401
+    from osprey.mcp_server.python_executor.server import mcp
+
+    detect_patch, execute_patch = _wire_patches()
+    with detect_patch, execute_patch:
+        async with fastmcp.Client(mcp) as client:
+            result = await client.call_tool("execute", _WIRE_ARGS)
+    data = json.loads(result.data)
+    assert data["description"] == "wire probe"
+    assert data["stdout"] == "42\n"
+
+
+async def test_execute_reply_matches_its_declared_output_schema(_wire_env):
+    import osprey.mcp_server.python_executor.tools.python_execute  # noqa: F401
+    from osprey.mcp_server.python_executor.server import mcp
+
+    detect_patch, execute_patch = _wire_patches()
+    with detect_patch, execute_patch:
+        result = await mcp.call_tool("execute", _WIRE_ARGS)
+    text = result.content[0].text
+    assert json.loads(text)["description"] == "wire probe"
+    assert result.structured_content == {"result": text}

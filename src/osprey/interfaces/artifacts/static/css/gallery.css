@@ -543,6 +543,32 @@ html[data-browse-orient="column"] .sidebar-menu-item .orient-icon-row { display:
   display: none;
 }
 
+/* Pick bar — "<n> selected · Delete · Clear" above the list while two or
+   more rows are picked. */
+.sidebar-pick-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-2);
+  margin: var(--art-space-2) var(--art-space-3) 0;
+  padding: var(--art-space-1) var(--art-space-2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--art-radius-sm);
+  flex-shrink: 0;
+}
+
+/* Explicit — a `display: flex` rule outranks the UA `[hidden]` default. */
+.sidebar-pick-bar[hidden] {
+  display: none;
+}
+
+.sidebar-pick-count {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  color: var(--text-secondary);
+}
+
 .scope-pill-clear {
   display: inline-flex;
   align-items: center;
@@ -929,6 +955,18 @@ html[data-browse-orient="column"] .sidebar-body {
   border-left-color: var(--color-accent-light);
 }
 
+/* Picked for a bulk action — the selected accent at a weaker weight, so a
+   pick reads apart from the previewed row. */
+.tree-item.picked {
+  background: var(--accent-tint-04);
+  border-left-color: var(--accent-tint-30);
+}
+
+.tree-item.picked.selected {
+  background: var(--accent-tint-08);
+  border-left-color: var(--color-accent);
+}
+
 .tree-item-icon {
   width: 14px;
   height: 14px;
@@ -1052,6 +1090,16 @@ html[data-browse-orient="column"] .sidebar-body {
   border-left-color: var(--color-accent);
 }
 
+.timeline-item.picked {
+  background: var(--accent-tint-04);
+  border-left-color: var(--accent-tint-30);
+}
+
+.timeline-item.picked.selected {
+  background: var(--accent-tint-08);
+  border-left-color: var(--color-accent);
+}
+
 .timeline-dot {
   width: 8px;
   height: 8px;
@@ -1116,6 +1164,15 @@ html[data-browse-orient="column"] .sidebar-body {
 .gallery-card.selected {
   border-color: var(--color-accent);
   box-shadow: 0 0 8px var(--accent-tint-12);
+}
+
+.gallery-card.picked {
+  border-color: var(--accent-tint-30);
+  background: var(--accent-tint-04);
+}
+
+.gallery-card.picked.selected {
+  border-color: var(--color-accent);
 }
 
 .gallery-card-thumb {

@@ -4,19 +4,33 @@ Request and response models for the ARIEL search interface.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 class AttachmentResponse(BaseModel):
-    """Attachment metadata in response."""
+    """One attachment of an entry: its summary plus the web-only ``display_url``.
 
-    url: str
-    type: str | None = None
+    The fields other than ``display_url`` are the attachment summary keys
+    (``SUMMARY_KEYS``). ``url`` is the attachment's absolute http(s) source url,
+    when it has one; ``display_url`` is where the web page shows or downloads
+    the attachment from, or null when there is nowhere to: an absolute http(s)
+    url, or one of this API's attachment routes given relative to the API base
+    (``/attachments/{id}`` or ``/attachments/{id}/rendition``).
+    """
+
+    attachment_id: str | None = None
     filename: str | None = None
-    thumbnail_url: str | None = None
+    mime_type: str | None = None
+    viewable: bool = False
+    copy_status: str | None = None
+    skip_reason: str | None = None
     caption: str | None = None
+    caption_source: str | None = None
+    visible_text: str | None = None
+    url: str | None = None
+    display_url: str | None = None
 
 
 class EntryResponse(BaseModel):
@@ -41,6 +55,9 @@ class EntryResponse(BaseModel):
     keywords: list[str] = []
     score: float | None = None
     highlights: list[str] = []
+    # How a search found the entry, and which of its attachments it matched.
+    matched_via: list[str] = []
+    matched_attachment_ids: list[str] = []
 
 
 class SearchRequest(BaseModel):
@@ -138,6 +155,33 @@ class EmbeddingTableStatus(BaseModel):
     entry_count: int
     dimension: int | None = None
     is_active: bool = False
+
+
+class HealthFacts(BaseModel):
+    """The status facts the open ``/health`` page carries.
+
+    An allow-list: a status fact reaches the page only by being declared here.
+    Nothing that names the store's address, its login or its schema belongs on
+    it, because the page answers without a credential.
+    """
+
+    entry_count: int
+    last_ingestion: datetime | None = None
+    enabled_search_modules: list[str]
+    enabled_enhancement_modules: list[str]
+
+
+class HealthResponse(BaseModel):
+    """The open ``/health`` page.
+
+    ``service`` is ``None`` when the panel has no search service or the store
+    did not answer; the other fields are always present.
+    """
+
+    status: Literal["healthy", "degraded"]
+    message: str
+    config_status: str | None = None
+    service: HealthFacts | None = None
 
 
 class StatusResponse(BaseModel):

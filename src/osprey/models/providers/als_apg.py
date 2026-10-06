@@ -33,6 +33,7 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     # default above, so a deployment with a baked-in URL can be pointed at
     # another gateway at runtime (accepts the URL with or without /v1).
     base_url_env_var = "ALS_APG_BASE_URL"
+    models_probe = "bearer"
     default_model_id = "claude-sonnet-5"
     health_check_model_id = "claude-haiku-4-5-20251001"
 
@@ -44,6 +45,15 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
         "Optionally set ALS_APG_BASE_URL to reach the gateway at another host.",
     ]
     api_key_note = "Internal ALS-APG proxy — requires group membership."
+
+    # Provider facts (see BaseProvider)
+    api_key_env_var = "ALS_APG_API_KEY"
+    api_protocol = "anthropic"
+    supports_interactive_login = False
+    # The gateway's OpenAI route translates image parts for the models it fronts.
+    supports_images = True
+    supports_thinking = False
+    self_hosted = False
 
     # LiteLLM integration - ALS-APG is an OpenAI-compatible proxy
     is_openai_compatible = True

@@ -12,6 +12,7 @@ def render_dashboard_html(
     facility_name: str = "",
     channel_strip_prefix: str = "",
     telemetry_url: str = "",
+    telemetry_org: str = "",
 ) -> str:
     """Read dashboard.html and inject runtime config via the OSPREY_CONFIG_PLACEHOLDER sentinel.
 
@@ -30,6 +31,10 @@ def render_dashboard_html(
             can reach — not the compose DNS name the containers use — because the
             dashboard renders it as a link the browser follows. Empty disables the
             dashboard's per-run telemetry link entirely.
+        telemetry_org: Telemetry store organization the agent's records land in,
+            as ``claude_code.telemetry.openobserve.org`` resolves it, or ``""``
+            when no store is linked. The link is offered only when both it and
+            ``telemetry_url`` are non-empty.
 
     Returns:
         The dashboard HTML with the runtime config injected where the sentinel is present.
@@ -40,6 +45,7 @@ def render_dashboard_html(
             "facility_name": facility_name,
             "channel_strip_prefix": channel_strip_prefix,
             "telemetry_url": telemetry_url,
+            "telemetry_org": telemetry_org,
         }
     )
     return html.replace("/* OSPREY_CONFIG_PLACEHOLDER */", f"window.__OSPREY_CONFIG__ = {config};")

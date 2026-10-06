@@ -1,0 +1,1 @@
+The Session Activity Log page remembers a theme picked on it, follows the system light/dark setting while on auto, and opens in the deployment's configured theme on a first visit, like the other pages that run on their own.

@@ -143,18 +143,39 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-/** The page as the bar hosts lay it out, with the queue item in the status bar. */
-function seedDom() {
+/**
+ * The page as the bar hosts lay it out, with the queue item in the status bar
+ * carrying `options` as its server-stamped options.
+ * @param {Record<string, unknown>} [options]
+ */
+function seedDom(options = { controls: 'full' }) {
   document.body.innerHTML = `
     <header class="header">
       <div class="header-actions" data-bar-host="header"></div>
     </header>
     <footer class="status-bar" data-bar-host="status">
       <div class="bar-item" data-bar-item="bluesky-queue"
-           data-bar-options='${JSON.stringify({ controls: 'full' })}'></div>
+           data-bar-options='${JSON.stringify(options)}'></div>
     </footer>
     <div id="bar-item-pool" hidden></div>
   `;
+}
+
+/**
+ * A layout document naming the given item types per host.
+ * @param {string[]} header
+ * @param {string[]} status
+ */
+function layoutOf(header, status) {
+  const item = (/** @type {string} */ type) => ({ type, options: {} });
+  return {
+    version: 1,
+    rev: 0,
+    header: header.map(item),
+    status: status.map(item),
+    header_visible: true,
+    status_visible: true,
+  };
 }
 
 /** @param {string} selector */
@@ -172,6 +193,10 @@ const startButton = () =>
   /** @type {HTMLButtonElement | undefined} */ (
     Array.from(pop().querySelectorAll('button')).find((b) => b.textContent === 'Start')
   );
+
+/** @param {string} label */
+const popButton = (label) =>
+  Array.from(pop().querySelectorAll('button')).find((b) => b.textContent === label) ?? null;
 
 const unknownWarnings = () => warnings.filter((line) => line.includes('unknown manager state'));
 
@@ -395,5 +420,233 @@ describe('plan-queue item: a start the bridge refuses because the queue moved', 
     // the stream carries the queue from here.
     expect(note()).toBeUndefined();
     expect(reads()).toHaveLength(1);
+  });
+});
+
+/**
+ * One bridge frame, in the shape `GET /queue/events` streams: a bounded
+ * status summary, the pending items and the running item.
+ * @param {Partial<{state: string, items: string[], running: Record<string, any> | null,
+ *   available: boolean, stopPending: boolean}>} [shape]
+ */
+function queueFrame({
+  state = 'idle',
+  items = [],
+  running = null,
+  available = true,
+  stopPending = false,
+} = {}) {
+  return {
+    type: 'queue',
+    status: {
+      available,
+      manager_state: available ? state : null,
+      items_in_queue: items.length,
+      queue_stop_pending: stopPending,
+    },
+    items: items.map((name, index) => ({ name, item_uid: `uid-${index}` })),
+    running_item: running,
+  };
+}
+
+/** Open the newest stream and deliver one frame on it. @param {unknown} data */
+function pushFrame(data) {
+  const source = FakeEventSource.opened[FakeEventSource.opened.length - 1];
+  source.readyState = 1;
+  source.onopen?.();
+  source.onmessage?.({ data: JSON.stringify(data) });
+}
+
+describe('plan-queue item: one shared stream through the Bluesky panel proxy', () => {
+  test('attach opens the panel-proxied event stream and seeds a quiet chip', () => {
+    seedDom({});
+    host.hydrate();
+
+    expect(FakeEventSource.opened.map((s) => s.url)).toEqual(['/panel/bluesky/queue/events']);
+    expect(chipWord()).toBe('queue');
+    expect(dotTone()).toBe('off');
+    expect(chip().title).toContain('stream not connected');
+  });
+
+  test('a frame paints the state word, the running plan and the count', () => {
+    seedDom({});
+    host.hydrate();
+    const count = () => /** @type {HTMLElement | null} */ (chip().querySelector('.bar-queue-count'));
+
+    pushFrame(queueFrame({ items: ['rel_scan', 'count'] }));
+    expect(chipWord()).toBe('idle');
+    expect(dotTone()).toBe('idle');
+    expect(count()?.textContent).toBe('2 queued');
+    expect(count()?.hidden).toBe(false);
+
+    pushFrame(
+      queueFrame({
+        state: 'executing_queue',
+        items: ['count'],
+        running: { name: 'rel_scan', progress: { rows_seen: 3, expected_points: 10 } },
+      })
+    );
+    expect(chipWord()).toBe('rel_scan');
+    expect(dotTone()).toBe('active');
+    expect(count()?.textContent).toBe('3/10');
+
+    pushFrame(queueFrame({ state: 'paused', running: { name: 'rel_scan' } }));
+    expect(chipWord()).toBe('rel_scan');
+    expect(dotTone()).toBe('warn');
+    expect(count()?.hidden).toBe(true);
+
+    pushFrame(queueFrame({ available: false }));
+    expect(chipWord()).toBe('unavailable');
+    expect(dotTone()).toBe('err');
+  });
+
+  test('the options decide what the chip says beside its dot', () => {
+    seedDom({ progress: false, count: false, controls: 'none' });
+    host.hydrate();
+    pushFrame(
+      queueFrame({ state: 'executing_queue', items: ['count'], running: { name: 'rel_scan' } })
+    );
+    expect(chipWord()).toBe('running');
+    const corner = /** @type {HTMLElement | null} */ (chip().querySelector('.bar-queue-count'));
+    expect(corner?.hidden).toBe(true);
+  });
+
+  test('the stream is attach-scoped: parking closes it, placing back reopens it', () => {
+    seedDom({});
+    host.hydrate();
+    const first = FakeEventSource.opened[0];
+    expect(first.readyState).not.toBe(2);
+
+    host.reconcile(layoutOf([], ['clock']));
+    expect(first.readyState).toBe(2);
+    expect(FakeEventSource.opened).toHaveLength(1);
+
+    host.reconcile(layoutOf([], ['bluesky-queue']));
+    expect(FakeEventSource.opened).toHaveLength(2);
+    expect(FakeEventSource.opened[1].url).toBe('/panel/bluesky/queue/events');
+  });
+
+  test("a preview beside a placed item shares the placed item's stream", () => {
+    seedDom({});
+    host.hydrate();
+
+    const preview = items.previewBarItem('bluesky-queue', document, 'comfortable');
+    if (!preview) throw new Error('no preview for the plan queue');
+    expect(FakeEventSource.opened).toHaveLength(1);
+    preview.dispose?.();
+    expect(FakeEventSource.opened[0].readyState).not.toBe(2);
+  });
+});
+
+describe('plan-queue item: the popover and its controls', () => {
+  test('the chip only opens; the card lists the queue and offers Open Bluesky alone', () => {
+    seedDom({});
+    host.hydrate();
+    pushFrame(
+      queueFrame({ state: 'executing_queue', items: ['count', 'grid'], running: { name: 'rel_scan' } })
+    );
+    expect(pop().hidden).toBe(true);
+
+    chip().click();
+
+    expect(pop().hidden).toBe(false);
+    expect(chip().getAttribute('aria-expanded')).toBe('true');
+    const names = Array.from(pop().querySelectorAll('.bar-queue-row-name')).map(
+      (n) => n.textContent
+    );
+    expect(names).toEqual(['rel_scan', 'count', 'grid']);
+    expect(Array.from(pop().querySelectorAll('button')).map((b) => b.textContent)).toEqual([
+      'Open Bluesky',
+    ]);
+    expect(requests).toEqual([]);
+
+    chip().click();
+    expect(pop().hidden).toBe(true);
+    expect(chip().getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('`controls: stop` adds the plain stop, which fires on the first click', () => {
+    seedDom({ controls: 'stop' });
+    host.hydrate();
+    pushFrame(queueFrame({ state: 'executing_queue', running: { name: 'rel_scan' } }));
+    chip().click();
+
+    const stop = popButton('Stop after current item');
+    if (!stop) throw new Error('no stop button');
+    expect(popButton('Abort running plan')).toBe(null);
+    stop.click();
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].url).toBe('/panel/bluesky/queue/stop');
+    expect(requests[0].method).toBe('POST');
+    expect(requests[0].body).toEqual({ cancel: false });
+  });
+
+  test('withdrawing a pending stop is two-step', () => {
+    seedDom({ controls: 'stop' });
+    host.hydrate();
+    pushFrame(
+      queueFrame({ state: 'executing_queue', running: { name: 'rel_scan' }, stopPending: true })
+    );
+    chip().click();
+
+    const withdraw = popButton('Withdraw stop');
+    if (!withdraw) throw new Error('no withdraw button');
+    withdraw.click();
+    expect(requests).toEqual([]);
+    const confirm = popButton('Confirm — the queue keeps draining');
+    if (!confirm) throw new Error('no confirm button');
+    confirm.click();
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].body).toEqual({ cancel: true });
+  });
+
+  test('`controls: full` adds Start and the two-step abort', () => {
+    seedDom({ controls: 'full' });
+    host.hydrate();
+    pushFrame(queueFrame({ items: ['count'] }));
+    chip().click();
+
+    const start = popButton('Start');
+    if (!start) throw new Error('no start button');
+    expect(/** @type {HTMLButtonElement} */ (start).disabled).toBe(false);
+    const abort = popButton('Abort running plan');
+    if (!abort) throw new Error('no abort button');
+
+    abort.click();
+    expect(requests).toEqual([]);
+    const confirm = popButton('Confirm abort');
+    if (!confirm) throw new Error('abort did not arm');
+    confirm.click();
+    expect(requests[0].url).toBe('/panel/bluesky/queue/abort');
+
+    popButton('Start')?.click();
+    expect(requests[1].url).toBe('/panel/bluesky/queue/start');
+  });
+
+  test('Start is disabled while the queue is draining or empty', () => {
+    seedDom({ controls: 'full' });
+    host.hydrate();
+    pushFrame(queueFrame({ state: 'executing_queue', items: ['count'], running: { name: 'x' } }));
+    chip().click();
+    expect(startButton()?.disabled).toBe(true);
+
+    pushFrame(queueFrame({ items: [] }));
+    expect(startButton()?.disabled).toBe(true);
+  });
+
+  test('Escape and an outside click close the card', () => {
+    seedDom({});
+    host.hydrate();
+    chip().click();
+    expect(pop().hidden).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(pop().hidden).toBe(true);
+
+    chip().click();
+    document.body.click();
+    expect(pop().hidden).toBe(true);
   });
 });

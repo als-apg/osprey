@@ -303,3 +303,31 @@ class TestGraphParadigmState:
                 # Every explorer gate is closed, one route per gate.
                 assert c.get("/api/explore/options?level=system").status_code == 404
                 assert c.get("/api/explore/systems").status_code == 404
+
+
+class TestFeedbackStoreLocation:
+    """The pending-review store follows ``agent_data.base_dir``."""
+
+    def test_pending_review_store_follows_a_relocated_agent_data_root(self, tmp_path, monkeypatch):
+        (tmp_path / "config.yml").write_text("agent_data:\n  base_dir: relocated/agent_data\n")
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
+
+        app = _start_app({"channel_finder": {}, "agent_data": {"base_dir": "relocated/agent_data"}})
+
+        assert (
+            app.state.pending_review_store._path
+            == (tmp_path / "relocated/agent_data/feedback/pending_reviews.json").resolve()
+        )
+
+    def test_pending_review_store_defaults_under_the_agent_data_root(self, tmp_path, monkeypatch):
+        from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+
+        (tmp_path / "config.yml").write_text("channel_finder: {}\n")
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
+
+        app = _start_app({"channel_finder": {}})
+
+        assert (
+            app.state.pending_review_store._path
+            == (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "feedback/pending_reviews.json").resolve()
+        )

@@ -119,21 +119,25 @@ class GoogleSheetsChannelDatabase(FlatChannelDatabase):
         """Refresh channel data from the Google Sheet."""
         self.load_database()
 
-    def add_channel(self, channel: str, address: str, description: str):
+    def add_channel(self, channel: str, address: str = "", description: str = "") -> dict:
         """Add a new channel to the spreadsheet.
 
         Args:
             channel: Channel name
-            address: Channel address
+            address: Channel address (defaults to the channel name)
             description: Channel description
+
+        Returns:
+            Success dict.
 
         Raises:
             ValueError: If channel already exists
         """
         if channel in self.channel_map:
             raise ValueError(f"Channel '{channel}' already exists")
-        self._sheet.append_row([channel, address, description])
+        self._sheet.append_row([channel, address or channel, description])
         self.load_database()
+        return {"success": True, "channel": channel}
 
     def update_channel(
         self, channel: str, new_description: str | None = None, new_address: str | None = None

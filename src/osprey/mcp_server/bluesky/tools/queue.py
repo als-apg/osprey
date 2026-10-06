@@ -135,6 +135,7 @@ codes as prose, for the agent reading them.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
@@ -524,7 +525,7 @@ def _refuse_writes_disabled(
     by a config key.
     """
     if is_readonly_run():
-        return make_error(
+        make_error(
             "writes_disabled",
             f"This session runs in the read-only sandbox posture "
             f"(OSPREY_EXECUTION_MODE=readonly), which refuses control-system writes "
@@ -551,7 +552,7 @@ def _refuse_writes_disabled(
                 "target its plan lanes serve"
             )
             machine = "those targets"
-        return make_error(
+        make_error(
             "writes_disabled",
             f"{subject}, so {refused} is refused.",
             [
@@ -594,7 +595,7 @@ def _refuse_writes_disabled(
             "what it says, whatever the deployment-wide key is set to."
         )
 
-    return make_error(
+    make_error(
         "writes_disabled",
         f"{subject} ({key} is not true in config.yml), so {refused} is refused.",
         suggestions,
@@ -616,7 +617,7 @@ def _refuse_unarmed(tool: str) -> NoReturn:
     or may be a misconfiguration — so the refusal points at the operator and
     never at config surgery, without telling the agent which of the two it is.
     """
-    return make_error(
+    make_error(
         "launch_token_required",
         f"This Bluesky MCP server holds no launch token, so {tool} is refused "
         f"client-side before contacting the bridge. This deployment either withheld "
@@ -905,7 +906,7 @@ def _relay_refusal(
     code = _code_of(body)
     detail = unwrap_bridge_conflict_detail(body)
     if code is None or not isinstance(detail, dict):
-        return make_error(
+        make_error(
             "bluesky_bridge_error",
             bridge_error_message(body, status),
             [*fallback_hints, *(extra_hints or [])],
@@ -918,7 +919,7 @@ def _relay_refusal(
         else f"The Bluesky bridge refused the request: {code}."
     )
     hints = [*_REFUSAL_HINTS.get(code, fallback_hints), *(extra_hints or [])]
-    return make_error(code, message, hints, details=detail)
+    make_error(code, message, hints, details=detail)
 
 
 # Manager states that mean this lane's queue is draining toward hardware. A copy
@@ -976,7 +977,7 @@ async def resolve_halt_lane() -> str | None:
     for lane in situation.lanes:
         try:
             status, body = await anyio.to_thread.run_sync(
-                lambda key=lane.key: _http_get_json("/queue", lane=key)
+                functools.partial(_http_get_json, "/queue", lane=lane.key)
             )
         except ToolError:
             # An unreachable lane cannot be the lane we halt on, and it must not
@@ -1020,7 +1021,7 @@ async def _lane_status_view(situation: LaneSituation) -> dict:
         entry: dict = {"lane": lane.key, "lane_target": lane.target, "active": active}
         try:
             status, body = await anyio.to_thread.run_sync(
-                lambda key=lane.key: _http_get_json("/health", lane=key)
+                functools.partial(_http_get_json, "/health", lane=lane.key)
             )
         except ToolError as exc:
             # A bridge that could not be reached at all, or a lane that cannot

@@ -66,11 +66,9 @@ from osprey.deployment.web_terminals.artifacts import (
     web_compose_file,
     write_web_terminal_artifacts,
 )
-from osprey.deployment.web_terminals.auth_credentials import (
-    AUTH_ENV_FILENAME,
-    PW_HASH_VAR_PREFIX,
-)
+from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.services.auth_sidecar.passwords import verify_password
+from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey.utils.dotenv import parse_dotenv_file
 from osprey.utils.workspace import BUILD_DIR_NAME
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
@@ -87,6 +85,7 @@ _WEB_STACK_CONFIG = _RENDERED_CONFIG + (
     "facility:\n"
     "  name: Demo Light Source\n"
     "  prefix: dls\n"
+    "system:\n"
     "  timezone: UTC\n"
     "registry:\n"
     "  url: registry.example.org\n"
@@ -1078,7 +1077,8 @@ def test_web_stack_nginx_mounts_name_the_files_the_writer_writes(tmp_path: Path)
 def _web_config(users: list[str]) -> dict:
     return {
         "project_name": "demo-project",
-        "facility": {"name": "Demo Light Source", "prefix": "dls", "timezone": "UTC"},
+        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "system": {"timezone": "UTC"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
         "modules": {

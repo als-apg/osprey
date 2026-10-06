@@ -14,6 +14,7 @@ from osprey.services.ariel_search.models import (
     DiagnosticLevel,
     SearchDiagnostic,
 )
+from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 
 def _make_entry(entry_id: str, text: str = "Test content") -> dict:
@@ -155,7 +156,7 @@ class TestServiceDiagnostics:
             repository=MagicMock(),
         )
         # Pre-set so _get_embedder() never reaches the provider registry.
-        service._embedder = MagicMock()
+        service._embedder = make_fake_embedding_provider()()
 
         request = MagicMock()
         request.query = "test"

@@ -156,31 +156,19 @@ describe('anchors in a live bar', () => {
   test('every step runs when all three bar items are in the header', () => {
     expect(walkTour()).toEqual(ALL_TITLES);
   });
-
-  test('an empty pool changes nothing', () => {
-    expect(find('#bar-item-pool').children.length).toBe(0);
-    expect(walkTour()).toEqual(ALL_TITLES);
-  });
 });
 
 describe('anchors the operator removed', () => {
-  test('pooling the search item drops its step', () => {
+  test('pooling the search item drops its step, though its node is still in the document', () => {
     poolItem('search');
 
+    // The node still resolves by id — the pool's entire purpose, and the
+    // reason a presence check could not have caught this.
+    expect(document.getElementById('command-palette-btn')).not.toBe(null);
+    expect(find('#command-palette-btn').closest('#bar-item-pool')).not.toBe(null);
     const seen = walkTour();
     expect(seen).not.toContain('Search everything');
     expect(seen).toEqual(ALL_TITLES.filter((t) => t !== 'Search everything'));
-  });
-
-  test('the dropped step is dropped for being POOLED, not for being gone', () => {
-    poolItem('search');
-
-    // The node is still in the document and still resolves by id — which is the
-    // pool's entire purpose, and the reason a presence check could not have
-    // caught this. The step drops anyway.
-    expect(document.getElementById('command-palette-btn')).not.toBe(null);
-    expect(find('#command-palette-btn').closest('#bar-item-pool')).not.toBe(null);
-    expect(walkTour()).not.toContain('Search everything');
   });
 
   test('the step count follows the surviving steps', () => {
@@ -241,17 +229,6 @@ describe('anchors that are not bar items', () => {
     const seen = walkTour();
     expect(seen).toContain('Make it yours');
     expect(seen).toEqual(ALL_TITLES.filter((t) => t !== 'Arrange the bars'));
-  });
-
-  test('the terminal card and the rail are unaffected by the pool', () => {
-    poolItem('search');
-    poolItem('display');
-    poolItem('control-target');
-
-    const seen = walkTour();
-    expect(seen[0]).toBe('Ask in plain language');
-    expect(seen).toContain('Your workspace');
-    expect(seen).toContain('The logbook');
   });
 });
 

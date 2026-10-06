@@ -489,7 +489,7 @@ async def test_a_narrowed_target_sends_the_operator_to_the_chip():
     envelope = ctx["envelope"]
     _assert_posture_envelope(envelope, source="store")
     assert "'live' control target" in envelope["error_message"]
-    assert "applies deployment-wide" in envelope["error_message"]
+    assert "applies to every session of this login" in envelope["error_message"]
     assert "This terminal session is in the sandbox posture" not in envelope["error_message"]
     assert "OSPREY_EXECUTION_MODE" not in " ".join(envelope["suggestions"])
 

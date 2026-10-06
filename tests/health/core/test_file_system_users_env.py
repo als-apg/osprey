@@ -18,7 +18,8 @@ from osprey.health.core.file_system import file_system
 from osprey.health.models import CheckResult, Status
 
 _CONFIG = {
-    "facility": {"timezone": "UTC"},
+    "facility": {},
+    "system": {"timezone": "UTC"},
     "claude_code": {"provider": "cborg"},
     "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
 }
@@ -60,7 +61,7 @@ def test_generated_file_behind_on_a_non_secret_is_a_warning(tmp_path: Path) -> N
 
     _dotenv(tmp_path / ".env", {"CBORG_API_KEY": "k"})
     ensure_env_production(_CONFIG, tmp_path)
-    moved = {**_CONFIG, "facility": {"timezone": "Europe/Berlin"}}
+    moved = {**_CONFIG, "system": {"timezone": "Europe/Berlin"}}
     row = _run(moved, tmp_path)["users_env"]
     assert row.status is Status.WARNING
     assert "osprey up" in row.message
@@ -95,7 +96,8 @@ _GATEWAY_TABLE_ENTRY = {
     "models": ["h", "s", "o"],
 }
 _GATEWAY_CONFIG = {
-    "facility": {"timezone": "UTC"},
+    "facility": {},
+    "system": {"timezone": "UTC"},
     "claude_code": {"provider": _GATEWAY},
     "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
 }
@@ -108,7 +110,7 @@ def test_existing_file_missing_a_required_endpoint_is_an_error(
     .env and .env.users agree, both lack it, and every terminal restarts
     forever. Agreement with the chain is not health here -- the row names the
     variable and the remedy."""
-    from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS
+    from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS
 
     monkeypatch.setitem(CLAUDE_CODE_PROVIDERS, _GATEWAY, _GATEWAY_TABLE_ENTRY)
     _dotenv(tmp_path / ".env", {_GATEWAY_SECRET_VAR: "k"})

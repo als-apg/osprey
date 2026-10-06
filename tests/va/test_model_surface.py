@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 from lume.model import LUMEModel
-from lume.variables import ScalarVariable, StrVariable, Variable
+from lume.variables import ParticleGroupVariable, ScalarVariable, StrVariable, Variable
 
 from osprey.services.virtual_accelerator.manifest import (
     PARTITION_PYAT_COUPLED,
@@ -1015,6 +1015,18 @@ class TestReset:
 
         assert surface.reset(TOKEN) == [CAL]
         assert model.reads == [[CAL]]
+
+    def test_a_writable_whose_type_declares_no_default_is_never_reset(
+        self, records: ServingRecords
+    ) -> None:
+        """A variable type with no default field declares no seed."""
+        model = WritableModel(
+            [_fault(CAL, CAL_SEED, (0.5, 1.5)), ParticleGroupVariable(name="beam")],
+            {CAL: 0.9, "beam": None},
+        )
+        surface = _writer(model, records)
+
+        assert surface.reset(TOKEN) == [CAL]
 
     @pytest.mark.parametrize(
         ("configured", "presented", "reason"),

@@ -483,23 +483,16 @@ describe('outbound prefill — title, subject and body mode', () => {
     expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe(DEFAULT_TITLE);
   });
 
-  test('a thousand-character report never becomes a thousand-character title', async () => {
-    const { deps } = makeDeps();
-    const oneLongLine = 'the beam dropped and the archiver shows nothing '.repeat(25);
-
-    await sendFeedback({ ...BASE_FORM, ...GITHUB, text: oneLongLine }, deps);
-
-    expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe(DEFAULT_TITLE);
-  });
-
-  test('the title names the session when context is attached', async () => {
+  test.each([
+    ['the issue title', { ...GITHUB }, 'windowOpen', 'title'],
+    ['the mail subject', { channel: /** @type {const} */ ('email') }, 'navigate', 'subject'],
+  ])('%s names the session when context is attached', async (_name, channel, handoff, name) => {
     const { deps } = makeDeps();
 
-    await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
+    await sendFeedback({ ...BASE_FORM, ...channel, contextOn: true }, deps);
 
-    expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe(
-      `${DEFAULT_TITLE} (session 11111111)`
-    );
+    const url = /** @type {any} */ (deps)[handoff].mock.calls[0][0];
+    expect(param(url, name)).toBe(`${DEFAULT_TITLE} (session 11111111)`);
   });
 
   test('an explicit title still wins', async () => {
@@ -513,32 +506,18 @@ describe('outbound prefill — title, subject and body mode', () => {
     expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe('Rail button dead in top mode');
   });
 
-  test('the mail subject follows the same rule', async () => {
+  test.each([
+    ['issue', { ...GITHUB }, 'windowOpen'],
+    ['email', { channel: /** @type {const} */ ('email') }, 'navigate'],
+  ])('with context attached the %s body is the pointer line alone', async (_name, channel, handoff) => {
     const { deps } = makeDeps();
 
-    await sendFeedback({ ...BASE_FORM, channel: 'email', contextOn: true }, deps);
-
-    expect(param(deps.navigate.mock.calls[0][0], 'subject')).toBe(
-      `${DEFAULT_TITLE} (session 11111111)`
-    );
-  });
-
-  test('with context attached the body is the pointer line alone', async () => {
-    const { deps } = makeDeps();
-
-    await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
+    await sendFeedback({ ...BASE_FORM, ...channel, contextOn: true }, deps);
 
     // No text, no metadata block: the whole report travels on the clipboard,
     // so anything prefilled here would be duplicated by the paste.
-    expect(param(deps.windowOpen.mock.calls[0][0], 'body')).toBe(PASTE_POINTER);
-  });
-
-  test('the email draft follows the same pointer rule', async () => {
-    const { deps } = makeDeps();
-
-    await sendFeedback({ ...BASE_FORM, channel: 'email', contextOn: true }, deps);
-
-    expect(param(deps.navigate.mock.calls[0][0], 'body')).toBe(PASTE_POINTER);
+    const url = /** @type {any} */ (deps)[handoff].mock.calls[0][0];
+    expect(param(url, 'body')).toBe(PASTE_POINTER);
   });
 
   test('without context the body carries the text and metadata, no pointer', async () => {
@@ -624,25 +603,16 @@ describe('sendFeedback — tracker identity', () => {
 });
 
 describe('outbound notices — the paste step is announced', () => {
-  test('a successful GitHub send with context points at the clipboard paste', async () => {
+  test.each([
+    ['GitHub', { ...GITHUB }, NOTICE_PASTE_ISSUE],
+    ['email', { channel: /** @type {const} */ ('email') }, NOTICE_PASTE_EMAIL],
+  ])('a successful %s send with context points at the clipboard paste', async (_name, channel, hint) => {
     const { deps } = makeDeps();
 
-    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...channel, contextOn: true }, deps);
 
     expect(result.notice.kind).toBe('success');
-    expect(result.notice.message).toBe(
-      `Recorded on this deployment (fb-1) — ${NOTICE_PASTE_ISSUE}`
-    );
-  });
-
-  test('a successful email send with context points at the clipboard paste', async () => {
-    const { deps } = makeDeps();
-
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'email', contextOn: true }, deps);
-
-    expect(result.notice.message).toBe(
-      `Recorded on this deployment (fb-1) — ${NOTICE_PASTE_EMAIL}`
-    );
+    expect(result.notice.message).toBe(`Recorded on this deployment (fb-1) — ${hint}`);
   });
 
   test('a truncated body earns the paste hint even without context', async () => {

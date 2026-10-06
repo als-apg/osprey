@@ -1,0 +1,1 @@
+The translation proxy for OpenAI-protocol providers forwards the headers set in `ANTHROPIC_CUSTOM_HEADERS`, such as a corporate trace header, as the Anthropic route already did. It forwards no other client header.

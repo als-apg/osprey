@@ -52,7 +52,8 @@ Where the record lives
    * - Audit ledger
      - ``var/audit/<identity>/``
      - ``osprey reset --purge-audit``
-     - yes
+     - yes; dot-named ``.json`` and ``.tmp`` files there are a service's working state and are
+       not copied
    * - OpenObserve logs and traces
      - the ``openobserve_data`` volume
      - ``services.openobserve.retention_days`` (14 in the preset)

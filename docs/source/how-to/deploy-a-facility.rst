@@ -84,6 +84,59 @@ everything about how a facility-owned container is declared, built, and reached
 is in :ref:`deploy-a-facility-own-service`.
 
 
+.. _perimeter-limits:
+
+What the perimeter needs
+========================
+
+The web tier (nginx, the landing page and one terminal per user) makes four
+demands on the network in front of it: its own hostname or host:port, one
+origin, the host network, and at most 100 users. They hold for every
+deployment, and the refusals and warnings that enforce them link to this
+section.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 44 34
+
+   * - Limit
+     - What it means
+     - If your site cannot meet it
+   * - Its own hostname or host:port
+     - The deployment is served from ``/`` of the address a browser uses and
+       cannot sit under a path such as ``https://www.example.org/osprey/``.
+       ``modules.web_terminals.external_origin`` is refused if it carries a
+       path. Every terminal compares the browser's ``Origin`` header against
+       ``external_origin`` as a whole string, so it is written as a bare
+       origin.
+     - Give the deployment its own DNS name at the front proxy
+       (``https://osprey.example.org``) or its own port on an existing name
+       (``https://www.example.org:8443``).
+   * - One origin
+     - Every terminal accepts a state-changing request only from the one
+       origin the deployment was built for: ``external_origin``, or the one
+       derived from ``deploy.fqdn``. nginx answers only on that origin's host,
+       and a request under any other name is redirected (``301``) to the same
+       path there.
+     - Publish one name and give every user that address.
+       :ref:`multi-user-https` covers the setting and a TLS terminator in
+       front.
+   * - The host network
+     - nginx and every per-user terminal run with ``network_mode: host``, so
+       the container runtime must be able to put containers on the host's own
+       network.
+     - A Linux host running Docker or Podman does this directly. Docker
+       Desktop on macOS does it only with *Enable host networking* turned on
+       (Settings → Resources → Network).
+   * - At most 100 users
+     - Each per-user port family holds 100 ports, one for each user index 0 to
+       99 (:ref:`reference-ports-panels`). A roster with an index past 99 is
+       refused, and setting a family's ``<family>_base_port`` does not raise
+       the limit.
+     - Run a second deployment for the next group of users, on its own
+       ``deployment.port_base`` (:ref:`reference-ports`).
+
+
 Step 1 — Create the facility repository
 =======================================
 
@@ -150,8 +203,9 @@ are already present with a different value; some ship commented out.
 
 ``control_system.type: virtual_accelerator`` points the agent at the deployed
 simulator, so correctors move and BPMs read through exactly the approval and
-limit layers a live machine would use. The preset ships ``mock``, which touches
-nothing.
+limit layers a live machine would use. The preset already ships this value; it
+is written out here because it is the line that changes when the deployment
+goes live (`Changing something later`_).
 
 A deployment describes **one real machine**. ``control_system.type`` names it,
 or — on a simulated baseline like this one — the single non-simulated block
@@ -174,11 +228,24 @@ and this list is what ``osprey up`` reads.
 (``demo-nginx``, ``demo-web-alice``), so keep it short and distinct from the
 project name.
 
+``system.timezone`` is the zone operator times are read in and every timestamp
+is shown in. Spell it exactly as the IANA time zone database does, case
+included (``America/Los_Angeles``, not ``america/los_angeles``), or
+``osprey build`` refuses it. A build left on the preset's ``UTC`` prints a
+one-line reminder, and ``osprey health`` reports UTC as information. A value
+that names an environment variable (``${FACILITY_TZ}``) is checked by
+``osprey health``, not by the build. It is the facility's zone and the one
+place OSPREY takes it from: the agent quotes times in it, and each page that
+shows times is stamped with it. The status-bar clock shows it with
+``zone: facility`` (see :ref:`config-bar-items`).
+
 While you are in the ``modules.web_terminals:`` block, note the ``auth:``
 stanza the preset ships: the terminals ask for a login, with demo passwords
 that ``osprey init`` seeded into this repository's ``.env``
-(``alice``/``alice``, ``bob``/``bob``) and ``allow_insecure_http: true``
-keeping the login flow on plain HTTP. That is a demo posture. For a facility
+(``alice``/``alice``, ``bob``/``bob``, and ``carol``/``carol``, the admin
+card) and ``allow_insecure_http: true`` keeping the login flow on plain HTTP.
+That is a demo posture: ``osprey up`` refuses to start once ``deploy.fqdn``
+names a real host while any of these passwords is still set. For a facility
 host, set real passwords in ``.env`` (or rotate with ``osprey users passwd``)
 and serve TLS — :doc:`web-terminal/multi-user/login` walks through both, and through single
 sign-on if your site runs one.
@@ -238,7 +305,9 @@ directory. ``http: true`` says this service answers HTTP on the port it
 publishes, so the deploy summary prints its address as a link rather than as a
 bare ``host:port`` — the framework recognises its own services by name and has
 no way to know what protocol sits behind yours. Leave it out for a service that
-speaks anything else; a link that cannot open is worse than no link.
+speaks anything else; a link that cannot open is worse than no link. Were
+``facility-mcp`` moved to the host network, its template would render the bind
+address into a variable and name it with ``bind_env:``.
 
 The port appears twice because it is the same fact told to two
 parties: the container publishes it, and the agent dials it. ``10900`` is the
@@ -331,19 +400,8 @@ compose template per service directory, rendered by the build.
        # two OSPREY projects can run this service on one host.
        container_name: {{ osprey_labels.project_name }}-facility-mcp
        labels:
-         osprey.project.name: "{{ osprey_labels.project_name }}"
-         # Which deployment repo this container belongs to. A facility service
-         # carries it for the same reason every packaged one does: the preflight
-         # reads it to tell "a port of ours, already up" from "somebody else's
-         # process on our port", and an unlabelled container can only be guessed
-         # at from the compose project name.
-         com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-         osprey.project.root: "{{ osprey_labels.project_root }}"
-         # Content hashes of the env chain and the rendered config this service
-         # reads. They are what makes an edit to either file restart this
-         # container; see the deploy-project compose-templates page.
+         # Env-chain hash: a .env edit restarts this; the build adds project and config labels.
          osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
-         osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
        restart: unless-stopped
        ports:
          - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services['facility-mcp'] | default({})).port | default(10900) }}:10900/tcp"
@@ -364,9 +422,15 @@ compose template per service directory, rendered by the build.
 
    volumes:
      facility_mcp_data:
+       labels:
+         com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 
    networks:
      osprey-network:
+
+The named volume carries the checkout label itself because the build's labels
+override reaches services, not volumes, and ``osprey reset`` removes only the
+volumes that carry it.
 
 The image reference follows the framework convention — environment variable,
 then config key, then a local tag. A laptop deploy builds the image from the
@@ -420,6 +484,12 @@ images, which is what a runner with internet access wants.
 ``image_source: local`` says the deploy host builds the web-terminal images
 itself from the rendered persona projects, rather than pulling them from a
 registry.
+
+With ``registry``, the host pulls them under names derived from this block's
+``registry.url``, which the build writes into the rendered config. A
+``registry.url`` in ``config:`` overrides it. The scaffolded pipeline does not
+push those images. The names and what has to push them:
+:ref:`multi-user-registry-images`.
 
 .. important::
 
@@ -487,7 +557,8 @@ Two files appear:
    environment, which is why it is not in ``env.required``.
 
 ``scripts/verify.sh``
-   The post-deploy health check, at the repository root.
+   The post-deploy health check, at the repository root: every container of the
+   deployment, then the endpoints it can probe.
 
 Re-run ``osprey scaffold ci`` whenever the ``deploy:`` block changes. It is
 safe to re-run: a file whose content already matches is left untouched, and a
@@ -564,8 +635,9 @@ Step 9 — Deploy and check
    workflow.
 
 The first run is slow: the virtual accelerator and the facility's own image are
-both built locally. When the containers are up, ``osprey up`` runs
-``scripts/verify.sh`` itself and prints a summary of the published endpoints.
+both built locally. When the containers are up, ``osprey up`` prints a summary
+of the published endpoints and, on a deployment with the web tier, runs
+``scripts/verify.sh`` itself; without the web tier, nothing runs it for you.
 
 .. code-block:: bash
 
@@ -580,12 +652,15 @@ before you trust it:
 
 .. code-block:: bash
 
-   ./scripts/verify.sh              # every probe
-   ./scripts/verify.sh services     # one group
+   ./scripts/verify.sh              # every group
+   ./scripts/verify.sh containers   # one group
+   ./scripts/verify.sh --strict     # exit 1 if anything is flagged
 
-It always exits 0 — the output is the report, and the exit code says nothing.
-Probes are advisory: a failed probe tells you where to look, and must never be
-the reason a deploy is called a failure.
+It exits 0 unless run with ``--strict``. A container that is not running or not
+healthy, and a probe that gets no answer, is flagged and tells you where to
+look. ``osprey up`` never passes ``--strict``, so a flag is never the reason a
+deploy is called a failure; ``--strict`` is for a job of your own that should
+fail on it.
 
 
 What the pipeline does
@@ -634,11 +709,17 @@ anywhere inside the repository:
 
 .. code-block:: bash
 
-   osprey set connector=epics          # or edit profile.yml by hand
-   osprey set config.archiver.type=epics_archiver
-   osprey set va_archiver=null         # the recorded archive goes with the stand-in
+   osprey set connector=epics                      # your control system; or edit profile.yml by hand
+   osprey set config.archiver.type=epics_archiver  # the archiver that records it
+   osprey set va_archiver=null                     # the recorded archive goes with the stand-in
    osprey build
    osprey up -d
+
+The three ``osprey set`` lines are the go-live edit, with EPICS as the example:
+``connector`` names your control system (``epics``, ``doocs`` or ``tango``) and
+``config.archiver.type`` the archiver that records it (``epics_archiver``,
+``doocs_archiver``, ``mongodb_archiver`` or ``mya_archiver``).
+:doc:`control-systems/use-connectors` lists each one and the keys it needs.
 
 Or in one step, ``osprey up --build -d``. Every build re-renders everything the
 framework owns and preserves what you own: ``.env``, ``var/``, and the
@@ -852,6 +933,10 @@ a boot does exactly what you do by hand.
 
    :doc:`control-systems/use-virtual-accelerator`
        Running the simulator, and driving it from the agent.
+
+   :doc:`control-systems/use-connectors`
+       Every control system and archiver OSPREY connects to, and the keys each
+       one needs.
 
    :doc:`/reference/cli`
        Every ``osprey`` command and flag.

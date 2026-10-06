@@ -63,10 +63,13 @@ def initialize_providers(
     """Initialize AI model providers via the lightweight ProviderRegistry.
 
     Delegates to ``ProviderRegistry.load_providers()`` for the actual import
-    loop, then stores the results in *registries* for backward compatibility.
+    loop, then stores the results in *registries*.
     Providers from ``config.providers`` are registered first so they participate
     in the bulk load — including one whose name shadows a built-in, which
-    replaces it (logged) rather than being dropped.
+    replaces it (logged) rather than being dropped. Names in the application's
+    ``exclude_providers`` are then removed from the provider registry itself, so
+    no in-process lookup resolves them, unless the application registers its own
+    class under the same name.
 
     Uses config-driven filtering to skip imports for unconfigured providers,
     avoiding costly module-level network calls on air-gapped machines.
@@ -109,6 +112,16 @@ def initialize_providers(
     # facility replacing `openai` excludes the framework's version and ships its
     # own under the same name, and the exclusion must not then drop its own.
     excluded_names = set(excluded_provider_names or ()) - registered
+    for name in sorted(excluded_names):
+        if name not in builtin_names:
+            logger.warning(
+                "exclude_providers names '%s', which is not a built-in provider; "
+                "nothing is removed",
+                name,
+            )
+            continue
+        pr.exclude(name)
+        logger.info("Application registry excludes built-in provider '%s'", name)
 
     configured_providers = _get_configured_provider_names()
 
@@ -117,10 +130,7 @@ def initialize_providers(
     else:
         logger.info("Initializing providers (all available)...")
 
-    loaded = pr.load_providers(
-        configured_names=configured_providers,
-        excluded_names=excluded_names or None,
-    )
+    loaded = pr.load_providers(configured_names=configured_providers)
 
     for name, provider_class in loaded.items():
         registries["providers"][name] = provider_class

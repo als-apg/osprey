@@ -22,6 +22,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any, cast
 
 MANIFEST_PATH = Path(__file__).parent / "vendor_manifest.json"
 
@@ -93,9 +94,9 @@ def _ssl_context(insecure: bool) -> ssl.SSLContext:
     return ssl.create_default_context()
 
 
-def _load_manifest() -> dict:
+def _load_manifest() -> dict[str, Any]:
     with open(MANIFEST_PATH) as f:
-        return json.load(f)
+        return cast(dict[str, Any], json.load(f))
 
 
 def _sha256(path: Path) -> str:
@@ -311,7 +312,8 @@ def asset_cdn_url(name: str) -> str:
     """
     for asset in _load_manifest().get("assets", []):
         if asset.get("name") == name:
-            return asset["url"]
+            url: str = asset["url"]
+            return url
     raise KeyError(
         f"Unknown vendor asset name: {name!r}. Check the 'name' fields in {MANIFEST_PATH}."
     )

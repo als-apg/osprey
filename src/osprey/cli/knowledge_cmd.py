@@ -151,6 +151,8 @@ def validate(bundle: Path | None) -> None:
       - index.md files are validated against OKF §6/§11.
       - All other .md files are parsed and their frontmatter is validated
         at the 'authoring' level (requires type, title and description).
+      - each index.md must match what regen-index writes for its directory,
+        and every directory holding pages must have one.
 
     All files are checked even if earlier failures are found.  A
     per-file report is printed and the command exits non-zero if any
@@ -159,9 +161,14 @@ def validate(bundle: Path | None) -> None:
     bundle = _resolve_bundle(bundle)
 
     from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
-    from osprey.services.facility_knowledge.okf.index import OKFIndexError, validate_index
+    from osprey.services.facility_knowledge.okf.index import (
+        OKFIndexError,
+        check_indexes,
+        validate_index,
+    )
 
     failures: list[tuple[Path, str]] = []
+    failed_indexes: set[Path] = set()
 
     for md_path in sorted(bundle.rglob("*.md")):
         if md_path.name == "index.md":
@@ -169,6 +176,7 @@ def validate(bundle: Path | None) -> None:
                 validate_index(md_path, bundle_root=bundle)
             except (OKFIndexError, OKFDocumentError) as exc:
                 failures.append((md_path, str(exc)))
+                failed_indexes.add(md_path)
         else:
             try:
                 text = md_path.read_text(encoding="utf-8")
@@ -177,14 +185,22 @@ def validate(bundle: Path | None) -> None:
             except (OKFDocumentError, ValueError) as exc:
                 failures.append((md_path, str(exc)))
 
+    drifted = [drift for drift in check_indexes(bundle) if drift.path not in failed_indexes]
+    failures.extend((drift.path, f"index.md {drift.message}") for drift in drifted)
+
     if not failures:
         report(f"All files in {bundle} are valid.")
         return
 
-    fail(
-        f"{len(failures)} file(s) failed validation",
-        "\n".join(f"{path}: {msg}" for path, msg in failures),
-    )
+    cause = "\n".join(f"{path}: {msg}" for path, msg in failures)
+    if drifted:
+        fail(
+            f"{len(failures)} file(s) failed validation",
+            cause,
+            f"Rebuild the indexes: osprey knowledge regen-index {bundle}",
+        )
+    else:
+        fail(f"{len(failures)} file(s) failed validation", cause)
     raise SystemExit(1)
 
 

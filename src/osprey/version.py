@@ -27,12 +27,16 @@ first of these that answers:
 Step 1 is anchored rather than cwd-relative on purpose. ``osprey build`` runs
 ``git init`` inside the project it generates, and the Claude Code status line
 imports osprey from a process whose working directory is the operator's own repo —
-a cwd-relative probe would report someone else's tag as OSPREY's version.
+a cwd-relative probe would report someone else's tag as OSPREY's version. The anchor
+holds against the environment too: a git hook exports ``GIT_DIR`` and friends, and the
+probe drops every repository-local variable before it runs, so a process importing
+osprey from inside another repository's hook still reads OSPREY's tag.
 """
 
 from __future__ import annotations
 
 import functools
+import os
 import subprocess
 from pathlib import Path
 
@@ -56,7 +60,36 @@ _SOURCE_ROOT = Path(__file__).resolve().parents[2]
 #: claiming to be a release and pinning against a version that does not exist.
 _UNKNOWN_VERSION = "0.0.0+unknown"
 
-_GIT_TIMEOUT_SECONDS = 2
+#: Deadline on the ``git describe`` probe. It exists to survive a hung git, not to
+#: rate a slow one: the probe only runs in an OSPREY source checkout, where git is
+#: the one source naming the commit actually running, and a timeout falls back to a
+#: stamp stale by every commit since the last rebuild. The describe costs a fraction
+#: of a second of CPU, but its wall time on a loaded host runs to seconds, so the
+#: bound sits far above any working git and below a hang.
+_GIT_TIMEOUT_SECONDS = 30
+
+#: The names ``git rev-parse --local-env-vars`` prints. Each can point git at a
+#: repository, object store, index or config other than the one ``-C`` names, so the
+#: probe removes them from the environment it hands git.
+_GIT_REPOSITORY_ENV: frozenset[str] = frozenset(
+    {
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_CONFIG",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_DIR",
+        "GIT_GRAFT_FILE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_NO_REPLACE_OBJECTS",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_PREFIX",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_SHALLOW_FILE",
+        "GIT_WORK_TREE",
+    }
+)
 
 
 def _anchored_at_osprey_source() -> bool:
@@ -150,6 +183,9 @@ def _version_from_git() -> str | None:
             ],
             capture_output=True,
             text=True,
+            env={
+                name: value for name, value in os.environ.items() if name not in _GIT_REPOSITORY_ENV
+            },
             timeout=_GIT_TIMEOUT_SECONDS,
             check=False,
         )

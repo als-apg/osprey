@@ -35,9 +35,11 @@ from __future__ import annotations
 
 import ast
 import copy
+import functools
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 import tomllib
 from collections.abc import Iterator
@@ -95,6 +97,9 @@ TWO_SHAPE_PROVIDER_STEP = "Step 0 — assert the compose provider is podman-comp
 #: it needs no container runtime, only a renderer and a YAML parser.
 PARSE_ONLY_JOB = "static-checks"
 PARSE_ONLY_STEP = "Parse the merged podman topology (podman-compose config, no containers)"
+#: Re-proves the recorded CLI tool inventories against the real pinned builds.
+INVENTORY_JOB = "static-checks"
+INVENTORY_STEP = "Check the recorded CLI tool inventories against the pinned builds"
 PODMAN_COMPOSE_PIN = "podman-compose==1.0.6"
 #: The containers.conf key that forces podman's choice of external provider.
 COMPOSE_PROVIDER_FORCE_KEY = "compose_providers"
@@ -137,7 +142,6 @@ NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 NO_MODEL_TEST_FILES = (
     "tests/e2e/test_openobserve_telemetry.py",
     "tests/e2e/test_sdk_helpers.py",
-    "tests/e2e/web_terminals/test_prefix_routing.py",
     "tests/e2e/test_mcp_readiness.py",
     "tests/e2e/test_dispatch_deploy_render.py",
     "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py",
@@ -202,11 +206,19 @@ CI_CHECK_SCRIPT = "scripts/ci_check.sh"
 PTY_DESELECT_TERM = "not pty"
 
 
-def _load_workflow() -> dict[str, Any]:
+@functools.cache
+def _parsed_workflow() -> dict[str, Any]:
+    """ci.yml parsed once per process; read only through ``_load_workflow``."""
     with CI_YML.open() as f:
         loaded = yaml.safe_load(f)
     assert loaded is not None, f"{CI_YML} parsed to None"
     return loaded
+
+
+def _load_workflow() -> dict[str, Any]:
+    """A private deep copy of the parsed ci.yml, so a mutation test's edits
+    never reach any other test."""
+    return copy.deepcopy(_parsed_workflow())
 
 
 @pytest.fixture()
@@ -1507,6 +1519,28 @@ def test_pty_marker_is_registered__mutation_drops_it() -> None:
         test_pty_marker_is_registered(mutated)
 
 
+@functools.cache
+def _test_tree_paths() -> tuple[Path, ...]:
+    """Every ``tests/**/test_*.py`` path, walked once per process."""
+    return tuple((CI_YML.parents[2] / "tests").rglob("test_*.py"))
+
+
+@functools.cache
+def _test_tree_sources() -> dict[Path, str]:
+    """The source of every path in ``_test_tree_paths``, read once per process.
+
+    Callers must not mutate the returned dict; ``_test_module_sources`` hands
+    out a fresh one.
+    """
+    return {path: path.read_text(encoding="utf-8") for path in _test_tree_paths()}
+
+
+def _e2e_test_sources() -> dict[Path, str]:
+    """The ``tests/e2e/**/test_*.py`` subset of ``_test_tree_sources``."""
+    e2e_dir = CI_YML.parents[2] / "tests" / "e2e"
+    return {path: src for path, src in _test_tree_sources().items() if path.is_relative_to(e2e_dir)}
+
+
 def _test_module_sources() -> dict[str, str]:
     """Every test module under ``tests/``, keyed by repo-relative posix path.
 
@@ -1518,8 +1552,8 @@ def _test_module_sources() -> dict[str, str]:
     root = CI_YML.parents[2]
     me = Path(__file__).resolve()
     return {
-        path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
-        for path in (root / "tests").rglob("test_*.py")
+        path.relative_to(root).as_posix(): source
+        for path, source in _test_tree_sources().items()
         if path.resolve() != me
     }
 
@@ -1755,8 +1789,8 @@ def _dockerbuild_marked_e2e_files() -> list[str]:
     e2e_dir = CI_YML.parents[2] / "tests" / "e2e"
     return sorted(
         (p.relative_to(e2e_dir.parents[1])).as_posix()
-        for p in e2e_dir.rglob("test_*.py")
-        if "pytest.mark.dockerbuild" in p.read_text(encoding="utf-8")
+        for p, source in _e2e_test_sources().items()
+        if "pytest.mark.dockerbuild" in source
     )
 
 
@@ -2242,8 +2276,8 @@ def _emulator_container_e2e_files() -> list[str]:
     e2e_dir = CI_YML.parents[2] / "tests" / "e2e"
     return sorted(
         p.relative_to(e2e_dir.parents[1]).as_posix()
-        for p in e2e_dir.rglob("test_*.py")
-        if PUBSUB_FIXTURE_NAME in p.read_text(encoding="utf-8")
+        for p, source in _e2e_test_sources().items()
+        if PUBSUB_FIXTURE_NAME in source
     )
 
 
@@ -2747,6 +2781,82 @@ def _model_free_selected_paths(wf: dict[str, Any]) -> list[str]:
     return selected
 
 
+def _model_free_deselected(wf: dict[str, Any]) -> list[str]:
+    """Every node id the model-free lane's run step takes out with ``--deselect``."""
+    tokens = _find_named_step(wf, NO_MODEL_JOB, NO_MODEL_RUN_STEP)["run"].split()
+    return [tokens[i + 1] for i, token in enumerate(tokens[:-1]) if token == "--deselect"]
+
+
+def _collected_ids(args: list[str]) -> set[str]:
+    """The node ids pytest collects for ``args``, from the repo root.
+
+    ``--collect-only`` is exempt from the e2e provider refusal, so no provider
+    has to be named.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "-o",
+            "addopts=",
+            "-p",
+            "no:cacheprovider",
+            *args,
+        ],
+        cwd=CI_YML.parents[2],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return {line.strip() for line in result.stdout.splitlines() if "::" in line}
+
+
+def test_the_model_free_marker_equals_the_model_free_lane_selection(
+    workflow: dict[str, Any],
+) -> None:
+    """A run that names no provider may select only ``model_free`` tests, and
+    the lane is where those tests run. A test the lane runs without the marker
+    would be refused in a run with no provider; a marked test the lane leaves
+    out claims a lane that never runs it."""
+    paths = _model_free_selected_paths(workflow)
+    deselect = [arg for node in _model_free_deselected(workflow) for arg in ("--deselect", node)]
+    marked = _collected_ids([*paths, "-m", "model_free"])
+    selected = _collected_ids([*paths, *deselect])
+    assert marked == selected, (
+        f"marked model_free but not run by '{NO_MODEL_JOB}': {sorted(marked - selected)}; "
+        f"run by '{NO_MODEL_JOB}' but not marked model_free: {sorted(selected - marked)}"
+    )
+
+
+def test_the_model_free_marker_equals_the_model_free_lane_selection__mutation_drops_the_deselection() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    step["run"] = step["run"].replace(f"--deselect {NO_MODEL_DESELECTED}", "")
+    with pytest.raises(AssertionError, match="not marked model_free"):
+        test_the_model_free_marker_equals_the_model_free_lane_selection(mutated)
+
+
+def test_only_the_model_free_lane_files_carry_the_marker(workflow: dict[str, Any]) -> None:
+    """The equality above collects only the lane's own files; a marked module
+    anywhere else under ``tests/e2e/`` is read from source instead of from a
+    whole-directory collection."""
+    root = CI_YML.parents[2]
+    lane = set(_model_free_selected_paths(workflow))
+    stray = sorted(
+        path.relative_to(root).as_posix()
+        for path in (root / "tests" / "e2e").rglob("test_*.py")
+        if "mark.model_free" in path.read_text(encoding="utf-8")
+        and path.relative_to(root).as_posix() not in lane
+    )
+    assert stray == [], f"marked model_free but not named in '{NO_MODEL_RUN_STEP}': {stray}"
+
+
 def test_model_free_lane_exists(workflow: dict[str, Any]) -> None:
     assert NO_MODEL_JOB in _jobs(workflow)
 
@@ -2855,9 +2965,11 @@ def test_model_free_lane_deselects_the_one_credential_gated_test__mutation_drops
 
 
 def test_model_free_lane_declares_no_gateway_key(workflow: dict[str, Any]) -> None:
-    """The directory's provider refusal is satisfied by the workflow-level
-    ``OSPREY_E2E_PROVIDER`` alone, so a gateway key here would buy nothing and
-    would move the lane into the label-gated posture it was built to leave."""
+    """Every test this lane selects carries ``model_free``, so the directory's
+    provider refusal does not apply to it; the workflow-level
+    ``OSPREY_E2E_PROVIDER`` is still present but not needed here. A gateway key
+    would buy nothing and would move the lane into the label-gated posture it
+    was built to leave."""
     assert not _job_declares_secret(workflow, NO_MODEL_JOB, SECRET_TOKEN)
 
 
@@ -2990,10 +3102,7 @@ def _e2e_files_the_shared_lane_sweeps(wf: dict[str, Any]) -> set[str]:
     run_text = _find_named_step(wf, E2E_TESTS_JOB, "Run E2E tests")["run"]
     ignored = set(re.findall(r"--ignore=(\S+)", run_text))
     repo_root = CI_YML.parents[2]
-    swept = {
-        path.relative_to(repo_root).as_posix()
-        for path in (repo_root / "tests" / "e2e").rglob("test_*.py")
-    }
+    swept = {path.relative_to(repo_root).as_posix() for path in _e2e_test_sources()}
     return swept - ignored
 
 
@@ -3015,7 +3124,7 @@ def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_teleme
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], telemetry)
     others = [f for f in NO_MODEL_TEST_FILES if f != telemetry]
-    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
+    assert _run_step_ignores_all(mutated, others) == []  # the other eight survive
     with pytest.raises(AssertionError, match="still swept"):
         test_shared_lane_hands_over_every_model_free_file(mutated)
 
@@ -3031,7 +3140,7 @@ def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_termin
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], terminal_auth)
     others = [f for f in NO_MODEL_TEST_FILES if f != terminal_auth]
-    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
+    assert _run_step_ignores_all(mutated, others) == []  # the other eight survive
     with pytest.raises(AssertionError, match="still swept"):
         test_shared_lane_hands_over_every_model_free_file(mutated)
 
@@ -3054,11 +3163,11 @@ def test_no_end_to_end_file_runs_in_both_lanes(workflow: dict[str, Any]) -> None
 
 
 def test_no_end_to_end_file_runs_in_both_lanes__mutation_returns_a_file_to_the_sweep() -> None:
-    routing = "tests/e2e/web_terminals/test_prefix_routing.py"
+    render = "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py"
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
-    step["run"] = _drop_ignore_line(step["run"], routing)
-    assert set(NO_MODEL_TEST_FILES) & _e2e_files_the_shared_lane_sweeps(mutated) == {routing}
+    step["run"] = _drop_ignore_line(step["run"], render)
+    assert set(NO_MODEL_TEST_FILES) & _e2e_files_the_shared_lane_sweeps(mutated) == {render}
     with pytest.raises(AssertionError, match="in both end-to-end lanes"):
         test_no_end_to_end_file_runs_in_both_lanes(mutated)
 
@@ -3140,8 +3249,9 @@ def _e2e_provider_overrides(wf: dict[str, Any]) -> list[str]:
 def test_the_workflow_names_the_end_to_end_provider(workflow: dict[str, Any]) -> None:
     """Every lane that collects ``tests/e2e/`` states what it builds with.
 
-    There is no constant behind the variable any more — an e2e run that names
-    no provider is refused at collection — so the name has to be stated
+    There is no constant behind the variable any more — a run that names no
+    provider is refused when it selects a test not marked model_free — so the
+    name has to be stated
     somewhere, and workflow level is the one place that covers every lane at
     once. A fork driving its own gateway changes this line and nothing else,
     which is also why the value is a plain name rather than an expression: a
@@ -3452,6 +3562,12 @@ def _module_marks(source: str) -> set[str]:
 
 
 def _browser_suites_on_disk() -> list[str]:
+    """A fresh list of ``_browser_suites_on_disk_once``, safe for the caller to edit."""
+    return list(_browser_suites_on_disk_once())
+
+
+@functools.cache
+def _browser_suites_on_disk_once() -> tuple[str, ...]:
     """Every test module that marks itself ``browser``, repo-relative, POSIX-spelled.
 
     Discovery follows the marker, never the filename: the marker is the
@@ -3459,11 +3575,12 @@ def _browser_suites_on_disk() -> list[str]:
     be called anything. A filename convention accounts only for the modules
     that follow it and passes over every other in silence.
     """
-    return sorted(
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in TESTS_ROOT.rglob("test_*.py")
-        if "__pycache__" not in path.parts
-        and BROWSER_MARKER in _module_marks(path.read_text(encoding="utf-8"))
+    return tuple(
+        sorted(
+            path.relative_to(REPO_ROOT).as_posix()
+            for path, source in _test_tree_sources().items()
+            if "__pycache__" not in path.parts and BROWSER_MARKER in _module_marks(source)
+        )
     )
 
 
@@ -3500,8 +3617,8 @@ def test_browser_suite_discovery_covers_every_suite_named_like_one() -> None:
     found = set(_browser_suites_on_disk())
     named_like_one = sorted(
         path.relative_to(REPO_ROOT).as_posix()
-        for path in TESTS_ROOT.rglob("test_*_browser.py")
-        if "__pycache__" not in path.parts
+        for path in _test_tree_paths()
+        if path.match("test_*_browser.py") and "__pycache__" not in path.parts
     )
     missing = [suite for suite in named_like_one if suite not in found]
     assert missing == [], f"browser suites the marker discovery does not find: {missing}"
@@ -7513,15 +7630,15 @@ def test_the_tag_gate_blocks_the_publish() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The type check is worth scoring: the stubs its imports need are declared
+# The type check's stubs are declared where CI installs them: the dev extra
 # ---------------------------------------------------------------------------
 #
 # An import in `src/` that ships no inline types needs its stub distribution in
 # the `dev` extra. Without it the checker reports a per-module `import-untyped`
 # error ("Library stubs not installed for ...") and gives every value from that
-# library the type `Any`, and `scripts/mypy_gate.py` refuses to score a run
-# carrying one: it exits 2 rather than measure a weakened report against the
-# baseline. So an undeclared stub distribution turns the type-check lane red
+# library the type `Any`, and `scripts/mypy_gate.py` refuses to judge a run
+# carrying one: it exits 2 rather than pass a report in which those values are
+# `Any`. So an undeclared stub distribution turns the type-check lane red
 # instead of quietly widening the modules that import it.
 
 
@@ -7549,15 +7666,15 @@ def test_the_type_check_declares_a_stub_for_every_stubless_import(
     pyproject: dict[str, Any],
 ) -> None:
     """Every import named here appears in `src/` and ships no types of its own,
-    so an undeclared stub distribution costs the run its score: the checker
-    reports `import-untyped` for that import and the gate refuses to measure
+    so an undeclared stub distribution costs the run its verdict: the checker
+    reports `import-untyped` for that import and the gate refuses to judge
     what it produced."""
     declared = _declared_names(_dev_extra(pyproject))
     for distribution, module in STUB_DISTRIBUTIONS.items():
         assert canonicalize_name(distribution) in declared, (
             f"the `dev` extra must declare {distribution} — without it every "
             f"`import {module}` in src/ reports `import-untyped` and the type-check "
-            f"gate refuses to score the run"
+            f"gate refuses to judge the run"
         )
 
 
@@ -7576,9 +7693,9 @@ def test_the_type_check_declares_a_stub__mutation_drops_one(distribution: str) -
 
 
 def test_the_type_checker_is_pinned_to_one_minor(pyproject: dict[str, Any]) -> None:
-    """The baseline beside the gate was measured with one checker, so the checker
-    is named as precisely as the measurement it produced. A floor alone lets a new
-    minor report errors no diff introduced, and the gate would blame the change."""
+    """The gate holds the tree to zero errors under one checker, so the checker is
+    named as precisely as that verdict. A floor alone lets a new minor report errors
+    no diff introduced, and the gate would blame the change."""
     requirements = [
         Requirement(dep)
         for dep in _dev_extra(pyproject)
@@ -7589,7 +7706,7 @@ def test_the_type_checker_is_pinned_to_one_minor(pyproject: dict[str, Any]) -> N
     assert ">=" in operators, "the mypy requirement must carry a lower bound"
     assert "<" in operators, (
         "the mypy requirement must carry an upper bound — an unpinned minor "
-        "moves the baseline the gate scores against"
+        "can red the gate on a change that introduced nothing"
     )
 
 
@@ -7737,10 +7854,10 @@ def _load_mypy_gate() -> Any:
 
 
 def test_the_type_check_step_runs_the_gate(workflow: dict[str, Any]) -> None:
-    """The build scores the type check against the baseline beside the gate.
+    """The build runs the type check through the gate.
 
-    A bare ``mypy`` invocation prints a count nobody compares to anything; the gate
-    is what turns that count into a verdict about the diff under it.
+    The gate reads the declared trees and refuses a run without the declared stubs,
+    which a bare ``mypy`` invocation does neither of.
     """
     run = _find_named_step(workflow, MYPY_JOB, MYPY_STEP)["run"]
     assert "scripts/mypy_gate.py" in run, (
@@ -7964,3 +8081,34 @@ def test_ci_check_blocks_on_a_broken_documentation_link__mutation_drops_the_reco
     )
     assert mutated != source, f"no linkcheck failure record in {CI_CHECK_SCRIPT}; mutation is stale"
     assert _linkcheck_verdict_missing(mutated) == ["a recorded failure"]
+
+
+# ---------------------------------------------------------------------------
+# CLI tool inventory check runs on every push
+# ---------------------------------------------------------------------------
+
+
+def test_cli_tool_inventory_check_runs_on_every_push(workflow: dict[str, Any]) -> None:
+    """The recorded inventories are re-proved against the real builds on every
+    run; a job-level ``if:`` would let a stale inventory pass unseen."""
+    step = _find_named_step(workflow, INVENTORY_JOB, INVENTORY_STEP)
+    assert "scripts/cli_tool_inventory.py --check" in step.get("run", ""), (
+        f"'{INVENTORY_STEP}' must run the inventory check"
+    )
+    assert "if" not in _jobs(workflow)[INVENTORY_JOB], f"'{INVENTORY_JOB}' must carry no `if:`"
+
+
+def test_cli_tool_inventory_check_runs_on_every_push__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[INVENTORY_JOB]["steps"]
+    steps[:] = [s for s in steps if s.get("name") != INVENTORY_STEP]
+    with pytest.raises(AssertionError):
+        test_cli_tool_inventory_check_runs_on_every_push(mutated)
+
+
+def test_cli_tool_inventory_check_runs_on_every_push__mutation_writes_instead() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, INVENTORY_JOB, INVENTORY_STEP)
+    step["run"] = step["run"].replace("--check", "--write")
+    with pytest.raises(AssertionError):
+        test_cli_tool_inventory_check_runs_on_every_push(mutated)

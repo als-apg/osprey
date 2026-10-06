@@ -8,9 +8,9 @@
  *
  * - Orientation: side-by-side (browser left, artifact right — the default)
  *   or stacked (browser band on top). Stamped as `data-browse-orient` on
- *   <html> so CSS keys every delta off one attribute, persisted per origin,
- *   flipped by the header toggle button. This axis is the gallery's own
- *   feature — no other panel has it.
+ *   <html> so CSS keys every delta off one attribute, persisted per person
+ *   (storage-scope.js), flipped by the header toggle button. This axis is the
+ *   gallery's own feature — no other panel has it.
  * - Splitter: the divider itself is the design system's shared splitter
  *   (/design-system/js/splitter.js, `.osprey-splitter` in base.css), the same
  *   drag/clamp/persist/keyboard behaviour the OKF and PLAN panels get. It is
@@ -19,6 +19,7 @@
  */
 
 import { clampSize as clamp, initSplitter } from '/design-system/js/splitter.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 const ORIENT_KEY = 'osprey-artifacts-browse-orient';
 const WIDTH_KEY = 'osprey-artifacts-browse-sidebar-width';
@@ -85,7 +86,7 @@ export function effectiveOrient() {
  */
 function readStored(key) {
   try {
-    return localStorage.getItem(key);
+    return localStorage.getItem(scopedStorageKey(key));
   } catch {
     return null;
   }
@@ -94,7 +95,7 @@ function readStored(key) {
 /** @param {string} key @param {string} value */
 function persist(key, value) {
   try {
-    localStorage.setItem(key, value);
+    localStorage.setItem(scopedStorageKey(key), value);
   } catch {
     /* storage blocked — the choice still holds for this page lifetime */
   }
@@ -121,7 +122,7 @@ export function initBrowseLayout({ handle, handleY = null, sidebar, toggle }) {
   const splitter = initSplitter({
     handle,
     pane: sidebar,
-    storageKey: WIDTH_KEY,
+    storageKey: scopedStorageKey(WIDTH_KEY),
     min: MIN_WIDTH,
     max: MAX_WIDTH,
     step: KEY_STEP,
@@ -132,7 +133,7 @@ export function initBrowseLayout({ handle, handleY = null, sidebar, toggle }) {
   const splitterY = initSplitter({
     handle: handleY,
     pane: sidebar,
-    storageKey: HEIGHT_KEY,
+    storageKey: scopedStorageKey(HEIGHT_KEY),
     axis: 'y',
     min: MIN_HEIGHT,
     max: MAX_HEIGHT,

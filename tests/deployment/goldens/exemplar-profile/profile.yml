@@ -340,23 +340,26 @@ config:
   # Newest N UNPINNED read artifacts kept per channel; older ones are pruned
   # on save. Pinned entries are never pruned. 0 keeps everything.
   control_system.channel_read_artifact_retention: 20
-  # Pattern detection: every control-system operation in generated code is
-  # caught for approval, direct library calls included (epics.caput, .put()).
-  # Extend the framework's patterns for a custom library; `override` REPLACES
-  # them and drops that circumvention coverage.
+  # Pattern detection: raw client puts in generated code (epics.caput,
+  # PV.put(), and the other client libraries' write calls) are denied by the
+  # approval hook and refused at runtime; osprey.runtime.write_channel is the
+  # write that asks for approval. PVAccess puts (p4p, pvaPy) still ask and are
+  # limits-checked until the connector writes PVAccess. Extend the framework's
+  # patterns for a custom library; `override` REPLACES them and drops that
+  # circumvention coverage.
   # control_system.patterns.mode: extend
   # control_system.patterns.write: ['my_custom_cs_lib\.write\(']
   # control_system.patterns.read: ['my_custom_cs_lib\.read\(']
 
   # Mock connector: driven by the simulation machine model below. Switch
-  # scenarios with `osprey sim apply NAME...` (see the sim-scenarios skill).
+  # scenarios with `osprey sim apply NAME...` (see the simulation bundle reference).
   control_system.connector.mock.simulation_file: data/simulation/machine.json
   # Virtual-accelerator connector: a containerized PyAT-backed soft IOC
   # reached over real EPICS Channel Access, with the same gateway shape as the
   # `epics` block. Deployed by the `virtual_accelerator:` section above.
 
   # Channel Access timeout in seconds.
-  control_system.connector.virtual_accelerator.timeout: 5.0
+  control_system.connector.virtual_accelerator.timeout_s: 5.0
   # Same machine model as the mock connector, so `osprey sim apply` stays
   # consistent whichever connector is active.
   control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
@@ -385,7 +388,7 @@ config:
   # edit; until then the live target shows as not configured.
 
   # Channel Access timeout in seconds.
-  control_system.connector.epics.timeout: 5.0
+  control_system.connector.epics.timeout_s: 5.0
   # Write posture for the live machine. Stating it pins it: a type with its
   # own posture never falls back to the master switch.
   # control_system.connector.epics.writes_enabled: false
@@ -889,14 +892,16 @@ env:
     # would put a CI credential into `.env.example` as a deployment secret.
 
 # ── Deployment coordinates ───────────────────────────────────────────────────
-# Where this deployment is built, pushed, and run. Read only by the scaffolding
-# verb (`osprey scaffold ci`), never by the build: nothing here changes what the
-# agent is, only where it lands.
+# Where this deployment is built, pushed, and run. `osprey scaffold ci` renders
+# the pipeline from this block, and the build writes `image_source` (and, in
+# registry mode, `registry.url`) into the rendered config for the web tier:
+# nothing here changes what the agent is, only where it lands.
 deploy:
   # CI platform whose pipeline `osprey scaffold ci` renders.
   ci: gitlab
   # Where the pipeline pushes images. Host-and-path, no scheme — it appears
-  # verbatim in an image name.
+  # verbatim in an image name. In registry mode, this is also where the host
+  # pulls the terminal images from.
   registry:
     url: registry.example.org/accelerator/demo-facility
     token_env_var: DEMO_REGISTRY_TOKEN

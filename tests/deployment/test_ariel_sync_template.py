@@ -42,6 +42,13 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.deployment.compose_generator import (
+    CONFIG_DIGEST_LABEL,
+    PROJECT_LABEL,
+    PROJECT_ROOT_LABEL,
+    REPO_ID_LABEL,
+)
+
 # The same helper every other bundled-service render test builds its context
 # with, rather than a second hand-rolled context: a render is only worth what
 # the context behind it is worth, and this one is derived from the production
@@ -222,16 +229,18 @@ def test_mounts_the_staged_config_and_names_it_to_the_process() -> None:
     assert env["TZ"] == "UTC"
 
 
-def test_carries_both_recreate_digest_labels() -> None:
+def test_carries_the_env_digest_and_leaves_the_generated_labels_to_the_override() -> None:
     """Compose diffs the DOCUMENT, never the files a container reads.
 
-    Without these two labels an edited config or env chain leaves the running
-    container on the values it parsed at startup.
+    The env digest is the template's own: without it an edited env chain leaves
+    the running container on the values it parsed at startup. The config digest
+    and the project labels come from the build's generated labels override, so
+    the template writes none of them.
     """
     labels = _service(_render())["labels"]
-    assert labels["osprey.config.digest"] == "${OSPREY_CONFIG_DIGEST:-}"
     assert labels["osprey.env.digest"] == "${OSPREY_ENV_DIGEST:-}"
-    assert labels["osprey.project.name"] == "proj-a"
+    generated = (PROJECT_LABEL, REPO_ID_LABEL, PROJECT_ROOT_LABEL, CONFIG_DIGEST_LABEL)
+    assert not [key for key in generated if key in labels], labels
 
 
 def test_env_chain_is_listed_in_ascending_precedence_when_present() -> None:

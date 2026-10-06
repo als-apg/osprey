@@ -15,6 +15,7 @@ container and hands each module its own database inside it.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 
 import pytest
@@ -29,6 +30,16 @@ LANE_DATABASE = "qmd_ariel_lane"
 POSTGRES_CONTAINER_PORT = 5432
 
 
+def _skip_or_fail(reason: str) -> None:
+    """Skip for want of Postgres -- or fail under ``ARIEL_TEST_REQUIRE_DB=1``.
+
+    A gate running this lane sets the variable so it cannot pass on skips.
+    """
+    if os.environ.get("ARIEL_TEST_REQUIRE_DB") == "1":
+        pytest.fail(f"{reason} (ARIEL_TEST_REQUIRE_DB=1)")
+    pytest.skip(reason)
+
+
 @pytest.fixture(scope="session")
 def qmd_ariel_postgres(request: pytest.FixtureRequest):
     """A Postgres container owned by this lane alone.
@@ -37,11 +48,11 @@ def qmd_ariel_postgres(request: pytest.FixtureRequest):
         The started ``PostgresContainer``.
     """
     if not is_docker_available():
-        pytest.skip("docker daemon is not reachable")
+        _skip_or_fail("docker daemon is not reachable")
     try:
         from testcontainers.postgres import PostgresContainer
     except ImportError:
-        pytest.skip("testcontainers[postgres] not installed")
+        _skip_or_fail("testcontainers[postgres] not installed")
 
     # The port goes through start_or_fail rather than being read afterwards:
     # `get_connection_url()` resolves the published port too, so it races the

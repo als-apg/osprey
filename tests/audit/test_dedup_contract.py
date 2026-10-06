@@ -292,13 +292,12 @@ class TestTheMiddlewareDefersToTheInnerLayer:
     ):
         """``readwrite`` in the run is ``readwrite`` in the record and the alert.
 
-        Only the readonly marker reaches this reporter today, but that is a
-        property of another module's message strings rather than of this one:
-        a guard that emits the marker mid-``readwrite`` must not have the
-        ledger call the run readonly and the alert tell an operator approved
-        for writes that they were sandboxed.
+        The refusal a readwrite run reports is the armed raw-put block's: a
+        direct client-library write the subprocess refused. The ledger must
+        call that run readwrite and the alert must name the raw-client layer,
+        not tell an operator approved for writes that they were sandboxed.
         """
-        from osprey.services.python_executor.execution.wrapper import READONLY_REFUSAL_MARKER
+        from osprey_connectors.errors import raw_client_write_message
 
         alerts: list[str] = []
 
@@ -309,7 +308,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
 
         await gates.report_runtime_refusal(
             tool="execute",
-            stderr=f"RuntimeError: {READONLY_REFUSAL_MARKER}: refused a write to SR:MAG:1",
+            stderr=f"ChannelWriteBlockedError: {raw_client_write_message('SR:MAG:1')}",
             code="caput('SR:MAG:1', 1)",
             description=None,
             execution_mode="readwrite",
@@ -317,7 +316,8 @@ class TestTheMiddlewareDefersToTheInnerLayer:
 
         (record,) = _records(project, SURFACE_EXECUTOR)
         assert "mode=readwrite" in record["detail"], record["detail"]
-        assert alerts == ["BLOCKED a control-system write in readwrite mode (runtime_guard)"]
+        assert record["reason"] == gates.LAYER_RAW_CLIENT_WRITE
+        assert alerts == ["BLOCKED a control-system write in readwrite mode (raw_client_write)"]
 
     async def test_the_middleware_records_the_call_when_no_inner_layer_did(self, project):
         async def call_next(_context):

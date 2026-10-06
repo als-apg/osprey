@@ -4,19 +4,23 @@ This module is imported by other hooks rather than invoked as a script, so it is
 tested by direct import. It carries module-level caches
 (``_hook_config_cache``, ``_osprey_config_cache``, ``_debug_from_config``) that
 must be reset between tests to keep the unit lane serial-safe. Coverage here
-targets the config loaders, stdin/project-dir resolution, and the dual-sink
-``log_hook`` gate; ``_is_debug_enabled`` is exercised elsewhere.
+targets the config loaders, stdin/project-dir resolution, the dual-sink
+``log_hook`` gate, and ``_is_debug_enabled``, which reads ``config.yml`` on
+every hook run so the Hook Debug toggle takes effect without a respawn.
 """
 
 from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 
 import pytest
 import yaml
 
 import osprey.templates.claude_code.claude.hooks.osprey_hook_log as hook_log
+from osprey.utils import workspace
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 
 @pytest.fixture(autouse=True)
@@ -156,6 +160,84 @@ def test_load_osprey_config_caches(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# agent_data_base_dir
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        None,
+        {},
+        {"agent_data": None},
+        {"agent_data": "x"},
+        {"agent_data": {}},
+        {"agent_data": {"base_dir": ""}},
+        {"agent_data": {"base_dir": "custom/agent_data"}},
+        {"agent_data": {"base_dir": "/abs/root"}},
+    ],
+)
+def test_agent_data_base_dir_matches_the_framework_reader(config):
+    assert hook_log.agent_data_base_dir(config) == workspace.agent_data_base_dir(config)
+
+
+def test_agent_data_fallback_literal_is_the_framework_default():
+    source = Path(hook_log.__file__).read_text()
+    assert '_DEFAULT_AGENT_DATA_ROOT = "' + DEFAULT_AGENT_DATA_BASE_DIR + '"' in source
+
+
+def test_repo_agent_data_root_follows_a_relocated_base_dir(tmp_path):
+    (tmp_path / "config.yml").write_text("agent_data:\n  base_dir: relocated/agent_data\n")
+
+    root = hook_log.repo_agent_data_root({"cwd": str(tmp_path)})
+
+    assert root == str(tmp_path / "relocated/agent_data")
+
+
+def test_repo_agent_data_root_defaults_without_a_config(tmp_path):
+    root = hook_log.repo_agent_data_root({"cwd": str(tmp_path)})
+
+    assert root == str(tmp_path / DEFAULT_AGENT_DATA_BASE_DIR)
+
+
+def test_an_absolute_base_dir_is_not_re_anchored(tmp_path, monkeypatch):
+    absolute = str(tmp_path / "abs")
+    config = {"agent_data": {"base_dir": absolute}}
+
+    assert hook_log.agent_data_root_at("/anchor", config) == absolute
+
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.safe_dump(config))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    subdirs = hook_log.agent_data_subdirs({"cwd": str(tmp_path / "elsewhere")}, "notebooks")
+
+    assert subdirs == [(tmp_path / "abs" / "notebooks").resolve()]
+
+
+def test_agent_data_subdirs_covers_both_anchors_once(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    build = repo / "build"
+    build.mkdir(parents=True)
+    (build / "config.yml").write_text("agent_data:\n  base_dir: relocated/agent_data\n")
+    monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
+
+    zoned = hook_log.agent_data_subdirs({"cwd": str(build)}, "notebooks")
+
+    assert zoned == [
+        (repo / "relocated/agent_data/notebooks").resolve(),
+        (build / "relocated/agent_data/notebooks").resolve(),
+    ]
+
+    hook_log._osprey_config_cache = None
+    (repo / "config.yml").write_text("agent_data:\n  base_dir: relocated/agent_data\n")
+    monkeypatch.setenv("OSPREY_CONFIG", str(repo / "config.yml"))
+
+    flat = hook_log.agent_data_subdirs({"cwd": str(repo)}, "notebooks")
+
+    assert flat == [(repo / "relocated/agent_data/notebooks").resolve()]
+
+
+# ---------------------------------------------------------------------------
 # log_hook — dual-sink gate
 # ---------------------------------------------------------------------------
 
@@ -226,3 +308,46 @@ def test_log_hook_survives_missing_log_dir(tmp_path, capsys, monkeypatch):
 
     assert "[h]" in capsys.readouterr().err
     assert not (tmp_path / ".claude" / "hooks" / "hook_debug.jsonl").exists()
+
+
+# ---------------------------------------------------------------------------
+# _is_debug_enabled
+# ---------------------------------------------------------------------------
+
+
+class TestIsDebugEnabled:
+    def test_env_var_returns_true(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
+        assert hook_log._is_debug_enabled({"cwd": "/tmp"}) is True
+
+    def test_no_env_no_config_returns_false(self):
+        assert hook_log._is_debug_enabled({"cwd": "/nonexistent"}) is False
+
+    def test_config_fallback_returns_true(self, tmp_path):
+        (tmp_path / "config.yml").write_text(yaml.dump({"hooks": {"debug": True}}))
+        assert hook_log._is_debug_enabled({"cwd": str(tmp_path)}) is True
+
+    def test_config_fallback_false(self, tmp_path):
+        (tmp_path / "config.yml").write_text(yaml.dump({"hooks": {"debug": False}}))
+        assert hook_log._is_debug_enabled({"cwd": str(tmp_path)}) is False
+
+    def test_caches_result(self, tmp_path):
+        """A second call answers from the first read, not from the file."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(yaml.dump({"hooks": {"debug": True}}))
+        hook_input = {"cwd": str(tmp_path)}
+
+        assert hook_log._is_debug_enabled(hook_input) is True
+        config_file.unlink()
+        assert hook_log._is_debug_enabled(hook_input) is True
+
+    def test_uses_osprey_config_env_var(self, tmp_path, monkeypatch):
+        """``OSPREY_CONFIG`` outranks the cwd's ``config.yml``."""
+        custom_config = tmp_path / "custom_config.yml"
+        custom_config.write_text(yaml.dump({"hooks": {"debug": True}}))
+        monkeypatch.setenv("OSPREY_CONFIG", str(custom_config))
+
+        assert hook_log._is_debug_enabled({"cwd": "/nonexistent"}) is True
+
+    def test_empty_cwd_returns_false(self):
+        assert hook_log._is_debug_enabled({}) is False

@@ -33,17 +33,18 @@ close is guarded: ``close`` is not part of the
 :class:`~osprey.bridges.teams.receiver.QueueReceiver` Protocol, and the in-process
 fakes the end-to-end tier injects do not have one.
 
-**Injected seams, and why there are exactly four.** Every collaborator that would
+**Injected seams, and why there are exactly five.** Every collaborator that would
 otherwise reach Microsoft is injectable here: the queue receiver, the AAD token leg,
-the Bot Connector leg, and the HTTP client used for the worker's byte route. An
-end-to-end tier supplies all four (an in-process queue, a loopback token endpoint, a
-loopback connector server) and thereby exercises this module's real wiring — the same
-``build_wiring`` and ``run`` production calls — with no tenant, no credentials and no
-broker.
+the Bot Connector leg, the Microsoft Graph leg the file library is reached over, and
+the HTTP client used for the worker's byte route. An end-to-end tier supplies all
+five (an in-process queue, a loopback token endpoint, loopback connector and Graph
+servers) and thereby exercises this module's real wiring — the same ``build_wiring``
+and ``run`` production calls — with no tenant, no credentials and no broker.
 
 **What is deliberately *not* wired.** Unlike Google Chat, this adapter does not
 override the engine's ``fetch_prior_artifact``. Teams carries images inline as
-attachment bytes and stamps no ``public_url`` on a delivered descriptor, so the
+attachment bytes, shares other files only behind a Microsoft 365 sign-in, and stamps
+no ``public_url`` on a delivered descriptor, so the
 worker's copy is the only copy a follow-up question could be given and the engine's
 own worker-route default is already the right one. A replacement here would be a
 second implementation of the same fetch.
@@ -70,8 +71,9 @@ import httpx
 
 from osprey.bridges.core import BridgeRuntime, PipelineDeps, build_deps, run_forever
 
-from .client import ConnectorClient, TokenSource
+from .client import Audience, ConnectorClient, TokenSource
 from .config import TeamsBridgeConfig, require_boot
+from .graph import GraphFiles
 from .ops import TeamsOps
 from .receiver import QueueReceiver, ReceiverFactory, make_receiver, serve
 
@@ -148,6 +150,10 @@ class Wiring:
     one per posting thread."""
 
     client: ConnectorClient
+    files: GraphFiles | None
+    """The file library's Graph client, or ``None`` when no library is configured.
+    It holds its own Graph token cache, so a Graph refusal never touches replies."""
+
     ops: TeamsOps
     deps: PipelineDeps
     """The engine's collaborators, over this wiring's ops instance."""
@@ -167,9 +173,11 @@ def build_wiring(
     token_http: httpx.Client | None = None,
     connector_http: httpx.Client | None = None,
     worker_http: httpx.Client | None = None,
+    graph_http: httpx.Client | None = None,
 ) -> Wiring:
-    """Construct the adapter's collaborators: one stop event, one credential source,
-    one connector client, one deps bundle.
+    """Construct the adapter's collaborators: one stop event, one Connector credential
+    source, one connector client, the file library's Graph client when one is
+    configured, one deps bundle.
 
     Nothing here dials anything, the default ``receiver_factory`` included: the
     Service Bus client, receiver and renewer are all lazy, so an unreachable namespace
@@ -190,6 +198,10 @@ def build_wiring(
             budget.
         worker_http: HTTP client for the WORKER's artifact byte route — an internal
             service, reached with the dispatch token, and again not the Connector's.
+        graph_http: HTTP client for the Microsoft Graph leg the file library is
+            reached over, instead of the one
+            :class:`~osprey.bridges.teams.graph.GraphFiles` builds from ``cfg``. Used
+            only when ``cfg.files_drive_id`` names a library.
 
     Returns:
         The wiring, ready for :func:`run`.
@@ -197,7 +209,11 @@ def build_wiring(
     stop = threading.Event()
     tokens = TokenSource(cfg, token_http)
     client = ConnectorClient(cfg, tokens, connector_http)
-    ops = TeamsOps(cfg, client=client, worker_http=worker_http)
+    files: GraphFiles | None = None
+    if cfg.files_drive_id:
+        graph_tokens = TokenSource(cfg, token_http, audience=Audience.GRAPH)
+        files = GraphFiles(cfg, graph_tokens, graph_http)
+    ops = TeamsOps(cfg, client=client, worker_http=worker_http, files=files)
     # No `fetch_prior_artifact` override: Teams posts image bytes inline and stamps no
     # public_url, so the engine's worker-route default already reads the only copy
     # that exists. See the module docstring.
@@ -207,6 +223,7 @@ def build_wiring(
         stop=stop,
         tokens=tokens,
         client=client,
+        files=files,
         ops=ops,
         deps=deps,
         receiver_factory=receiver_factory,
@@ -286,7 +303,7 @@ def run(
     # the bot.
     logger.info(
         "microsoft teams bridge starting: app=%s cloud=%s queue=%s trigger=%s "
-        "dispatcher=%s worker=%s version=%s",
+        "dispatcher=%s worker=%s version=%s files=%s",
         cfg.app_id,
         cfg.cloud,
         cfg.servicebus_queue,
@@ -294,6 +311,9 @@ def run(
         cfg.core.dispatcher_url,
         cfg.core.worker_url,
         cfg.version_tag or "(none: the ack names no release)",
+        f"{cfg.files_drive_id}/{cfg.files_folder}".rstrip("/")
+        if cfg.files_drive_id
+        else "(none: files are named, not shared)",
     )
     run_forever(
         cfg.core,

@@ -41,7 +41,7 @@ def find_da_at_angle(
         result = ring.track(rin, nturns=nturns)
         rout = unpack_tracking(result)
         try:
-            survived = np.all(np.isfinite(rout))
+            survived = bool(np.all(np.isfinite(rout)))
         except (ValueError, TypeError):
             survived = False
 

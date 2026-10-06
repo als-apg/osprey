@@ -1,7 +1,8 @@
 """Agentic build profile and project safety auditor.
 
-Spawns a Claude agent via the Claude Agent SDK to deeply analyze an OSPREY
-build profile or built project directory, producing a structured safety report.
+Spawns a Claude agent run through the shared agent runner
+(``osprey.agent_runner``) to deeply analyze an OSPREY build profile or built
+project directory, producing a structured safety report.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ from pathlib import Path
 import click
 from rich.text import Text
 
+from osprey.agent_runner import HAS_SDK, ResultEvent, TextEvent, sdk_env, stream_query
+
 from . import output
 from .altitude import lift_gate
 from .styles import Styles, data_table, panel
@@ -28,19 +31,9 @@ _SEVERITY_STYLES = {
     "info": Styles.INFO,
 }
 
-# SDK imports are deferred to runtime to provide a helpful error message
-_SDK_AVAILABLE = False
-try:
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ResultMessage,
-        TextBlock,
-        query,
-    )
-
-    _SDK_AVAILABLE = True
-except ImportError:
-    pass
+#: The command's SDK gate, read at call time: without the agent SDK the verb
+#: refuses up front instead of failing inside the agent run.
+_SDK_AVAILABLE: bool = HAS_SDK
 
 
 def _detect_target_type(target: str) -> str:
@@ -75,52 +68,50 @@ def _extract_json(text: str) -> str | None:
     return None
 
 
-def _reviewer_options(project_dir: Path, model: str, budget: float):
-    """Build the reviewer's SDK options from the audited project's own provider.
+def _check_reviewer_provider(project_dir: Path) -> None:
+    """Confirm the audited project names a provider the reviewer can run on.
 
-    The builder resolves that provider's endpoint, auth and model ids from the
-    project's ``config.yml``, and starts the translation proxy when the
-    provider needs one. Hand-building the options left the SDK to fall through
-    to ambient ``ANTHROPIC_*`` variables, so an audit of a gateway-fronted
-    deployment ran against whatever endpoint the operator's shell happened to
-    hold — or nothing at all.
+    The reviewer runs on the audited project's own provider: its endpoint,
+    auth and model ids come from the project's ``config.yml``, never from
+    ambient ``ANTHROPIC_*`` variables, so an audit of a gateway-fronted
+    deployment runs against that gateway and not whatever endpoint the
+    operator's shell happens to hold.
+
+    This resolves the project's provider env and starts nothing. The runner
+    resolves the provider again when it builds the agent options
+    (``build_agent_options``), and that is where a translation proxy starts,
+    once.
+
+    Raises:
+        RuntimeError: When the project names no resolvable provider.
+    """
+    sdk_env(project_dir)
+
+
+async def _run_audit(
+    project_dir: Path,
+    prompt: str,
+    *,
+    model: str,
+    budget: float,
+    verbose: bool,
+) -> tuple[str, float | None, int | None]:
+    """Run the audit agent on *project_dir* and collect its output.
 
     ``setting_sources=[]`` is deliberate: the reviewer reads the target, it does
     not run as it, so the audited project's own hooks and settings stay out of
     the reviewing agent.
 
-    Raises:
-        RuntimeError: When the project names no resolvable provider.
-    """
-    from osprey.agent_runner.primitives import build_agent_options
-
-    return build_agent_options(
-        project_dir,
-        disallowed_tools=[],
-        model=model,
-        permission_mode="bypassPermissions",
-        max_turns=30,
-        max_budget_usd=budget,
-        setting_sources=[],
-    )
-
-
-async def _run_audit(
-    prompt: str,
-    options,
-    verbose: bool,
-) -> tuple[str, float | None, int | None]:
-    """Run the audit agent with *options* and collect its output.
-
-    The options are built by the caller rather than here: building them is how
-    the audited deployment's provider is resolved, and a provider that cannot
-    be resolved is a refusal the command states in its own body, not an
-    exception raised inside an event loop.
+    ``await_mcp_servers=()`` follows from that: the reviewer loads no project
+    MCP servers, so there is no readiness to wait for, and the audited
+    project's declared set would never connect.
 
     Args:
+        project_dir: The project the reviewer runs in and routes on.
         prompt: The reviewer's prompt.
-        options: The SDK options from :func:`_reviewer_options`.
-        verbose: Whether to echo the reviewer's transcript as it arrives.
+        model: The reviewer's model.
+        budget: The run's ceiling in USD.
+        verbose: Whether to echo the reviewer's text as it arrives.
 
     Returns:
         Tuple of (collected_text, total_cost, num_turns).
@@ -129,16 +120,24 @@ async def _run_audit(
     total_cost: float | None = None
     num_turns: int | None = None
 
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    collected_text.append(block.text)
-                    if verbose:
-                        output.note(f"{block.text[:200]}...")
-        elif isinstance(message, ResultMessage):
-            total_cost = getattr(message, "total_cost_usd", None)
-            num_turns = getattr(message, "num_turns", None)
+    async for event in stream_query(
+        project_dir,
+        prompt,
+        disallowed_tools=[],
+        model=model,
+        permission_mode="bypassPermissions",
+        max_turns=30,
+        max_budget_usd=budget,
+        setting_sources=[],
+        await_mcp_servers=(),
+    ):
+        if isinstance(event, TextEvent):
+            collected_text.append(event.text)
+            if verbose:
+                output.note(f"{event.text[:200]}...")
+        elif isinstance(event, ResultEvent):
+            total_cost = event.total_cost_usd
+            num_turns = event.num_turns
 
     return "".join(collected_text), total_cost, num_turns
 
@@ -361,12 +360,12 @@ def audit(
             file_listing = _list_files(audit_root)
             prompt = build_audit_prompt(target_type, target_dir, file_listing)
 
-            # Built here rather than inside the agent loop: the builder is what
-            # resolves the audited deployment's provider, and it is also what
-            # starts the translation proxy when that provider needs one, so a
-            # discard-the-result pre-check would leave a stray proxy behind.
+            # Checked here rather than inside the agent loop, so a project that
+            # names no provider meets this refusal and not a traceback from
+            # inside the event loop. The check resolves only the provider env
+            # and starts nothing.
             try:
-                reviewer_options = _reviewer_options(audit_root, resolved_model, budget)
+                _check_reviewer_provider(audit_root)
             except RuntimeError as exc:
                 output.fail(
                     "The reviewer has no provider to run on",
@@ -375,8 +374,11 @@ def audit(
                 )
                 raise SystemExit(1) from None
 
-            # Run the agent
-            raw_text, cost, turns = asyncio.run(_run_audit(prompt, reviewer_options, verbose))
+            # Run the agent outside the provider check: an agent failure is a
+            # RuntimeError too, and it is never a missing provider.
+            raw_text, cost, turns = asyncio.run(
+                _run_audit(audit_root, prompt, model=resolved_model, budget=budget, verbose=verbose)
+            )
 
             # Parse the result
             json_str = _extract_json(raw_text)

@@ -8,18 +8,28 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
+import sys
 
 import pytest
 from click.testing import CliRunner
 
-from osprey.build.claude_code_resolver import (
+import osprey.models.provider_registry
+from osprey.agent_runner.provider_env import (
     MANAGED_ENV_VARS,
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,
+    ManagedPolicyConflict,
     detect_managed_policy_conflicts,
+    format_managed_policy_conflicts,
     inject_provider_env,
+    load_provider_spec,
+    provider_auth_secret_env,
+    read_managed_policy_env,
 )
+from osprey.models.provider_registry import PROVIDER_API_KEYS, ProviderRegistry
+from osprey.models.providers.base import BaseProvider
 from tests.conftest import GATEWAY_BASE_URL, GATEWAY_ORIGIN
 
 #: ``als-apg`` ships no endpoint of its own, so every case that resolves it has
@@ -184,6 +194,29 @@ class TestBackendSelectorScrubbing:
 # ── Auth field passthrough ───────────────────────────────────────
 
 
+class _SiteGatewayAdapter(BaseProvider):
+    name = "site-gateway"
+    description = "A gateway a site registers for itself"
+    requires_api_key = True
+    api_key_env_var = "SITE_GATEWAY_TOKEN"
+
+
+class _SiteCborgAdapter(BaseProvider):
+    name = "cborg"
+    description = "A site's own class registered under a built-in name"
+    requires_api_key = True
+    api_key_env_var = "SITE_CBORG_TOKEN"
+    api_protocol = "anthropic"
+
+
+@pytest.fixture
+def a_site_registry(monkeypatch):
+    """A fresh provider registry installed as the singleton for one test."""
+    registry = ProviderRegistry()
+    monkeypatch.setattr(osprey.models.provider_registry, "_registry", registry)
+    return registry
+
+
 class TestAuthFieldPassthrough:
     """resolve() passes auth_env_var and auth_secret_env through to spec."""
 
@@ -216,6 +249,60 @@ class TestAuthFieldPassthrough:
         )
         assert spec.auth_env_var == "ANTHROPIC_AUTH_TOKEN"
         assert spec.auth_secret_env == "MY_LAB_API_KEY"
+
+    def test_a_registered_provider_names_its_own_key_variable(self, a_site_registry):
+        a_site_registry.register_provider("site-gateway", __name__, "_SiteGatewayAdapter")
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "site-gateway"},
+            api_providers={
+                "site-gateway": {
+                    "base_url": "https://gateway.example.com",
+                    "default_model": "site-opus",
+                    "models": ["site-haiku", "site-sonnet", "site-opus"],
+                }
+            },
+        )
+        assert spec.auth_secret_env == "SITE_GATEWAY_TOKEN"
+        assert '"$SITE_GATEWAY_TOKEN"' in spec.shell_exports[0]
+
+    def test_a_registration_that_replaces_a_builtin_names_its_key_variable(self, a_site_registry):
+        a_site_registry.register_provider("cborg", __name__, "_SiteCborgAdapter")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        assert spec.auth_secret_env == "SITE_CBORG_TOKEN"
+
+    @pytest.mark.parametrize(
+        ("name", "api_providers", "expected"),
+        [
+            ("openai", {"openai": {}}, "OPENAI_API_KEY"),
+            ("openai", None, "OPENAI_API_KEY"),
+            ("ollama", {"ollama": {}}, "OLLAMA_API_KEY"),
+            ("ollama", None, None),
+            ("my-lab", {"my-lab": {}}, "MY_LAB_API_KEY"),
+            ("frobnicator", None, None),
+        ],
+    )
+    def test_the_key_variable_for_every_shape_of_provider(self, name, api_providers, expected):
+        assert provider_auth_secret_env(name, api_providers) == expected
+
+    def test_resolving_a_builtin_imports_no_adapter(self):
+        code = (
+            "import sys\n"
+            "from osprey.agent_runner.provider_env import (\n"
+            "    ClaudeCodeModelResolver, provider_auth_secret_env)\n"
+            "for name in ('anthropic', 'cborg', 'als-apg'):\n"
+            "    ClaudeCodeModelResolver.resolve({'provider': name}, {})\n"
+            "ClaudeCodeModelResolver.resolve({'provider': 'openai'}, {'openai': {\n"
+            "    'base_url': 'https://api.openai.example', 'default_model': 'gpt-x',\n"
+            "    'models': ['gpt-x']}})\n"
+            f"for name in {sorted(PROVIDER_API_KEYS)!r}:\n"
+            "    provider_auth_secret_env(name, {name: {}})\n"
+            "print('litellm' in sys.modules,"
+            " [m for m in sys.modules if m.startswith('osprey.models.providers.')])\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        )
+        assert result.stdout.strip() == "False []"
 
 
 # ── detect_env_conflicts ─────────────────────────────────────────
@@ -260,22 +347,22 @@ class TestDetectEnvConflicts:
 
 
 class TestManagedPolicyConflicts:
-    """detect_managed_policy_conflicts scans the enterprise policy scope.
+    """The enterprise policy scope is read, then compared with the launch.
 
     Managed policy outranks the process environment and the
-    ``--setting-sources project`` restriction, so a policy ``env`` block setting
-    a provider variable silently redirects the agent. The CLI refuses to launch
-    on a non-empty result.
+    ``--setting-sources project`` restriction, so a policy ``env`` value that
+    differs from the one the agent is launched with silently redirects it. Every
+    launch path refuses on a non-empty comparison.
     """
 
     def _write(self, path, obj):
         path.write_text(json.dumps(obj))
 
-    def test_flags_managed_var_in_policy_env(self, tmp_path):
+    def test_reads_managed_var_from_policy_env(self, tmp_path):
         policy = tmp_path / "managed-settings.json"
         self._write(policy, {"env": {"ANTHROPIC_BASE_URL": "https://evil.example"}})
 
-        conflicts = detect_managed_policy_conflicts([policy])
+        conflicts = read_managed_policy_env([policy])
 
         assert conflicts["ANTHROPIC_BASE_URL"] == (
             "https://evil.example",
@@ -286,22 +373,22 @@ class TestManagedPolicyConflicts:
         policy = tmp_path / "managed-settings.json"
         self._write(policy, {"env": {"CLAUDE_CODE_ENABLE_TELEMETRY": "1"}})
 
-        assert detect_managed_policy_conflicts([policy]) == {}
+        assert read_managed_policy_env([policy]) == {}
 
     def test_empty_when_no_file(self, tmp_path):
-        assert detect_managed_policy_conflicts([tmp_path / "absent.json"]) == {}
+        assert read_managed_policy_env([tmp_path / "absent.json"]) == {}
 
     def test_empty_when_no_env_block(self, tmp_path):
         policy = tmp_path / "managed-settings.json"
         self._write(policy, {"permissions": {"allow": []}})
 
-        assert detect_managed_policy_conflicts([policy]) == {}
+        assert read_managed_policy_env([policy]) == {}
 
     def test_malformed_json_is_skipped(self, tmp_path):
         policy = tmp_path / "managed-settings.json"
         policy.write_text("{ not valid json")
 
-        assert detect_managed_policy_conflicts([policy]) == {}
+        assert read_managed_policy_env([policy]) == {}
 
     def test_dropin_fragment_overrides_main_source(self, tmp_path):
         """A later fragment wins, and its path is the one reported."""
@@ -310,9 +397,150 @@ class TestManagedPolicyConflicts:
         self._write(main, {"env": {"ANTHROPIC_MODEL": "from-main"}})
         self._write(fragment, {"env": {"ANTHROPIC_MODEL": "from-fragment"}})
 
-        conflicts = detect_managed_policy_conflicts([main, fragment])
+        conflicts = read_managed_policy_env([main, fragment])
 
         assert conflicts["ANTHROPIC_MODEL"] == ("from-fragment", str(fragment))
+
+    def test_a_policy_value_equal_to_the_launch_value_is_not_a_conflict(self, tmp_path):
+        policy = tmp_path / "managed-settings.json"
+        self._write(policy, {"env": {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}})
+
+        launch = {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}
+
+        assert detect_managed_policy_conflicts(launch, [policy]) == []
+
+    def test_a_differing_policy_value_is_a_conflict_carrying_both_values(self, tmp_path):
+        policy = tmp_path / "managed-settings.json"
+        self._write(policy, {"env": {"ANTHROPIC_BASE_URL": "https://elsewhere.example.org"}})
+
+        launch = {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}
+
+        assert detect_managed_policy_conflicts(launch, [policy]) == [
+            ManagedPolicyConflict(
+                "ANTHROPIC_BASE_URL",
+                "https://elsewhere.example.org",
+                "https://gateway.example.org",
+                str(policy),
+            )
+        ]
+
+    def test_a_policy_key_the_launch_does_not_set_is_a_conflict(self, tmp_path):
+        policy = tmp_path / "managed-settings.json"
+        self._write(policy, {"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}})
+
+        launch = {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}
+        conflicts = detect_managed_policy_conflicts(launch, [policy])
+
+        assert [c.var for c in conflicts] == ["CLAUDE_CODE_USE_BEDROCK"]
+        assert conflicts[0].launch_value is None
+
+    def test_with_no_provider_injected_every_policy_key_is_a_conflict(self, tmp_path):
+        policy = tmp_path / "managed-settings.json"
+        self._write(
+            policy,
+            {"env": {"ANTHROPIC_BASE_URL": "https://gateway.example.org", "ANTHROPIC_MODEL": "m"}},
+        )
+
+        conflicts = detect_managed_policy_conflicts({}, [policy])
+
+        assert [c.var for c in conflicts] == ["ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"]
+
+    def test_the_policy_value_is_compared_verbatim(self, tmp_path):
+        """Claude Code appends /v1/messages to the policy value as written, so a
+        policy ``…/v1`` really does point somewhere else."""
+        policy = tmp_path / "managed-settings.json"
+        self._write(policy, {"env": {"ANTHROPIC_BASE_URL": "https://gateway.example.org/v1"}})
+
+        launch = {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}
+
+        assert len(detect_managed_policy_conflicts(launch, [policy])) == 1
+
+    def test_a_v1_endpoint_agrees_with_the_origin_the_launch_exports(self, tmp_path):
+        """The deployment side is the value after the resolver's /v1 strip."""
+        (tmp_path / "config.yml").write_text(
+            "api:\n"
+            "  providers:\n"
+            "    gw:\n"
+            "      base_url: https://gateway.example.org/v1\n"
+            "      api_protocol: anthropic\n"
+            "      default_model: gw-large\n"
+            "      models: [gw-small, gw-large]\n"
+            "claude_code:\n"
+            "  provider: gw\n"
+        )
+        spec = load_provider_spec(tmp_path, include_telemetry=False)
+        assert spec is not None
+        env = {"GW_API_KEY": "sk-gw"}
+        inject_provider_env(env, spec)
+        policy = tmp_path / "managed-settings.json"
+        self._write(policy, {"env": {"ANTHROPIC_BASE_URL": "https://gateway.example.org"}})
+
+        assert detect_managed_policy_conflicts(env, [policy]) == []
+
+
+class TestManagedPolicyRefusal:
+    """The refusal names both values and a remedy the policy's owner can follow."""
+
+    _SOURCE = "/etc/claude-code/managed-settings.json"
+
+    def test_refusal_names_the_policy_and_the_deployment_value(self):
+        message = format_managed_policy_conflicts(
+            [
+                ManagedPolicyConflict(
+                    "ANTHROPIC_BASE_URL",
+                    "https://elsewhere.example.org",
+                    "https://gateway.example.org",
+                    self._SOURCE,
+                )
+            ]
+        )
+
+        assert "https://elsewhere.example.org" in message
+        assert "https://gateway.example.org" in message
+        assert self._SOURCE in message
+
+    def test_refusal_says_not_set_for_a_key_the_deployment_leaves_unset(self):
+        message = format_managed_policy_conflicts(
+            [ManagedPolicyConflict("CLAUDE_CODE_USE_BEDROCK", "1", None, self._SOURCE)]
+        )
+
+        assert "not set" in message
+
+    def test_refusal_marks_the_translation_proxy_loopback(self):
+        message = format_managed_policy_conflicts(
+            [
+                ManagedPolicyConflict(
+                    "ANTHROPIC_BASE_URL",
+                    "https://argo.example",
+                    "http://127.0.0.1:7777",
+                    self._SOURCE,
+                )
+            ]
+        )
+
+        assert "http://127.0.0.1:7777" in message
+        assert "local translation proxy" in message
+
+    def test_refusal_never_prints_a_credential(self):
+        message = format_managed_policy_conflicts(
+            [
+                ManagedPolicyConflict(
+                    "ANTHROPIC_AUTH_TOKEN", "sk-policy-secret", "sk-deploy-secret", self._SOURCE
+                )
+            ]
+        )
+
+        assert "sk-policy-secret" not in message
+        assert "sk-deploy-secret" not in message
+        assert "not shown" in message
+
+    def test_refusal_names_a_remedy_that_can_be_followed(self):
+        message = format_managed_policy_conflicts(
+            [ManagedPolicyConflict("ANTHROPIC_MODEL", "m", None, self._SOURCE)]
+        )
+
+        assert "Remove these keys from the policy file" in message
+        assert "reconcile" not in message
 
 
 # ── Chat command provider isolation ──────────────────────────────
@@ -502,7 +730,7 @@ class TestProxyEnvWarning:
     cannot masquerade as a passing negative assertion.
     """
 
-    LOGGER = "osprey.build.claude_code_resolver"
+    LOGGER = "osprey.agent_runner.provider_env"
 
     def _records(self, caplog):
         return [r for r in caplog.records if r.name == self.LOGGER]
@@ -724,3 +952,33 @@ class TestSpendAttributionEnv:
         inject_provider_env(environ, spec)
 
         assert "ANTHROPIC_CUSTOM_HEADERS" not in environ
+
+
+# ── Image declaration on the provider entry ──────────────────────
+
+#: A local model server's entry as a site writes it, with no image declaration.
+_LOCAL_SERVER_ENTRY = {
+    "base_url": "http://127.0.0.1:8000/v1",
+    "default_model": "m",
+    "models": ["m"],
+}
+
+
+class TestImageDeclaration:
+    """``ClaudeCodeModelSpec.supports_images`` carries the provider entry's own
+    ``supports_images``, or ``None`` when the entry leaves it to the adapter."""
+
+    def test_an_entry_that_says_nothing_leaves_it_to_the_adapter(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "vllm"}, {"vllm": _LOCAL_SERVER_ENTRY})
+        assert spec.supports_images is None
+
+    @pytest.mark.parametrize("declared", [True, False])
+    def test_the_entry_declaration_is_carried(self, declared):
+        providers = {"vllm": {**_LOCAL_SERVER_ENTRY, "supports_images": declared}}
+        spec = ClaudeCodeModelResolver.resolve({"provider": "vllm"}, providers)
+        assert spec.supports_images is declared
+
+    def test_a_declaration_that_is_not_true_or_false_is_refused(self):
+        providers = {"vllm": {**_LOCAL_SERVER_ENTRY, "supports_images": "yes"}}
+        with pytest.raises(ValueError, match=r"api\.providers\.vllm\.supports_images"):
+            ClaudeCodeModelResolver.resolve({"provider": "vllm"}, providers)

@@ -106,6 +106,11 @@ class TestDetectPattern:
         chans = [{"channel": "123abc"}, {"channel": "456def"}]
         assert db._detect_pattern(chans)["pattern"] == "123abc ... 456def"
 
+    def test_fallback_when_one_name_does_not_match(self, db: ChannelDatabase):
+        # One matching name is not enough: every name must match for a range.
+        chans = [{"channel": "BPM01"}, {"channel": "9X"}]
+        assert db._detect_pattern(chans)["pattern"] == "BPM01 ... 9X"
+
 
 # ---------------------------------------------------------------------------
 # Presentation modes

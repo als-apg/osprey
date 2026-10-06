@@ -18,10 +18,11 @@ from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.tools.search_envelope import (
     ResultWindow,
     advanced_params,
-    diagnostics,
+    envelope_diagnostics,
     raise_for_fault_exception,
     raise_for_vocabulary_error,
     raise_on_statement_fault,
+    serialize_page,
     success_envelope,
 )
 from osprey.services.ariel_search.exceptions import (
@@ -92,8 +93,15 @@ async def keyword_search(
 
         raise_on_statement_fault(result, "keyword")
 
-        response = success_envelope(query, "keyword", result, window.select(result.entries))
-        response["diagnostics"] = diagnostics(result)
+        config = registry.config
+        entries = await serialize_page(
+            window.select(result.entries),
+            config,
+            service.repository,
+            text_limit=config.entry_text.listing_chars,
+        )
+        response = success_envelope(query, "keyword", result, entries)
+        response["diagnostics"] = await envelope_diagnostics(result, service.repository)
 
         return json.dumps(response, default=str)
 

@@ -19,6 +19,7 @@
 import { test, expect, vi, describe, afterEach } from 'vitest';
 
 import {
+  artifactPath,
   getTypeRegistry,
   initTypeRegistry,
   typeBadge,
@@ -39,6 +40,7 @@ import {
   requestColorPass,
 } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { qs } from '../_support/dom.mjs';
+import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -271,6 +273,56 @@ describe('formatTime / formatFullTime / formatDate', () => {
   });
 });
 
+describe('gallery times on the facility clock', () => {
+  afterEach(() => {
+    stampFacilityZone(null);
+    vi.useRealTimers();
+  });
+
+  const ISO = '2026-01-15T20:04:05Z';
+
+  /** @param {string} zone @param {Intl.DateTimeFormatOptions} options */
+  const intl = (zone, options) =>
+    new Intl.DateTimeFormat(undefined, { ...options, timeZone: zone }).format(new Date(ISO));
+
+  /** @type {Intl.DateTimeFormatOptions} */
+  const FULL = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+
+  test('formatTime reads the stamped zone', () => {
+    stampFacilityZone(FACILITY_ZONE);
+    expect(formatTime(ISO)).toBe(intl(FACILITY_ZONE, { hour: '2-digit', minute: '2-digit' }));
+  });
+
+  test('formatFullTime names the zone when the viewer reads another clock, and not otherwise', () => {
+    stampFacilityZone(FACILITY_ZONE);
+    expect(formatFullTime(ISO)).toBe(intl(FACILITY_ZONE, { ...FULL, timeZoneName: 'short' }));
+    stampFacilityZone(VIEWER_ZONE);
+    expect(formatFullTime(ISO)).toBe(intl(VIEWER_ZONE, FULL));
+  });
+
+  test('Today and Yesterday are the facility calendar\'s days', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // Jan 16 01:00 in Kathmandu; still Jan 15 in UTC and the Americas.
+    vi.setSystemTime(new Date('2026-01-15T19:15:00Z'));
+    stampFacilityZone('Asia/Kathmandu');
+    expect(formatDate('2026-01-15T18:30:00Z')).toBe('Today');
+    expect(formatDate('2026-01-15T18:00:00Z')).toBe('Yesterday');
+    const older = formatDate('2026-01-14T18:00:00Z');
+    expect(older).not.toBe('Today');
+    expect(older).not.toBe('Yesterday');
+  });
+
+  test('Yesterday is the civil day before, across a spring-forward night', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // 00:30 EDT on Mar 9, the morning after the 23-hour Mar 8.
+    vi.setSystemTime(new Date('2026-03-09T04:30:00Z'));
+    stampFacilityZone('America/New_York');
+    expect(formatDate('2026-03-08T12:00:00Z')).toBe('Yesterday');
+    // Exactly 24 h back is 23:30 on Mar 7.
+    expect(formatDate('2026-03-08T04:30:00Z')).not.toBe('Yesterday');
+  });
+});
+
 describe('openUrl', () => {
   test('markdown routes to the rendered-markdown API endpoint', () => {
     expect(openUrl({ id: 'a1', artifact_type: 'markdown', filename: 'x.md' })).toBe('/api/markdown/a1/rendered');
@@ -433,6 +485,47 @@ describe('isNewThisSession', () => {
 
   test('the shipped example is never new, even though it is written at gallery start', () => {
     expect(isNewThisSession({ timestamp: '2026-07-03T13:00:00Z', origin: 'demo' }, '2026-07-03T12:00:00Z')).toBe(false);
+  });
+});
+
+/**
+ * Stamp the gallery page's artifact-directory meta for the duration of `fn`.
+ * @param {string} content
+ * @param {() => void} fn
+ */
+function withArtifactDirMeta(content, fn) {
+  const meta = document.createElement('meta');
+  meta.setAttribute('name', 'osprey-artifact-dir');
+  meta.setAttribute('content', content);
+  document.head.appendChild(meta);
+  try {
+    fn();
+  } finally {
+    meta.remove(); // this file's document is shared across tests
+  }
+}
+
+describe('artifactPath', () => {
+  test("without the meta, the default layout's directory", () => {
+    expect(artifactPath({ filename: 'beam.png' })).toBe('var/agent_data/artifacts/beam.png');
+  });
+
+  test('a repo-relative stamp is used verbatim', () => {
+    withArtifactDirMeta('state/agent/artifacts', () => {
+      expect(artifactPath({ filename: 'beam.png' })).toBe('state/agent/artifacts/beam.png');
+    });
+  });
+
+  test('an absolute stamp is used verbatim', () => {
+    withArtifactDirMeta('/data/osprey/artifacts', () => {
+      expect(artifactPath({ filename: 'beam.png' })).toBe('/data/osprey/artifacts/beam.png');
+    });
+  });
+
+  test('an empty stamp falls back to the default', () => {
+    withArtifactDirMeta('', () => {
+      expect(artifactPath({ filename: 'beam.png' })).toBe('var/agent_data/artifacts/beam.png');
+    });
   });
 });
 

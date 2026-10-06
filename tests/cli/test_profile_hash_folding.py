@@ -4,9 +4,9 @@
 against, so anything a build consumes has to be inside it. Beyond the ``data:``
 tree and ``overlay:`` sources pinned in ``test_profile_material_hash.py``, that
 means the profile's convention directories (``rules/``, ``skills/`` and the rest
-of the mapping table, including the ``project/`` verbatim mirror) and its
-``triggers.yml`` — a rule the agent reads or a trigger a dispatcher fires on is
-as much build input as a channel database.
+of the mapping table, including the ``project/`` verbatim mirror) and the
+trigger file its ``dispatch:`` block names — a rule the agent reads or a trigger
+a dispatcher fires on is as much build input as a channel database.
 
 Personas are the second half. A ``personas/<name>.yml`` file holds only a delta,
 so its hash is meaningless without the root it merges over: the hash resolves the
@@ -30,6 +30,7 @@ import pytest
 
 from osprey.cli import build_profile_presets
 from osprey.cli.build_profile import compute_preset_hash, compute_profile_hash
+from osprey.cli.build_profile_merge import profile_triggers_material
 from osprey.cli.profile_conventions import CONVENTION_SOURCES
 
 
@@ -115,14 +116,84 @@ def test_removing_a_convention_artifact_changes_the_hash(profile, category):
     assert compute_profile_hash(profile / "profile.yml") != before
 
 
+def _name_triggers(profile: Path, triggers: str) -> None:
+    """Give the fixture profile a ``dispatch:`` block naming ``triggers``."""
+    path = profile / "profile.yml"
+    path.write_text(
+        path.read_text(encoding="utf-8") + f"dispatch:\n  triggers: {triggers}\n",
+        encoding="utf-8",
+    )
+
+
 def test_triggers_file_is_folded(profile):
     """``triggers.yml`` is build input — the dispatcher fires on what it says."""
+    _name_triggers(profile, "triggers.yml")
     triggers = _write(profile / "triggers.yml", "triggers: []\n")
     before = compute_profile_hash(profile / "profile.yml")
 
     triggers.write_text("triggers:\n  - name: alarm\n", encoding="utf-8")
 
     assert compute_profile_hash(profile / "profile.yml") != before
+
+
+def test_the_trigger_file_dispatch_names_is_folded(profile):
+    """A trigger file nested beside the profile is build input wherever it lives."""
+    _name_triggers(profile, "triggers/x.yml")
+    triggers = _write(profile / "triggers" / "x.yml", "triggers: []\n")
+    before = compute_profile_hash(profile / "profile.yml")
+
+    triggers.write_text("triggers:\n  - name: alarm\n", encoding="utf-8")
+
+    assert compute_profile_hash(profile / "profile.yml") != before
+
+
+def test_a_triggers_file_no_dispatch_block_names_is_not_folded(profile):
+    """A ``triggers.yml`` nothing reads is not build input."""
+    triggers = _write(profile / "triggers.yml", "triggers: []\n")
+    before = compute_profile_hash(profile / "profile.yml")
+
+    triggers.write_text("triggers:\n  - name: alarm\n", encoding="utf-8")
+
+    assert compute_profile_hash(profile / "profile.yml") == before
+
+
+def test_a_bundled_trigger_file_is_never_folded(profile, tmp_path, monkeypatch):
+    """A bundled trigger file moves with the package, never with the profile."""
+    bundled_dir = tmp_path / "bundled"
+    bundled = _write(bundled_dir / "bundled.yml", "triggers: []\n")
+    monkeypatch.setattr(build_profile_presets, "_triggers_dir", lambda: bundled_dir)
+    _name_triggers(profile, "bundled.yml")
+    before = compute_profile_hash(profile / "profile.yml")
+
+    bundled.write_text("triggers:\n  - name: upgraded\n", encoding="utf-8")
+
+    assert compute_profile_hash(profile / "profile.yml") == before
+
+
+def test_a_profile_file_shadowing_a_bundled_name_is_folded(profile, tmp_path, monkeypatch):
+    """The profile's own copy is what the build copies, so it is what is folded."""
+    bundled_dir = tmp_path / "bundled"
+    _write(bundled_dir / "shared.yml", "triggers: []\n")
+    monkeypatch.setattr(build_profile_presets, "_triggers_dir", lambda: bundled_dir)
+    _name_triggers(profile, "shared.yml")
+    local = _write(profile / "shared.yml", "triggers: []\n")
+    before = compute_profile_hash(profile / "profile.yml")
+
+    local.write_text("triggers:\n  - name: local\n", encoding="utf-8")
+
+    assert compute_profile_hash(profile / "profile.yml") != before
+
+
+@pytest.mark.parametrize("spelling", ["triggers.yml", "./triggers.yml"])
+def test_the_default_trigger_spelling_folds_the_root_file(profile, spelling):
+    """The default spelling keys and folds the root file exactly as before."""
+    _write(profile / "triggers.yml", "triggers: []\n")
+    resolved = {"dispatch": {"triggers": spelling}}
+
+    key, path = profile_triggers_material(resolved, profile) or ("", Path())
+
+    assert key == "triggers.yml"
+    assert path.resolve() == (profile / "triggers.yml").resolve()
 
 
 def test_unrelated_file_does_not_change_the_hash(profile):

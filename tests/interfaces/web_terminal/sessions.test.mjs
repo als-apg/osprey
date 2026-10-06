@@ -21,6 +21,8 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
+
 /** @typedef {{ session_id: string, last_modified: string, message_count: number, first_message?: string }} SessionRecord */
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/sessions.js')} */
@@ -152,30 +154,17 @@ describe('dropdown portal: escaping the dockview tab strip', () => {
     expect(btn.getAttribute('aria-expanded')).toBe('false');
   });
 
-  test('Escape closes the dropdown', async () => {
+  test.each([
+    ['Escape', () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))],
+    // The anchor lives in a scrollable tab strip, so a scroll would strand it.
+    ['a scroll', () => window.dispatchEvent(new Event('scroll'))],
+    ['a pointerdown outside the picker', () => document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))],
+  ])('%s closes the dropdown', async (_trigger, dismiss) => {
     stubSessions(RECORDS);
     sessions.initSessionSelector('session-selector');
     await openPicker();
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(document.getElementById('session-dropdown')).toBeNull();
-  });
-
-  test('a scroll closes the dropdown rather than leaving it stranded off its anchor', async () => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    window.dispatchEvent(new Event('scroll'));
-    expect(document.getElementById('session-dropdown')).toBeNull();
-  });
-
-  test('a pointerdown outside the picker closes the dropdown', async () => {
-    stubSessions(RECORDS);
-    sessions.initSessionSelector('session-selector');
-    await openPicker();
-
-    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    dismiss();
     expect(document.getElementById('session-dropdown')).toBeNull();
   });
 
@@ -215,6 +204,36 @@ describe('renderSessionList: one item per record', () => {
   });
 });
 
+describe('renderSessionList: an old session\'s date', () => {
+  afterEach(() => stampFacilityZone(null));
+
+  test('a session older than a week shows its date on the facility calendar', async () => {
+    // 23:30Z is already the next day in Tokyo and Berlin and still the same
+    // day in New York.
+    const old = new Date(Date.now() - 30 * 86_400_000);
+    old.setUTCHours(23, 30, 0, 0);
+    stampFacilityZone(FACILITY_ZONE);
+    stubSessions([
+      {
+        session_id: 'dddddddd-3333-4444-5555-666666666666',
+        last_modified: old.toISOString(),
+        message_count: 3,
+        first_message: 'An old session',
+      },
+    ]);
+    sessions.initSessionSelector('session-selector');
+    await openPicker();
+
+    const expected = new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      timeZone: FACILITY_ZONE,
+    }).format(old);
+    expect(document.querySelector('.session-item-time')?.textContent).toBe(expected);
+  });
+});
+
 describe('renderSessionList: preview escaping', () => {
   test('an HTML-bearing first_message renders inert -- no live element, raw markup survives as escaped text', async () => {
     const payload = '<img src=x onerror=alert(1)>';
@@ -237,6 +256,30 @@ describe('renderSessionList: preview escaping', () => {
     expect(preview.querySelector('img')).toBeNull();
     // The markup survives verbatim as text, proving escapeHtml neutered it.
     expect(preview.textContent).toBe(payload);
+  });
+  test('a markup-bearing session_id stays inert in the attribute, the title and the id text', async () => {
+    const hostileId = '"><img src=x onerror=alert(1)>';
+    stubSessions([
+      {
+        session_id: hostileId,
+        last_modified: NOW_ISO,
+        message_count: 1,
+        first_message: 'hello',
+      },
+    ]);
+    sessions.initSessionSelector('session-selector');
+    await openPicker();
+
+    const list = /** @type {HTMLElement} */ (document.getElementById('session-dropdown-list'));
+    // Nothing was parsed out of the id: no live element, no broken-out attribute.
+    expect(list.querySelector('img')).toBeNull();
+    const items = list.querySelectorAll('.session-item[data-session-id]');
+    expect(items.length).toBe(1);
+    const item = /** @type {HTMLElement} */ (items[0]);
+    // The id round-trips verbatim, so selecting it resumes the session it names.
+    expect(item.dataset.sessionId).toBe(hostileId);
+    expect(item.title).toBe(hostileId);
+    expect(item.querySelector('.session-item-id')?.textContent).toBe(hostileId.slice(0, 8));
   });
 });
 

@@ -2,19 +2,33 @@
 
 import json
 import textwrap
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from osprey.mcp_server.workspace.execution.sandbox_executor import (
     SandboxExecutionResult,
+    _create_sandbox_wrapper,
     create_sandbox_execution_folder,
     execute_sandbox_code,
     validate_sandbox_code,
 )
 from osprey.stores.artifact_manifest import collect_artifacts
+
+
+def _zone_away_from_host() -> ZoneInfo:
+    """Return a zone whose wall-clock differs from the host clock by hours.
+
+    The folder stamp must be shown to follow the facility zone and not the host clock, so the
+    two must differ by more than the test tolerance on any host (the closest real host offset
+    to +14 h is +13:45, fifteen minutes away).
+    """
+    if datetime.now().astimezone().utcoffset() == timedelta(hours=14):
+        return ZoneInfo("Etc/GMT+12")
+    return ZoneInfo("Etc/GMT-14")
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +431,15 @@ class TestExecuteSandboxCode:
 
 
 # ---------------------------------------------------------------------------
+# Wrapper contract
+# ---------------------------------------------------------------------------
+def test_wrapper_requires_secret_roots(tmp_path: Path) -> None:
+    """The wrapper has no default for the roots whose env files it refuses."""
+    with pytest.raises(TypeError, match="secret_roots"):
+        _create_sandbox_wrapper("x = 1", tmp_path / "exec", tmp_path / "ws", tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # Sandbox tests
 # ---------------------------------------------------------------------------
 class TestSandboxedOpen:
@@ -474,6 +497,44 @@ except PermissionError:
 
         assert result.success
         assert "BLOCKED" in result.stdout
+
+    async def test_env_file_at_project_root_refused(
+        self, execution_folder, workspace_root, tmp_path
+    ):
+        """The production path resolves the secret roots from the project root,
+        so the env file there is refused by both read routes."""
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / ".env").write_text("API_KEY=never-leaked\n")
+
+        code = f"""\
+for label, read in (
+    ("BUILTINS", lambda p: open(p).read()),
+    ("PATHLIB", lambda p: Path(p).read_text()),
+):
+    try:
+        print(label, "LEAKED", read(r"{project / ".env"}"))
+    except PermissionError as exc:
+        print(label, "DENIED", exc)
+"""
+
+        with (
+            patch(
+                "osprey.utils.workspace.resolve_workspace_root",
+                return_value=workspace_root,
+            ),
+            patch(
+                "osprey.utils.workspace.resolve_project_root",
+                return_value=project,
+            ),
+        ):
+            result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
+
+        assert result.success
+        assert "never-leaked" not in result.stdout
+        assert "LEAKED" not in result.stdout
+        for label in ("BUILTINS", "PATHLIB"):
+            assert f"{label} DENIED Sandbox: read denied" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +602,23 @@ class TestCreateExecutionFolder:
         assert "sandbox_executions" in str(folder)
         # No figures/ subdirectory should be created
         assert not (folder / "figures").exists()
+
+    def test_folder_name_is_stamped_in_the_facility_zone(self, tmp_path, monkeypatch):
+        """The folder name carries the start time in the facility zone, not the host clock."""
+        ws = tmp_path / "_agent_data"
+        ws.mkdir()
+        zone = _zone_away_from_host()
+        monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: zone)
+
+        with patch(
+            "osprey.utils.workspace.resolve_workspace_root",
+            return_value=ws,
+        ):
+            folder = create_sandbox_execution_folder()
+
+        stamp = datetime.strptime(folder.name[:15], "%Y%m%d_%H%M%S")
+        expected = datetime.now(zone).replace(tzinfo=None)
+        assert abs((stamp - expected).total_seconds()) < 120
 
 
 class TestSandboxExecutionResult:

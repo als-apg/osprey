@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.config import ConfigBuilder
+from osprey.utils.config import ConfigBuilder, get_framework_service_config
 
 EXPECTED_CONFIGURABLE_KEYS = {
     "model_configs",
@@ -100,3 +100,21 @@ def test_writes_enabled_is_not_mirrored_into_configurable(tmp_path):
     assert "control_system" not in configurable
     flattened = str(configurable)
     assert "control_system_writes_enabled" not in flattened
+
+
+def test_an_empty_section_reads_as_an_empty_mapping(tmp_path):
+    """A bare ``models:`` or ``services:`` reads as no settings."""
+    cfg = _write_config(tmp_path, f"project_root: {tmp_path}\nmodels:\nservices:\n")
+    configurable = ConfigBuilder(str(cfg), load_env=False).configurable
+    assert configurable["model_configs"] == {}
+    assert configurable["service_configs"] == {}
+    assert get_framework_service_config("x", str(cfg)) == {}
+
+
+def test_a_non_mapping_section_is_refused_by_name(tmp_path):
+    """A section that is not a mapping is refused at load with its key and file named."""
+    cfg = _write_config(tmp_path, f'project_root: {tmp_path}\nexecution: "x"\n')
+    with pytest.raises(ValueError) as excinfo:
+        ConfigBuilder(str(cfg), load_env=False)
+    assert "'execution'" in str(excinfo.value)
+    assert str(cfg) in str(excinfo.value)

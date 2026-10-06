@@ -86,7 +86,7 @@ def claude_cli(
 
 async def _check_claude_cli() -> list[CheckResult]:
     """Report the globally-installed ``claude`` CLI version (informational)."""
-    from osprey.utils.claude_launcher import parse_claude_version
+    from osprey.agent_runner.launcher import parse_claude_version
 
     try:
         returncode, stdout, stderr = await _run_version_command(
@@ -161,7 +161,7 @@ def claude_cli_pinned(
 
 async def _check_claude_cli_pinned(pinned: str | None) -> list[CheckResult]:
     """Verify a pinned Claude Code CLI version via ``npx``."""
-    from osprey.utils.claude_launcher import parse_claude_version
+    from osprey.agent_runner.launcher import parse_claude_version
 
     if not pinned:
         return [

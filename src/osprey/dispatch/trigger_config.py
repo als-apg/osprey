@@ -11,6 +11,7 @@ from typing import Any
 
 import yaml
 
+from osprey.dispatch.clock_schedule import ClockSchedule, parse_clock_schedule
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 
 __all__ = [
@@ -42,16 +43,26 @@ class TriggerConfig:
         action: Free-form action mapping. Only ``action.prompt`` is required;
             unread keys pass through untouched for forward compatibility.
         on_error: Error-handling policy (action/max_retries/backoff_sec).
-        source_config: Free-form source-specific configuration.
+        source_config: Source-specific settings, always a mapping (a blank or
+            absent ``source_config`` is empty).
+        allowed_tools: Tool names the dispatched run may use, always a list (an
+            absent or blank ``action.allowed_tools`` is empty). ``surface_tools``
+            can only narrow it.
         surface: Optional label naming the UI/output surface the triggered
             agent run is associated with (e.g. a dashboard or channel name).
             ``None`` when ``action.surface`` is absent.
         surface_prompt: Optional free-text fragment appended to the agent's
             system prompt at run time. ``None`` when ``action.surface_prompt``
             is absent.
+        surface_tools: Optional keep-list of tool names narrowing
+            ``action.allowed_tools`` at run time. ``None`` when
+            ``action.surface_tools`` is absent or blank; an empty list narrows
+            nothing.
         max_turns: Optional per-trigger ceiling on agentic turns. ``None`` when
             ``action.max_turns`` is absent, in which case the worker applies
             the deployment's own ``dispatch.max_turns``.
+        schedule: The parsed ``at``/``days`` of a clock-time cron trigger;
+            ``None`` for every other trigger.
     """
 
     name: str
@@ -59,9 +70,12 @@ class TriggerConfig:
     action: dict[str, Any]
     on_error: dict[str, Any] = field(default_factory=lambda: dict(_DEFAULT_ON_ERROR))
     source_config: dict[str, Any] = field(default_factory=dict)
+    allowed_tools: list[str] = field(default_factory=list)
     surface: str | None = None
     surface_prompt: str | None = None
+    surface_tools: list[str] | None = None
     max_turns: int | None = None
+    schedule: ClockSchedule | None = None
 
 
 @dataclass
@@ -71,7 +85,10 @@ class DispatcherConfig:
     max_queue_depth: int = DEFAULT_MAX_QUEUE_DEPTH
 
 
-def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
+def _parse_trigger(raw: Any, index: int) -> TriggerConfig:
+    if not isinstance(raw, dict):
+        raise ValueError(f"Trigger at index {index} must be a mapping (got {raw!r})")
+
     name = raw.get("name")
     if not name:
         raise ValueError(f"Trigger at index {index} is missing required field 'name'")
@@ -81,6 +98,8 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
         raise ValueError(f"Trigger '{name}' is missing required field 'source'")
 
     action = raw.get("action")
+    if action is not None and not isinstance(action, dict):
+        raise ValueError(f"Trigger '{name}' field 'action' must be a mapping")
     if not action or not action.get("prompt"):
         raise ValueError(f"Trigger '{name}' is missing required field 'action.prompt'")
 
@@ -91,6 +110,17 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
     surface_prompt = action.get("surface_prompt")
     if surface_prompt is not None and not isinstance(surface_prompt, str):
         raise ValueError(f"Trigger '{name}' field 'action.surface_prompt' must be a string")
+
+    surface_tools_raw = action.get("surface_tools")
+    surface_tools: list[str] | None = None
+    if surface_tools_raw is not None:
+        if not isinstance(surface_tools_raw, list) or not all(
+            isinstance(tool, str) for tool in surface_tools_raw
+        ):
+            raise ValueError(
+                f"Trigger '{name}' field 'action.surface_tools' must be a list of strings"
+            )
+        surface_tools = list(surface_tools_raw)
 
     # The worker refuses an unusable ceiling with a 422 at dispatch time, which
     # is the moment an event fires — long after this file was authored — so the
@@ -104,25 +134,33 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
             f"Trigger '{name}' field 'action.max_turns' must be an integer >= 1 (got {max_turns!r})"
         )
 
-    # The worker's denylist blocks the dispatcher's firing tool at run time, but
-    # that refusal lands when an event fires. Naming any dispatcher tool here is
-    # an author asking for a recursion that will never run, so the file is where
-    # it is caught — and the message names both the trigger and the tool.
-    allowed_tools = action.get("allowed_tools") or []
-    if isinstance(allowed_tools, str):
-        allowed_tools = [allowed_tools]
-    if isinstance(allowed_tools, (list, tuple)):
-        for tool in allowed_tools:
-            if isinstance(tool, str) and tool.startswith(_DISPATCHER_TOOL_PREFIX):
-                raise ValueError(
-                    f"Trigger '{name}' field 'action.allowed_tools' names the event "
-                    f"dispatcher's own tool '{tool}'; a dispatch job may not fire "
-                    f"dispatch jobs, so no '{_DISPATCHER_TOOL_PREFIX}' tool is allowed"
-                )
+    # The worker refuses an ``allowed_tools`` that is not a list of tool names
+    # when an event fires, so its shape is checked here, where the author wrote
+    # it. A dispatch job may not fire dispatch jobs, so naming a dispatcher tool
+    # is refused here too, and the message names both the trigger and the tool.
+    allowed_tools_raw = action.get("allowed_tools")
+    allowed_tools: list[str] = []
+    if allowed_tools_raw is not None:
+        if not isinstance(allowed_tools_raw, list) or not all(
+            isinstance(tool, str) for tool in allowed_tools_raw
+        ):
+            raise ValueError(
+                f"Trigger '{name}' field 'action.allowed_tools' must be a list of strings"
+            )
+        allowed_tools = list(allowed_tools_raw)
+    for tool in allowed_tools:
+        if tool.startswith(_DISPATCHER_TOOL_PREFIX):
+            raise ValueError(
+                f"Trigger '{name}' field 'action.allowed_tools' names the event "
+                f"dispatcher's own tool '{tool}'; a dispatch job may not fire "
+                f"dispatch jobs, so no '{_DISPATCHER_TOOL_PREFIX}' tool is allowed"
+            )
 
     on_error_raw = raw.get("on_error")
     if on_error_raw is None:
         on_error = dict(_DEFAULT_ON_ERROR)
+    elif not isinstance(on_error_raw, dict):
+        raise ValueError(f"Trigger '{name}' field 'on_error' must be a mapping")
     else:
         on_error = {
             "action": on_error_raw.get("action", _DEFAULT_ON_ERROR["action"]),
@@ -130,7 +168,20 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
             "backoff_sec": on_error_raw.get("backoff_sec", _DEFAULT_ON_ERROR["backoff_sec"]),
         }
 
-    source_config = raw.get("source_config", {})
+    # Every source reads its settings with ``.get``, so a ``source_config``
+    # that is not a mapping is refused here, and no source's ``start`` sees one.
+    source_config = raw.get("source_config")
+    if source_config is None:
+        source_config = {}
+    elif not isinstance(source_config, dict):
+        raise ValueError(f"Trigger '{name}' field 'source_config' must be a mapping")
+
+    # A schedule that cannot be read would otherwise surface only when the
+    # dispatcher starts, or never for a mistyped key, so it is refused here,
+    # where the author wrote it.
+    schedule = None
+    if source == "cron":
+        schedule = parse_clock_schedule(name, source_config)
 
     return TriggerConfig(
         name=name,
@@ -138,9 +189,12 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
         action=action,
         on_error=on_error,
         source_config=source_config,
+        allowed_tools=allowed_tools,
         surface=surface,
         surface_prompt=surface_prompt,
+        surface_tools=surface_tools,
         max_turns=max_turns,
+        schedule=schedule,
     )
 
 
@@ -157,14 +211,22 @@ def load_triggers(path: str) -> tuple[DispatcherConfig, list[TriggerConfig]]:
     if not isinstance(doc, dict):
         raise ValueError(f"triggers file {path!r} must be a YAML mapping at the top level")
 
-    dispatcher_raw = doc.get("dispatcher", {})
+    dispatcher_raw = doc.get("dispatcher")
+    if dispatcher_raw is None:
+        dispatcher_raw = {}
+    elif not isinstance(dispatcher_raw, dict):
+        raise ValueError(f"triggers file {path!r} field 'dispatcher' must be a mapping")
     dispatcher_cfg = DispatcherConfig(
         dispatch_target=dispatcher_raw.get("dispatch_target", ""),
         max_concurrent_runs=dispatcher_raw.get("max_concurrent_runs", DEFAULT_MAX_CONCURRENT_RUNS),
         max_queue_depth=dispatcher_raw.get("max_queue_depth", DEFAULT_MAX_QUEUE_DEPTH),
     )
 
-    raw_triggers = doc.get("triggers") or []
+    raw_triggers = doc.get("triggers")
+    if raw_triggers is None:
+        raw_triggers = []
+    elif not isinstance(raw_triggers, list):
+        raise ValueError(f"triggers file {path!r} field 'triggers' must be a list of triggers")
     triggers = [_parse_trigger(t, i) for i, t in enumerate(raw_triggers)]
 
     # Detect duplicate trigger names at load time. The registry registers

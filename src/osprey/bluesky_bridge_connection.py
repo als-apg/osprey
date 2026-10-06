@@ -152,6 +152,26 @@ def lane_env_prefix(lane: str) -> str:
     return lane.upper()
 
 
+def lane_control_identity(lane: str) -> str:
+    """The control identity a lane's service runs as.
+
+    ``bluesky`` -> ``osprey-bluesky``; ``bluesky_va`` -> ``osprey-bluesky-va``.
+    The name is both a Linux account name and an RFC 1123 host label, so the
+    underscores of the service key become hyphens; every result fits the
+    32-character account-name limit.
+
+    Raises :class:`UnknownBlueskyLaneError` for a lane outside
+    :data:`LANE_KEYS` -- there is no default lane here, because an identity
+    minted for a lane no deployment renders would be an account nobody owns.
+    """
+    if lane not in LANE_KEYS:
+        raise UnknownBlueskyLaneError(
+            f"{lane!r} is not a bluesky plan lane, so it has no control identity. "
+            f"The lanes are {', '.join(repr(key) for key in LANE_KEYS)}."
+        )
+    return "osprey-" + lane.replace("_", "-")
+
+
 def _lane_or_default(lane: str | None) -> str:
     """Validate a caller-supplied lane, defaulting to lane 1."""
     if lane is None:

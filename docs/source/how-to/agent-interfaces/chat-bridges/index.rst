@@ -115,8 +115,8 @@ you pick one:
    * - Plots and files
      - Shared with the room, visible to its members only
      - **Published as a public link** anyone can open
-     - Plots only, as PNG images attached inside the conversation and visible to
-       its members; other files are not delivered
+     - Plots inside the conversation; other files in one SharePoint library,
+       shared with the conversation's members
    * - You need
      - A Nextcloud instance with the Talk app
      - A Google Cloud project
@@ -125,15 +125,16 @@ you pick one:
 The plots-and-files row is the one to read twice. Google Chat can only display an
 image if Google itself can fetch it, so files are published to a world-readable
 address rather than shared privately; Nextcloud Talk keeps them in the room, and
-Teams returns plots inside the conversation and no other files. If a public
+Teams returns plots inside the conversation and keeps other files in your own
+tenant, readable by the conversation's members. If a public
 address is not acceptable at your facility, you can turn
 files off in a Google Chat deployment and still get text answers — the Google Chat
 page explains how.
 
 Microsoft Teams asks the most of you up front, because a Teams bot can only be
 reached over the public internet: you publish a small relay into Azure, and the
-bridge reads what the relay queues. In return, nothing in your stack is exposed
-and plots never leave the conversation. The Microsoft Teams page walks through it.
+bridge reads what the relay queues. In return, nothing in your stack is exposed,
+and files stay in your own tenant, readable by the conversation's members. The Microsoft Teams page walks through it.
 
 Learn More
 ==========

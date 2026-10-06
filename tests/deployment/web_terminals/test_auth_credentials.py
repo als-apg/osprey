@@ -13,11 +13,12 @@ import pytest
 from osprey.deployment.web_terminals.auth_credentials import (
     _HASH_HEADER,
     AUTH_ENV_FILENAME,
-    PW_HASH_VAR_PREFIX,
     PW_PLAINTEXT_VAR_PREFIX,
     SESSION_SECRET_VAR,
     STATE_SECRET_VAR,
     TERMINAL_SECRET_VAR_PREFIX,
+    SeededLoginsReport,
+    _advisory_dotenv,
     ensure_auth_credentials,
     ensure_auth_session_secrets,
     ensure_terminal_secrets,
@@ -26,6 +27,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     purge_terminal_secret,
     seeded_logins,
     seeded_logins_report,
+    seeded_password_users,
     set_auth_password,
 )
 from osprey.services.auth_sidecar.passwords import (
@@ -35,6 +37,7 @@ from osprey.services.auth_sidecar.passwords import (
     hash_password,
     verify_password,
 )
+from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey.utils.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_AUTH_BANNER,
@@ -49,6 +52,12 @@ from osprey.utils.dotenv import (
 # The unwritable-file cases below rely on the OS honoring a read-only mode.
 # root ignores it, so those assertions would be vacuous there.
 running_as_root = hasattr(os, "geteuid") and os.geteuid() == 0
+
+BROKEN_HASH = "scrypt.16384.8.1.c2FsdA"
+"""A stored hash cut to five fields: provisioned, and impossible to evaluate."""
+
+#: Bytes `parse_dotenv_file` cannot decode, so reading them raises.
+_UNREADABLE_DOTENV = b"\xff\xfe not a dotenv file"
 
 
 class Echo:
@@ -161,6 +170,26 @@ def test_minted_password_never_reaches_the_log(tmp_path: Path, caplog) -> None:
     assert password not in caplog.text
     stored = read_auth_env(tmp_path)[f"{PW_HASH_VAR_PREFIX}ALICE"]
     assert stored not in caplog.text
+
+
+def test_an_unevaluable_existing_hash_is_kept_and_named(tmp_path: Path, caplog) -> None:
+    """An entry the login service cannot read is the operator's to replace: it
+    is kept byte for byte and named, never re-minted."""
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+    env_auth.write_text(f"{PW_HASH_VAR_PREFIX}ALICE={BROKEN_HASH}\n")
+    before = env_auth.read_bytes()
+    echo = Echo()
+
+    with caplog.at_level(logging.WARNING):
+        result = ensure_auth_credentials(["alice"], tmp_path, echo=echo)
+
+    assert result.preexisting == ("alice",)
+    assert result.minted == ()
+    assert result.changed is False
+    assert env_auth.read_bytes() == before
+    assert f"{PW_HASH_VAR_PREFIX}ALICE" in caplog.text
+    assert "osprey users passwd alice" in caplog.text
+    assert "c2FsdA" not in caplog.text
 
 
 def test_plaintext_from_project_dotenv_is_hashed_in(tmp_path: Path) -> None:
@@ -958,6 +987,89 @@ def test_logins_come_back_in_roster_order(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# seeded_password_users: the logins the login wall would accept a published
+# password for
+# ---------------------------------------------------------------------------
+
+
+def _store_hash(root: Path, name: str, stored: str) -> None:
+    """Write one user's stored hash into `.env.auth`."""
+    (root / AUTH_ENV_FILENAME).write_text(f"{PW_HASH_VAR_PREFIX}{name.upper()}={stored}\n")
+
+
+def test_seeded_password_users_names_a_default_nothing_has_hashed_yet(tmp_path: Path) -> None:
+    """No hash yet: the next deploy hashes the `.env` value, which is the default."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+
+    assert seeded_password_users(tmp_path, ["alice"]) == ("alice",)
+
+
+def test_seeded_password_users_names_a_stored_hash_of_the_default_after_the_env_line_is_gone(
+    tmp_path: Path,
+) -> None:
+    """A stored hash outlives its `.env` line, and it still accepts the default."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / ".env").write_text("")
+    _store_hash(tmp_path, "alice", hash_password("alice"))
+
+    assert seeded_logins_report(tmp_path, ["alice"]).printable == ()
+    assert seeded_password_users(tmp_path, ["alice"]) == ("alice",)
+
+
+def test_seeded_password_users_skips_a_rotated_hash_even_while_env_keeps_the_default(
+    tmp_path: Path,
+) -> None:
+    """The stored hash is what the login wall checks; a rotated one refuses the default."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    _store_hash(tmp_path, "alice", hash_password("chosen"))
+
+    assert seeded_password_users(tmp_path, ["alice"]) == ()
+
+
+def test_seeded_password_users_counts_a_shared_card_only_by_its_stored_hash(
+    tmp_path: Path,
+) -> None:
+    """A shared card is never hashed from `.env`, so only a stored hash can make it seeded."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+
+    assert seeded_password_users(tmp_path, ["alice"], shared=frozenset({"alice"})) == ()
+
+    _store_hash(tmp_path, "alice", hash_password("alice"))
+
+    assert seeded_password_users(tmp_path, ["alice"], shared=frozenset({"alice"})) == ("alice",)
+
+
+def test_seeded_password_users_skips_an_unevaluable_stored_hash(tmp_path: Path) -> None:
+    """A hash nothing can verify refuses every password, the default included."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    _store_hash(tmp_path, "alice", BROKEN_HASH)
+
+    assert seeded_password_users(tmp_path, ["alice"]) == ()
+
+
+def test_seeded_password_users_names_nothing_without_a_profile(tmp_path: Path) -> None:
+    """With no `profile.yml`, nothing is published."""
+    (tmp_path / ".env").write_text(f"{PW_PLAINTEXT_VAR_PREFIX}ALICE=alice\n")
+    _store_hash(tmp_path, "alice", hash_password("alice"))
+
+    assert seeded_password_users(tmp_path, ["alice"]) == ()
+
+
+def test_seeded_password_users_keeps_roster_order(tmp_path: Path) -> None:
+    (tmp_path / "profile.yml").write_text(
+        "env:\n"
+        "  defaults:\n"
+        f"    {PW_PLAINTEXT_VAR_PREFIX}ALICE: alice\n"
+        f"    {PW_PLAINTEXT_VAR_PREFIX}BOB: bob\n"
+    )
+    (tmp_path / ".env").write_text(
+        f"{PW_PLAINTEXT_VAR_PREFIX}ALICE=alice\n{PW_PLAINTEXT_VAR_PREFIX}BOB=bob\n"
+    )
+
+    assert seeded_password_users(tmp_path, ["bob", "alice"]) == ("bob", "alice")
+
+
+# ---------------------------------------------------------------------------
 # Per-user web-terminal secrets: minted into the deploy `.env`, not `.env.auth`.
 # ---------------------------------------------------------------------------
 
@@ -1438,6 +1550,18 @@ def test_the_report_names_the_contradicted_user_as_stale(tmp_path: Path) -> None
     assert report.stale == ("alice",)
 
 
+def test_an_unevaluable_hash_demotes_a_seeded_login_to_stale(tmp_path: Path) -> None:
+    """A hash the login service cannot read will refuse the seeded default too,
+    so the card must not print it."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    _store_hash(tmp_path, "alice", BROKEN_HASH)
+
+    report = seeded_logins_report(tmp_path, ["alice"])
+
+    assert report.printable == ()
+    assert report.stale == ("alice",)
+
+
 def test_a_user_with_no_stored_hash_is_still_named_and_not_stale(tmp_path: Path) -> None:
     """Before the first deploy no hash exists and nothing contradicts the
     seeded default — `ensure_auth_credentials` will hash exactly this value."""
@@ -1456,3 +1580,91 @@ def test_an_unreadable_env_auth_stays_advisory(tmp_path: Path) -> None:
     (tmp_path / AUTH_ENV_FILENAME).write_bytes(b"\xff\xfe not a dotenv file")
 
     assert seeded_logins(tmp_path, ["alice"]) == [("alice", "alice")]
+
+
+# ---------------------------------------------------------------------------
+# Advisory dotenv reads: absent and unreadable both read as empty
+# ---------------------------------------------------------------------------
+
+
+def test_an_unreadable_env_prints_no_seeded_login(tmp_path: Path) -> None:
+    """With no readable plaintext there is no candidate, so the report is empty."""
+    # Arrange
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / ".env").write_bytes(_UNREADABLE_DOTENV)
+
+    # Act
+    report = seeded_logins_report(tmp_path, ["alice"])
+
+    # Assert
+    assert report == SeededLoginsReport()
+
+
+def test_seeded_password_users_reads_an_unreadable_env_auth_as_holding_no_hashes(
+    tmp_path: Path,
+) -> None:
+    """With no hash to contradict it, the `.env` value decides."""
+    # Arrange
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / AUTH_ENV_FILENAME).write_bytes(_UNREADABLE_DOTENV)
+
+    # Act
+    users = seeded_password_users(tmp_path, ["alice"])
+
+    # Assert
+    assert users == ("alice",)
+
+
+def test_seeded_password_users_reads_an_unreadable_env_as_setting_nothing(
+    tmp_path: Path,
+) -> None:
+    """An unreadable `.env` sets no password, so no user is still on the seed."""
+    # Arrange
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / ".env").write_bytes(_UNREADABLE_DOTENV)
+
+    # Act
+    users = seeded_password_users(tmp_path, ["alice"])
+
+    # Assert
+    assert users == ()
+
+
+def test_advisory_dotenv_parses_a_readable_file(tmp_path: Path) -> None:
+    """A readable file reads as its variables."""
+    # Arrange
+    path = tmp_path / ".env"
+    path.write_text("A=1\nB=two\n")
+
+    # Act
+    values = _advisory_dotenv(path, "Seeded logins skipped")
+
+    # Assert
+    assert values == {"A": "1", "B": "two"}
+
+
+def test_advisory_dotenv_reads_an_absent_file_as_empty(tmp_path: Path) -> None:
+    """An absent file holds no variables."""
+    # Act
+    values = _advisory_dotenv(tmp_path / ".env", "Seeded logins skipped")
+
+    # Assert
+    assert values == {}
+
+
+def test_advisory_dotenv_reads_an_unreadable_file_as_empty_in_the_callers_words(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An unreadable file holds no variables, and the debug line carries the
+    caller's words."""
+    # Arrange
+    path = tmp_path / ".env"
+    path.write_bytes(_UNREADABLE_DOTENV)
+
+    # Act
+    with caplog.at_level(logging.DEBUG):
+        values = _advisory_dotenv(path, "Seeded logins skipped")
+
+    # Assert
+    assert values == {}
+    assert "Seeded logins skipped: " in caplog.text

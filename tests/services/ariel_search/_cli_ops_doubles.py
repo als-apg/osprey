@@ -64,6 +64,7 @@ class _Adapter:
         entries: Entries to yield, in order.
         raise_at: Index at which ``fetch_entries`` raises instead of yielding,
             for the "stream dies mid-ingest" path.
+        unreadable: What the adapter reports as ``unreadable_entries``.
     """
 
     def __init__(
@@ -71,10 +72,12 @@ class _Adapter:
         entries: Iterable[dict[str, Any]] = (),
         source_system_name: str = "TestSource",
         raise_at: int | None = None,
+        unreadable: int = 0,
     ) -> None:
         self.entries = list(entries)
         self.source_system_name = source_system_name
         self.raise_at = raise_at
+        self.unreadable_entries = unreadable
         self.fetch_calls: list[dict[str, Any]] = []
 
     async def fetch_entries(self, since: Any = None, limit: int | None = None):
@@ -171,7 +174,7 @@ def _patch_enhancers(monkeypatch: pytest.MonkeyPatch, enhancers: Iterable[Any]) 
     import osprey.services.ariel_search.enhancement as enh
 
     listed = list(enhancers)
-    monkeypatch.setattr(enh, "create_enhancers_from_config", lambda config: list(listed))
+    monkeypatch.setattr(enh, "create_enhancers_from_config", lambda config, **_: list(listed))
 
 
 def _patch_pool(monkeypatch: pytest.MonkeyPatch, pool: Any) -> list[Any]:
@@ -193,7 +196,14 @@ def _patch_migrations(
     applied: list[str] | None = None,
     error: Exception | None = None,
 ) -> list[Any]:
-    """Route ``run_migrations``; returns the ``(pool, config)`` pairs it saw."""
+    """Route ``run_migrations`` and ``run_migrations_detailed``.
+
+    Both record into one list, so a test sees the call whichever entry point
+    the operation uses; the detailed one reports nothing busy and the lock free.
+
+    Returns:
+        The ``(pool, config)`` pairs either fake saw.
+    """
     import osprey.services.ariel_search.database.migrations as mig_mod
 
     seen: list[Any] = []
@@ -204,5 +214,9 @@ def _patch_migrations(
             raise error
         return list(applied or [])
 
+    async def _fake_run_migrations_detailed(pool, config, **_kwargs):
+        return mig_mod.MigrationResult(await _fake_run_migrations(pool, config), [], False)
+
     monkeypatch.setattr(mig_mod, "run_migrations", _fake_run_migrations)
+    monkeypatch.setattr(mig_mod, "run_migrations_detailed", _fake_run_migrations_detailed)
     return seen

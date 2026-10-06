@@ -289,6 +289,17 @@ class TestResolveSharedDataRoot:
         monkeypatch.chdir(tmp_path)
         assert resolve_shared_data_root() == (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR).resolve()
 
+    def test_a_given_config_is_used_without_loading_one(self, tmp_path, monkeypatch):
+        import osprey_connectors.workspace as workspace_module
+
+        def _no_load():
+            raise AssertionError("a caller holding a config must not trigger a load")
+
+        monkeypatch.setattr(workspace_module, "load_osprey_config", _no_load)
+        config = {"project_root": str(tmp_path), "agent_data": {"base_dir": "var/data"}}
+
+        assert resolve_shared_data_root(config) == (tmp_path / "var" / "data").resolve()
+
 
 class TestRepoRootForAgentData:
     """The anchor that turns an agent-data root back into the repo root."""

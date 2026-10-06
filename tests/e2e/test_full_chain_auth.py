@@ -172,6 +172,7 @@ import pytest
 import yaml
 
 from osprey.audit.protected import SURFACE_HTTP_CONFIG
+from osprey.deployment.web_terminals.provision import force_recreate_auth_sidecar
 from osprey.port_layout import DEFAULT_PORT_BASE, PORT_BASE_CONFIG_KEY, default_port
 from osprey.services.auth_sidecar.identity_headers import (
     ACCOUNT_HEADER,
@@ -179,7 +180,9 @@ from osprey.services.auth_sidecar.identity_headers import (
     ROLE_SOURCE_HEADER,
     SUBJECT_HEADER,
 )
+from osprey.services.auth_sidecar.revocation import REVOCATION_FILE_NAME
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME
+from osprey.utils.config import ConfigBuilder
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -746,7 +749,7 @@ def _profile_edits() -> dict[str, Any]:
             "container_runtime": RUNTIME,
             "facility.name": "E2E Full-Chain Auth Fixture",
             "facility.prefix": PREFIX,
-            "facility.timezone": "UTC",
+            "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             "deployed_services": [],
             "claude_code.telemetry.enabled": False,
@@ -1385,6 +1388,41 @@ def test_a_password_login_reaches_that_users_own_terminal(deployment: dict[str, 
     )
 
 
+@pytest.mark.usefixtures("deployment")
+def test_a_sign_in_without_a_card_reaches_that_users_own_terminal() -> None:
+    """The card-less entry through nginx: the form, then a redirect to the one card.
+
+    This roster shares no card, so a verified credential opens exactly the
+    person's own terminal, and the answer is a redirect there rather than a
+    list.
+    """
+    status, _, page = _request("/auth/enter", headers=_navigation())
+    assert status == 200, f"sign-in page not served (got {status})\n{page[:300]}"
+    assert 'name="username"' in page
+
+    client, jar = _browser()
+    body = urllib.parse.urlencode(
+        {"username": REAL_USER, "password": _PASSWORDS[REAL_USER]}
+    ).encode()
+    status, headers, page = _request(
+        "/auth/enter",
+        method="POST",
+        data=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": f"http://127.0.0.1:{HOST_PORTS['nginx']}",
+            **_navigation(),
+        },
+        opener=client,
+    )
+    assert status == LOGIN_ACCEPTED, (
+        f"sign-in for {REAL_USER!r} was not accepted (got {status})\n{page[:300]}\n{_logs(AUTH_C)}"
+    )
+    location = {name.lower(): value for name, value in headers.items()}.get("location")
+    assert location == f"/u/{REAL_USER}/"
+    assert SESSION_COOKIE_NAME in {cookie.name for cookie in jar}
+
+
 def test_the_upstream_receives_exactly_one_of_each_identity_header(
     deployment: dict[str, Any],
 ) -> None:
@@ -1816,6 +1854,66 @@ def test_no_record_carries_a_value_only_an_identifier(deployment: dict[str, Any]
     assert _PROTECTED_VALUE not in haystack, "a refused write's VALUE was recorded"
     for password in _PASSWORDS.values():
         assert password not in haystack, "a password reached the audit trail"
+
+
+def _replay(user: str, cookie: str) -> int:
+    """The status a bare request carrying only ``cookie`` gets at ``user``'s terminal."""
+    status, _, _ = _request(
+        f"/u/{user}/",
+        headers={"Cookie": f"{SESSION_COOKIE_NAME}={cookie}", "Accept": "application/json"},
+    )
+    return status
+
+
+def test_a_logged_out_cookie_stays_refused_after_the_login_service_is_recreated(
+    deployment: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cookie copied before a logout is refused by a recreated sidecar.
+
+    Recreates the sidecar, so it belongs after every test that reads the stack
+    as the fixture left it — pytest's definition order is what guarantees they
+    ran first. A recreate, not a restart: a restart keeps the container's
+    writable layer, so a revocation file written to the wrong place would still
+    pass. The container id changing is what proves the refusal came from the
+    file on the host's ``var/audit/sidecar`` bind.
+
+    The positive control keeps the refusal from being vacuous: a fresh login
+    for the same user after the recreate reaches her upstream.
+    """
+    repo = deployment["repo"]
+    client, jar, status, page = _login(NO_ROLE_USER)
+    assert status == LOGIN_ACCEPTED, (
+        f"login for {NO_ROLE_USER!r} was not accepted (got {status})\n{page[:300]}"
+    )
+    copied = next((c.value for c in jar if c.name == SESSION_COOKIE_NAME), None)
+    assert copied, f"login for {NO_ROLE_USER!r} issued no session cookie\n{_logs(AUTH_C)}"
+
+    status, _, body = _request(
+        f"/auth/logout?user={urllib.parse.quote(NO_ROLE_USER)}", opener=client
+    )
+    assert status == 303, f"logout answered {status}\n{body[:300]}\n{_logs(AUTH_C)}"
+    assert _replay(NO_ROLE_USER, copied) == 401, "the logged-out cookie was not refused"
+
+    before = _container_id(AUTH_C)
+    monkeypatch.setenv("CONTAINER_RUNTIME", RUNTIME)
+    config = ConfigBuilder(str(repo / "build" / "config.yml")).raw_config
+    force_recreate_auth_sidecar(config, repo_root=repo)
+    after = _container_id(AUTH_C)
+    assert before and after and before != after, (
+        f"the sidecar was not recreated (id {before!r} -> {after!r})\n{_logs(AUTH_C)}"
+    )
+
+    _wait_for_health(AUTH_READY_TIMEOUT_SEC)
+    _wait_for_gate(NO_ROLE_USER, AUTH_READY_TIMEOUT_SEC)
+    assert _replay(NO_ROLE_USER, copied) == 401, (
+        f"the recreated sidecar accepted a cookie logged out before it\n{_logs(AUTH_C)}"
+    )
+    assert (repo / AUDIT_RELPATH / SIDECAR_IDENTITY / REVOCATION_FILE_NAME).exists(), (
+        f"no revoked-session file under var/audit/{SIDECAR_IDENTITY}/ "
+        f"({_subdir_listing(repo, SIDECAR_IDENTITY)})"
+    )
+
+    _probe_report(NO_ROLE_USER, opener=_session_for(NO_ROLE_USER))
 
 
 # ---------------------------------------------------------------------------

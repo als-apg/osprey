@@ -482,3 +482,28 @@ def test_delete_run_records_leaves_unreadable_files(tmp_path):
 
     assert retention.delete_run_records(log_dir, _NOW) == []
     assert (log_dir / "corrupt.json").exists()
+
+
+def test_an_old_audit_spill_is_swept(tmp_path):
+    """Audit spills are hidden from listings but not from retention."""
+    store = ArtifactStore(workspace_root=tmp_path, auto_launch=False)
+    spill = store.save_or_touch_by_sha256(
+        "d" * 64,
+        origin="tool_call",
+        save_kwargs={
+            "file_content": b"\x89PNG audit",
+            "filename": "toolu_4-image-0.png",
+            "artifact_type": "image",
+            "title": "audit image",
+            "mime_type": "image/png",
+            "tool_source": "audit.tool_call",
+            "metadata": {"sha256": "d" * 64},
+        },
+    )
+    _set_artifact_age_days(store, spill.id, 30)
+    assert store.list_entries() == []
+
+    deleted = retention.sweep_artifacts(store, retention_days=5, now=_NOW)
+
+    assert deleted == 1
+    assert store.get_entry(spill.id) is None

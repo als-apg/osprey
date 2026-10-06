@@ -1207,14 +1207,16 @@ class TestThePerDeviceSweep:
         """Run the comparison, recording every width every address was driven by."""
         from osprey.services.mml.va import verify as module
 
-        sweep = module.orbit_response
+        sweep = module.orbit_responses
         seen: dict[str, list[float]] = {}
 
-        def recording(model, binding, delta, *, monitors):
-            seen.setdefault(binding.setpoint_address, []).append(delta)
-            return sweep(model, binding, delta, monitors=monitors)
+        def recording(model, sweeps, *, monitors):
+            sweeps = list(sweeps)
+            for binding, delta in sweeps:
+                seen.setdefault(binding.setpoint_address, []).append(delta)
+            return sweep(model, sweeps, monitors=monitors)
 
-        monkeypatch.setattr(module, "orbit_response", recording)
+        monkeypatch.setattr(module, "orbit_responses", recording)
         return _verify(inputs, response), seen
 
     @staticmethod
@@ -1265,6 +1267,42 @@ class TestThePerDeviceSweep:
             for device, width in zip((1, 2, 3, 4), (1.2e-05, 1e-05, 1e-05, 8e-06), strict=True)
         }
         assert _block(report, "BPMx", "HC").compared == 16
+
+    def test_the_report_is_byte_identical_to_one_sweep_per_device(
+        self, inputs: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Sweeping a family in one pass changes no bit of what is reported.
+
+        The reference drives the same devices through one sweep each, which
+        writes every corrector back in a solve of its own.
+        """
+        from osprey.services.mml.va import verify as module
+        from osprey.services.virtual_accelerator.lattice.response import orbit_response
+
+        response = self._stated(
+            copy.deepcopy(inputs["response"]), "HC", [1e-05, 2e-05, 3e-05, 4e-05]
+        )
+        together = _verify(inputs, copy.deepcopy(response))
+
+        def one_sweep_per_device(model, sweeps, *, monitors):
+            monitors = list(monitors)
+            results = []
+            for binding, delta in sweeps:
+                try:
+                    results.append(orbit_response(model, binding, delta, monitors=monitors))
+                except OrbitSolveError as exc:
+                    results.append(exc)
+            return results
+
+        monkeypatch.setattr(module, "orbit_responses", one_sweep_per_device)
+        apart = _verify(inputs, copy.deepcopy(response))
+
+        def bits(report: VerifyReport) -> list[str]:
+            return [entry.model_value.hex() for block in report.blocks for entry in block.entries]
+
+        assert bits(together)
+        assert bits(together) == bits(apart)
+        assert render_report(together, provenance="") == render_report(apart, provenance="")
 
     def test_a_width_per_device_changes_no_entry_of_a_linear_model(
         self, inputs: dict[str, Any], result: VerifyReport
@@ -1401,15 +1439,20 @@ class TestASweepThatLosesTheOrbit:
         """
         from osprey.services.mml.va import verify as module
 
-        swept = module.orbit_response
+        swept = module.orbit_responses
         refused = "QK:HC:2:CUR:SP"
 
-        def losing_the_orbit(model, binding, delta, *, monitors):
-            if binding.setpoint_address == refused:
-                raise OrbitSolveError("the +delta/2 arm has no stable closed orbit")
-            return swept(model, binding, delta, monitors=monitors)
+        def losing_the_orbit(model, sweeps, *, monitors):
+            sweeps = list(sweeps)
+            results = swept(model, sweeps, monitors=monitors)
+            return [
+                OrbitSolveError("the +delta/2 arm has no stable closed orbit")
+                if binding.setpoint_address == refused
+                else result
+                for (binding, _delta), result in zip(sweeps, results, strict=True)
+            ]
 
-        monkeypatch.setattr(module, "orbit_response", losing_the_orbit)
+        monkeypatch.setattr(module, "orbit_responses", losing_the_orbit)
 
         report = _verify(inputs)
 
@@ -1427,14 +1470,19 @@ class TestASweepThatLosesTheOrbit:
         """The verb's whole product is the report; a refused column is in it."""
         from osprey.services.mml.va import verify as module
 
-        swept = module.orbit_response
+        swept = module.orbit_responses
 
-        def losing_the_orbit(model, binding, delta, *, monitors):
-            if binding.setpoint_address == "QK:HC:2:CUR:SP":
-                raise OrbitSolveError("the +delta/2 arm has no stable closed orbit")
-            return swept(model, binding, delta, monitors=monitors)
+        def losing_the_orbit(model, sweeps, *, monitors):
+            sweeps = list(sweeps)
+            results = swept(model, sweeps, monitors=monitors)
+            return [
+                OrbitSolveError("the +delta/2 arm has no stable closed orbit")
+                if binding.setpoint_address == "QK:HC:2:CUR:SP"
+                else result
+                for (binding, _delta), result in zip(sweeps, results, strict=True)
+            ]
 
-        monkeypatch.setattr(module, "orbit_response", losing_the_orbit)
+        monkeypatch.setattr(module, "orbit_responses", losing_the_orbit)
         root = tmp_path / "lost-orbit"
         shutil.copytree(emitted, root)
 

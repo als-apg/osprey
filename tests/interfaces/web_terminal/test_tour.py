@@ -20,6 +20,7 @@ Covers:
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
@@ -27,22 +28,27 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
     DEFAULT_TOUR_POLICY,
-    TOUR_POLICIES,
     create_app,
     resolve_tour_policy,
 )
+from tests.interfaces.web_terminal._started_app import started_client
 
 
 class TestResolveTourPolicy:
     """Pure resolver: config/env value -> concrete invite policy."""
 
-    def test_valid_policies_pass_through(self):
-        for policy in TOUR_POLICIES:
-            assert resolve_tour_policy(policy) == policy
-
-    def test_default_is_once(self):
-        assert DEFAULT_TOUR_POLICY == "once"
-        assert DEFAULT_TOUR_POLICY in TOUR_POLICIES
+    @pytest.mark.parametrize(
+        ("configured", "expected"),
+        [
+            ("once", "once"),
+            ("always", "always"),
+            ("never", "never"),
+            ("", "once"),
+            (None, "once"),
+        ],
+    )
+    def test_resolves_to_a_policy(self, configured, expected):
+        assert resolve_tour_policy(configured) == expected
 
     def test_unknown_value_warns_and_falls_back_to_default(self, caplog):
         with caplog.at_level(logging.WARNING):
@@ -53,17 +59,6 @@ class TestResolveTourPolicy:
             "nonsense" in record.message and record.levelno == logging.WARNING
             for record in caplog.records
         ), "expected a WARNING mentioning the unknown value"
-
-    def test_empty_and_none_never_raise(self):
-        try:
-            assert resolve_tour_policy("") == DEFAULT_TOUR_POLICY
-            assert resolve_tour_policy(None) == DEFAULT_TOUR_POLICY
-        except Exception as exc:  # pragma: no cover - failure path
-            pytest.fail(f"resolve_tour_policy raised unexpectedly: {exc}")
-
-    def test_result_is_always_a_valid_policy(self):
-        for configured in ("once", "always", "never", "", "bogus", None):
-            assert resolve_tour_policy(configured) in TOUR_POLICIES
 
 
 # ---- API path: startup resolves web.tour / OSPREY_WEB_TOUR from config ----
@@ -76,68 +71,53 @@ def workspace_dir(tmp_path):
     return ws
 
 
-def _make_client(workspace_dir, config: dict):
-    """TestClient whose lifespan reads *config* through ``load_osprey_config``.
+def _tour_payload(workspace_dir, web: dict) -> dict:
+    with started_client(workspace_dir, web=web) as client:
+        return client.get("/api/panels").json()["tour"]
 
-    Mirrors test_ui_mode._make_client: the lifespan reads the top-level
-    sections through ``load_osprey_config`` (the same reader the panel
-    loaders use).
+
+@contextmanager
+def _started_over(workspace_dir, config: dict):
+    """Start the app with ``load_osprey_config`` answering *config* whole.
+
+    :func:`started_client` answers the ``web`` section only; the capability
+    check below needs a top-level section beside it.
     """
     with (
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
             return_value={"watch_dir": str(workspace_dir)},
         ),
-        patch(
-            "osprey.utils.workspace.load_osprey_config",
-            return_value=config,
-        ),
+        patch("osprey.utils.workspace.load_osprey_config", return_value=config),
     ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield c
-
-
-def _tour_payload(workspace_dir, config: dict) -> dict:
-    gen = _make_client(workspace_dir, config)
-    client = next(gen)
-    try:
-        return client.get("/api/panels").json()["tour"]
-    finally:
-        next(gen, None)
+        with TestClient(create_app(shell_command=["echo"])) as client:
+            yield client
 
 
 class TestPanelsPayloadTour:
-    def test_payload_carries_configured_policy(self, workspace_dir):
-        for policy in TOUR_POLICIES:
-            tour = _tour_payload(workspace_dir, {"web": {"tour": policy}})
-            assert tour["policy"] == policy
+    @pytest.mark.parametrize(
+        ("configured", "expected"),
+        [("once", "once"), ("always", "always"), ("never", "never"), ("nonsense", "once")],
+    )
+    def test_payload_carries_configured_policy(self, workspace_dir, configured, expected):
+        assert _tour_payload(workspace_dir, {"tour": configured})["policy"] == expected
 
     def test_missing_key_resolves_to_default(self, workspace_dir):
-        tour = _tour_payload(workspace_dir, {"web": {}})
-        assert tour["policy"] == DEFAULT_TOUR_POLICY
+        assert _tour_payload(workspace_dir, {})["policy"] == "once"
 
-    def test_unknown_policy_falls_back_to_default(self, workspace_dir):
-        tour = _tour_payload(workspace_dir, {"web": {"tour": "nonsense"}})
-        assert tour["policy"] == DEFAULT_TOUR_POLICY
-
-    def test_env_override_outranks_config(self, workspace_dir, monkeypatch):
+    @pytest.mark.parametrize(("env", "expected"), [("never", "never"), ("sometimes", "once")])
+    def test_env_override_outranks_config(self, workspace_dir, monkeypatch, env, expected):
         """OSPREY_WEB_TOUR (the per-user roster path) wins over web.tour."""
-        monkeypatch.setenv("OSPREY_WEB_TOUR", "never")
-        tour = _tour_payload(workspace_dir, {"web": {"tour": "always"}})
-        assert tour["policy"] == "never"
-
-    def test_unknown_env_value_falls_back_to_default(self, workspace_dir, monkeypatch):
-        monkeypatch.setenv("OSPREY_WEB_TOUR", "sometimes")
-        tour = _tour_payload(workspace_dir, {"web": {"tour": "always"}})
-        assert tour["policy"] == DEFAULT_TOUR_POLICY
+        monkeypatch.setenv("OSPREY_WEB_TOUR", env)
+        assert _tour_payload(workspace_dir, {"tour": "always"})["policy"] == expected
 
 
 class TestPanelsPayloadTourCapabilities:
     def test_baseline_capabilities_without_control_system(self, workspace_dir):
-        """No control_system, no ARIEL: the core executor lines only."""
-        tour = _tour_payload(workspace_dir, {"web": {}})
+        """No control_system, no ARIEL: the core executor lines, and no logbook."""
+        tour = _tour_payload(workspace_dir, {})
         assert tour["capabilities"] == ["run Python analysis", "make plots"]
+        assert tour["logbook"] is False
 
     def test_control_system_adds_no_read_line(self, workspace_dir):
         """A configured connector says nothing about what is behind it.
@@ -146,28 +126,16 @@ class TestPanelsPayloadTourCapabilities:
         never claims a reading capability; the browser derives that wording
         from the active control target's kind.
         """
-        tour = _tour_payload(workspace_dir, {"web": {}, "control_system": {"type": "mock"}})
+        config = {"web": {}, "control_system": {"type": "mock"}}
+        with _started_over(workspace_dir, config) as client:
+            tour = client.get("/api/panels").json()["tour"]
         assert tour["capabilities"] == ["run Python analysis", "make plots"]
 
     def test_ariel_panel_adds_the_logbook_line_last(self, workspace_dir):
-        tour = _tour_payload(
-            workspace_dir,
-            {"web": {"panels": {"ariel": True}}, "control_system": {"type": "mock"}},
-        )
+        tour = _tour_payload(workspace_dir, {"panels": {"ariel": True}})
         assert tour["capabilities"] == [
             "run Python analysis",
             "make plots",
             "search the logbook",
         ]
-
-
-class TestPanelsPayloadTourLogbook:
-    """``tour.logbook`` mirrors ARIEL panel availability as its own fact."""
-
-    def test_logbook_false_without_the_ariel_panel(self, workspace_dir):
-        tour = _tour_payload(workspace_dir, {"web": {}})
-        assert tour["logbook"] is False
-
-    def test_logbook_true_with_the_ariel_panel(self, workspace_dir):
-        tour = _tour_payload(workspace_dir, {"web": {"panels": {"ariel": True}}})
         assert tour["logbook"] is True

@@ -144,7 +144,9 @@ def test_channel_finder_web_publishes_the_port_before_building(monkeypatch):
     monkeypatch.setattr(channel_finder_cmd, "_setup_config", lambda project: None)
     monkeypatch.setattr("uvicorn.run", lambda *a, **k: None)
 
-    result = CliRunner().invoke(channel_finder_cmd.channel_finder, ["web", "--port", "8192"])
+    result = CliRunner().invoke(
+        channel_finder_cmd.channel_finder, ["web", "--host", "127.0.0.1", "--port", "8192"]
+    )
 
     assert result.exit_code == 0, result.output
     assert recorder.calls == 1
@@ -167,7 +169,9 @@ def test_channel_finder_login_url_is_printed_unwrapped(monkeypatch):
     monkeypatch.setattr("uvicorn.run", lambda *a, **k: None)
 
     with mock.patch.object(channel_finder_cmd, "output", wraps=channel_finder_cmd.output) as spy:
-        result = CliRunner().invoke(channel_finder_cmd.channel_finder, ["web", "--port", "8193"])
+        result = CliRunner().invoke(
+            channel_finder_cmd.channel_finder, ["web", "--host", "127.0.0.1", "--port", "8193"]
+        )
 
     assert result.exit_code == 0, result.output
     reported = [call.args[0] for call in spy.report.call_args_list]

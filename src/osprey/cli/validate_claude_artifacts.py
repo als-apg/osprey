@@ -30,6 +30,8 @@ from typing import Any
 
 import yaml
 
+from osprey.utils.tool_rules import matches_denylist
+
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
 
@@ -63,9 +65,9 @@ def validate_agent_tools_against_permissions(project_dir: Path) -> list[str]:
       - Each literal ``mcp__<server>__<tool>`` must appear in
         ``.claude/settings.json`` ``permissions.allow`` **or** ``permissions.ask``
         (the latter covers approval-gated tools, which are backed but prompt on
-        use), and must not appear as an exact-literal ``permissions.deny`` entry
-        (deny wins at runtime). A tool that is unbacked or explicitly denied is
-        reported.
+        use), and must not be matched by any ``permissions.deny`` entry,
+        literal or ``*`` namespace glob (deny wins at runtime). A tool that is
+        unbacked or explicitly denied is reported.
     """
     project_dir = Path(project_dir)
     settings_path = project_dir / ".claude" / "settings.json"
@@ -89,14 +91,11 @@ def validate_agent_tools_against_permissions(project_dir: Path) -> list[str]:
         for entry in permissions.get(key, [])
         if isinstance(entry, str)
     }
-    # deny wins at runtime, so a tool explicitly denied is not actually backed —
-    # remove exact-literal deny entries. Matching is string equality only; we do
-    # not expand wildcard deny patterns (e.g. ``mcp__plugin_playwright_*``), which
-    # never coincide with the explicit literals agents are required to declare.
-    deny_set: set[str] = {
+    # deny wins at runtime, including a namespace glob such as ``mcp__plugin_*``,
+    # so a tool any deny entry matches is not actually backed.
+    deny_entries: list[str] = [
         str(entry) for entry in permissions.get("deny", []) if isinstance(entry, str)
-    }
-    backed_set -= deny_set
+    ]
 
     errors: list[str] = []
     for md_file in sorted(agents_dir.glob("*.md")):
@@ -114,7 +113,7 @@ def validate_agent_tools_against_permissions(project_dir: Path) -> list[str]:
                     "list MCP tools explicitly so the lockdown is auditable"
                 )
                 continue
-            if entry not in backed_set:
+            if entry not in backed_set or matches_denylist(entry, deny_entries):
                 errors.append(
                     f"agent {agent_name}: tool '{entry}' not present in "
                     ".claude/settings.json permissions.allow or permissions.ask"

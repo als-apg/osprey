@@ -12,6 +12,7 @@
  */
 
 import { escapeHtml as esc } from '/design-system/js/dom.js';
+import { formatFacilityTime } from '/design-system/js/facility-time.js';
 
 /** Keys are the server names the transcript reader emits (the segment
  * between `mcp__` and the next `__`) — for framework servers, the registry
@@ -38,15 +39,18 @@ export function serverClass(name) {
 }
 
 /**
+ * The time of day of an ISO stamp, 24-hour with seconds, on the facility
+ * clock stamped on the page.
  * @param {string|null|undefined} isoStr
- * @returns {string}
+ * @returns {string} The time, or `''` for empty or unparseable input.
  */
 export function ts(isoStr) {
-  if (!isoStr) return '';
-  try {
-    const d = new Date(isoStr);
-    return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  } catch { return ''; }
+  return formatFacilityTime(isoStr, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
 }
 
 /**

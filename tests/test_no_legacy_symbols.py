@@ -4,17 +4,18 @@ Walks ``src/``, ``tests/``, and ``docs/`` (sources only) and asserts that none
 of the following substrings appear anywhere. Intentionally has no per-file
 exclusions — if a legitimate match shows up later, the rename surfaced it.
 
-Six rename generations are guarded: the ``prompts``-era rename; the
+Seven rename generations are guarded: the ``prompts``-era rename; the
 ``scan`` -> ``bluesky`` rename that generalized the Bluesky plan/run subsystem
 (a plan is an arbitrary generator, not only a scan); the
 ``motor``/``detector`` -> ``setpoint``/``readback`` rename that put the bridge
 in the control room's vocabulary; that same generalization carried through
 the *prose*, which the second generation renamed the symbols for and then left
 behind; the substrate-env -> devices-file move, which deleted the three
-passthrough variables and the helpers that produced and read them; and the
+passthrough variables and the helpers that produced and read them; the
 control-context rename, which made the control target and the write posture one
 record per *deployment* and retired every name that called that deployment-wide
-thing a session's. The genuine
+thing a session's; and the build-artifact catalog's move into the harness
+adapter. The genuine
 tokens that legitimately survive — the ``scan``/``grid_scan``
 *plan names*, their ``Scan*Params`` schemas, physics scan docs, the many
 unrelated senses of "scan" (a directory scan, a pattern scan, a CRT scanline),
@@ -116,28 +117,23 @@ LEGACY_SUBSTRINGS = (
     # thing a session's is retired. Nothing here was ever released, so the old
     # names are deleted rather than aliased.
     #
-    # The bare ``session_store`` and ``session_target`` substrings are
-    # deliberately NOT gated. ``web_auth.py``'s ``SessionStore`` is the
-    # browser's session store, a genuinely different thing, and
-    # ``test_posture_get_contract.py`` must spell ``session_target`` and
-    # ``session_target_label`` to assert the posture payload no longer answers
-    # them. Both would need the per-file exclusions this module refuses to have.
+    # The bare ``session_store`` substring is deliberately NOT gated:
+    # ``web_auth.py``'s ``SessionStore`` is the browser's session store, a
+    # genuinely different thing, and gating it would need the per-file
+    # exclusions this module refuses to have.
     "session_control_target",
     "osprey_connectors.session_store",
     "osprey_connectors/session_store",
     "_session_store_permits",
     "parse_store(",
     "test_session_store_parity",
-    "session_target_mismatch",
     "REASON_SESSION_TARGET_MISMATCH",
-    "resolve_session_target",
-    "test_resolve_session_target",
-    # Bare ``session_target`` cannot be gated (see above), so the two shapes it
-    # actually took are gated instead: the dataclass attribute read and the
-    # keyword argument. Between them they cover every site the rename touched
-    # except the payload key, which the contract test guards by name.
-    "situation.session_target",
-    "session_target=",
+    # The bare name covers every shape it took: the attribute, the keyword
+    # argument, the payload key, and the helpers and reasons built on it.
+    "session_target",
+    # build-artifact catalog moved inside the harness adapter
+    "services.build_artifacts",
+    "services/build_artifacts",
 )
 
 ROOTS = ("src", "tests", "docs/source")
@@ -160,8 +156,7 @@ SCAN_SUFFIXES = (
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 SELF_ALLOWLIST = {
     Path(__file__).resolve(),
-    (_REPO_ROOT / "tests/services/test_build_artifacts_imports.py").resolve(),
-    (_REPO_ROOT / "tests/interfaces/web_terminal/test_scaffold_routes_registration.py").resolve(),
+    (_REPO_ROOT / "tests/agent_runner/test_build_artifacts_imports.py").resolve(),
 }
 
 

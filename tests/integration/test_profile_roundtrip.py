@@ -267,12 +267,14 @@ def _apply_profile_edits(profile_dir: Path) -> None:
     config = raw.setdefault("config", {})
     config["modules.web_terminals.enabled"] = True
     config["modules.web_terminals.users"] = [ROSTER_USER]
-    # The two values a roster cannot be deployed without, and which `osprey
-    # build` therefore refuses a profile for: the container-name prefix
-    # (`<prefix>-web-<user>`) and the per-user web port family's base, which has
-    # no registry default because it is facility-chosen.
+    # The values a roster cannot be deployed without, and which `osprey build`
+    # therefore refuses a profile for: the container-name prefix
+    # (`<prefix>-web-<user>`), the per-user web port family's base, which has
+    # no registry default because it is facility-chosen, and the registry every
+    # terminal image is named under in registry mode.
     config["facility.prefix"] = "fac"
     config["modules.web_terminals.web_base_port"] = 20100
+    config["registry.url"] = "registry.example.org/demo"
     (profile_dir / "profile.yml").write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
 
     # Written as an operator would: the profile `.env` is a file they own.

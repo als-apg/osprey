@@ -372,7 +372,7 @@ def _reset_process_memos() -> None:
     """
     posture_store.invalidate_cache()
     control_context.invalidate_cache()
-    websocket_routes._reset_rendered_config_memo()
+    websocket_routes.reset_rendered_config_memo()
 
 
 #: A sweep in which every configured target answered. The switch gate refuses
@@ -915,7 +915,7 @@ def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
             expect(row.locator(".ctc-switch-state")).to_have_text("on")
             expect(row.locator(".ctc-toggle")).to_be_visible()
             expect(row.locator(".ctc-switch")).to_be_visible()
-            expect(page.locator(FOOT_NOTE)).to_have_text("Applies deployment-wide")
+            expect(page.locator(FOOT_NOTE)).to_have_text("Applies to every session of this login")
 
             # --- the machine vocabulary stays behind the ⓘ, in either density ---
             tip = row.locator(".ctc-tip").text_content()

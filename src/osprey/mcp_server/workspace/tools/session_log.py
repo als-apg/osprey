@@ -7,7 +7,7 @@ intermediate decisions were taken.
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastmcp.exceptions import ToolError
 
@@ -59,11 +59,17 @@ def _event_in_windows(event: dict, windows: list[tuple[str, str, str]]) -> bool:
 
 
 def _parse_iso_timestamp(value: str) -> datetime | None:
-    """Parse an ISO 8601 timestamp string, returning None on failure."""
+    """Parse an ISO 8601 timestamp into an aware datetime, or None.
+
+    A value without an offset is read as UTC, the zone the transcript is stamped in.
+    """
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
     except (ValueError, TypeError):
         return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def _build_agent_summary(events: list[dict]) -> list[dict]:
@@ -168,8 +174,9 @@ async def session_log(
         last_n: Return the last N events (default 50, max 200).
         errors_only: Only return tool_call events with is_error=true.
         event_type: Filter by event type: "tool_call", "agent_start", or "agent_stop".
-        since: ISO timestamp lower bound — exclude events before this time.
-        before: ISO timestamp upper bound — exclude events after this time.
+        since: ISO 8601 lower bound, inclusive. An offset (`-07:00`, `Z`) is honoured; a bound
+            without one is read as UTC, the zone the transcript is stamped in.
+        before: ISO 8601 upper bound, inclusive. Offsets are read as for `since`.
         list_agents: Return agent summary instead of events. Shows each agent with
             tool_count and error_count. Ignores tool/errors_only/event_type/last_n.
 
@@ -177,7 +184,7 @@ async def session_log(
         session_log(list_agents=True)                    — agent overview
         session_log(agent_id="agent-abc")                — specific agent's calls
         session_log(errors_only=True, last_n=10)         — recent errors
-        session_log(since="2026-02-19T12:00:00+00:00")   — events after noon
+        session_log(since="2026-02-19T12:00:00-07:00")   — events from noon at UTC-7
 
     Returns:
         JSON with events list and metadata, or agent summary when list_agents=True.
@@ -209,27 +216,29 @@ async def session_log(
     all_events = reader.read_current_session()  # already sorted by timestamp
 
     # Validate since/before format
-    if since and _parse_iso_timestamp(since) is None:
+    since_at = _parse_iso_timestamp(since) if since else None
+    before_at = _parse_iso_timestamp(before) if before else None
+    if since and since_at is None:
         return make_error(
             "validation_error",
             f"Invalid 'since' timestamp: {since!r}. Expected ISO 8601 format.",
         )
-    if before and _parse_iso_timestamp(before) is None:
+    if before and before_at is None:
         return make_error(
             "validation_error",
             f"Invalid 'before' timestamp: {before!r}. Expected ISO 8601 format.",
         )
 
-    # Apply since/before early to reduce working set
+    # Bounds and stamps compare as instants; an unparseable stamp is outside any window.
     if since or before:
         time_filtered: list[dict] = []
         for ev in all_events:
-            ts = ev.get("timestamp", "")
-            if not ts:
+            at = _parse_iso_timestamp(ev.get("timestamp", ""))
+            if at is None:
                 continue
-            if since and ts < since:
+            if since_at is not None and at < since_at:
                 continue
-            if before and ts > before:
+            if before_at is not None and at > before_at:
                 continue
             time_filtered.append(ev)
         all_events = time_filtered

@@ -1,0 +1,1 @@
+A built project's `memory-guard` `PreToolUse` matcher is `Write|NotebookEdit`, and the build's write-tool check lists `Bash`, `Edit`, `Write` and `NotebookEdit`: the Claude Code CLI no longer has a `MultiEdit` tool.

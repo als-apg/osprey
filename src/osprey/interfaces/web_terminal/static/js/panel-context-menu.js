@@ -151,14 +151,6 @@ function dismiss(restoreFocus) {
 }
 
 /**
- * Close the open context menu, if any, leaving focus where it is. Safe to
- * call when none is open.
- */
-export function closeContextMenu() {
-  dismiss(false);
-}
-
-/**
  * Open the context menu at a viewport position, replacing any open menu.
  *
  * All children are assembled via DOM APIs (never innerHTML) because labels can
@@ -257,9 +249,4 @@ export function openContextMenu(opts) {
     menu.querySelector('.rail-context-item:not([aria-disabled="true"])')
   );
   first?.focus();
-}
-
-/** @returns {boolean} whether a context menu is currently open (test hook). */
-export function isContextMenuOpen() {
-  return menuEl !== null;
 }

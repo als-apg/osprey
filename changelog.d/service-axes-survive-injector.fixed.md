@@ -1,0 +1,1 @@
+A `network:` or `http:` written for a service in the profile's `config:` block now reaches the build. Before, the build dropped it for any service it writes itself, including the chat bridges, so `services.teams_bridge.network: host` left the bridge on the compose network and the build refused the deployment.

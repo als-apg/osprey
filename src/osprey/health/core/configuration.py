@@ -342,22 +342,57 @@ def _check_environment_variables(config: dict[str, Any]) -> list[CheckResult]:
 
 
 def _check_timezone(config: dict[str, Any]) -> CheckResult:
-    """Check if timezone is configured (not left as the UTC default)."""
-    from osprey.utils.config import resolve_env_vars
+    """Grade ``system.timezone``.
 
-    tz_raw = config.get("system", {}).get("timezone", "UTC")
+    UTC, set or defaulted, is information: a legal and reproducible choice
+    that ``osprey build`` already reminds about. A value no reader can open —
+    a name missing from the IANA time zone database, spelled exactly, or a
+    reference to an unset variable — is an error, because every reader then
+    falls back to UTC while the agent is told otherwise.
+    """
+    from osprey.utils.config import resolve_env_vars
+    from osprey.utils.facility import (
+        DEFAULT_FACILITY_ZONE,
+        SET_FACILITY_ZONE,
+        closest_zone_name,
+        is_zone_name,
+    )
+
+    tz_raw = (config.get("system") or {}).get("timezone", DEFAULT_FACILITY_ZONE)
     tz = resolve_env_vars(tz_raw) if isinstance(tz_raw, str) else tz_raw
-    if tz == "UTC":
+    if isinstance(tz, str) and "$" in tz:
         return CheckResult(
             name="timezone",
             category=_CATEGORY,
-            status=Status.WARNING,
-            message="Timezone is UTC (default)",
+            status=Status.ERROR,
+            message=f"Timezone {tz!r} names an unset variable",
             details=(
-                "Set system.timezone under `config:` in profile.yml to your "
-                "facility timezone (e.g., America/New_York, Europe/Berlin) "
-                "and run `osprey build`."
+                "Readers fall back to UTC. Set the variable in the repository's .env, "
+                "or set system.timezone to a zone name under `config:` in profile.yml."
             ),
+        )
+    if not isinstance(tz, str) or not tz or not is_zone_name(tz):
+        message = f"Timezone {tz!r} names no time zone"
+        hint = closest_zone_name(tz) if isinstance(tz, str) else None
+        if hint is not None:
+            message += f"; did you mean {hint!r}?"
+        return CheckResult(
+            name="timezone",
+            category=_CATEGORY,
+            status=Status.ERROR,
+            message=message,
+            details=(
+                f"Readers fall back to UTC. {SET_FACILITY_ZONE} "
+                "Zone names are case-sensitive. Then run `osprey build`."
+            ),
+        )
+    if tz == DEFAULT_FACILITY_ZONE:
+        return CheckResult(
+            name="timezone",
+            category=_CATEGORY,
+            status=Status.OK,
+            message="Timezone: UTC",
+            details=f"{SET_FACILITY_ZONE} Then run `osprey build`.",
         )
     return CheckResult(
         name="timezone",

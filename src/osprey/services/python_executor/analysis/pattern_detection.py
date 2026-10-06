@@ -51,8 +51,9 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
     Security Note:
         This is best-effort TEXT MATCHING, not a list of what OSPREY can
         enforce. It names the spellings the framework happens to know -
-        osprey.runtime, pyepics (Channel Access), p4p (PVAccess), PyTango,
-        doocs4py and LabVIEW bindings - and a library or an idiom outside that
+        osprey.runtime, pyepics (Channel Access), p4p (PVAccess), pvaPy
+        (``pvaccess``, Channel Access and PVAccess), PyTango, doocs4py and
+        LabVIEW bindings - and a library or an idiom outside that
         list is simply not detected. Extend it with facility-specific
         spellings under control_system.patterns in config.yml. The layers that
         do NOT depend on spelling are the ones to rely on: the readonly
@@ -88,6 +89,26 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
             r"\bp4p\b[\s\S]*?\.post\s*\(",  # p4p.server SharedPV.post(value)
             r"\.rpc\s*\(",  # ctxt.rpc(request) - a PVA RPC call can write
             r"\bSharedPV\b",  # serving a PV puts values on the wire
+            # ============================================================
+            # CIRCUMVENTION DETECTION: PVAccess / Channel Access (pvaPy library)
+            # ============================================================
+            # The generic r"\.put\s*\(" above catches a plain Channel.put()
+            # only; pvaPy also spells one typed setter per scalar kind
+            # (putDouble, putScalarArray, ...), putGet, asyncPut,
+            # parsePut/parsePutGet and MultiChannel.putAsDoubleArray. These are
+            # NOT anchored to pvaccess, as RpcClient below is not: an import
+            # built at runtime - importlib.import_module("pva" + "ccess") -
+            # never writes that token. The setters are named rather than
+            # matched as any camelCase put, which would also flag OpenCV's
+            # putText; the runtime guards sweep the whole family whatever the
+            # regex sees.
+            r"\.put(?:Get|Boolean|Byte|Double|Float|Int|Long|Short|String|ScalarArray"  # ch.putDouble(1.0)
+            r"|UByte|UInt|ULong|UShort|AsDoubleArray)\w*\s*\(",  # mc.putAsDoubleArray(...)
+            r"\.asyncPut\s*\(",  # ch.asyncPut(pv, cb, err)
+            r"\.parsePut\w*\s*\(",  # ch.parsePut([...]), ch.parsePutGet([...])
+            r"\bRpcClient\s*\(",  # pvaccess.RpcClient('SVC') - a PVA RPC call can write
+            r"\bpvaccess\b[\s\S]*?\.invoke\s*\(",  # RpcClient(...).invoke(request)
+            r"\b(?:PvaServer|PvaMirrorServer|RpcServer|CaIoc)\b",  # serving PVs, like SharedPV
             # ============================================================
             # CIRCUMVENTION DETECTION: Tango (PyTango library)
             # ============================================================
@@ -138,6 +159,18 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
             r"\bp4p\b[\s\S]*?\.get\s*\(",  # p4p.client.thread Context.get('PV')
             r"\bp4p\b[\s\S]*?\.monitor\s*\(",  # p4p Context.monitor('PV', cb)
             r"\bContext\s*\(",  # Context('pva') - p4p client context creation
+            # ============================================================
+            # CIRCUMVENTION DETECTION: PVAccess / Channel Access (pvaPy library)
+            # ============================================================
+            # Anchored to pvaccess. The generic r"\.get\s*\(" already matches
+            # Channel.get(); these name the library in detected_patterns, as
+            # the p4p entries do, and add the reads nothing else covers - the
+            # monitor family (monitor, subscribe, startMonitor, qMonitor, ...),
+            # asyncGet/getPut/getAsDoubleArray, and Channel/MultiChannel
+            # creation, which opens a connection but puts nothing on the wire.
+            r"\bpvaccess\b[\s\S]*?\.(?:get|asyncGet|getPut|getAsDoubleArray)\s*\(",
+            r"\bpvaccess\b[\s\S]*?\.(?:monitor|monitorAsDoubleArray|qMonitor|subscribe|startMonitor)\s*\(",
+            r"\bpvaccess\b[\s\S]*?\b(?:Multi)?Channel\s*\(",  # Channel('PV', pvaccess.CA)
             # ============================================================
             # CIRCUMVENTION DETECTION: Tango (PyTango library)
             # ============================================================

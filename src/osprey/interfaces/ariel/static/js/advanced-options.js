@@ -56,6 +56,7 @@ import { escapeHtml } from '/design-system/js/dom.js';
  * on a healthy panel and present only when the backend reports a degraded
  * configuration: `configuration_invalid` means search is dead (the search form
  * is blocked), `configuration_warning` means search still works.
+ * `facility_timezone` is the IANA zone the entry timestamps are rendered in.
  * @typedef {Object} Capabilities
  * @property {Object<string, AdvancedCategory>} categories
  * @property {AdvancedParam[]} [shared_parameters]
@@ -65,6 +66,7 @@ import { escapeHtml } from '/design-system/js/dom.js';
  * @property {string|null} [remedy]
  * @property {VocabularyCapability} [vocabulary]
  * @property {boolean} [config_panel_enabled]
+ * @property {string} [facility_timezone]
  */
 
 // --- State ---

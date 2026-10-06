@@ -41,6 +41,7 @@ RENDERED_CONFIG = textwrap.dedent(
     facility:
       name: Demo Light Source
       prefix: dls
+    system:
       timezone: UTC
     llm:
       provider: cborg

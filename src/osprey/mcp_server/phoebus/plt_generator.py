@@ -24,7 +24,7 @@ import logging
 import os
 import re
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 
 from osprey.utils.config import get_facility_timezone
@@ -62,12 +62,37 @@ def sanitize_xml_text(text: str) -> str:
     return text
 
 
+def _plt_time(value: str | datetime, zone: tzinfo, fraction: str) -> str:
+    """Format a time for a ``.plt`` file as facility wall-clock.
+
+    The ``.plt`` format carries no offset, so a ``datetime`` is written as wall-clock in
+    ``zone``: an aware value is converted to it, and a naive value is already facility-local.
+    A string is Phoebus's own time grammar and passes through unchanged.
+
+    Args:
+        value: Time to format.
+        zone: Facility time zone.
+        fraction: Millisecond digits appended after the seconds.
+
+    Returns:
+        The time text to write into the ``.plt`` file.
+    """
+    if not isinstance(value, datetime):
+        return str(value)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=zone)
+    return value.astimezone(zone).strftime(f"%Y-%m-%d %H:%M:%S.{fraction}")
+
+
 def create_plt_from_config(
     plot_config: PlotConfig,
     workspace_dir: Path,
     archiver_url: str | None = None,
 ) -> str:
     """Generate a PLT file from a PlotConfig and return the file path.
+
+    Times are written as facility wall-clock: aware values are converted, naive values are
+    read as facility-local, and strings are written verbatim.
 
     Args:
         plot_config: Plot configuration to render.
@@ -82,8 +107,9 @@ def create_plt_from_config(
         Absolute path to the created .plt file.
     """
     os.makedirs(workspace_dir, exist_ok=True)
+    zone = get_facility_timezone()
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(zone).strftime("%Y%m%d_%H%M%S")
     temp_fd, temp_path = tempfile.mkstemp(
         suffix=".plt",
         prefix=f"{timestamp}_phoebus_databrowser_",
@@ -92,17 +118,10 @@ def create_plt_from_config(
 
     # Format time range
     if plot_config.time_range:
-        if isinstance(plot_config.time_range.start, datetime):
-            start_str = plot_config.time_range.start.strftime("%Y-%m-%d %H:%M:%S.000")
-        else:
-            start_str = str(plot_config.time_range.start)
-
-        if isinstance(plot_config.time_range.end, datetime):
-            end_str = plot_config.time_range.end.strftime("%Y-%m-%d %H:%M:%S.999")
-        else:
-            end_str = str(plot_config.time_range.end)
+        start_str = _plt_time(plot_config.time_range.start, zone, "000")
+        end_str = _plt_time(plot_config.time_range.end, zone, "999")
     else:
-        end_time = datetime.now(get_facility_timezone())
+        end_time = datetime.now(zone)
         start_time = end_time - timedelta(hours=24)
         start_str = start_time.strftime("%Y-%m-%d %H:%M:%S.000")
         end_str = end_time.strftime("%Y-%m-%d %H:%M:%S.999")
@@ -208,10 +227,7 @@ def create_plt_from_config(
   <annotations>"""
 
         for annotation in plot_config.annotations:
-            if isinstance(annotation.time_position, datetime):
-                time_str = annotation.time_position.strftime("%Y-%m-%d %H:%M:%S.000")
-            else:
-                time_str = str(annotation.time_position)
+            time_str = _plt_time(annotation.time_position, zone, "000")
 
             xml_content += f"""
     <annotation>

@@ -46,16 +46,15 @@ def _shell_command_for(project, monkeypatch, shell) -> list[str]:
         return list(app.state.shell_command)
 
 
-def test_string_shell_keeps_its_arguments(project, monkeypatch):
-    assert _shell_command_for(project, monkeypatch, "harness --profile ops") == [
-        "/abs/harness",
-        "--profile",
-        "ops",
-    ]
-
-
-def test_list_shell_keeps_its_arguments(project, monkeypatch):
-    assert _shell_command_for(project, monkeypatch, ["harness", "--profile", "ops"]) == [
+@pytest.mark.parametrize(
+    "shell",
+    [
+        pytest.param("harness --profile ops", id="string"),
+        pytest.param(["harness", "--profile", "ops"], id="list"),
+    ],
+)
+def test_shell_keeps_its_arguments(project, monkeypatch, shell):
+    assert _shell_command_for(project, monkeypatch, shell) == [
         "/abs/harness",
         "--profile",
         "ops",

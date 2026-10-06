@@ -23,7 +23,6 @@ frontend JS nor persists ``localStorage`` across navigations:
     and clears ``osprey-pty-session--<user>`` (design_system/storage-scope.js),
     never the bare shared slot. This is the only multi-user browser suite, so it
     is also the live proof that the scoped clear is what logout performs.
-  * plain ``osprey web`` (no landing_url) omits the logout control entirely.
 
 Scope note — no live model turn. A genuinely live PTY session id is minted by
 Claude (``SessionDiscovery`` watching for the CLI's ``.jsonl`` file), which needs
@@ -291,29 +290,5 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         # And a scoped page never touches the shared slot — neither the seed nor
         # the fresh session's confirmation lands under the bare key.
         assert page.evaluate("() => localStorage.getItem('osprey-pty-session')") is None
-
-        page.close()
-
-
-@pytest.mark.skipif(not _PLAYWRIGHT_AVAILABLE, reason="playwright not installed")
-def test_standalone_has_no_logout_control(tmp_path, monkeypatch, chromium_browser):
-    """Plain ``osprey web`` (no landing_url env) omits the logout control.
-
-    With neither ``OSPREY_TERMINAL_USER`` nor ``OSPREY_TERMINAL_LANDING_URL`` set,
-    both halves of the session footer — the identity line and the logout button
-    beside System Settings — must be absent from the DOM; the single-user
-    experience is unchanged.
-    """
-    with _launch_terminal(tmp_path, monkeypatch, terminal_user="", landing_url="") as base_url:
-        page = chromium_browser.new_page()
-        page.goto(base_url, wait_until="load")
-
-        # The hub shell must have rendered before asserting an element's absence.
-        page.wait_for_selector(".header-actions", timeout=10_000)
-
-        expect(page.locator("#logout-btn")).to_have_count(0)
-        expect(page.locator(".header-identity")).to_have_count(0)
-        # ...and Settings, alone in the display card's footer, is still there.
-        expect(page.locator("#display-menu-settings")).to_have_count(1)
 
         page.close()

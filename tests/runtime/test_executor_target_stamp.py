@@ -175,8 +175,8 @@ CONTROL_SYSTEM_SECTION = {
     "type": "mock",
     "connector": {
         "mock": {"response_delay_ms": 0},
-        "epics": {"timeout": 1.0},
-        "virtual_accelerator": {"timeout": 9.0},
+        "epics": {"timeout_s": 1.0},
+        "virtual_accelerator": {"timeout_s": 9.0},
     },
 }
 
@@ -775,7 +775,7 @@ class TestSandboxRouting:
 
         # 9.0 is the VA block's timeout: reaching it proves the factory read
         # control_system.connector.virtual_accelerator and not the mock block.
-        assert _FakeConnector.last_config == {"timeout": 9.0}
+        assert _FakeConnector.last_config == {"timeout_s": 9.0}
 
     @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
     def test_live_stamp_builds_the_deployments_real_machine_block(self, monkeypatch):
@@ -785,7 +785,7 @@ class TestSandboxRouting:
 
         asyncio.run(runtime._get_connector())
 
-        assert _FakeConnector.last_config == {"timeout": 1.0}
+        assert _FakeConnector.last_config == {"timeout_s": 1.0}
 
     @pytest.mark.usefixtures("clear_stamp", "fake_registry", "clear_runtime_state")
     def test_unstamped_resolution_is_unchanged(self):
@@ -860,7 +860,7 @@ class TestConnectorRebuild:
         assert second is not first
         assert _FakeConnector.disconnected == [first]
         # 1.0 is the real machine's block; 9.0 would be the VA's.
-        assert _FakeConnector.last_config == {"timeout": 1.0}
+        assert _FakeConnector.last_config == {"timeout_s": 1.0}
 
     @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
     def test_a_moved_generation_alone_rebuilds_too(self, monkeypatch):

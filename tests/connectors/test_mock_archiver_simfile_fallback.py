@@ -9,7 +9,7 @@ it.
 
 So ``archiver.mock_archiver.simulation_file`` is optional: unset, it is
 resolved from the control-system side through the same
-:func:`osprey.simulation.apply.resolve_simulation_file` the ``sim`` CLI uses
+:func:`osprey_connectors.simulation.engine.resolve_simulation_file` the ``sim`` CLI uses
 (type-aware, so a virtual-accelerator project resolves its own key). An explicit
 archiver-side value still wins — pointing the archiver at a different model is
 legitimate — but the divergence is logged at WARNING.

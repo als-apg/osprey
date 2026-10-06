@@ -229,3 +229,30 @@ class NoComposeFilesError(DeploymentPreconditionError):
     """
 
     summary = "No rendered compose files to read"
+
+
+class RemovalIncompleteError(DeploymentError):
+    """A destructive verb finished, but the runtime kept resources it had to remove.
+
+    The verb raising this attempted every removal on its plan and finished its
+    other steps first, so the error means exactly this: the named resources are
+    still on the host, and nothing else the verb set out to do is left undone.
+    A removal that failed only because the resource was already gone is not
+    here; it counts as removed.
+
+    The verb has already printed the named resources with the runtime's reasons,
+    so a caller that renders this error again prints them twice.
+
+    Args:
+        left: ``(subject, reason)`` pairs, in the order the verb attempted them.
+            The subject is spelled ``volume '<name>'`` or ``image '<tag>'``, and
+            the reason is the runtime's own stderr, or ``exit N`` when it was
+            empty.
+    """
+
+    def __init__(self, left: Sequence[tuple[str, str]]) -> None:
+        self.left = tuple(left)
+        super().__init__(
+            f"{len(self.left)} resource(s) could not be removed: "
+            + "; ".join(f"{subject}: {reason}" for subject, reason in self.left)
+        )

@@ -257,7 +257,7 @@ def test_persona_profiles_are_deltas_and_keep_their_posture(
     assert postures == {
         "admin": (False, True),
         "knowledge": (False, False),
-        "logbook": (False, None),
+        "logbook": (False, False),
         "readonly": (False, False),
         "readwrite": (False, True),
     }

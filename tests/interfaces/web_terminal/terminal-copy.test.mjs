@@ -220,21 +220,12 @@ describe("the terminal's own selection (modifier-drag)", () => {
 });
 
 describe('copying a selection', () => {
-  test('Ctrl+Shift+C copies the selection and is swallowed, never reaching the agent', () => {
+  test.each([['C'], ['c']])('Ctrl+Shift+C (key reading %s) copies the selection and is swallowed, never reaching the agent', (key) => {
     term().selection = 'SR:BPM:01:X  1.234 mm';
 
-    const outcome = handler()(keyEvent({ key: 'C', ctrlKey: true, shiftKey: true }));
+    const outcome = handler()(keyEvent({ key, ctrlKey: true, shiftKey: true }));
 
     expect(writeText).toHaveBeenCalledWith('SR:BPM:01:X  1.234 mm');
-    expect(outcome).toBe(false);
-  });
-
-  test('Ctrl+Shift+C with a lowercase key reading is the same chord', () => {
-    term().selection = 'text';
-
-    const outcome = handler()(keyEvent({ key: 'c', ctrlKey: true, shiftKey: true }));
-
-    expect(writeText).toHaveBeenCalledWith('text');
     expect(outcome).toBe(false);
   });
 
@@ -245,37 +236,21 @@ describe('copying a selection', () => {
     expect(outcome).toBe(false);
   });
 
-  test('plain Ctrl+C keeps interrupting the agent even with a selection', () => {
+  // Plain Ctrl+C must keep interrupting the agent, Cmd+C is the browser's own
+  // copy, and only a keydown is acted on: every one of these reaches xterm
+  // untouched even with a selection on screen.
+  test.each([
+    ['plain Ctrl+C', { key: 'c', ctrlKey: true }],
+    ['Cmd+C', { key: 'c', metaKey: true }],
+    ['the keyup of Ctrl+Shift+C', { type: 'keyup', key: 'C', ctrlKey: true, shiftKey: true }],
+    ['a', { key: 'a' }],
+    ['Enter', { key: 'Enter' }],
+    ['Shift+C', { key: 'c', shiftKey: true }],
+    ['Ctrl+Shift+V', { key: 'v', ctrlKey: true, shiftKey: true }],
+  ])('%s passes through to the agent', (_name, init) => {
     term().selection = 'text';
 
-    const outcome = handler()(keyEvent({ key: 'c', ctrlKey: true }));
-
-    expect(writeText).not.toHaveBeenCalled();
-    expect(outcome).toBe(true);
-  });
-
-  test('Cmd+C is left to the browser, which copies the selection natively', () => {
-    term().selection = 'text';
-
-    const outcome = handler()(keyEvent({ key: 'c', metaKey: true }));
-
-    expect(writeText).not.toHaveBeenCalled();
-    expect(outcome).toBe(true);
-  });
-
-  test('only keydown is acted on — the keyup of the same chord passes through', () => {
-    term().selection = 'text';
-
-    const outcome = handler()(keyEvent({ type: 'keyup', key: 'C', ctrlKey: true, shiftKey: true }));
-
-    expect(writeText).not.toHaveBeenCalled();
-    expect(outcome).toBe(true);
-  });
-
-  test('every other key passes through untouched', () => {
-    for (const init of [{ key: 'a' }, { key: 'Enter' }, { key: 'c', shiftKey: true }, { key: 'v', ctrlKey: true, shiftKey: true }]) {
-      expect(handler()(keyEvent(init))).toBe(true);
-    }
+    expect(handler()(keyEvent(init))).toBe(true);
     expect(writeText).not.toHaveBeenCalled();
   });
 });

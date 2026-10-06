@@ -52,7 +52,7 @@ import pytest
 from osprey.cli.web_cmd import DECLARED_BIND_ENV, resolve_bind_host
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
 
-pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke]
+pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 _READY_TIMEOUT = 15.0
 _OFFHOST_CONNECT_TIMEOUT = 2.0
@@ -228,12 +228,15 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
             pass  # connection succeeding is the assertion
 
         # -- 2. Guarded off-host probe: the discriminating assertion. --------
+        # Refused, not merely unreachable: nothing is bound on that interface.
+        # A timeout would mean something dropped the packet, which says nothing
+        # about the bind.
         lan_ips = _routable_ipv4_addresses()
         if not lan_ips:
             pytest.skip("no non-loopback interface available for off-host probe")
 
         lan_ip = lan_ips[0]
-        with pytest.raises(OSError):
+        with pytest.raises(ConnectionRefusedError):
             with socket.create_connection((lan_ip, free_port), timeout=_OFFHOST_CONNECT_TIMEOUT):
                 pass  # pragma: no cover - reaching here IS the regression
     finally:

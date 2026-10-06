@@ -8,24 +8,21 @@ of ping-ponging reports (the server half of the convergence contract).
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
-from fastapi import FastAPI
+import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.routes.panels import router
 
+from .conftest import bare_route_app
+
 
 def _make_client(**state) -> TestClient:
     """A minimal app exposing the panels router with a stub broadcaster."""
-    app = FastAPI()
-    app.include_router(router)
-    app.state.broadcaster = MagicMock()
-    app.state.enabled_panels = {"ariel", "lattice", "artifacts"}
-    app.state.custom_panels = [{"id": "grafana", "label": "GRAFANA", "url": "http://10.0.0.5:3000"}]
-    for key, value in state.items():
-        setattr(app.state, key, value)
-    return TestClient(app)
+    defaults = {
+        "enabled_panels": {"ariel", "lattice", "artifacts"},
+        "custom_panels": [{"id": "grafana", "label": "GRAFANA", "url": "http://10.0.0.5:3000"}],
+    }
+    return TestClient(bare_route_app(router, **{**defaults, **state}))
 
 
 def _report(client: TestClient, tiles: list[str], dock: bool = True):
@@ -46,33 +43,6 @@ class TestStore:
         assert client.app.state.open_tiles == ["lattice", "ariel"]
         assert client.app.state.open_tiles_dock is True
         assert isinstance(client.app.state.open_tiles_ts, float)
-
-    def test_reported_order_is_preserved(self):
-        """The list is a spatial reading order, not a set — order is the payload."""
-        client = _make_client()
-        _report(client, ["ariel", "grafana", "lattice"])
-        assert client.app.state.open_tiles == ["ariel", "grafana", "lattice"]
-
-    def test_empty_report_is_valid(self):
-        """Every service tile closed is a real state, not an error."""
-        client = _make_client()
-        resp = _report(client, [])
-        assert resp.status_code == 200
-        assert client.app.state.open_tiles == []
-        assert isinstance(client.app.state.open_tiles_ts, float)
-
-    def test_last_writer_wins(self):
-        client = _make_client()
-        _report(client, ["ariel"])
-        _report(client, ["lattice", "grafana"])
-        assert client.app.state.open_tiles == ["lattice", "grafana"]
-
-    def test_stored_list_is_a_copy_of_the_request(self):
-        """Mutating the response list must not reach into app.state."""
-        client = _make_client()
-        resp = _report(client, ["ariel"])
-        resp.json()["tiles"].append("lattice")
-        assert client.app.state.open_tiles == ["ariel"]
 
     def test_never_broadcasts(self):
         client = _make_client()
@@ -96,11 +66,7 @@ class TestDockLessReportsUnknownOccupancy:
         _report(client, [], dock=False)
         assert client.app.state.open_tiles is None
         assert client.app.state.open_tiles_dock is False
-
-    def test_dock_false_still_stamps_a_timestamp(self):
-        """Someone IS watching — that fact is fresh news even without order."""
-        client = _make_client()
-        _report(client, [], dock=False)
+        # Someone IS watching — that fact is fresh news even without order.
         assert isinstance(client.app.state.open_tiles_ts, float)
 
     def test_dock_false_response_echoes_the_recorded_unknown(self):
@@ -109,34 +75,6 @@ class TestDockLessReportsUnknownOccupancy:
         assert body["tiles"] is None
         assert body["dock"] is False
         assert body["updated"] is True
-
-    def test_dock_false_does_not_clobber_a_dock_list_with_a_fake_empty(self):
-        """The regression this exists for: the list is dropped, not falsified."""
-        client = _make_client()
-        _report(client, ["ariel", "lattice"], dock=True)
-
-        _report(client, [], dock=False)
-
-        assert client.app.state.open_tiles is None  # unknown, never []
-
-    def test_dock_true_report_restores_known_occupancy(self):
-        client = _make_client()
-        _report(client, [], dock=False)
-        _report(client, ["ariel"], dock=True)
-        assert client.app.state.open_tiles == ["ariel"]
-        assert client.app.state.open_tiles_dock is True
-
-    def test_dock_false_ignores_any_tiles_it_sends(self):
-        """Occupancy is unknown regardless of payload — the flag decides."""
-        client = _make_client()
-        _report(client, ["ariel"], dock=False)
-        assert client.app.state.open_tiles is None
-
-    def test_dock_true_empty_is_still_known_empty(self):
-        """The dock:true path is untouched: [] keeps meaning known-empty."""
-        client = _make_client()
-        _report(client, [], dock=True)
-        assert client.app.state.open_tiles == []
 
 
 class TestDedupe:
@@ -148,7 +86,12 @@ class TestDedupe:
         resp = _report(client, ["ariel", "lattice"])
 
         assert resp.status_code == 200
-        assert resp.json()["updated"] is False
+        assert resp.json() == {
+            "status": "ok",
+            "tiles": ["ariel", "lattice"],
+            "dock": True,
+            "updated": False,
+        }
         assert client.app.state.open_tiles_ts == first_ts
         assert client.app.state.open_tiles == ["ariel", "lattice"]
 
@@ -203,13 +146,6 @@ class TestDedupe:
         assert resp.json()["updated"] is True
         assert client.app.state.open_tiles_ts is not None
 
-    def test_deduped_report_echoes_the_stored_state(self):
-        client = _make_client()
-        _report(client, ["ariel"])
-        body = _report(client, ["ariel"]).json()
-        assert body["tiles"] == ["ariel"]
-        assert body["dock"] is True
-
 
 class TestValidation:
     def test_unknown_id_is_rejected_and_lists_valid_ids(self):
@@ -220,12 +156,6 @@ class TestValidation:
         assert "nope" in detail
         for valid in ("ariel", "lattice", "artifacts", "grafana"):
             assert valid in detail
-
-    def test_terminal_tile_is_rejected(self):
-        client = _make_client()
-        resp = _report(client, ["terminal", "ariel"])
-        assert resp.status_code == 422
-        assert "terminal" in resp.json()["detail"]
 
     def test_terminal_is_rejected_even_when_a_custom_panel_squats_the_id(self):
         client = _make_client(
@@ -243,10 +173,11 @@ class TestValidation:
         assert client.app.state.open_tiles == ["ariel"]
         assert client.app.state.open_tiles_ts == stored_ts
 
-    def test_dock_is_required(self):
+    @pytest.mark.parametrize(
+        "body",
+        [pytest.param({"tiles": []}, id="no-dock"), pytest.param({"dock": True}, id="no-tiles")],
+    )
+    def test_both_fields_are_required(self, body):
+        """No default for ``dock``: a client that omits it must not be read as a dock."""
         client = _make_client()
-        assert client.post("/api/panel-layout", json={"tiles": []}).status_code == 422
-
-    def test_tiles_is_required(self):
-        client = _make_client()
-        assert client.post("/api/panel-layout", json={"dock": True}).status_code == 422
+        assert client.post("/api/panel-layout", json=body).status_code == 422

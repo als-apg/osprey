@@ -315,3 +315,206 @@ def test_placeholder_count_equals_param_count(
     sql, params = build_expanded_tsquery(parsed(search_text, *phrases), expansion(*groups))
 
     assert sql.count("%s") == len(params)
+
+
+# --- Frozen V1 expressions, FTS_CONFIG and the V2 query-side constants -------
+
+B1_RAW_TEXT_FTS_EXPRESSION = "to_tsvector('english', raw_text)"
+B1_SEMANTIC_FTS_EXPRESSION = (
+    "to_tsvector('english', raw_text || ' ' || COALESCE(summary, '') || ' ' || "
+    "COALESCE(osprey_text_array_to_string(keywords), ''))"
+)
+
+
+def test_v1_frozen_constants_are_byte_identical_to_b1():
+    """An old migration must never see a changed expression, or it rebuilds an index."""
+    from osprey.services.ariel_search.database import search_fts
+
+    assert search_fts.RAW_TEXT_FTS_EXPRESSION_V1_FROZEN == B1_RAW_TEXT_FTS_EXPRESSION
+    assert search_fts.SEMANTIC_FTS_EXPRESSION_V1_FROZEN == B1_SEMANTIC_FTS_EXPRESSION
+
+
+def test_query_side_expressions_stay_on_v1():
+    """Every query keeps the V1 expressions until a schema fact selects V2."""
+    from osprey.services.ariel_search.database import search_fts
+
+    assert search_fts.RAW_TEXT_FTS_EXPRESSION == B1_RAW_TEXT_FTS_EXPRESSION
+    assert search_fts.SEMANTIC_FTS_EXPRESSION == B1_SEMANTIC_FTS_EXPRESSION
+
+
+def test_fts_config_builds_the_tsquery_legs():
+    from osprey.services.ariel_search.database import search_fts
+
+    assert search_fts.FTS_CONFIG == "'english'"
+    assert search_fts.PLAIN_TSQUERY_LEG == "plainto_tsquery('english', %s)"
+    assert search_fts.PHRASE_TSQUERY_LEG == "phraseto_tsquery('english', %s)"
+    assert search_fts.EMPTY_TSQUERY == "plainto_tsquery('english', '')"
+
+
+def test_v2_expressions_cover_attachment_text():
+    from osprey.services.ariel_search.database import search_fts
+
+    assert search_fts.RAW_TEXT_FTS_EXPRESSION_V2 == (
+        "to_tsvector('english', raw_text || ' ' || COALESCE(attachment_text,''))"
+    )
+    assert search_fts.SEMANTIC_FTS_EXPRESSION_V2 == (
+        "to_tsvector('english', raw_text || ' ' || COALESCE(summary, '') || ' ' || "
+        "COALESCE(osprey_text_array_to_string(keywords), '') || ' ' || "
+        "COALESCE(attachment_text,''))"
+    )
+    assert search_fts.RAW_TEXT_FTS_EXPRESSION_V2 != search_fts.RAW_TEXT_FTS_EXPRESSION
+    assert search_fts.SEMANTIC_FTS_EXPRESSION_V2 != search_fts.SEMANTIC_FTS_EXPRESSION
+
+
+@pytest.mark.parametrize(
+    ("migration_module", "constant", "expected"),
+    [
+        (
+            "osprey.services.ariel_search.database.core_migration",
+            "RAW_TEXT_FTS_EXPRESSION_V1_FROZEN",
+            B1_RAW_TEXT_FTS_EXPRESSION,
+        ),
+        (
+            "osprey.services.ariel_search.database.keyword_search_migration",
+            "RAW_TEXT_FTS_EXPRESSION_V1_FROZEN",
+            B1_RAW_TEXT_FTS_EXPRESSION,
+        ),
+        (
+            "osprey.services.ariel_search.enhancement.semantic_processor.search_migration",
+            "SEMANTIC_FTS_EXPRESSION_V1_FROZEN",
+            B1_SEMANTIC_FTS_EXPRESSION,
+        ),
+    ],
+)
+def test_historical_migrations_import_the_frozen_constants(
+    migration_module: str, constant: str, expected: str
+):
+    """The three historical migrations build their indexes from the frozen V1 strings."""
+    import importlib
+
+    module = importlib.import_module(migration_module)
+
+    assert getattr(module, constant) == expected
+    assert not hasattr(module, "RAW_TEXT_FTS_EXPRESSION")
+    assert not hasattr(module, "SEMANTIC_FTS_EXPRESSION")
+
+
+@pytest.mark.parametrize("v2", [False, True])
+@pytest.mark.parametrize("semantic_enabled", [False, True])
+def test_keyword_expression_selectors_follow_the_schema_fact(semantic_enabled: bool, v2: bool):
+    """``v2=False`` returns B1's V1 expressions; ``v2=True`` the attachment-text V2 ones."""
+    from unittest.mock import MagicMock
+
+    from osprey.services.ariel_search.database import search_fts
+    from osprey.services.ariel_search.database.search_fts import (
+        keyword_fts_expression,
+        keyword_search_expressions,
+    )
+
+    config = MagicMock()
+    config.is_enhancement_module_enabled.side_effect = lambda name: (
+        semantic_enabled and name == "semantic_processor"
+    )
+    expected = {
+        (False, False): (B1_RAW_TEXT_FTS_EXPRESSION, search_fts.RAW_TEXT_SEARCH_DOCUMENT),
+        (True, False): (B1_SEMANTIC_FTS_EXPRESSION, search_fts.SEMANTIC_TEXT_SEARCH_DOCUMENT),
+        (False, True): (
+            search_fts.RAW_TEXT_FTS_EXPRESSION_V2,
+            search_fts.RAW_TEXT_SEARCH_DOCUMENT_V2,
+        ),
+        (True, True): (
+            search_fts.SEMANTIC_FTS_EXPRESSION_V2,
+            search_fts.SEMANTIC_TEXT_SEARCH_DOCUMENT_V2,
+        ),
+    }[(semantic_enabled, v2)]
+
+    assert keyword_search_expressions(config, v2=v2) == expected
+    assert keyword_fts_expression(config, v2=v2) == expected[0]
+    assert ("attachment_text" in expected[0]) is v2
+
+
+def test_selectors_require_v2_as_a_keyword():
+    """No caller may fall back to a default schema assumption."""
+    from unittest.mock import MagicMock
+
+    from osprey.services.ariel_search.database.search_fts import (
+        keyword_fts_expression,
+        keyword_search_expressions,
+    )
+
+    config = MagicMock()
+    config.is_enhancement_module_enabled.return_value = False
+    with pytest.raises(TypeError):
+        keyword_search_expressions(config)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        keyword_fts_expression(config)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        keyword_search_expressions(config, True)  # type: ignore[misc]
+
+
+def _string_constants_outside_docstrings(tree):
+    """Yield every ``str`` constant node of `tree` that is not a docstring."""
+    import ast
+
+    docstrings: set[int] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.body
+        ):
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+                docstrings.add(id(first.value))
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstrings
+        ):
+            yield node
+
+
+def test_english_literal_lives_only_in_search_fts():
+    """Every query-side text-search configuration reads ``FTS_CONFIG``.
+
+    Outside ``search_fts.py`` no string constant (docstrings excluded) under the
+    ARIEL search service names ``'english'``; inside it only ``FTS_CONFIG`` and
+    the two frozen V1 constants do.
+    """
+    import ast
+    from pathlib import Path
+
+    from osprey.services.ariel_search import database
+
+    root = Path(database.__file__).resolve().parent.parent
+    allowed_in_search_fts = {
+        "FTS_CONFIG",
+        "RAW_TEXT_FTS_EXPRESSION_V1_FROZEN",
+        "SEMANTIC_FTS_EXPRESSION_V1_FROZEN",
+    }
+    offenders: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        hits = [
+            node for node in _string_constants_outside_docstrings(tree) if "english" in node.value
+        ]
+        if not hits:
+            continue
+        if path.name != "search_fts.py" or path.parent.name != "database":
+            offenders.extend(f"{path.relative_to(root)}:{node.lineno}" for node in hits)
+            continue
+        owners: dict[int, str] = {}
+        for stmt in tree.body:
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+                for sub in ast.walk(stmt.value) if stmt.value is not None else ():
+                    for target in targets:
+                        if isinstance(target, ast.Name):
+                            owners[id(sub)] = target.id
+        offenders.extend(
+            f"search_fts.py:{node.lineno}"
+            for node in hits
+            if owners.get(id(node)) not in allowed_in_search_fts
+        )
+
+    assert offenders == []

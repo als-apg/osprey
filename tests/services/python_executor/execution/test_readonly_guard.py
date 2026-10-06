@@ -434,6 +434,144 @@ def test_readonly_refuses_pvaccess_typed_setters(monkeypatch):
     assert channel.get() == 1.0, "reads must survive the guard untouched"
 
 
+def test_readonly_refuses_the_other_pvaccess_writes(monkeypatch):
+    """MultiChannel writes, the rpc client, the server-side updates and the
+    in-process IOC are refused; their reads stay open."""
+    mod = ModuleType("pvaccess")
+    calls: list = []
+
+    def _recording(name):
+        def method(_self, *_args):
+            calls.append(name)
+            return name
+
+        return method
+
+    mod.MultiChannel = type(
+        "MultiChannel",
+        (),
+        {n: _recording(n) for n in ("put", "putAsDoubleArray", "get", "getAsDoubleArray")},
+    )
+    mod.RpcClient = type("RpcClient", (), {"invoke": _recording("invoke")})
+    mod.PvaServer = type(
+        "PvaServer", (), {n: _recording(n) for n in ("update", "updateUnchecked", "hasRecord")}
+    )
+    mod.PvaMirrorServer = type("PvaMirrorServer", (mod.PvaServer,), {})
+    mod.CaIoc = type(
+        "CaIoc",
+        (),
+        {n: _recording(n) for n in ("putField", "dbpf", "iocInit", "start", "getField", "dbgf")},
+    )
+    monkeypatch.setitem(sys.modules, "pvaccess", mod)
+    _run_guard("readonly")
+
+    for call in (
+        lambda: mod.MultiChannel().put([1.0]),
+        lambda: mod.MultiChannel().putAsDoubleArray([1.0]),
+        lambda: mod.RpcClient().invoke({}),
+        lambda: mod.PvaServer().update(1.0),
+        lambda: mod.PvaServer().updateUnchecked(1.0),
+        lambda: mod.PvaMirrorServer().update(1.0),
+        lambda: mod.PvaMirrorServer().updateUnchecked(1.0),
+        lambda: mod.CaIoc().putField("REC", 1.0),
+        lambda: mod.CaIoc().dbpf("REC", "1"),
+        lambda: mod.CaIoc().iocInit(),
+        lambda: mod.CaIoc().start(),
+    ):
+        with pytest.raises(RuntimeError, match=_REFUSAL):
+            call()
+    assert calls == []
+    assert mod.MultiChannel().getAsDoubleArray() == "getAsDoubleArray"
+    assert mod.PvaServer().hasRecord("REC") == "hasRecord"
+    assert mod.CaIoc().dbgf("REC") == "dbgf"
+
+
+_REAL_PVACCESS_READONLY_PROBE = """
+import sys
+
+# pvaPy bundles an EPICS base of its own, and a process that already loaded
+# another one (p4p, or libca through aioca and epicscorelibs, which the guard
+# imports to patch them) aborts in libca when pvaPy drops a Channel Access
+# channel. None of them is under test here, so none of them is importable.
+for name in ("p4p", "aioca", "epicscorelibs"):
+    sys.modules[name] = None
+guard_path, marker = sys.argv[1], sys.argv[2]
+exec(compile(open(guard_path).read(), guard_path, "exec"), {})
+
+import pvaccess
+
+failures = []
+
+
+def expect_refusal(label, call):
+    try:
+        call()
+    except RuntimeError as exc:
+        if marker not in str(exc):
+            failures.append(label + " raised a RuntimeError that is not the refusal")
+        return
+    except BaseException as exc:
+        failures.append(label + " raised " + type(exc).__name__ + ": " + str(exc))
+        return
+    failures.append(label + " returned instead of refusing")
+
+
+def channel(*args):
+    ch = pvaccess.Channel(*args)
+    ch.setTimeout(0.2)
+    return ch
+
+
+expect_refusal("CA Channel.put", lambda: channel("X:CA", pvaccess.CA).put(1.0))
+expect_refusal("CA Channel.putDouble", lambda: channel("X:CA", pvaccess.CA).putDouble(1.0))
+expect_refusal("PVA Channel.put", lambda: channel("X:PVA").put(1.0))
+expect_refusal("PVA Channel.putGetDouble", lambda: channel("X:PVA").putGetDouble(1.0))
+expect_refusal(
+    "MultiChannel.putAsDoubleArray",
+    lambda: pvaccess.MultiChannel(["X:A"]).putAsDoubleArray([1.0]),
+)
+expect_refusal("RpcClient.invoke", lambda: pvaccess.RpcClient("X:SVC").invoke(pvaccess.PvObject({})))
+# The servers and the IOC are checked without being built: building one starts it.
+for cls, attr in (
+    (pvaccess.PvaServer, "update"),
+    (pvaccess.PvaServer, "updateUnchecked"),
+    (pvaccess.PvaMirrorServer, "update"),
+    (pvaccess.PvaMirrorServer, "updateUnchecked"),
+    (pvaccess.CaIoc, "putField"),
+    (pvaccess.CaIoc, "dbpf"),
+    (pvaccess.CaIoc, "iocInit"),
+    (pvaccess.CaIoc, "start"),
+):
+    if getattr(cls, attr).__name__ != "_osprey_readonly_refuse":
+        failures.append(cls.__name__ + "." + attr + " is not the refusing function")
+try:
+    channel("X:PVA").get()
+    failures.append("a get of a PV nobody serves returned")
+except RuntimeError as exc:
+    failures.append("Channel.get was refused: " + str(exc))
+except pvaccess.PvaException:
+    pass
+print("FAILURES", failures)
+"""
+
+
+def test_readonly_refuses_the_installed_pvaccess_writes(tmp_path):
+    """The installed pvaPy, both providers: every put refuses, a get still reads."""
+    pytest.importorskip("pvaccess", reason="pvaccess is not installed in this environment")
+    guard_path = tmp_path / "readonly_guard.py"
+    guard_path.write_text(ExecutionWrapper(execution_mode="readonly")._get_readonly_guard())
+
+    stdout = _run_probe(
+        tmp_path,
+        "probe_pvaccess.py",
+        _REAL_PVACCESS_READONLY_PROBE,
+        str(guard_path),
+        READONLY_REFUSAL_MARKER,
+    )
+
+    assert "FAILURES []" in stdout, stdout
+
+
 def test_readonly_refuses_tango_write_attribute(monkeypatch):
     mod = ModuleType("tango")
     writes: list = []

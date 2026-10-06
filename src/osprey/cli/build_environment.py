@@ -84,7 +84,8 @@ def detect_provider_credentials(
     build host rather than the deployment.
 
     Keyless providers (ollama, vllm, ds4) are excluded — they have no API-key
-    env var to report on.
+    env var to report on. A provider registered in this process is covered too,
+    under the variable its class names.
 
     Args:
         project_path: The build zone, whose own ``.env`` is source 1.
@@ -95,7 +96,7 @@ def detect_provider_credentials(
     Returns:
         One :class:`CredentialStatus` per keyed provider, in registry order.
     """
-    from osprey.models.provider_registry import PROVIDER_API_KEYS
+    from osprey.models.provider_registry import get_provider_registry
 
     build_env_path = project_path / ".env"
     build_env = _dotenv_keys(build_env_path)
@@ -107,7 +108,7 @@ def detect_provider_credentials(
             repo_env = _dotenv_keys(repo_env_path)
 
     statuses: list[CredentialStatus] = []
-    for provider, var in PROVIDER_API_KEYS.items():
+    for provider, var in get_provider_registry().api_key_env_vars().items():
         if var is None:
             continue
         if var in build_env:
@@ -151,14 +152,15 @@ def report_provider_credentials(
     Returns:
         The statuses that were reported.
     """
-    from osprey.models.provider_registry import PROVIDER_API_KEYS
+    from osprey.models.provider_registry import get_provider_registry
 
     statuses = detect_provider_credentials(project_path, profile_dir=profile_dir)
     selected = next((s for s in statuses if s.provider == provider), None)
 
     if selected is None:
-        # Keyless provider, or a name outside the registry (custom adapter).
-        if provider in PROVIDER_API_KEYS:
+        # Keyless provider, or a name the provider registry does not hold (a
+        # config-only catalog entry).
+        if provider in get_provider_registry().api_key_env_vars():
             logger.debug("  ✓ Provider: %s. No API key required.", provider)
         else:
             logger.debug(

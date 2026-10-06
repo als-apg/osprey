@@ -32,6 +32,12 @@ import yaml
 from ruamel.yaml import YAML
 
 import osprey.channel_roster as channel_roster
+from osprey.bluesky_bridge_connection import (
+    LANE_KEYS,
+    SECOND_LANE_KEYS,
+    lane_control_identity,
+    lane_env_prefix,
+)
 from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import container_lifecycle, host_ports
@@ -40,6 +46,7 @@ from osprey.deployment.compose_generator import (
     resolve_project_name,
     resolve_user_volume_names,
 )
+from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
@@ -351,6 +358,19 @@ def _render_worker_template(
 
 #: Path of the dispatcher's compose template, from the packaged templates root.
 _DISPATCHER_TEMPLATE = "services/event_dispatcher/docker-compose.yml.j2"
+
+
+def _control_identity_context() -> dict[str, Any]:
+    """The two control-identity keys ``_inject_project_metadata`` injects, for hand-built ctx.
+
+    Every bluesky lane's queueserver renames root to its lane identity before
+    ``start-re-manager`` runs, so the template reads both keys with no fallback:
+    a context without them is not a render any deploy produces.
+    """
+    return {
+        "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
+    }
 
 
 def _image_defaults(project_name: str = "p") -> dict[str, str]:
@@ -1515,6 +1535,19 @@ def test_worker_archiver_link_stays_gated_on_a_deployed_store(network: str | Non
     assert "OSPREY_ARCHIVER_MONGODB_HOST" not in rendered
 
 
+def test_render_context_carries_the_registrys_second_lane_keys() -> None:
+    """Every template reads its second plan lanes from the lane registry.
+
+    A template that iterates its own list renders a lane short the moment the
+    registry grows, so the render context hands them the registry's keys.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    config = _inject_project_metadata({"project_name": "p", "project_root": "/r/p"})
+
+    assert config["bluesky_second_lane_keys"] == list(SECOND_LANE_KEYS.values())
+
+
 def test_worker_plan_queue_link_names_the_bridge_service_on_the_bridge() -> None:
     """On the compose network the queue is reached by the bridge's service key.
 
@@ -1532,7 +1565,8 @@ def test_worker_plan_queue_link_names_the_bridge_service_on_the_bridge() -> None
     assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:10080"
 
 
-def test_worker_plan_queue_link_covers_a_second_lane() -> None:
+@pytest.mark.parametrize("key", list(SECOND_LANE_KEYS.values()))
+def test_worker_plan_queue_link_covers_a_second_lane(key: str) -> None:
     """Each deployed lane is addressed under its own env prefix.
 
     Two lanes are two bridges, and a worker handed only lane one would queue
@@ -1540,13 +1574,16 @@ def test_worker_plan_queue_link_covers_a_second_lane() -> None:
     """
     rendered = _render_worker_template(
         env_present=True,
-        deployed_services=["bluesky", "bluesky_va"],
-        services_extra={"bluesky": {"port": 10080}, "bluesky_va": {"port": 10081}},
+        deployed_services=["bluesky", key],
+        services_extra={"bluesky": {"port": 10080}, key: {"port": 10081}},
     )
     environment = _worker_service(rendered)["environment"]
 
     assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:10080"
-    assert environment["BLUESKY_VA_BRIDGE_URL"] == "http://bluesky-va-bridge:10081"
+    assert (
+        environment[f"{lane_env_prefix(key)}_BRIDGE_URL"]
+        == f"http://{key.replace('_', '-')}-bridge:10081"
+    )
 
 
 def test_worker_plan_queue_link_is_absent_on_the_host_namespace() -> None:
@@ -1709,6 +1746,7 @@ def _render_bluesky_template(
         "osprey_images": _image_defaults(),
         "osprey_ports": _layout_ports_for(),
         "osprey_version": "",
+        **_control_identity_context(),
     }
     # control_system is omitted by default (matching every pre-existing call
     # site below). The template reads each lane's posture from
@@ -2015,6 +2053,122 @@ def test_bluesky_tiled_absent_when_disabled() -> None:
     assert "BLUESKY_TILED_URI" not in rendered
     assert "BLUESKY_TILED_API_KEY" not in rendered
     assert "bluesky_tiled_catalog" not in rendered
+
+
+_TILED_KEY = "k3y"
+
+
+def _run_tiled_start(
+    storage: Path, *, upgrade_rc: int = 0, hold_s: float | None = None
+) -> tuple[list[list[str]], subprocess.CompletedProcess[str] | None, str]:
+    """Run the rendered tiled ``command`` against a stub ``tiled`` binary.
+
+    The container's ``/storage`` is remapped to *storage* and compose's ``$$``
+    escape is undone, so the script runs as the container's shell would run it.
+    The stub records each invocation and exits *upgrade_rc* for
+    ``upgrade-database``. With *hold_s* set the script is expected NOT to exit:
+    it is checked alive after that long, then sent SIGTERM, and the completed
+    process is ``None``.
+
+    Returns the recorded invocations, the completed process, and stderr.
+    """
+    command = yaml.safe_load(_render_bluesky_tiled(tiled_enabled=True))["services"]["tiled"][
+        "command"
+    ]
+    assert isinstance(command, list) and command[:2] == ["sh", "-c"], command
+    script = command[2].replace("$$", "$").replace("/storage", str(storage))
+
+    bin_dir = storage.parent / "bin"
+    bin_dir.mkdir()
+    calls = storage.parent / "calls.jsonl"
+    stub = bin_dir / "tiled"
+    stub.write_text(
+        f"#!{sys.executable}\n"
+        "import json, sys\n"
+        f"with open({str(calls)!r}, 'a') as f:\n"
+        "    f.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        f"sys.exit({upgrade_rc} if sys.argv[1:3] == ['catalog', 'upgrade-database'] else 0)\n"
+    )
+    stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+    env["BLUESKY_TILED_API_KEY"] = _TILED_KEY
+
+    if hold_s is None:
+        done = subprocess.run(
+            ["sh", "-c", script], env=env, capture_output=True, text=True, timeout=30
+        )
+        stderr = done.stderr
+    else:
+        proc = subprocess.Popen(["sh", "-c", script], env=env, stderr=subprocess.PIPE, text=True)
+        try:
+            proc.wait(timeout=hold_s)
+            pytest.fail(f"the start script exited ({proc.returncode}) instead of holding")
+        except subprocess.TimeoutExpired:
+            pass
+        proc.terminate()
+        proc.wait(timeout=5)
+        stderr = proc.stderr.read() if proc.stderr else ""
+        done = None
+
+    recorded = (
+        [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+    )
+    return recorded, done, stderr
+
+
+def test_tiled_upgrades_an_existing_catalog_before_serving(tmp_path: Path) -> None:
+    """A catalog volume written by an older Tiled is migrated before ``serve``.
+
+    ``serve catalog --init`` creates a missing catalog but refuses a stale one
+    (DatabaseUpgradeNeeded), so a pin bump would crash-loop the container on
+    every existing volume unless ``upgrade-database`` runs first.
+    """
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    (storage / "catalog.db").write_bytes(b"SQLite format 3\x00")
+
+    calls, done, _ = _run_tiled_start(storage)
+
+    assert done is not None and done.returncode == 0
+    assert calls[0] == ["catalog", "upgrade-database", f"sqlite+aiosqlite:///{storage}/catalog.db"]
+    assert calls[1][:4] == ["serve", "catalog", f"{storage}/catalog.db", "--init"]
+    assert calls[1][calls[1].index("--api-key") + 1] == _TILED_KEY
+    assert len(calls) == 2
+
+
+def test_tiled_initialises_a_fresh_volume_without_upgrading(tmp_path: Path) -> None:
+    """A fresh volume goes straight to ``serve --init``.
+
+    ``upgrade-database`` aborts on a database with no revision stamp (Tiled
+    0.2.18's ``catalog upgrade-database``), so it must not run before the
+    catalog exists.
+    """
+    storage = tmp_path / "storage"
+    storage.mkdir()
+
+    calls, done, _ = _run_tiled_start(storage)
+
+    assert done is not None and done.returncode == 0
+    assert [call[:2] for call in calls] == [["serve", "catalog"]]
+    assert "--init" in calls[0]
+
+
+def test_tiled_holds_unhealthy_when_the_catalog_cannot_be_upgraded(tmp_path: Path) -> None:
+    """A failed upgrade stops short of ``serve`` and keeps the container up.
+
+    Exiting would hand the container to ``restart: unless-stopped`` and loop
+    with nothing reading the failure. Holding instead leaves the reason in the
+    log once and lets the healthcheck turn the container ``unhealthy`` — the
+    state ``osprey health`` and the ``osprey up`` card report.
+    """
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    (storage / "catalog.db").write_bytes(b"SQLite format 3\x00")
+
+    calls, _, stderr = _run_tiled_start(storage, upgrade_rc=1, hold_s=1.5)
+
+    assert [call[:2] for call in calls] == [["catalog", "upgrade-database"]]
+    assert "upgrade-database" in stderr
 
 
 @pytest.mark.parametrize("tiled_enabled", [True, False])
@@ -3171,6 +3325,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
         "osprey_env_present": False,
         "deployed_services": [],
         "control_system": {},
+        **_control_identity_context(),
     }
     ctx.update(overrides)
     # After the overrides, never before: a caller that hands this helper its own
@@ -4367,7 +4522,8 @@ def test_nextcloud_bridge_image_follows_env_config_default_chain() -> None:
     config-declared image, then the project-namespaced ``:local`` tag that
     ``osprey up`` builds). The local tag must carry the project name: it
     is a host-global docker tag, so a static default would make two projects
-    fight over one image.
+    fight over one image. A config-declared image also renders no build, so
+    compose pulls and runs it as named.
     """
     assert _nextcloud_bridge_service(project_name="proj-a")["image"] == (
         "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-proj-a-nextcloud-bridge:local}"
@@ -4392,6 +4548,7 @@ def test_nextcloud_bridge_image_follows_env_config_default_chain() -> None:
     assert pinned["image"] == (
         "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-nextcloud-bridge:1.2.3}"
     )
+    assert "build" not in pinned
 
 
 def test_nextcloud_bridge_build_context_is_project_dir_relative() -> None:
@@ -5055,7 +5212,8 @@ def test_gchat_bridge_image_follows_env_config_default_chain() -> None:
     config-declared image, then the project-namespaced ``:local`` tag that
     ``osprey up`` builds). The local tag must carry the project name: it
     is a host-global docker tag, so a static default would make two projects
-    fight over one image.
+    fight over one image. A config-declared image also renders no build, so
+    compose pulls and runs it as named.
     """
     assert _gchat_bridge_service(project_name="proj-a")["image"] == (
         "${OSPREY_GCHAT_BRIDGE_IMAGE:-proj-a-gchat-bridge:local}"
@@ -5080,6 +5238,7 @@ def test_gchat_bridge_image_follows_env_config_default_chain() -> None:
     assert pinned["image"] == (
         "${OSPREY_GCHAT_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-gchat-bridge:1.2.3}"
     )
+    assert "build" not in pinned
 
 
 def test_gchat_bridge_build_context_is_project_dir_relative() -> None:
@@ -5866,7 +6025,8 @@ def test_teams_bridge_image_follows_env_config_default_chain() -> None:
     config-declared image, then the project-namespaced ``:local`` tag that
     ``osprey up`` builds). The local tag must carry the project name: it is a
     host-global docker tag, so a static default would make two projects fight
-    over one image.
+    over one image. A config-declared image also renders no build, so compose
+    pulls and runs it as named.
     """
     assert _teams_bridge_service(project_name="proj-a")["image"] == (
         "${OSPREY_TEAMS_BRIDGE_IMAGE:-proj-a-teams-bridge:local}"
@@ -5891,6 +6051,7 @@ def test_teams_bridge_image_follows_env_config_default_chain() -> None:
     assert pinned["image"] == (
         "${OSPREY_TEAMS_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-teams-bridge:1.2.3}"
     )
+    assert "build" not in pinned
 
 
 def test_teams_bridge_build_context_is_project_dir_relative() -> None:
@@ -6026,6 +6187,8 @@ def test_teams_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
         "GITLAB_ISSUES_TOKEN",
         "TEAMS_CLOUD",
         "APP_VERSION_DISPLAY",
+        "TEAMS_FILES_DRIVE_ID",
+        "TEAMS_FILES_FOLDER",
     ):
         assert environment[var] == f"${{{var}:-}}", (
             f"{var} must pass through with an empty default so the config dataclass "
@@ -6987,7 +7150,7 @@ def test_bridge_still_requires_both_addresses_when_the_pair_is_external(
 # "every interface" is every interface the MACHINE has rather than every
 # interface of a private compose network.
 #
-# The digest label is the one deliberate change to today's bytes. It carries
+# The digest label is the one label the templates write themselves. It carries
 # the fingerprint of the env chain the deploy read, so an edit to `.env`
 # changes the service definition and the container is recreated; without it the
 # runtime would leave the old environment running. It is unconditional — every
@@ -7008,13 +7171,15 @@ _DIGEST_LABEL_LINE = '      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"\n'
 #: :func:`test_render_carries_no_deploy_timestamp`.
 _DEPLOYED_AT_LABEL_LINE = '      osprey.deployed.at: ""\n'
 
-#: The config-digest label and the comment that carries its reasoning, as the
-#: committed side does not render them yet while this addition is uncommitted.
-#: The mirror image of :data:`_DEPLOYED_AT_LABEL_LINE` — one delta is a removal
-#: and this one an addition, and both have to be nameable for the comparison
-#: below to survive its own commit. Includes the comment because the delta IS
-#: the whole block: stripping the label alone would leave the comment as an
-#: unexplained difference and fail for the wrong reason.
+#: The config-digest label and the comment that carried its reasoning, which
+#: the template no longer writes: the build's generated labels override gives
+#: every rendered service that label. Named, like
+#: :data:`_DEPLOYED_AT_LABEL_LINE`, because a delta that is being REMOVED has to
+#: be nameable too or the comparison below cannot survive its own commit; once
+#: committed neither side emits it and the replacement is a no-op. Includes the
+#: comment because the delta IS the whole block: stripping the label alone
+#: would leave the comment as an unexplained difference and fail for the wrong
+#: reason.
 _CONFIG_DIGEST_BLOCK = (
     "      # Content fingerprint of the rendered config this deploy built\n"
     "      # (runtime_helper's as_built_config_digest, carried in by\n"
@@ -7025,6 +7190,15 @@ _CONFIG_DIGEST_BLOCK = (
     "      # the settings it parsed at startup. Empty when the invocation did not set\n"
     "      # the variable (a hand-run `docker compose up`).\n"
     '      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"\n'
+)
+
+#: The project, checkout and project-root labels the template no longer writes,
+#: as :func:`_dispatcher_context` renders them. Removed for the same reason as
+#: :data:`_CONFIG_DIGEST_BLOCK`: the generated labels override carries them.
+_GENERATED_LABEL_LINES = (
+    '      osprey.project.name: "p"\n'
+    '      com.osprey.repo-id: ""\n'
+    '      osprey.project.root: "/r"\n'
 )
 
 #: The MCP transport path and the comment carrying its reasoning, as the
@@ -7086,7 +7260,7 @@ def _head_dispatcher_render() -> str:
     return environment.from_string(head_source).render(**_dispatcher_context())
 
 
-def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_label() -> None:
+def test_dispatcher_default_render_matches_the_committed_one_but_for_the_label_deltas() -> None:
     """The enumerated deltas, byte for byte, and nothing else.
 
     Asserted on raw text rather than parsed YAML: the macros' whole whitespace
@@ -7101,6 +7275,7 @@ def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_
         return (
             text.replace(_DIGEST_LABEL_LINE, "", 1)
             .replace(_DEPLOYED_AT_LABEL_LINE, "", 1)
+            .replace(_GENERATED_LABEL_LINES, "", 1)
             .replace(_CONFIG_DIGEST_BLOCK, "", 1)
             .replace(_MCP_TRANSPORT_PATH_BLOCK, "", 1)
         )
@@ -7108,7 +7283,10 @@ def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_
     rendered = _render_dispatcher_template()
 
     assert rendered.count(_DIGEST_LABEL_LINE) == 1, "the digest label renders exactly once"
-    assert rendered.count(_CONFIG_DIGEST_BLOCK) == 1, "the config digest renders exactly once"
+    assert rendered.count(_CONFIG_DIGEST_BLOCK) == 0, (
+        "the labels override carries the config digest"
+    )
+    assert _GENERATED_LABEL_LINES not in rendered, "the labels override carries the project labels"
     assert _normalized(rendered) == _normalized(_head_dispatcher_render())
 
 
@@ -9518,9 +9696,9 @@ class TestStageSiteImageArgsForContext:
 
     A service image is built by ``docker compose build`` from its own rendered
     context, so the argv-building producer the lifecycle uses for the project
-    image never runs for one: the values have to be IN the compose fragment,
-    and the CA they name has to be in the context beside it. Both come from
-    this helper, so a rendered value and the file it points at cannot disagree.
+    image never runs for one: the values have to be IN the compose fragment.
+    The CA they name is staged beside it by every start, keyed on the rendered
+    value, so the value and the file it points at cannot disagree.
     """
 
     @staticmethod
@@ -9532,16 +9710,16 @@ class TestStageSiteImageArgsForContext:
         return context
 
     @staticmethod
-    def _stage(config: dict, out_dir: Path) -> dict[str, str]:
-        from osprey.deployment.compose_generator import _stage_site_image_args_for_context
+    def _resolve(config: dict, out_dir: Path) -> dict[str, str]:
+        from osprey.deployment.compose_generator import _site_image_args_for_context
 
-        return _stage_site_image_args_for_context(config, str(out_dir))
+        return _site_image_args_for_context(config, str(out_dir))
 
     def test_a_deployment_that_declares_nothing_gets_no_args(self, tmp_path: Path) -> None:
         """An unconfigured deployment renders exactly the args block it always did."""
         context = self._context(tmp_path)
 
-        assert self._stage({"project_name": "p"}, context) == {}
+        assert self._resolve({"project_name": "p"}, context) == {}
         assert [path.name for path in context.iterdir()] == ["Dockerfile"]
 
     def test_a_context_that_builds_nothing_is_left_alone(self, tmp_path: Path) -> None:
@@ -9555,7 +9733,9 @@ class TestStageSiteImageArgsForContext:
         source = tmp_path / "site-ca.pem"
         source.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
 
-        assert self._stage({"project_name": "p", "images": {"site_ca": str(source)}}, context) == {}
+        assert (
+            self._resolve({"project_name": "p", "images": {"site_ca": str(source)}}, context) == {}
+        )
         assert list(context.iterdir()) == []
 
     def test_the_pip_axes_are_carried_through_verbatim(self, tmp_path: Path) -> None:
@@ -9569,18 +9749,17 @@ class TestStageSiteImageArgsForContext:
             },
         }
 
-        assert self._stage(config, self._context(tmp_path)) == {
+        assert self._resolve(config, self._context(tmp_path)) == {
             "PIP_NO_PROXY": "internal.example.org",
             "PIP_INDEX_URL": "https://mirror.example.org/simple",
             "PIP_EXTRA_INDEX_URL": "https://extra.example.org/simple",
         }
 
-    def test_the_site_ca_is_staged_and_named_by_its_context_filename(self, tmp_path: Path) -> None:
+    def test_the_site_ca_is_named_by_its_context_filename(self, tmp_path: Path) -> None:
         """The operator's host path never reaches the rendered fragment.
 
         ``COPY`` cannot reach outside the build context, so the value the
-        Dockerfile is handed has to name a file inside it. Staging the copy and
-        rewriting the value are one step for that reason.
+        Dockerfile is handed names the file every start stages inside it.
         """
         from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
 
@@ -9589,35 +9768,36 @@ class TestStageSiteImageArgsForContext:
         source.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
         context = self._context(tmp_path)
 
-        args = self._stage({"project_name": "p", "images": {"site_ca": str(source)}}, context)
+        args = self._resolve({"project_name": "p", "images": {"site_ca": str(source)}}, context)
 
         assert args == {"OSPREY_SITE_CA": SITE_CA_CONTEXT_FILENAME}
-        staged = context / SITE_CA_CONTEXT_FILENAME
-        assert staged.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
 
-    def test_a_site_ca_that_is_not_on_this_host_still_renders(self, tmp_path: Path, caplog) -> None:
+    def test_a_render_copies_no_ca_into_the_context(self, tmp_path: Path) -> None:
+        """A context holds the operator's CA only while a build reads it, and a
+        render is not a build: the copy is made by the start that builds."""
+        source = tmp_path / "site-ca.pem"
+        source.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+        context = self._context(tmp_path)
+
+        self._resolve({"project_name": "p", "images": {"site_ca": str(source)}}, context)
+
+        assert [path.name for path in context.iterdir()] == ["Dockerfile"]
+
+    def test_a_site_ca_that_is_not_on_this_host_renders_the_same(self, tmp_path: Path) -> None:
         """A render is not a build, and the two run on different hosts.
 
         ``osprey build`` renders wherever the deployment is rendered — a CI
         runner, a developer's checkout — where the deploy host's bundle is not.
         The rendered value is the context filename on every host, so the
-        compose bytes do not depend on who rendered them; only the copy beside
-        them does, and the build that consumes it stages it again. A context
-        that reaches a builder without one fails installing the CA, on the host
-        that is actually building.
+        compose bytes do not depend on who rendered them.
         """
         from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
 
-        context = self._context(tmp_path)
-
-        with caplog.at_level(logging.WARNING):
-            args = self._stage(
-                {"project_name": "p", "images": {"site_ca": "/nope/ca.pem"}}, context
-            )
+        args = self._resolve(
+            {"project_name": "p", "images": {"site_ca": "/nope/ca.pem"}}, self._context(tmp_path)
+        )
 
         assert args == {"OSPREY_SITE_CA": SITE_CA_CONTEXT_FILENAME}
-        assert [path.name for path in context.iterdir()] == ["Dockerfile"]
-        assert "/nope/ca.pem" in caplog.text
 
 
 class TestEnsureGroupSharedDirExact:
@@ -10505,3 +10685,359 @@ class TestTerminalControlContextBind:
         assert len(set(sources.values())) == len(sources), sources
         for name, source in sources.items():
             assert source.rstrip("/") != _CONTROL_TREE_SOURCE, (name, source)
+
+
+# ---------------------------------------------------------------------------
+# The control-identity module (``_stage_control_identity_module``)
+#
+# The dispatch worker and every bluesky lane mount ``control_identity.py``
+# unconditionally, so for those two build contexts staging is mandatory: the
+# file is always there, byte-for-byte the packaged module, or the render
+# refuses. Every other context carries no copy at all.
+# ---------------------------------------------------------------------------
+
+#: A stand-in service template: what is under test is that the module lands
+#: beside the compose file from either renderer, not what a shipped template
+#: does with it.
+_CONTROL_IDENTITY_STAND_IN_TEMPLATE = """\
+services:
+  worker:
+    image: demo
+"""
+
+
+def _control_identity_source_bytes() -> bytes:
+    from osprey.deployment import control_identity
+
+    return Path(control_identity.__file__).read_bytes()
+
+
+def _stage_control_identity(out_dir: Path, source_dir: str) -> bool:
+    from osprey.deployment.compose_generator import _stage_control_identity_module
+
+    return _stage_control_identity_module({}, source_dir, str(out_dir))
+
+
+@pytest.mark.parametrize("service", ["dispatch_worker", "bluesky"])
+def test_stage_control_identity_copies_the_module_byte_for_byte(
+    tmp_path: Path, service: str
+) -> None:
+    """A mandatory context receives the packaged module, unchanged."""
+    out_dir = tmp_path / service
+    out_dir.mkdir()
+
+    assert _stage_control_identity(out_dir, f"services/{service}") is True
+    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+
+
+@pytest.mark.parametrize("service", ["bluesky_web", "web_terminal", "postgres"])
+def test_stage_control_identity_skips_every_other_context(tmp_path: Path, service: str) -> None:
+    """Outside the two mandatory contexts nothing is staged."""
+    out_dir = tmp_path / service
+    out_dir.mkdir()
+
+    assert _stage_control_identity(out_dir, f"services/{service}") is False
+    assert not (out_dir / "control_identity.py").exists()
+
+
+def test_stage_control_identity_removes_a_stale_copy_elsewhere(tmp_path: Path) -> None:
+    """A copy an earlier build left in a non-mandatory context is removed."""
+    out_dir = tmp_path / "bluesky_web"
+    out_dir.mkdir()
+    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+
+    assert _stage_control_identity(out_dir, "services/bluesky_web") is False
+    assert not (out_dir / "control_identity.py").exists()
+
+
+def test_stage_control_identity_stale_removal_failure_only_warns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An unremovable stale copy outside the mandatory contexts is a warning,
+    not a refusal: no template there mounts it."""
+    from osprey.deployment import compose_generator
+
+    out_dir = tmp_path / "bluesky_web"
+    out_dir.mkdir()
+
+    def refuse(path: str) -> None:
+        raise PermissionError(errno.EACCES, "denied", path)
+
+    monkeypatch.setattr(compose_generator.os, "remove", refuse)
+    with caplog.at_level(logging.WARNING):
+        assert _stage_control_identity(out_dir, "services/bluesky_web") is False
+    assert "stale control-identity module" in caplog.text
+
+
+@pytest.mark.parametrize("service", ["dispatch_worker", "bluesky"])
+def test_stage_control_identity_raises_when_the_copy_fails(tmp_path: Path, service: str) -> None:
+    """A mandatory context whose copy cannot be written refuses the render:
+    its compose file mounts the module unconditionally."""
+    missing_out_dir = tmp_path / "does-not-exist"
+
+    with pytest.raises(DeploymentPreconditionError) as excinfo:
+        _stage_control_identity(missing_out_dir, f"services/{service}")
+    assert "control_identity.py" in excinfo.value.reason
+    assert excinfo.value.remedy
+
+
+def test_stage_control_identity_replaces_a_stale_copy(tmp_path: Path) -> None:
+    """A re-stage overwrites whatever an earlier build left behind."""
+    out_dir = tmp_path / "dispatch_worker"
+    out_dir.mkdir()
+    (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+
+    assert _stage_control_identity(out_dir, "services/dispatch_worker") is True
+    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+
+
+def _control_identity_render_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A repo holding a stand-in ``services/dispatch_worker`` template, chdir'd into."""
+    repo = tmp_path / "repo"
+    service_dir = repo / "services" / "dispatch_worker"
+    service_dir.mkdir(parents=True)
+    (service_dir / "docker-compose.yml.j2").write_text(
+        _CONTROL_IDENTITY_STAND_IN_TEMPLATE, encoding="utf-8"
+    )
+    monkeypatch.chdir(repo)
+    return repo
+
+
+@pytest.mark.parametrize("entry_point", ["full", "incremental"])
+def test_both_render_paths_stage_the_control_identity_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry_point: str
+) -> None:
+    """Both renderers stage the module; the incremental one — which reuses a
+    busy build directory — refreshes a stale copy instead of keeping it."""
+    from osprey.deployment.compose_generator import (
+        _incremental_setup_build_dir,
+        setup_build_dir,
+    )
+
+    repo = _control_identity_render_repo(tmp_path, monkeypatch)
+    config = {"build_dir": "./build", "deployment": {}, "system": {"timezone": "UTC"}}
+    template = "services/dispatch_worker/docker-compose.yml.j2"
+    out_dir = repo / "build" / "services" / "dispatch_worker"
+    if entry_point == "full":
+        setup_build_dir(template, config, {})
+    else:
+        out_dir.mkdir(parents=True)
+        (out_dir / "control_identity.py").write_text("# stale\n", encoding="utf-8")
+        _incremental_setup_build_dir(template, config, {}, str(out_dir))
+
+    assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
+    assert (out_dir / "docker-compose.yml").is_file()
+
+
+# ---------------------------------------------------------------------------
+# A connection block's CA file, mounted into the containers that read the block
+#
+# A dispatch worker opens the SELECTED archiver block, the archive recorder
+# always opens `archiver.mongodb_archiver`; each gets the file its block names
+# under `tls.ca_bundle` bind-mounted read-only at the same path.
+# ---------------------------------------------------------------------------
+
+
+def _site_ca(tmp_path: Path) -> str:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n", encoding="utf-8")
+    return str(ca)
+
+
+def _ca_mount(path: str) -> dict:
+    return {"type": "bind", "source": path, "target": path, "read_only": True}
+
+
+def _ca_volumes(service: dict, path: str) -> list:
+    return [v for v in service["volumes"] if isinstance(v, dict) and v.get("source") == path]
+
+
+def test_connection_ca_bundles_mounts_the_workers_selected_archiver_ca(tmp_path: Path) -> None:
+    from osprey.deployment.compose_generator import _connection_ca_bundles
+
+    ca = _site_ca(tmp_path)
+    block = {"url": "https://a.example", "tls": {"ca_bundle": ca}}
+    selected = {"archiver": {"type": "epics_archiver", "epics_archiver": block}}
+    unselected = {"archiver": {"type": "mock_archiver", "epics_archiver": block}}
+
+    assert _connection_ca_bundles(selected, "services/dispatch_worker") == [ca]
+    assert _connection_ca_bundles(unselected, "services/dispatch_worker") == []
+
+
+@pytest.mark.parametrize("archiver_type", ["mongodb_archiver", "mock_archiver", None])
+def test_connection_ca_bundles_mounts_the_recorders_store_ca(
+    tmp_path: Path, archiver_type: str | None
+) -> None:
+    from osprey.deployment.compose_generator import _connection_ca_bundles
+
+    ca = _site_ca(tmp_path)
+    config = {
+        "archiver": {
+            "type": archiver_type,
+            "mongodb_archiver": {"host": "localhost", "tls": {"ca_bundle": ca}},
+        }
+    }
+
+    assert _connection_ca_bundles(config, "services/archiver_recorder") == [ca]
+
+
+@pytest.mark.parametrize("source_dir", ["services/bluesky", "services/mongodb"])
+def test_connection_ca_bundles_is_empty_for_other_services(tmp_path: Path, source_dir: str) -> None:
+    from osprey.deployment.compose_generator import _connection_ca_bundles
+
+    block = {"host": "localhost", "tls": {"ca_bundle": _site_ca(tmp_path)}}
+    config = {"archiver": {"type": "mongodb_archiver", "mongodb_archiver": block}}
+
+    assert _connection_ca_bundles(config, source_dir) == []
+
+
+def test_recorder_block_key_is_the_recorders_own() -> None:
+    from osprey.services.archiver_recorder import config as recorder_config
+
+    assert "archiver.mongodb_archiver" == ".".join(recorder_config._CONNECTION_PREFIX)
+
+
+def test_dispatch_worker_mounts_the_ca_read_only_at_the_same_path() -> None:
+    ca = "/etc/ssl/certs/site-ca.pem"
+    services = {
+        "virtual_accelerator": {"port": 5064},
+        "event_dispatcher": {"port": 10010},
+        "dispatch_worker": {"worker_count": 2, "workspace_mode": "isolated"},
+    }
+
+    rendered = _render_service_template(
+        "dispatch_worker/docker-compose.yml.j2",
+        "proj-a",
+        services=services,
+        connection_ca_bundles=[ca],
+    )
+
+    workers = _dispatch_worker_services(rendered)
+    assert sorted(workers) == ["dispatch-worker-1", "dispatch-worker-2"]
+    for body in workers.values():
+        assert _ca_volumes(body, ca) == [_ca_mount(ca)]
+
+
+@pytest.mark.parametrize("va_co_deployed", [True, False])
+def test_recorder_mounts_the_ca_read_only_at_the_same_path(va_co_deployed: bool) -> None:
+    ca = "/etc/ssl/certs/site-ca.pem"
+    deployed = ["mongodb", "archiver_recorder"]
+    if va_co_deployed:
+        deployed.append("virtual_accelerator")
+
+    rendered = _render_service_template(
+        _RECORDER_TEMPLATE, "proj-a", deployed_services=deployed, connection_ca_bundles=[ca]
+    )
+
+    recorder = yaml.safe_load(rendered)["services"]["archiver-recorder"]
+    assert _ca_volumes(recorder, ca) == [_ca_mount(ca)]
+
+
+@pytest.mark.parametrize("entry_point", ["full", "incremental"])
+def test_both_render_paths_carry_the_ca_bundles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry_point: str
+) -> None:
+    from osprey.deployment.compose_generator import (
+        _incremental_setup_build_dir,
+        setup_build_dir,
+    )
+
+    ca = _site_ca(tmp_path)
+    repo = tmp_path / "repo"
+    service_dir = repo / "services" / "dispatch_worker"
+    service_dir.mkdir(parents=True)
+    (service_dir / "docker-compose.yml.j2").write_text(
+        "{{ connection_ca_bundles | tojson }}\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(repo)
+    config = {
+        "build_dir": "./build",
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+        "archiver": {
+            "type": "epics_archiver",
+            "epics_archiver": {"url": "https://a.example", "tls": {"ca_bundle": ca}},
+        },
+    }
+    template = "services/dispatch_worker/docker-compose.yml.j2"
+    out_dir = repo / "build" / "services" / "dispatch_worker"
+    if entry_point == "full":
+        setup_build_dir(template, config, {})
+    else:
+        out_dir.mkdir(parents=True)
+        _incremental_setup_build_dir(template, config, {}, str(out_dir))
+
+    assert json.loads((out_dir / "docker-compose.yml").read_text(encoding="utf-8")) == [ca]
+
+
+def test_inject_project_metadata_carries_control_identity_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The container path the module is mounted at and each lane's identity
+    reach every render context, goldens included."""
+    from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
+    from osprey.deployment.compose_generator import _inject_project_metadata
+    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+
+    monkeypatch.chdir(tmp_path)
+    context = _inject_project_metadata({})
+
+    assert context["control_identity_container_path"] == CONTROL_IDENTITY_CONTAINER_PATH
+    assert context["lane_control_identities"] == {
+        lane: lane_control_identity(lane) for lane in LANE_KEYS
+    }
+    assert context["lane_control_identities"]["bluesky_va"] == "osprey-bluesky-va"
+
+
+# ---------------------------------------------------------------------------
+# The dispatch worker's control identity
+#
+# Each worker writes to the control system under its OWN service identity,
+# `osprey-dispatch-<i>`, derived from the same loop index as its audit identity,
+# and reads the staged ``control_identity.py`` from a read-only bind.
+# ---------------------------------------------------------------------------
+
+
+def _dispatch_worker_services(rendered: str) -> dict:
+    return {
+        name: body
+        for name, body in yaml.safe_load(rendered)["services"].items()
+        if name.startswith("dispatch-worker-")
+    }
+
+
+def test_dispatch_worker_control_identity_is_per_worker() -> None:
+    """Every worker carries its own ``osprey-dispatch-<i>`` identity."""
+    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+
+    rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 3})
+
+    services = _dispatch_worker_services(rendered)
+    assert sorted(services) == ["dispatch-worker-1", "dispatch-worker-2", "dispatch-worker-3"]
+    for i in (1, 2, 3):
+        environment = services[f"dispatch-worker-{i}"]["environment"]
+        assert environment["OSPREY_CONTROL_IDENTITY"] == f"osprey-dispatch-{i}"
+        assert environment["OSPREY_CONTROL_IDENTITY_MODULE"] == CONTROL_IDENTITY_CONTAINER_PATH
+
+
+def test_dispatch_worker_control_identity_is_a_valid_service_identity() -> None:
+    """The rendered identity passes the leaf module's own service validation."""
+    from osprey.deployment.control_identity import validate_identity
+
+    rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 2})
+
+    for body in _dispatch_worker_services(rendered).values():
+        validate_identity(body["environment"]["OSPREY_CONTROL_IDENTITY"], allow_service=True)
+
+
+def test_dispatch_worker_mounts_the_staged_control_identity_module_read_only() -> None:
+    """The staged module is bind-mounted read-only at the path the env names."""
+    from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
+
+    rendered = _render_worker_template(env_present=True, dispatch_worker={"worker_count": 2})
+
+    expected = (
+        f"./build/services/dispatch_worker/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"
+    )
+    for body in _dispatch_worker_services(rendered).values():
+        assert body["volumes"].count(expected) == 1, body["volumes"]

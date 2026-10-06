@@ -1,8 +1,9 @@
 """Shipped prompts name only tools and config keys that exist.
 
 Two guards. The persona templates (``CLAUDE*.md.j2``) forbid and recommend
-tools by name, and a name that is not a registered tool is an instruction the
-agent cannot follow — ``python_execute`` was the module, the tool is
+tools by name, and a name is a tool when an MCP server registers it or when
+both pinned CLI builds list it; any other name is an instruction the agent
+cannot follow — ``python_execute`` was the module, the tool is
 ``mcp__python__execute``. The setup-mode skill lists which config keys take
 effect hot and which need a rebuild, and a key with no reader in the config-key
 manifest is a knob the operator will turn to no effect.
@@ -15,6 +16,7 @@ import re
 from pathlib import Path
 
 import yaml
+from tests.agent_runner.test_tool_name_conformance import tools_every_build_has
 
 import osprey
 
@@ -25,27 +27,6 @@ MCP_SERVER_ROOT = PACKAGE_ROOT / "mcp_server"
 #: Package data, beside providers.yml — `osprey config --defaults` renders the
 #: manifest's `default:` column at run time, and a wheel ships only src/osprey.
 CONFIG_KEY_MANIFEST = PACKAGE_ROOT / "profiles" / "config_key_manifest.yml"
-
-#: Tools the agent harness provides on its own, outside any MCP server.
-_HARNESS_TOOLS = frozenset(
-    {
-        "Agent",
-        "Bash",
-        "Edit",
-        "Glob",
-        "Grep",
-        "MultiEdit",
-        "NotebookEdit",
-        "Read",
-        "Skill",
-        "Task",
-        "TodoWrite",
-        "WebFetch",
-        "WebSearch",
-        "Write",
-    }
-)
-
 
 # ---------------------------------------------------------------------------
 # 4. Every tool a persona names is a registered tool
@@ -89,6 +70,7 @@ def test_every_tool_a_persona_names_is_registered() -> None:
     assert len(registry) > 50, "tool registry scan found too few tools to be trusted"
     templates = _persona_templates()
     assert templates, "no persona templates found"
+    harness = tools_every_build_has()
 
     offenders: list[str] = []
     for path in templates:
@@ -96,7 +78,7 @@ def test_every_tool_a_persona_names_is_registered() -> None:
         for lineno, line in enumerate(text.splitlines(), start=1):
             for match in _TOOL_MENTION.finditer(line):
                 name = match.group(1)
-                if name == "*" or name in _HARNESS_TOOLS or name in registry:
+                if name == "*" or name in harness or name in registry:
                     continue
                 offenders.append(f"  {path.name}:{lineno}: {match.group(0)}")
     assert offenders == [], "A persona names a tool no MCP server registers:\n" + "\n".join(

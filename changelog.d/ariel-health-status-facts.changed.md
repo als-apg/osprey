@@ -1,0 +1,1 @@
+ARIEL's open `/health` page now reports the entry count, the last ingestion time and the enabled search and enhancement modules, under `service`. It never shows the database address or a driver's error text; those stay on the signed-in `/api/status`.

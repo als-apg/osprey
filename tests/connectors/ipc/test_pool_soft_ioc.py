@@ -143,11 +143,11 @@ def _control_system(machine_port: int, *, arm: str) -> dict:
         "connector": {
             "epics": {
                 **({"writes_enabled": True} if arm == "epics" else {}),
-                "timeout": CA_TIMEOUT_S,
+                "timeout_s": CA_TIMEOUT_S,
                 "gateways": _gateways("127.0.0.1", machine_port),
             },
             "live_standin": {
-                "timeout": CA_TIMEOUT_S,
+                "timeout_s": CA_TIMEOUT_S,
                 # A simulator's readbacks are often computed on get; see the
                 # EPICS connector's `fresh_reads`.
                 "fresh_reads": True,

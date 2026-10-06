@@ -8,7 +8,8 @@ line in status, so the operator reads it once however often the verb resolved.
 
 One real exemplar build with ``provider: openai`` serves every test. The
 build also pins one agent to an id the provider does not list, so it carries that
-warning too.
+warning too, and sets an alias key that is not an alias name, so it carries the
+ignored-key warning as well.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from tests.cli.conftest import TerminalProbe
 
 SUBSTITUTION = "haiku, sonnet, opus aliases run the main model gpt-6-sol"
 UNLISTED = "'openai' does not list gpt-6-preview"
+DROPPED = "claude_code.aliases: ignoring key(s) sonet"
 
 _WITNESS = "MODELWARNINGSWITNESSMARKER"
 
@@ -83,9 +85,10 @@ def openai_build(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
     text = text.replace("\nprovider: anthropic\n", "\nprovider: openai\n")
     example = "  # claude_code.agent_models.logbook-search: claude-sonnet-5\n"
     assert text.count(example) == 1
-    profile.write_text(
-        text.replace(example, "  claude_code.agent_models.logbook-search: gpt-6-preview\n")
-    )
+    text = text.replace(example, "  claude_code.agent_models.logbook-search: gpt-6-preview\n")
+    alias_example = "  # claude_code.aliases.haiku: claude-haiku-4-5\n"
+    assert text.count(alias_example) == 1
+    profile.write_text(text.replace(alias_example, "  claude_code.aliases.sonet: gpt-6-sol\n"))
 
     buffer = StringIO()
     console = Console(
@@ -130,16 +133,23 @@ class TestTheBuildSaysItOnce:
         assert flowed.count("does not list") == 1, flowed
         assert UNLISTED in flowed
 
+    def test_the_dropped_alias_key_is_one_line_with_its_remedy(self, openai_build):
+        flowed = _flowed(openai_build.printed)
+        assert flowed.count(DROPPED) == 1, flowed
+        assert "Rename or remove each ignored key." in flowed
+
     def test_each_promoted_warning_keeps_one_record(self, openai_build):
         warnings = [r.getMessage() for r in openai_build.records if r.levelno == logging.WARNING]
         assert len([m for m in warnings if SUBSTITUTION in m]) == 1
         assert len([m for m in warnings if UNLISTED in m]) == 1
+        assert len([m for m in warnings if DROPPED in m]) == 1
 
-    def test_the_resolver_records_it_below_the_gate(self, openai_build):
+    @pytest.mark.parametrize("fact", [SUBSTITUTION, DROPPED], ids=["substitution", "dropped-key"])
+    def test_the_resolver_records_it_below_the_gate(self, openai_build, fact):
         records = [
             r
             for r in openai_build.records
-            if r.name == "osprey.build.claude_code_resolver" and SUBSTITUTION in r.getMessage()
+            if r.name == "osprey.agent_runner.provider_env" and fact in r.getMessage()
         ]
         assert records
         assert all(r.levelno == logging.INFO for r in records)
@@ -181,6 +191,10 @@ def test_status_says_it_once_and_the_log_handler_paints_nothing(
 
     assert "run the main model" not in terminal_probe.rendered_text
     assert any(SUBSTITUTION in m for m in terminal_probe.messages)
+
+    assert flowed.count(DROPPED) == 1, flowed
+    assert DROPPED not in terminal_probe.rendered_text
+    assert any(DROPPED in m for m in terminal_probe.messages)
 
     # Armed witness: an ERROR is above the gate on every path, so its absence
     # would mean the probe console was never reachable.

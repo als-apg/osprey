@@ -2,37 +2,240 @@
 
 This module provides the adapter for ALS eLog system.
 Supports both file-based (JSONL) and HTTP-based sources, and writing
-to the ALS olog RPC API.
+to the ALS olog RPC API. Entry text is stored as plain text.
 """
 
 import asyncio
+import html
 import json
+import re
 import ssl
 import xml.etree.ElementTree as ET
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import unquote
 
 import aiohttp
 
-from osprey.services.ariel_search.attachments import guess_mime_type
+from osprey.services.ariel_search.attachments import fetchable_url, guess_mime_type
 from osprey.services.ariel_search.exceptions import (
     AuthenticationRequiredError,
     IngestionError,
 )
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.config import ARIELConfig, Origin
     from osprey.services.ariel_search.models import FacilityEntryCreateRequest
 
 logger = get_logger("ariel")
 
 # Default start date for full ALS logbook history
 ALS_LOGBOOK_START_DATE = datetime(2003, 1, 1, tzinfo=UTC)
+
+#: The ``source_system`` value every row from this adapter carries.
+ALS_SOURCE_SYSTEM = "ALS eLog"
+
+# Tags the cleaner converts; any other ``<`` is ordinary text.
+_LINE_TAGS = frozenset(
+    {
+        "div",
+        "li",
+        "ul",
+        "ol",
+        "tr",
+        "table",
+        "pre",
+        "blockquote",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "html",
+        "body",
+        "center",
+    }
+)
+_PARAGRAPH_TAGS = frozenset({"p"})
+_BREAK_TAGS = frozenset({"br", "hr"})
+_CELL_TAGS = frozenset({"td", "th"})
+_DROP_CONTENT_TAGS = frozenset({"script", "style"})
+_INLINE_TAGS = frozenset(
+    {
+        "span",
+        "b",
+        "i",
+        "u",
+        "em",
+        "strong",
+        "font",
+        "sub",
+        "sup",
+        "s",
+        "strike",
+        "small",
+        "big",
+        "code",
+        "tt",
+        "tbody",
+        "thead",
+        "img",
+        "a",
+    }
+)
+_KNOWN_TAGS = (
+    _LINE_TAGS | _PARAGRAPH_TAGS | _BREAK_TAGS | _CELL_TAGS | _DROP_CONTENT_TAGS | _INLINE_TAGS
+)
+_TAG = re.compile(
+    r"<!--.*?-->|<(/?)("
+    + "|".join(sorted(_KNOWN_TAGS, key=len, reverse=True))
+    + r")\b((?:[^>\"']|\"[^\"]*\"|'[^']*')*)>",
+    re.IGNORECASE | re.DOTALL,
+)
+_CDATA = re.compile(r"<!\[CDATA\[(.*?)\]\]>", re.DOTALL)
+_HREF = re.compile(r"""href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", re.IGNORECASE)
+_TRAILING_SPACE = re.compile(r"[ \t]+\n")
+_BLANK_RUN = re.compile(r"\n{3,}")
+_MAX_DECODE_PASSES = 3
+# The logbook's escaping: a backslash run before a quote mark, or a doubled backslash.
+_BACKSLASH_ESCAPE = re.compile(r"""\\+(['"])|\\{2,}""")
+
+
+def _unescape_backslashes(match: re.Match[str]) -> str:
+    """Return the quote mark an escape run guards, or else one backslash."""
+    return match.group(1) or "\\"
+
+
+def _end_with_newlines(out: list[str], newlines: int) -> None:
+    """Append newlines until ``out`` ends in ``newlines`` of them; no-op while it is blank."""
+    joined = "".join(out)
+    if not joined.strip():
+        return
+    have = len(joined) - len(joined.rstrip("\n"))
+    out.append("\n" * max(0, newlines - have))
+
+
+def _markup_to_text(markup: str) -> str:
+    """Convert allow-listed HTML tags in decoded text to plain-text layout.
+
+    Text between tags is kept as is. Line breaks, paragraphs, line blocks and
+    list items become newlines (``- `` before each item), a link becomes its
+    text followed by `` (href)`` unless the two are equal, script and style
+    content is dropped, comments and inline tags are removed.
+    """
+    out: list[str] = []
+    links: list[tuple[str | None, int]] = []
+    drop = 0
+    pos = 0
+    for match in _TAG.finditer(markup):
+        if not drop:
+            out.append(markup[pos : match.start()])
+        pos = match.end()
+        if match.group(2) is None:
+            continue
+        closing = match.group(1) == "/"
+        tag = match.group(2).lower()
+        attrs = match.group(3) or ""
+        if tag in _DROP_CONTENT_TAGS:
+            drop = max(0, drop - 1) if closing else drop + 1
+        elif drop:
+            continue
+        elif tag in _BREAK_TAGS:
+            out.append("\n")
+        elif tag in _PARAGRAPH_TAGS:
+            _end_with_newlines(out, 2)
+        elif tag in _LINE_TAGS:
+            _end_with_newlines(out, 1)
+            if tag == "li" and not closing:
+                out.append("- ")
+        elif tag in _CELL_TAGS:
+            if closing:
+                out.append(" ")
+        elif tag == "a":
+            if not closing:
+                found = _HREF.search(attrs)
+                href = next((g for g in found.groups() if g is not None), None) if found else None
+                links.append((html.unescape(href) if href else None, len(out)))
+            elif links:
+                href, start = links.pop()
+                text = "".join(out[start:]).strip()
+                if href and href != text:
+                    out.append(f" ({href})")
+    if not drop:
+        out.append(markup[pos:])
+    return "".join(out)
+
+
+def clean_als_text(text: str) -> str:
+    """Turn a logbook field into the plain text it says.
+
+    Invariants:
+
+    * Text with no ``&``, no ``<``, no backslash before a quote mark and no
+      doubled backslash is returned unchanged, as the same object.
+    * HTML entities are decoded until the text stops changing, at most three
+      passes, so text the logbook encoded twice decodes fully.
+    * After decoding, the logbook's backslash escaping is undone. A run of
+      backslashes before ``'`` or ``"`` becomes that quote mark, so ``\\'``,
+      ``\\"`` and an encoded ``\\&quot;`` each become one plain quote. Any other
+      run of two or more backslashes becomes one backslash. A single backslash
+      before any other character is kept.
+    * A ``<![CDATA[...]]>`` wrapper is replaced by its content.
+    * Decoded text with no allow-listed tag and no comment only has non-breaking
+      spaces replaced by spaces; a plain ``<`` or ``&`` stays, and so do line
+      endings and indentation.
+    * Otherwise the markup becomes line breaks, paragraphs and ``- `` list items,
+      a link keeps its address in parentheses, script and style content is
+      dropped, and the whitespace is normalised: trailing spaces before a line
+      end are removed, blank-line runs collapse to one, and the result is
+      stripped.
+    * Cleaning is idempotent.
+
+    Args:
+        text: A subject or details field as the logbook sent it.
+
+    Returns:
+        The field as plain text.
+    """
+    if not text or ("&" not in text and "<" not in text and not _BACKSLASH_ESCAPE.search(text)):
+        return text
+    for _ in range(_MAX_DECODE_PASSES):
+        decoded = html.unescape(text)
+        if decoded == text:
+            break
+        text = decoded
+    text = _BACKSLASH_ESCAPE.sub(_unescape_backslashes, text)
+    text = _CDATA.sub(r"\1", text)
+    if not _TAG.search(text):
+        return text.replace("\xa0", " ")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = _markup_to_text(text)
+    text = text.replace("\xa0", " ")
+    text = _TRAILING_SPACE.sub("\n", text)
+    text = _BLANK_RUN.sub("\n\n", text)
+    return text.strip()
+
+
+def merge_als_text(subject: str, details: str) -> str:
+    """Compose stored entry text from a subject and details.
+
+    Args:
+        subject: The entry's subject.
+        details: The entry's body.
+
+    Returns:
+        Subject, a blank line and details when both are set; otherwise the one
+        that is set.
+    """
+    if subject and details:
+        return f"{subject}\n\n{details}"
+    return subject or details
 
 
 def parse_als_categories(category_str: str) -> list[str]:
@@ -49,11 +252,31 @@ def parse_als_categories(category_str: str) -> list[str]:
     return [cat.strip() for cat in category_str.split(",") if cat.strip()]
 
 
+def _is_safe_als_path(path: str) -> bool:
+    """Return whether a raw ALS attachment path may be joined onto the eLog prefix.
+
+    A path carrying a URL scheme (``javascript:``, ``file:``, ``https:``) or a
+    ``..`` segment, raw or percent-decoded, is unsafe: prefixing would turn it
+    into a plausible-looking https url that points somewhere else.
+    """
+    for candidate in (path, unquote(path)):
+        if ":" in re.split(r"[/\\]", candidate, maxsplit=1)[0]:
+            return False
+        if ".." in re.split(r"[/\\]", candidate):
+            return False
+    return True
+
+
 def transform_als_attachments(
     source_attachments: list[dict[str, Any]],
     url_prefix: str,
 ) -> list[AttachmentInfo]:
     """Transform ALS relative attachment paths to full URLs.
+
+    The raw path is checked before prefixing: a non-string path, a path with a
+    URL scheme, or a path with a ``..`` segment is dropped with a debug log, and
+    the prefixed url must then be fetchable. An empty path stays as a
+    header-only item with url ``""``.
 
     Args:
         source_attachments: List of attachment dicts from ALS logbook
@@ -64,16 +287,30 @@ def transform_als_attachments(
     """
     result: list[AttachmentInfo] = []
     for att in source_attachments:
-        if isinstance(att, dict) and "url" in att:
-            path = att["url"]
-            filename = path.rsplit("/", 1)[-1] if "/" in path else path
-            result.append(
-                {
-                    "url": url_prefix.rstrip("/") + "/" + path.lstrip("/"),
-                    "filename": filename,
-                    "type": guess_mime_type(filename),
-                }
-            )
+        if not (isinstance(att, dict) and "url" in att):
+            continue
+        path = att["url"]
+        if not isinstance(path, str):
+            logger.debug("Dropping ALS attachment with non-string url")
+            continue
+        filename = path.rsplit("/", 1)[-1] if "/" in path else path
+        if not path:
+            result.append({"url": "", "filename": filename, "type": None})
+            continue
+        if not _is_safe_als_path(path):
+            logger.debug(f"Dropping ALS attachment with unsafe path: {path!r}")
+            continue
+        url = url_prefix.rstrip("/") + "/" + path.lstrip("/")
+        if not fetchable_url(url, file_source=False):
+            logger.debug(f"Dropping ALS attachment with unfetchable url: {url!r}")
+            continue
+        result.append(
+            {
+                "url": url,
+                "filename": filename,
+                "type": guess_mime_type(filename),
+            }
+        )
     return result
 
 
@@ -110,7 +347,7 @@ class ALSLogbookAdapter(FacilityAdapter):
     @property
     def source_system_name(self) -> str:
         """Return the source system identifier."""
-        return "ALS eLog"
+        return ALS_SOURCE_SYSTEM
 
     @property
     def supports_write(self) -> bool:
@@ -119,6 +356,17 @@ class ALSLogbookAdapter(FacilityAdapter):
             return False
         write_cfg = self.config.ingestion.write
         return write_cfg.enabled and bool(write_cfg.write_url)
+
+    def attachment_origins(self) -> frozenset["Origin"]:
+        """Return the origin of the eLog attachment prefix.
+
+        ALS attachment paths resolve against ``attachment_url_prefix`` whether
+        entries come from a file export or over HTTP, so that is the origin.
+        """
+        from osprey.services.ariel_search.attachments.fetch import origin_of
+
+        origin = origin_of(self.attachment_url_prefix)
+        return frozenset({origin}) if origin is not None else frozenset()
 
     def _detect_source_type(self, source_url: str) -> Literal["file", "http"]:
         """Detect source type from URL scheme."""
@@ -142,6 +390,7 @@ class ALSLogbookAdapter(FacilityAdapter):
         Yields:
             EnhancedLogbookEntry objects
         """
+        self.unreadable_entries = 0
         if self.source_type == "http":
             async for entry in self._fetch_entries_http(since, until, limit):
                 yield entry
@@ -180,9 +429,11 @@ class ALSLogbookAdapter(FacilityAdapter):
                         break
 
                 except json.JSONDecodeError as e:
+                    self.unreadable_entries += 1
                     logger.warning(f"Invalid JSON at line {line_num}: {e}")
                     continue
                 except Exception as e:
+                    self.unreadable_entries += 1
                     logger.warning(f"Failed to convert entry at line {line_num}: {e}")
                     continue
 
@@ -211,7 +462,7 @@ class ALSLogbookAdapter(FacilityAdapter):
         auth_user = request.auth_user or write_cfg.auth_user
         auth_password = request.auth_password or write_cfg.auth_password
 
-        if self.requires_write_auth and (not auth_user or not auth_password):
+        if not auth_user or not auth_password:
             raise AuthenticationRequiredError(
                 "OLOG publishing requires credentials. "
                 "Provide username and password in the submit form, "
@@ -429,6 +680,7 @@ class ALSLogbookAdapter(FacilityAdapter):
                             return
 
                     except Exception as e:
+                        self.unreadable_entries += 1
                         logger.warning(f"Failed to convert entry {entry_id}: {e}")
                         continue
 
@@ -571,18 +823,13 @@ class ALSLogbookAdapter(FacilityAdapter):
         """Convert ALS JSON entry to EnhancedLogbookEntry."""
         now = datetime.now(UTC)
 
-        # Parse timestamp - ALS uses Unix epoch STRING (not int)
-        timestamp_str = data.get("timestamp", "0")
-        try:
-            timestamp_epoch = int(timestamp_str)
-            timestamp = datetime.fromtimestamp(timestamp_epoch, tz=UTC)
-        except (ValueError, TypeError):
-            timestamp = now
+        # ALS uses a Unix epoch STRING (not int)
+        timestamp = parse_entry_time(data.get("timestamp"))
 
-        subject = data.get("subject", "")
-        details = data.get("details", "")
-        if self.merge_subject_details and subject and details:
-            raw_text = f"{subject}\n\n{details}"
+        subject = clean_als_text(data.get("subject") or "")
+        details = clean_als_text(data.get("details") or "")
+        if self.merge_subject_details:
+            raw_text = merge_als_text(subject, details)
         else:
             raw_text = subject or details
 

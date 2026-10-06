@@ -199,7 +199,7 @@ class TestEnsureRunningOwnership:
             ),
             patch.object(launcher, "_port_answers_connect", return_value=False),
             patch.object(launcher, "_launch_in_thread") as mock_launch,
-            patch("osprey.infrastructure.server_launcher.time.sleep"),
+            patch("osprey.infrastructure.server_launcher._sleep"),
         ):
             launcher.ensure_running()
 
@@ -219,7 +219,7 @@ class TestEnsureRunningOwnership:
             patch.object(launcher, "_operator_secret", return_value="operator-secret"),
             patch.object(launcher, "_probe_status", side_effect=_probes(401, 200)),
             patch.object(launcher, "_launch_in_thread") as mock_launch,
-            patch("osprey.infrastructure.server_launcher.time.sleep"),
+            patch("osprey.infrastructure.server_launcher._sleep"),
             patch("osprey.infrastructure.server_launcher.logger.warning") as mock_warn,
         ):
             launcher.ensure_running()
@@ -244,7 +244,7 @@ class TestEnsureRunningOwnership:
             patch.object(launcher, "_probe_status", side_effect=_probes(200)),
             patch.object(launcher, "_is_running", return_value=True),
             patch.object(launcher, "_launch_in_thread") as mock_launch,
-            patch("osprey.infrastructure.server_launcher.time.sleep"),
+            patch("osprey.infrastructure.server_launcher._sleep"),
             patch("osprey.infrastructure.server_launcher.logger.warning") as mock_warn,
         ):
             launcher.ensure_running()
@@ -263,7 +263,7 @@ class TestEnsureRunningOwnership:
             patch.object(launcher, "_operator_secret", return_value="operator-secret"),
             patch.object(launcher, "_probe_status", side_effect=_probes(None)),
             patch.object(launcher, "_launch_in_thread") as mock_launch,
-            patch("osprey.infrastructure.server_launcher.time.sleep"),
+            patch("osprey.infrastructure.server_launcher._sleep"),
             patch("osprey.infrastructure.server_launcher.logger.warning") as mock_warn,
         ):
             launcher.ensure_running()
@@ -287,7 +287,7 @@ class TestEnsureRunningOwnership:
             patch.object(launcher, "_operator_secret", return_value="operator-secret"),
             patch.object(launcher, "_probe_status", side_effect=_probes(None)),
             patch.object(launcher, "_launch_in_thread") as mock_launch,
-            patch("osprey.infrastructure.server_launcher.time.sleep"),
+            patch("osprey.infrastructure.server_launcher._sleep"),
         ):
             launcher.ensure_running()
         mock_launch.assert_not_called()
@@ -321,7 +321,7 @@ class TestEnsureRunningOwnership:
                 patch.object(launcher, "_operator_secret", return_value="operator-secret"),
                 patch.object(launcher, "_probe_status", side_effect=_probes(None)),
                 patch.object(launcher, "_launch_in_thread"),
-                patch("osprey.infrastructure.server_launcher.time.sleep", sleep),
+                patch("osprey.infrastructure.server_launcher._sleep", sleep),
             ):
                 launcher.ensure_running()
             if _pass == 0:
@@ -356,7 +356,7 @@ class TestEnsureRunningOwnership:
                 return_value=dead_thread,
             ),
             patch.object(launcher, "_is_running", return_value=True),
-            patch("osprey.infrastructure.server_launcher.time.sleep"),
+            patch("osprey.infrastructure.server_launcher._sleep"),
         ):
             launcher._launch_in_thread("127.0.0.1", 12345)
 

@@ -22,10 +22,12 @@ vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/app.js', () => 
 }));
 
 import { mountFeedback, unmountFeedback } from '../../../src/osprey/interfaces/channel_finder/static/js/feedback.js';
+import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone, zoneName } from '../_support/facility-zone.mjs';
 
 afterEach(() => {
   unmountFeedback();
   vi.unstubAllGlobals();
+  stampFacilityZone(null);
 });
 
 /**
@@ -129,4 +131,49 @@ test('an available store still lists entries and offers promotion', async () => 
   expect(container.innerHTML).toContain('bpms');
   expect(container.querySelector('.fb-pending-approve')).not.toBeNull();
   expect(container.querySelector('.fb-pending-dismiss')).not.toBeNull();
+});
+
+/** The store-backed routes of one entry, as an available store answers them. */
+const STORE_ROUTES = {
+  '/api/feedback/status': { available: true, paradigm: 'hierarchical', entry_count: 1, store_path: '/tmp/fb.json' },
+  '/api/feedback': {
+    entries: [{
+      key: 'k1', query: 'bpms', facility: 'ERF',
+      success_count: 3, failure_count: 1, last_activity: '2026-08-27T10:00:00Z',
+    }],
+  },
+  '/api/pending-reviews/status': { available: true, item_count: 1, can_promote: true },
+  '/api/pending-reviews': { items: [PENDING_ITEM] },
+};
+
+test('the Last Activity column reads the facility clock and names its zone', async () => {
+  stampFacilityZone(FACILITY_ZONE);
+  const container = freshContainer();
+  stubApi(STORE_ROUTES);
+
+  mountFeedback(container);
+  await vi.waitFor(() => expect(container.querySelector('.fb-table-row')).not.toBeNull());
+
+  const headers = container.querySelectorAll('.data-table th');
+  expect(headers[4].textContent).toBe(`Last Activity (${zoneName(FACILITY_ZONE)})`);
+  const cells = /** @type {Element} */ (container.querySelector('.fb-table-row')).querySelectorAll('td');
+  const expected = new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: FACILITY_ZONE,
+  }).format(new Date('2026-08-27T10:00:00Z'));
+  expect(cells[4].textContent).toBe(expected);
+});
+
+test('a viewer on the facility clock sees a plain Last Activity header', async () => {
+  stampFacilityZone(VIEWER_ZONE);
+  const container = freshContainer();
+  stubApi(STORE_ROUTES);
+
+  mountFeedback(container);
+  await vi.waitFor(() => expect(container.querySelector('.fb-table-row')).not.toBeNull());
+
+  expect(container.querySelectorAll('.data-table th')[4].textContent).toBe('Last Activity');
 });

@@ -8,6 +8,7 @@ importing another is not a seam worth opening.
 """
 
 import os
+from collections.abc import Sequence
 
 #: Environment variable naming the provider the build-and-run e2e lanes drive.
 #:
@@ -23,19 +24,42 @@ E2E_PROVIDER_ENV = "OSPREY_E2E_PROVIDER"
 FORCE_PROVIDER_ENV = "OSPREY_E2E_FORCE_PROVIDER"
 
 
-def provider_refusal() -> str:
+#: Marks a test that reaches no model, and so runs in a session that names no provider.
+MODEL_FREE_MARKER = "model_free"
+
+#: How many unmarked node ids the refusal names; the rest it counts.
+REFUSAL_LISTED_TESTS = 20
+
+
+def provider_refusal(*, unmarked: Sequence[str] = ()) -> str:
     """What to tell a run that has not said which provider it builds with.
 
     The providers are read from the registry's own key table rather than listed
     here, so the refusal cannot name a set OSPREY does not have.
+
+    Args:
+        unmarked: Node ids of the selected tests that do not carry
+            :data:`MODEL_FREE_MARKER`. When given, the refusal names the first
+            :data:`REFUSAL_LISTED_TESTS` of them, counts the rest, and says how
+            to select only the tests that reach no model.
     """
     from osprey.models.provider_registry import PROVIDER_API_KEYS
 
     known = ", ".join(sorted(PROVIDER_API_KEYS))
-    return (
+    message = (
         f"This end-to-end run names no provider. Set {E2E_PROVIDER_ENV} to the provider "
         f"whose credential this environment holds, or {FORCE_PROVIDER_ENV} to point the "
         f"whole suite at one provider. Known providers: {known}."
+    )
+    if not unmarked:
+        return message
+    named = ", ".join(unmarked[:REFUSAL_LISTED_TESTS])
+    rest = len(unmarked) - REFUSAL_LISTED_TESTS
+    if rest > 0:
+        named += f" … and {rest} more"
+    return (
+        f"{message} These selected tests are not marked {MODEL_FREE_MARKER}: {named}. "
+        f"To run only the tests that reach no model, add -m {MODEL_FREE_MARKER}."
     )
 
 

@@ -21,10 +21,19 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.ownership import (
+    get_user_owned,
+    update_config_add_user_owned,
+    update_config_remove_user_owned,
+    update_manifest_add_user_owned,
+    update_manifest_remove_user_owned,
+)
 from osprey.audit.envelope import POSTURE_SOURCE_APP
 from osprey.audit.protected import SURFACE_SCAFFOLD_GALLERY, record_protected_refusal
 from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
 from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.manifest import load_project_manifest, recorded_claude_md_template
 from osprey.interfaces.web_terminal.ownership import (
     OwnershipMode,
     OwnershipStore,
@@ -37,14 +46,6 @@ from osprey.interfaces.web_terminal.ownership import (
     rehydrate,
     reserved_write_channel,
     resolve_ownership,
-)
-from osprey.services.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
-from osprey.services.build_artifacts.ownership import (
-    get_user_owned,
-    update_config_add_user_owned,
-    update_config_remove_user_owned,
-    update_manifest_add_user_owned,
-    update_manifest_remove_user_owned,
 )
 from osprey.utils.config import resolve_env_vars
 
@@ -152,7 +153,9 @@ class ScaffoldGalleryService:
 
     def __init__(self, project_dir: Path) -> None:
         self.project_dir = project_dir
-        self._registry = BuildArtifactCatalog.default()
+        self._registry = BuildArtifactCatalog.default(
+            claude_md_template=recorded_claude_md_template(load_project_manifest(project_dir))
+        )
         self._ownership = resolve_ownership(project_dir)
         self._manager: TemplateManager | None = None
         self._ctx: dict[str, Any] | None = None
@@ -163,7 +166,8 @@ class ScaffoldGalleryService:
         if not config_file.exists():
             return {}
         with open(config_file, encoding="utf-8") as f:
-            return resolve_env_vars(yaml.safe_load(f) or {})
+            config = resolve_env_vars(yaml.safe_load(f) or {})
+        return config if isinstance(config, dict) else {}
 
     # ── Ownership ─────────────────────────────────────────────────────
 
@@ -369,7 +373,7 @@ class ScaffoldGalleryService:
             f"  {NO_DURABLE_STORE}"
         )
 
-    def _write_body(self, output_path: str, content: str, name: str | None = None) -> bool:
+    def _write_body(self, output_path: str, content: str, name: str) -> bool:
         """Write an artifact body to whichever surfaces must carry it.
 
         The profile's copy is the source of truth where there is one. Otherwise
@@ -410,8 +414,7 @@ class ScaffoldGalleryService:
                 "Edit the files inside it instead."
             )
 
-        canonical = name if name is not None else self._path_to_canonical(output_path)
-        self._require_writable(canonical, output_path, outcome="NOTHING WAS WRITTEN")
+        self._require_writable(name, output_path, outcome="NOTHING WAS WRITTEN")
 
         profile_file = self._profile_file(name)
         if profile_file is not None:
@@ -419,10 +422,7 @@ class ScaffoldGalleryService:
             return False
 
         if self._store is not None:
-            if name is not None:
-                self._store.claim(name, output_path, content)
-            else:  # pragma: no cover - every save path knows its artifact
-                self._store.write_content(output_path, content)
+            self._store.claim(name, output_path, content)
 
         target = self.project_dir / output_path
         try:
@@ -617,13 +617,6 @@ class ScaffoldGalleryService:
         """Render and return the framework template content."""
         art = self._get_artifact(name)
         return self._render_framework(art)
-
-    def get_override_content(self, name: str) -> str | None:
-        """Read the user-owned file content, or None if not user-owned."""
-        art = self._get_artifact(name)
-        if art.canonical_name not in self._user_owned:
-            return None
-        return self._read_user_file(art)
 
     # ── Diff ──────────────────────────────────────────────────────────
 
@@ -953,7 +946,12 @@ class ScaffoldGalleryService:
                 "message": still_supplied_by_profile_message(str(held.path)),
             }
 
-        is_custom = self._registry.get(name) is None
+        framework_art = self._registry.get(name)
+        is_custom = framework_art is None
+        # The file the ownership record names — the one every read and save of
+        # this artifact already uses — is the one judged and removed. Taken
+        # before the release, which retires the record.
+        out_rel = self._stored_output_path(name)
 
         if delete_file and is_custom:
             # The one branch below that removes a file from disk. Refused here
@@ -962,32 +960,46 @@ class ScaffoldGalleryService:
             # ownership record and still promised that nothing happened.
             # Releasing WITHOUT deleting stays open — it changes no file, and
             # the protected set is about who writes the bytes.
-            out_rel = self._canonical_to_path(name)
             self._require_writable(name, out_rel, outcome="NOTHING WAS DELETED")
 
         self._record_release(name)
 
         deleted = False
         restored = False
+        message: str | None = None
         if delete_file and is_custom:
             # Custom artifact (no framework template) — delete the file
-            out = self.project_dir / self._canonical_to_path(name)
+            out = self.project_dir / out_rel
             if out.exists():
                 out.unlink()
                 deleted = True
-        elif delete_file and not is_custom:
+        elif delete_file and framework_art is not None:
             # Framework artifact — restore file to rendered template
-            art = self._registry.get(name)
+            # The release above is durable and stands whatever happens here;
+            # a failed write-back is reported, because the operator's text is
+            # still on disk and a bare "removed" would say it is not.
             try:
-                content = self._render_framework(art)
-                out = self.project_dir / art.output_path
+                content = self._render_framework(framework_art)
+                out = self.project_dir / framework_art.output_path
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(content, encoding="utf-8")
                 restored = True
-            except Exception:
-                pass  # ownership already removed; stale file stays
+            except Exception as exc:
+                logger.warning("Released %s but could not restore it: %s", name, exc)
+                message = (
+                    f"Released '{name}', but the framework copy of {framework_art.output_path} "
+                    f"could not be restored ({exc}). The file on disk is still your "
+                    "last saved version."
+                )
 
-        return {"status": "removed", "deleted_file": deleted, "restored_file": restored}
+        outcome: dict[str, Any] = {
+            "status": "removed",
+            "deleted_file": deleted,
+            "restored_file": restored,
+        }
+        if message is not None:
+            outcome["message"] = message
+        return outcome
 
     # ── Untracked file detection ─────────────────────────────────────
 
@@ -1199,11 +1211,21 @@ class ScaffoldGalleryService:
         before it looks at the filesystem at all: the check is about which
         channel owns the path, and running it after the existence test would
         make a refusal double as an answer to "does this file exist".
+
+        Refuses an owned artifact too. This route is for orphans; unlinking an
+        owned file here would leave its ownership record, and on a volume its
+        stored body, to bring it back. Releasing with ``delete_file`` is the
+        operation that does both halves.
         """
         if self._registry.get(canonical_name) is not None:
             raise ValueError(f"'{canonical_name}' is a framework artifact — use unoverride instead")
         output_path = self._canonical_to_path(canonical_name)
         self._require_writable(canonical_name, output_path, outcome="NOTHING WAS DELETED")
+        if canonical_name in self._user_owned:
+            raise FileExistsError(
+                f"'{canonical_name}' is owned — use unoverride with delete_file. "
+                "Nothing was deleted."
+            )
         full_path = self.project_dir / output_path
         if not full_path.exists():
             raise FileNotFoundError(f"File not found on disk: {output_path}")
@@ -1376,9 +1398,11 @@ class ScaffoldGalleryService:
         if template_file.suffix == ".j2":
             template_rel = f"claude_code/{art.template_path}"
             template = manager.jinja_env.get_template(template_rel)
-            return template.render(**ctx)
+            rendered: str = template.render(**ctx)
+            return rendered
         else:
-            return template_file.read_text(encoding="utf-8")
+            text: str = template_file.read_text(encoding="utf-8")
+            return text
 
     def _read_user_file(self, art: BuildArtifact) -> str | None:
         """Read the user's copy of an artifact from the surface that holds it."""

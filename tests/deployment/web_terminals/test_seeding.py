@@ -39,7 +39,8 @@ def _config(users, *, facility_prefix=_FACILITY_PREFIX, registry=None, web_termi
         web_terminals.update(web_terminals_extra)
     config = {
         "project_name": "demo-project",
-        "facility": {"name": "Demo Light Source", "prefix": facility_prefix, "timezone": "UTC"},
+        "facility": {"name": "Demo Light Source", "prefix": facility_prefix},
+        "system": {"timezone": "UTC"},
         "modules": {"web_terminals": web_terminals},
     }
     if registry is not None:

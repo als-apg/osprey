@@ -14,9 +14,11 @@ form costs no reach while keeping decorated keys (the ``/ws/operator`` pool's
 ``operator-<hex8>``) and near-miss strings out of every store that decides a
 child process's execution mode.
 
-The posture routes, the chat route, the hand-off route and the agent-turn
-route all ask :func:`is_posture_key` rather than carrying a pattern of their
-own, so the surfaces cannot drift on what a key is. The pattern itself stays
+The posture routes, the chat route, the hand-off route, the agent-turn route,
+both ways the terminal websocket takes a key (the ``mode=resume`` connect and
+``switch_session``) and the workspace file routes' ``sessions/<key>/`` scoping
+all ask :func:`is_posture_key` rather than carrying a pattern of their own, so
+the surfaces cannot drift on what a key is. The pattern itself stays
 private so there is one place to change it.
 """
 
@@ -24,10 +26,10 @@ from __future__ import annotations
 
 import re
 
-_SESSION_KEY_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_SESSION_KEY_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
-def is_posture_key(session_id: str | None) -> bool:
+def is_posture_key(session_id: object) -> bool:
     """Whether *session_id* is a canonical, bare session UUID.
 
     Named for the surface that first closed the grammar: a key this answers
@@ -42,5 +44,10 @@ def is_posture_key(session_id: str | None) -> bool:
     bodies with no terminal session to name. Those routes decide the absent
     case before asking, so that "not sent" and "sent malformed" stay different
     answers — a 200 or 202, against a 400 ``invalid_session_id``.
+
+    **Any value that is not a** ``str`` answers ``False`` rather than raising:
+    a websocket frame is decoded JSON and can carry any JSON type in the id's
+    place. The whole string must be the key, so a trailing newline is refused
+    too.
     """
-    return session_id is not None and bool(_SESSION_KEY_RE.match(session_id))
+    return isinstance(session_id, str) and _SESSION_KEY_RE.fullmatch(session_id) is not None

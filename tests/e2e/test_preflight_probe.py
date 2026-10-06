@@ -163,7 +163,7 @@ CONNECTOR_CONFIG: dict[str, Any] = {
     "type": "virtual_accelerator",
     "connector": {
         "virtual_accelerator": {
-            "timeout": 5.0,
+            "timeout_s": 5.0,
             "gateways": {"read_only": _VA_GATEWAY, "write_access": _VA_GATEWAY},
         }
     },

@@ -2,7 +2,7 @@
 
 The leaf constants and file-hashing helper for the project render manifest
 (``.osprey-manifest.json``). These are the only manifest pieces the low
-layers need (e.g. ``services.build_artifacts.ownership`` computes user-owned
+layers need (e.g. ``agent_runner.build_artifacts.ownership`` computes user-owned
 framework hashes), so they live in the build-time kernel. The catalog-aware
 manifest generation/validation stays in ``cli.templates.manifest``, which
 re-imports these primitives.

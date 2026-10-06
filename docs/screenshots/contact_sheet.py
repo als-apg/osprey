@@ -89,6 +89,10 @@ DEMO_TRANSCRIPT_PATH = Path(__file__).parent / "demo_transcript.txt"
 #: so it must not collide with any real agent/tool output.
 TRANSCRIPT_SENTINEL = "__OSPREY_SHEET_READY__"
 
+#: The fake session's one user line, which the Simple view's chat replays when
+#: it resumes the demo session.
+DEMO_OPENING_PROMPT = "Plot the storage ring beam current over the last hour."
+
 #: Visible-column budget for a transcript line: the terminal card is ~370px, so
 #: lines wider than this wrap and break the mockup-faithful layout.
 MAX_CARD_LINE_WIDTH = 40
@@ -589,7 +593,14 @@ _TERMINAL_VIEWPORT = {"width": 1280, "height": 800}
 # CDN, so first paint and the canned PTY replay can take a few seconds.
 _NAV_TIMEOUT_MS = 30_000
 _SETTLE_MS = 600  # let the theme swap + layout settle (mirrors the visual suite)
-_PLOTLY_MS = 2_000  # Plotly draws async; give the preview time before shooting
+_PLOT_DRAWN_MS = 30_000  # Plotly.js draws in the preview frame; the shot requires it
+
+#: The line path of the beam-current plot's drawn trace. ``.plotly-graph-div``
+#: is in the served HTML before Plotly runs, while ``.js-plotly-plot`` and the
+#: trace's ``path.js-line`` exist only once Plotly has drawn. The artifacts
+#: server keeps ``.js-plotly-plot`` ``visibility: hidden`` until the chart is
+#: re-themed, so a *visible* line path means the plot is drawn and revealed.
+_PLOT_DRAWN_SELECTOR = ".js-plotly-plot .scatterlayer .trace path.js-line"
 
 
 def _variant_filename(
@@ -634,7 +645,7 @@ def _fake_session_line() -> str:
             "type": "user",
             "message": {
                 "role": "user",
-                "content": "Plot the storage ring beam current over the last hour.",
+                "content": DEMO_OPENING_PROMPT,
             },
             "sessionId": DEMO_SESSION_ID,
             "timestamp": _DEMO_UPDATED_ISO,
@@ -657,38 +668,59 @@ def _write_fake_session(session_dir: Path) -> Path:
     return path
 
 
-def _wait_for_session_ready(page, mode: str | None) -> None:
-    """Block until the resumed session has reached the terminal chrome.
+def _wait_for_resumed_session(page, mode: str | None, *, variant: str) -> None:
+    """Block until the resumed demo session is shown in the view the mode renders.
 
-    Expert renders the session hex into ``#terminal-label`` (``Session 3f9a1c72``),
-    so it waits for that exact hex — the strong assertion that the hub confirmed
-    the id this harness asked it to resume, unchanged from the theme-only
-    renderer.
+    Expert (and ``None``) waits for :data:`TRANSCRIPT_SENTINEL` in
+    ``.xterm-rows`` (xterm's DOM renderer keeps the text there; its appearance
+    implies the PTY spawned), then for ``DEMO_SESSION_ID[:8]`` in
+    ``#terminal-label``, the proof that the hub confirmed the id this harness
+    asked it to resume.
 
-    Simple mode's shell density pass (Task 5.4) hides ``#terminal-label`` and
-    surfaces a ``Connected`` state in a sibling ``.terminal-label-simple`` span,
-    so keying the wait on hex *visibility* would be unreliable. But the JS still
-    writes ``Session <hex>`` into the (now hidden) ``#terminal-label`` on
-    ``session_info`` in both modes, so Simple keys off that same write via
-    ``textContent`` — which is populated regardless of CSS visibility — detected
-    as the label moving off its static ``Session`` placeholder. That proves the
-    confirmation arrived without depending on the Simple ``Connected`` chrome,
-    and never weakens the Expert hex wait.
+    Simple waits once, for the operator chat's replay of
+    :data:`DEMO_OPENING_PROMPT`. The Simple view never connects the terminal, so
+    neither ``.xterm-rows`` nor ``#terminal-label`` moves there. The chat replays
+    the transcript of the key it resumed, and only ``DEMO_SESSION_ID``'s record
+    carries that line, so this one wait proves both the transcript and the id.
+
+    Args:
+        page: The Playwright page showing the hub.
+        mode: The UI mode, which names the view that shows the session.
+        variant: The variant being captured, named in the error.
+
+    Raises:
+        RuntimeError: The session did not appear within :data:`_NAV_TIMEOUT_MS`.
     """
-    if mode == "simple":
-        page.wait_for_function(
-            "() => { const l = document.getElementById('terminal-label');"
-            " if (!l) return false; const t = (l.textContent || '').trim();"
-            " return t !== '' && t !== 'Session'; }",
-            timeout=_NAV_TIMEOUT_MS,
-        )
-    else:
-        page.wait_for_function(
-            "(h) => { const l = document.getElementById('terminal-label');"
-            " return !!l && (l.textContent || '').includes(h); }",
-            arg=DEMO_SESSION_ID[:8],
-            timeout=_NAV_TIMEOUT_MS,
-        )
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    view = "operator chat" if mode == "simple" else "terminal"
+    try:
+        if mode == "simple":
+            page.wait_for_function(
+                "(p) => Array.from(document.querySelectorAll("
+                "'.op-messages .op-entry.operator .op-entry-body'))"
+                ".some((b) => (b.textContent || '').trim() === p)",
+                arg=DEMO_OPENING_PROMPT,
+                timeout=_NAV_TIMEOUT_MS,
+            )
+        else:
+            page.wait_for_function(
+                "(s) => { const r = document.querySelector('.xterm-rows');"
+                " return !!r && (r.textContent || '').includes(s); }",
+                arg=TRANSCRIPT_SENTINEL,
+                timeout=_NAV_TIMEOUT_MS,
+            )
+            page.wait_for_function(
+                "(h) => { const l = document.getElementById('terminal-label');"
+                " return !!l && (l.textContent || '').includes(h); }",
+                arg=DEMO_SESSION_ID[:8],
+                timeout=_NAV_TIMEOUT_MS,
+            )
+    except PlaywrightTimeoutError as exc:
+        raise RuntimeError(
+            f"hub {variant}: the resumed session did not appear in the {view} within "
+            f"{_NAV_TIMEOUT_MS // 1000} s; no image was written."
+        ) from exc
 
 
 def _plot_row_selector(mode: str | None) -> str:
@@ -702,6 +734,52 @@ def _plot_row_selector(mode: str | None) -> str:
     """
     container = "#simple-list-body" if mode == "simple" else "#sidebar-body"
     return f'{container} [data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
+
+
+def _plot_frame_selector(mode: str | None) -> str:
+    """CSS for the preview iframe that renders the selected plot, scoped by mode.
+
+    Each view renders the selected artifact into its own container: Expert into
+    ``#preview-content``, Simple into the latest-result card's
+    ``#simple-result-preview``. Both go through ``artifactViewportHtml``, which
+    renders a ``plot_html`` artifact as ``iframe.preview-iframe-light``. The frame
+    is therefore named by the active view's container, as the row is, so a
+    preview frame in the other view's container can never answer for it.
+    """
+    if mode == "simple":
+        return "#simple-result-preview iframe"
+    return "#preview-content iframe.preview-iframe-light"
+
+
+def _wait_for_plot_drawn(page, mode: str | None, *, variant: str, moment: str) -> None:
+    """Block until the beam-current plot is drawn and revealed in the active preview.
+
+    This is a precondition for the shot, not a best-effort pause. The wait is for
+    the ``visible`` state because ``attached`` is already true for markup that
+    Plotly has not drawn, and ``visible`` stays false while the artifacts server
+    keeps the chart hidden.
+
+    Args:
+        page: The Playwright page showing the hub.
+        mode: The UI mode, which names the active preview frame.
+        variant: The variant being captured, named in the error.
+        moment: When the check runs, named in the error.
+
+    Raises:
+        RuntimeError: The plot did not draw within :data:`_PLOT_DRAWN_MS`.
+    """
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
+    try:
+        panel.frame_locator(_plot_frame_selector(mode)).locator(
+            _PLOT_DRAWN_SELECTOR
+        ).first.wait_for(state="visible", timeout=_PLOT_DRAWN_MS)
+    except PlaywrightTimeoutError as exc:
+        raise RuntimeError(
+            f"hub {variant}: the beam-current plot did not draw {moment} within "
+            f"{_PLOT_DRAWN_MS // 1000} s; no image was written."
+        ) from exc
 
 
 def _assert_fits_columns(fitted_cols: int) -> None:
@@ -997,6 +1075,10 @@ def capture_hub_view(
         accent: An accent candidate to recolour the chrome with, or ``None``.
         rail: A rail position (``"top"``), or ``None`` for the default rail.
         stage: A :data:`STAGES` key the page is driven into before the shot.
+
+    The view is shot only with its plot drawn; a plot that never draws raises
+    :class:`RuntimeError` instead of writing *dest*. A resumed session that never
+    appears in the active view raises :class:`RuntimeError` without writing *dest*.
     """
     # Publish the fake session BEFORE the page loads. The terminal's session id
     # has to be DEMO_SESSION_ID — the seeded artifacts are tagged with it and
@@ -1006,6 +1088,17 @@ def capture_hub_view(
     # snapshot) and confirms DEMO_SESSION_ID synchronously.
     _write_fake_session(hub.session_dir)
 
+    variant = ", ".join(
+        f"{name}={value}"
+        for name, value in (
+            ("theme", theme),
+            ("mode", mode),
+            ("accent", accent),
+            ("rail", rail),
+            ("stage", stage),
+        )
+        if value is not None
+    )
     page = browser.new_page(viewport=_TERMINAL_VIEWPORT)
     try:
         from osprey.interfaces._serving import authorize_browser_context
@@ -1025,24 +1118,28 @@ def capture_hub_view(
             "try { localStorage.setItem('osprey-tour-dismissed-v1', '1');"
             f" localStorage.setItem('osprey-pty-session', '{DEMO_SESSION_ID}') }} catch (e) {{}}"
         )
+        # Every capture resumes the same session id, so they share one pool
+        # entry, and the hub hands a warm entry to a new page without re-running
+        # its command, which would leave the page waiting for a replay that
+        # already played. Emptying the pool while no page of this run is open
+        # means the replay this page waits for was spawned for it. The POST names
+        # the hub's own origin, as the page itself would, because the hub refuses
+        # a state-changing request that carries none.
+        response = page.request.post(
+            f"{hub.base_url}/api/terminal/restart", headers={"Origin": hub.base_url}
+        )
+        if not response.ok:
+            raise RuntimeError(
+                f"hub {variant}: the hub refused to empty its terminal pool "
+                f"(HTTP {response.status}); no image was written."
+            )
         page.goto(
             _variant_url(hub.base_url, theme, mode, rail),
             wait_until="domcontentloaded",
             timeout=_NAV_TIMEOUT_MS,
         )
-        # Wait for the canned transcript's sentinel to land in the terminal
-        # (xterm's DOM renderer keeps the text in .xterm-rows). This also
-        # implies the PTY has spawned.
-        page.wait_for_function(
-            "(s) => { const r = document.querySelector('.xterm-rows');"
-            " return !!r && (r.textContent || '').includes(s); }",
-            arg=TRANSCRIPT_SENTINEL,
-            timeout=_NAV_TIMEOUT_MS,
-        )
-
-        # Wait for the confirmed id to reach the header (Expert: the hex;
-        # Simple: the Task 5.4 "Connected" state — see _wait_for_session_ready).
-        _wait_for_session_ready(page, mode)
+        # Wait for the resumed demo session in whichever view the mode shows.
+        _wait_for_resumed_session(page, mode, variant=variant)
 
         # Guard against a transcript that wraps at the real fitted width.
         fitted_cols = _read_fitted_cols(page)
@@ -1057,21 +1154,7 @@ def capture_hub_view(
         panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
         panel.locator(_plot_row_selector(mode)).first.click(timeout=_NAV_TIMEOUT_MS)
 
-        # Anchor on the Plotly root actually appearing in the nested preview
-        # iframe, with the 2s as a cap — best-effort, since a not-yet-drawn plot
-        # should not fail the whole run (the settle below still gives it time).
-        # Expert's preview iframe is class-tagged; Simple renders the plot into
-        # the latest-result card's #simple-result-preview.
-        try:
-            if mode == "simple":
-                preview = panel.frame_locator("#simple-result-preview iframe")
-            else:
-                preview = panel.frame_locator("iframe.preview-iframe-light")
-            preview.locator(".plotly-graph-div").first.wait_for(
-                state="attached", timeout=_PLOTLY_MS
-            )
-        except Exception:
-            pass
+        _wait_for_plot_drawn(page, mode, variant=variant, moment="after its row was clicked")
 
         # Recolour the chrome for this accent candidate (all frames now exist).
         if accent is not None:
@@ -1081,23 +1164,13 @@ def capture_hub_view(
             STAGES[stage].run(page)
 
         page.wait_for_timeout(_SETTLE_MS)
+        # The accent, the stage and the settle may re-lay-out the page, so the
+        # plot is checked again where the shot is taken.
+        _wait_for_plot_drawn(page, mode, variant=variant, moment="before the shot")
 
         png = page.screenshot()
         dest.write_bytes(png)
     finally:
-        # Every variant now resumes the SAME session id, so they share one pool
-        # entry — and the hub hands a warm PTY straight over without re-running
-        # its command. The next variant would sit forever waiting for a
-        # transcript that already played. Emptying the pool makes each capture
-        # spawn its own replay again. The POST names the hub's own origin, as the
-        # page itself would, because the hub refuses a state-changing request
-        # that carries none.
-        try:
-            page.request.post(
-                f"{hub.base_url}/api/terminal/restart", headers={"Origin": hub.base_url}
-            )
-        except Exception:
-            pass
         page.close()
 
 

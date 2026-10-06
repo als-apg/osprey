@@ -57,11 +57,8 @@ async function fetchRecentActivity(limit) {
  * Build the history popover for a strip, anchored to and triggered by `mount`.
  * Wiring the trigger is part of construction: the mount is the affordance, so
  * a history that existed without it could never be opened by an operator.
- *
- * Dependencies are injected so tests drive it without a network.
  * @param {{
  *   mount: HTMLElement,
- *   fetchRecent?: (limit: number) => Promise<AgentActivityFrame[]>,
  *   labelOf?: (id: string) => string,
  * }} deps
  * @returns {{
@@ -71,11 +68,7 @@ async function fetchRecentActivity(limit) {
  *   prepend: (frame: AgentActivityFrame) => void,
  * }}
  */
-export function createActivityHistory({
-  mount,
-  fetchRecent = fetchRecentActivity,
-  labelOf: panelLabel,
-}) {
+export function createActivityHistory({ mount, labelOf: panelLabel }) {
   /** @type {HTMLElement | null} */
   let popoverEl = null;
   let historyOpen = false;
@@ -226,7 +219,7 @@ export function createActivityHistory({
     /** @type {AgentActivityFrame[] | null} */
     let events = null;
     try {
-      events = await fetchRecent(HISTORY_LIMIT);
+      events = await fetchRecentActivity(HISTORY_LIMIT);
     } catch {
       events = null;
     }

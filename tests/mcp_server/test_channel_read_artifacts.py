@@ -145,14 +145,18 @@ async def test_frame_response_carries_summary_and_handle(tmp_path, monkeypatch):
 
 
 async def test_view_hint_names_the_png_by_path(tmp_path, monkeypatch):
-    """The image is reachable the established way: Read the PNG at this path."""
+    """The image is reachable the established way: Open the PNG at this path."""
     data = await _read(tmp_path, monkeypatch, {ADDRESS: _gaussian_spot()})
 
     entry = data["summary"]["readings"][ADDRESS]
     hint = entry["view_hint"]
 
-    assert hint.startswith("Use the Read tool on ")
-    png_relative = hint.split("Use the Read tool on ", 1)[1].split(" to view")[0]
+    assert hint.startswith("Open ") and hint.endswith(
+        " with your file-reading tool to view the image."
+    )
+    png_relative = hint.removeprefix("Open ").removesuffix(
+        " with your file-reading tool to view the image."
+    )
     assert png_relative.endswith(".png")
 
     from pathlib import Path
@@ -211,7 +215,7 @@ async def test_artifact_metadata_and_category_feed_retention(tmp_path, monkeypat
     assert stored.summary["channel"] == ADDRESS
     assert stored.summary["element_count"] == 48 * 64
     assert "value_withheld" not in stored.summary
-    assert stored.access_details["view_hint"]
+    assert "with your file-reading tool" in stored.access_details["view_hint"]
 
 
 async def test_rgb_frame_renders_from_the_trailing_colour_axis(tmp_path, monkeypatch):

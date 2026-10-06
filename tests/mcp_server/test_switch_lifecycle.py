@@ -27,6 +27,7 @@ from osprey.connectors.control_system.base import WriteOutcome
 from osprey.mcp_server.control_system import connector_host_manager, target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
     DEFAULT_DRAIN_TIMEOUT_S,
+    DEFAULT_PROBE_TIMEOUT_S,
     NoConnectorHostError,
     SwitchError,
     baseline_target,
@@ -350,6 +351,22 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
         assert not detail.rstrip().endswith(": .")
         assert manager.active_target() == "live"
         assert manager.active_generation() == 0
+
+    async def test_the_configured_probe_timeout_bounds_the_probe(self, make_manager):
+        """The bound the deployment configures is the bound the child enforces."""
+        manager = await started_on(
+            make_manager,
+            "live",
+            raw=raw_config(va_probe=SLOW_CHANNEL, probe_timeout_s=0.5),
+            probe_timeout_s=None,
+        )
+
+        with pytest.raises(SwitchError) as raised:
+            await manager.switch("va")
+
+        assert raised.value.stage == "probe"
+        assert "timed out after 0.5s" in raised.value.detail
+        assert manager.active_target() == "live"
 
     async def test_a_failed_verification_aborts_with_the_field_that_disagreed(
         self, make_manager, monkeypatch
@@ -1012,17 +1029,9 @@ class TestTheDestinationAlreadyAnswers:
         assert len(manager.spawned) == spawns + 1
         assert manager.status()["child_pid"] != pid
         assert result["child_pid"] != pid
+        assert result["child_pid"] == manager.status()["child_pid"]
         assert result["target_changed"] is False
         assert manager.active_generation() == generation
-
-    async def test_a_forced_switch_replaces_the_child_on_the_same_target(self, make_manager):
-        manager = await started_on(make_manager, "va")
-        pid = manager.status()["child_pid"]
-
-        result = await manager.switch("va", force=True)
-
-        assert result["child_pid"] != pid
-        assert manager.status()["child_pid"] == result["child_pid"]
 
     async def test_ensure_started_still_brings_the_first_child_up(self, make_manager):
         manager = make_manager()
@@ -1331,7 +1340,16 @@ class TestReconcileToTheRecord:
         manager = make_manager(drain_timeout_s=2.0, probe_timeout_s=3.0, spawn_timeout_s=4.0)
 
         assert manager.applying_bound_s() == 2.0 + 2 * (4.0 + 3.0)
-        assert manager.applying_bound_s(fallback_retry=False) == 2.0 + 4.0 + 3.0
+
+    async def test_the_applying_bound_counts_the_configured_probe_timeout(self, make_manager):
+        manager = make_manager(
+            raw=raw_config(probe_timeout_s=7),
+            drain_timeout_s=2.0,
+            probe_timeout_s=None,
+            spawn_timeout_s=4.0,
+        )
+
+        assert manager.applying_bound_s() == 2.0 + 2 * (4.0 + 7.0)
 
 
 # ------------------------------------------------------------ startup sweep
@@ -1684,6 +1702,51 @@ class TestConfigDerivedFacts:
             == DEFAULT_DRAIN_TIMEOUT_S
         )
 
+    async def test_a_zero_drain_timeout_is_kept(self, make_manager):
+        assert (
+            make_manager(raw=raw_config(drain_timeout_s=0), drain_timeout_s=None)._drain_timeout()
+            == 0.0
+        )
+
+    @pytest.mark.parametrize(
+        "value",
+        ["soon", -1, True, float("nan"), float("inf"), pytest.param(10**400, id="10**400")],
+    )
+    async def test_a_drain_timeout_that_is_not_a_number_of_seconds_falls_back(
+        self, make_manager, caplog, value
+    ):
+        manager = make_manager(raw=raw_config(drain_timeout_s=value), drain_timeout_s=None)
+
+        with caplog.at_level(logging.WARNING, logger=connector_host_manager.logger.name):
+            assert manager._drain_timeout() == DEFAULT_DRAIN_TIMEOUT_S
+
+        assert "control_system.target_switch.drain_timeout_s" in caplog.text
+
+    async def test_the_probe_timeout_comes_from_config_and_falls_back(self, make_manager):
+        assert make_manager(probe_timeout_s=None)._probe_timeout() == DEFAULT_PROBE_TIMEOUT_S
+        assert (
+            make_manager(raw=raw_config(probe_timeout_s=12), probe_timeout_s=None)._probe_timeout()
+            == 12.0
+        )
+        assert (
+            make_manager(raw=raw_config(probe_timeout_s=12), probe_timeout_s=0.5)._probe_timeout()
+            == 0.5
+        )
+
+    @pytest.mark.parametrize(
+        "value",
+        ["soon", 0, -1, True, float("nan"), float("inf"), pytest.param(10**400, id="10**400")],
+    )
+    async def test_a_probe_timeout_that_is_not_a_positive_number_falls_back(
+        self, make_manager, caplog, value
+    ):
+        manager = make_manager(raw=raw_config(probe_timeout_s=value), probe_timeout_s=None)
+
+        with caplog.at_level(logging.WARNING, logger=connector_host_manager.logger.name):
+            assert manager._probe_timeout() == DEFAULT_PROBE_TIMEOUT_S
+
+        assert "control_system.target_switch.probe_timeout_s" in caplog.text
+
     async def test_the_child_environment_drops_every_epics_variable(self, monkeypatch):
         monkeypatch.setenv("EPICS_CA_ADDR_LIST", "ambient.example.org")
         monkeypatch.setenv("EPICS_PVA_NAME_SERVERS", "ambient.example.org:5075")
@@ -1709,7 +1772,10 @@ class TestSwitchCapability:
         config = {
             "control_system": {
                 "type": "virtual_accelerator",
-                "connector": {"virtual_accelerator": {"timeout": 5.0}, "epics": {"timeout": 5.0}},
+                "connector": {
+                    "virtual_accelerator": {"timeout_s": 5.0},
+                    "epics": {"timeout_s": 5.0},
+                },
             }
         }
 

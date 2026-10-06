@@ -1,0 +1,1 @@
+The archive no longer copies dot-named `.json` and `.tmp` files from `var/audit/`. They hold a service's own working state, such as the login service's record of logged-out sessions, and are not audit records.

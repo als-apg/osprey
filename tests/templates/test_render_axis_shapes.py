@@ -109,12 +109,12 @@ _AXIS_TAG = "v1.2.3"
 _ENV_PASSTHROUGH = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
 
 #: The site build args the ``site-image-args`` scenario declares — the mapping
-#: ``compose_generator._stage_site_image_args_for_context`` returns, with the CA
-#: already rewritten to the name it staged into the build context (the operator's
-#: host path never reaches a template, because ``COPY`` cannot leave the
-#: context). Declared as the render-context key rather than as ``images.*``
+#: ``compose_generator._site_image_args_for_context`` returns, with the CA
+#: already rewritten to the name a start stages into the build context (the
+#: operator's host path never reaches a template, because ``COPY`` cannot leave
+#: the context). Declared as the render-context key rather than as ``images.*``
 #: because this suite renders templates straight through the Environment: the
-#: config-to-mapping-to-staged-file path is the subject of
+#: config-to-mapping path is the subject of
 #: ``tests/deployment/test_compose_generator.py``, and what is pinned here is
 #: what each template does with the mapping once it has one.
 _SITE_IMAGE_BUILD_ARGS = {

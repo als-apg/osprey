@@ -214,7 +214,7 @@ class TestTypeLimitsPosture:
         blocks has, and reading it as incomplete would block every write on the
         fleet.
         """
-        section = _section(deployment_wide, connector={EPICS: {"timeout": 5.0}})
+        section = _section(deployment_wide, connector={EPICS: {"timeout_s": 5.0}})
         posture = type_limits_posture(section, EPICS)
         assert (posture.enabled, posture.allow_unlisted) == expected
         assert posture.connector_type is None
@@ -241,7 +241,7 @@ class TestTypeLimitsPosture:
             {},
             {VIRTUAL_ACCELERATOR: {LIMITS_CHECKING_LEAF: _block(False, True)}},
             {EPICS: {}},
-            {EPICS: {"timeout": 5.0}},
+            {EPICS: {"timeout_s": 5.0}},
             {EPICS: "epics"},
             {EPICS: None},
             "epics",

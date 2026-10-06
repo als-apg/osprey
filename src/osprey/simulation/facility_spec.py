@@ -6,7 +6,7 @@ Stdlib-only (``dataclasses`` + ``typing``), zero third-party dependencies,
 following the import discipline of
 :mod:`osprey.services.bluesky_bridge.devices.specs` (plain frozen dataclasses,
 no control-system imports) and the catalog-lookup shape of
-:mod:`osprey.services.build_artifacts.catalog`.
+:mod:`osprey.agent_runner.build_artifacts.catalog`.
 
 The spec is the authority on families / counts / names, and the hand-ported
 ring (:func:`osprey.simulation.lattice.ring.build_ring`) is its *first

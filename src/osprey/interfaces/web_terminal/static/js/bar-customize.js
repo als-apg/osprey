@@ -116,7 +116,7 @@ let unsubscribeNotice = null;
  * @param {BarRoot} [root]
  * @returns {import('./bar-layout.js').BarLayoutContext}
  */
-export function editContext(root = activeRoot) {
+function editContext(root = activeRoot) {
   return deploymentContext(root);
 }
 

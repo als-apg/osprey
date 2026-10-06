@@ -3,13 +3,20 @@
 Two environment variables and one registry table decide three things: which
 provider a run builds its deployment repos with, whether a run that named none
 is refused, and whether the lanes that build one can reach that provider at
-all. The resolution lives in ``tests/e2e/provider.py`` and the gate in
-``tests/conftest.py``; both are exercised here, in the fast lane, because
-neither needs a credential to be wrong.
+all. A run that names none is refused only when it selects an e2e test that
+does not carry the ``model_free`` marker, and the refusal names those tests.
+The resolution lives in ``tests/e2e/provider.py``, the refusal in
+``tests/e2e/conftest.py`` and the credential gate in ``tests/conftest.py``; all
+three are exercised here, in the fast lane, because none needs a credential to
+be wrong. The subprocess cases collect ``tests/e2e/`` modules under
+``--setup-plan``, which runs the refusal and no fixture or test.
 """
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +25,7 @@ import yaml
 
 from osprey.models.provider_registry import PROVIDER_API_KEYS
 from osprey.profiles.providers import load_provider_catalog
+from tests._nested_pytest import run_nested_pytest
 from tests.conftest import _e2e_provider_availability
 from tests.e2e import conftest as e2e_conftest
 from tests.e2e import sdk_helpers
@@ -25,10 +33,13 @@ from tests.e2e.provider import (
     E2E_MODEL,
     E2E_PROVIDER_ENV,
     FORCE_PROVIDER_ENV,
+    MODEL_FREE_MARKER,
+    REFUSAL_LISTED_TESTS,
     build_model,
     build_provider,
     e2e_provider,
     gateway_base_url,
+    provider_refusal,
 )
 
 #: The lanes that build a deployment repo and run an agent against it. They gate
@@ -180,13 +191,36 @@ def test_a_run_that_names_no_provider_is_refused() -> None:
     )
 
 
-class _StubConfig:
-    """Just enough pytest config for ``pytest_configure`` to register markers."""
+class _StubHook:
+    """Records what the refusal reports as deselected."""
 
-    def __init__(self, *, collect_only: bool = False) -> None:
+    def __init__(self) -> None:
+        self.deselected: list[object] = []
+
+    def pytest_deselected(self, *, items: list[object]) -> None:
+        self.deselected.extend(items)
+
+
+class _StubConfig:
+    """Just enough pytest config for the e2e conftest's configure and collection hooks.
+
+    ``workerinput``/``workeroutput`` exist only when given, the way xdist sets
+    them only on a worker's config.
+    """
+
+    def __init__(
+        self,
+        *,
+        collect_only: bool = False,
+        workerinput: dict | None = None,
+    ) -> None:
         self.markers: list[str] = []
         self.option = SimpleNamespace(markexpr="")
+        self.hook = _StubHook()
         self._collect_only = collect_only
+        if workerinput is not None:
+            self.workerinput = workerinput
+            self.workeroutput: dict = {}
 
     def getoption(self, name: str, default: object = None) -> object:
         return self._collect_only if name == "collectonly" else default
@@ -195,15 +229,34 @@ class _StubConfig:
         self.markers.append(line)
 
 
-def test_the_e2e_session_is_refused_before_its_workers_spawn() -> None:
-    """The refusal has to reach the operator when the lanes run distributed.
-    Collection then happens inside an xdist worker, where a ``UsageError`` is
-    reported as an internal error with a traceback; raised from
-    ``pytest_configure`` of an initial-argument conftest it is raised once, in
-    the controlling process, before a worker exists."""
-    with pytest.raises(pytest.UsageError) as excinfo:
-        e2e_conftest.pytest_configure(_StubConfig())
-    assert E2E_PROVIDER_ENV in str(excinfo.value)
+class _StubItem:
+    """A collected test: its node id, its file, and whether it declared ``model_free``."""
+
+    def __init__(self, nodeid: str, path: Path, *, marked: bool) -> None:
+        self.nodeid = nodeid
+        self.path = path
+        self._marked = marked
+
+    def get_closest_marker(self, name: str) -> object | None:
+        return object() if self._marked and name == MODEL_FREE_MARKER else None
+
+
+_E2E_DIR = _TESTS_ROOT / "e2e"
+
+
+def _e2e_item(name: str, *, marked: bool) -> _StubItem:
+    return _StubItem(f"tests/e2e/test_x.py::{name}", _E2E_DIR / "test_x.py", marked=marked)
+
+
+def test_configure_registers_the_markers_without_a_provider() -> None:
+    """Configuring the session decides nothing about the provider: the
+    refusal needs the final selection, which only collection has. A run that
+    names none still gets every marker the lanes select on, ``model_free``
+    among them."""
+    config = _StubConfig()
+    e2e_conftest.pytest_configure(config)
+    assert any(line.startswith("e2e:") for line in config.markers)
+    assert any(line.startswith(f"{MODEL_FREE_MARKER}:") for line in config.markers)
 
 
 def test_enumerating_the_suite_needs_no_provider() -> None:
@@ -219,12 +272,170 @@ def test_enumerating_the_suite_needs_no_provider() -> None:
 def test_a_named_provider_lets_configure_register_its_markers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The refusal is the only thing added to that hook: a run that named a
-    provider still gets the markers the e2e lanes select on."""
+    """A run that named a provider still gets the markers the e2e lanes select on."""
     monkeypatch.setenv(E2E_PROVIDER_ENV, "cborg")
     config = _StubConfig()
     e2e_conftest.pytest_configure(config)
     assert any(line.startswith("e2e:") for line in config.markers)
+
+
+# ---------------------------------------------------------------------------
+# The refusal: a run naming no provider may select only model-free tests
+# ---------------------------------------------------------------------------
+
+
+def test_a_selection_of_model_free_tests_needs_no_provider() -> None:
+    items = [_e2e_item("test_a", marked=True), _e2e_item("test_b", marked=True)]
+    before = list(items)
+    e2e_conftest.pytest_collection_modifyitems(_StubConfig(), items)
+    assert items == before
+
+
+def test_an_unmarked_test_is_refused_by_name() -> None:
+    item = _e2e_item("test_live", marked=False)
+    with pytest.raises(pytest.UsageError) as excinfo:
+        e2e_conftest.pytest_collection_modifyitems(_StubConfig(), [item])
+    message = str(excinfo.value)
+    assert item.nodeid in message
+    assert E2E_PROVIDER_ENV in message
+    assert FORCE_PROVIDER_ENV in message
+    assert f"-m {MODEL_FREE_MARKER}" in message
+
+
+def test_only_unmarked_tests_are_named() -> None:
+    free = _e2e_item("test_free", marked=True)
+    live = _e2e_item("test_live", marked=False)
+    with pytest.raises(pytest.UsageError) as excinfo:
+        e2e_conftest.pytest_collection_modifyitems(_StubConfig(), [free, live])
+    message = str(excinfo.value)
+    assert live.nodeid in message
+    assert free.nodeid not in message
+
+
+def test_items_outside_the_e2e_directory_are_not_refused() -> None:
+    item = _StubItem("tests/cli/test_x.py::test_a", _TESTS_ROOT / "cli" / "test_x.py", marked=False)
+    items = [item]
+    e2e_conftest.pytest_collection_modifyitems(_StubConfig(), items)
+    assert items == [item]
+
+
+def test_a_named_provider_lifts_the_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(E2E_PROVIDER_ENV, "cborg")
+    items = [_e2e_item("test_live", marked=False)]
+    e2e_conftest.pytest_collection_modifyitems(_StubConfig(), items)
+    assert len(items) == 1
+
+
+def test_the_refusal_names_twenty_tests_and_counts_the_rest() -> None:
+    """A whole-directory run leaves hundreds of tests unmarked; listing every
+    one would bury the remedy, so the refusal names the first few and counts
+    the rest."""
+    assert REFUSAL_LISTED_TESTS == 20
+    items = [_e2e_item(f"test_{i:02d}", marked=False) for i in range(25)]
+    with pytest.raises(pytest.UsageError) as excinfo:
+        e2e_conftest.pytest_collection_modifyitems(_StubConfig(), items)
+    message = str(excinfo.value)
+    assert all(item.nodeid in message for item in items[:20])
+    assert not any(item.nodeid in message for item in items[20:])
+    assert "and 5 more" in message
+
+
+def test_provider_refusal_without_tests_is_unchanged() -> None:
+    """``e2e_provider()`` raises the bare text; naming no tests must not change it."""
+    from osprey.models.provider_registry import PROVIDER_API_KEYS as keys
+
+    known = ", ".join(sorted(keys))
+    assert provider_refusal() == (
+        f"This end-to-end run names no provider. Set {E2E_PROVIDER_ENV} to the provider "
+        f"whose credential this environment holds, or {FORCE_PROVIDER_ENV} to point the "
+        f"whole suite at one provider. Known providers: {known}."
+    )
+
+
+def test_a_worker_hands_the_refusal_to_the_controller() -> None:
+    """Under xdist a ``UsageError`` raised in a worker reaches the operator as
+    an internal error. A worker whose controller relays the refusal selects
+    nothing and hands the message over instead."""
+    config = _StubConfig(workerinput={e2e_conftest._RELAY_KEY: True})
+    items = [_e2e_item("test_live", marked=False), _e2e_item("test_free", marked=True)]
+    selected = list(items)
+    e2e_conftest.pytest_collection_modifyitems(config, items)
+    assert items == []
+    assert config.hook.deselected == selected
+    assert "test_x.py::test_live" in config.workeroutput[e2e_conftest._REFUSAL_KEY]
+
+
+def test_a_worker_without_a_relay_refuses_itself() -> None:
+    """A controller that never loaded this conftest cannot print the refusal;
+    deselecting silently would pass a run that ran nothing, so the worker raises."""
+    config = _StubConfig(workerinput={})
+    with pytest.raises(pytest.UsageError):
+        e2e_conftest.pytest_collection_modifyitems(config, [_e2e_item("test_live", marked=False)])
+
+
+def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run pytest from the repo root in a shell that names no provider."""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in (E2E_PROVIDER_ENV, FORCE_PROVIDER_ENV)
+    }
+    return run_nested_pytest(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-c",
+            os.devnull,
+            "--rootdir",
+            str(_REPO_ROOT),
+            "-o",
+            "addopts=",
+            "-p",
+            "no:cacheprovider",
+            *args,
+        ],
+        cwd=_REPO_ROOT,
+        env=env,
+    )
+
+
+_TELEMETRY = "tests/e2e/test_openobserve_telemetry.py"
+_LIVE_TELEMETRY = f"{_TELEMETRY}::test_live_agent_metric_lands"
+_SYNTHETIC_TELEMETRY = (
+    "test_synthetic_otlp_roundtrip_via_computed_header",
+    "test_bad_credentials_are_rejected",
+    "test_the_deploy_provisions_a_distinct_ingest_identity",
+    "test_synthetic_otlp_roundtrip_via_the_ingest_identity",
+    "test_synthetic_trace_roundtrip_via_the_ingest_identity",
+    "test_a_wrong_token_for_the_ingest_account_is_rejected",
+    "test_the_rendered_config_names_the_ingest_identity",
+)
+_DISTRIBUTION = pytest.mark.parametrize("dist", [(), ("-n", "2")], ids=["single", "xdist"])
+
+
+@_DISTRIBUTION
+def test_a_model_free_module_is_not_refused(dist: tuple[str, ...]) -> None:
+    result = _run_pytest("tests/e2e/test_sdk_helpers.py", "--setup-plan", *dist)
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "names no provider" not in output
+
+
+@_DISTRIBUTION
+def test_a_selected_model_driven_test_is_refused_by_name(dist: tuple[str, ...]) -> None:
+    result = _run_pytest(_TELEMETRY, "--setup-plan", *dist)
+    output = result.stdout + result.stderr
+    assert result.returncode == pytest.ExitCode.USAGE_ERROR, output
+    assert _LIVE_TELEMETRY in output
+    assert f"-m {MODEL_FREE_MARKER}" in output
+    assert "INTERNALERROR" not in output
+    assert not any(name in output for name in _SYNTHETIC_TELEMETRY), output
+
+
+def test_deselecting_the_model_driven_test_lifts_the_refusal() -> None:
+    result = _run_pytest(_TELEMETRY, "--deselect", _LIVE_TELEMETRY, "--setup-plan", "-n", "2")
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 # ---------------------------------------------------------------------------

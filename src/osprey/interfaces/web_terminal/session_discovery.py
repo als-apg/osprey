@@ -1,7 +1,7 @@
 """Session discovery for Claude Code JSONL conversation files.
 
 Scans ``<config-dir>/projects/<encoded-path>/`` for JSONL session files,
-extracting metadata (first message, modification time, message count)
+extracting metadata (first message, modification time, readable-record count)
 for the session picker UI.
 """
 
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,9 +18,34 @@ from osprey.agent_runner.project_paths import claude_project_dir
 logger = logging.getLogger(__name__)
 
 
+def _user_preview(entry: dict) -> str:
+    """Return the first 80 characters of a user record's text, or ``""``."""
+    if entry.get("type") != "user":
+        return ""
+    message = entry.get("message")
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content", "")
+    if isinstance(content, list):
+        # Multi-part content — extract first text block
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                content = part.get("text", "")
+                break
+        else:
+            content = ""
+    if isinstance(content, str) and content:
+        return content[:80]
+    return ""
+
+
 @dataclass
 class SessionInfo:
-    """Metadata for a single Claude Code session."""
+    """Metadata for a single Claude Code session.
+
+    ``message_count`` counts the transcript's readable records, the lines that
+    parse as a JSON object.
+    """
 
     session_id: str
     first_message: str
@@ -44,15 +68,11 @@ class SessionDiscovery:
         """
         return claude_project_dir(self._project_dir)
 
-    def list_sessions(self, allowed_ids: set[str] | None = None) -> list[SessionInfo]:
+    def list_sessions(self) -> list[SessionInfo]:
         """Return sessions sorted newest-first.
 
-        Args:
-            allowed_ids: If provided, only return sessions whose ID is
-                in this set.  Pass :meth:`SessionRegistry.known_ids` to
-                scope to the current project incarnation.
-
-        Skips corrupt or empty JSONL files gracefully.
+        Skips zero-byte files, files that cannot be opened or stat'ed, and
+        files with no readable record — a line that parses as a JSON object.
         """
         sessions_dir = self._resolve_sessions_dir()
         if not sessions_dir.is_dir():
@@ -60,49 +80,26 @@ class SessionDiscovery:
 
         results: list[SessionInfo] = []
         for path in sessions_dir.glob("*.jsonl"):
-            if allowed_ids is not None and path.stem not in allowed_ids:
-                continue
             try:
                 info = self._parse_session_file(path)
                 if info is not None:
                     results.append(info)
             except Exception:
-                logger.debug("Skipping corrupt session file: %s", path.name)
+                logger.debug(
+                    "Skipping session file that could not be opened or stat'ed: %s",
+                    path.name,
+                    exc_info=True,
+                )
 
         results.sort(key=lambda s: s.last_modified, reverse=True)
         return results
 
     def snapshot_session_ids(self) -> set[str]:
-        """Return the current set of JSONL filenames (stems).
-
-        Call this *before* spawning a new Claude Code process, then
-        use :meth:`discover_new_session` to detect the newly created file.
-        """
+        """Return the current set of JSONL filenames (stems)."""
         sessions_dir = self._resolve_sessions_dir()
         if not sessions_dir.is_dir():
             return set()
         return {p.stem for p in sessions_dir.glob("*.jsonl")}
-
-    def discover_new_session(self, before: set[str], timeout: float = 15.0) -> str | None:
-        """Poll for a new JSONL file not in *before*.
-
-        Args:
-            before: Session IDs from :meth:`snapshot_session_ids`.
-            timeout: Maximum seconds to wait.
-
-        Returns:
-            The new session UUID, or ``None`` if none appeared.
-        """
-        sessions_dir = self._resolve_sessions_dir()
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if sessions_dir.is_dir():
-                current = {p.stem for p in sessions_dir.glob("*.jsonl")}
-                new_ids = current - before
-                if new_ids:
-                    return new_ids.pop()
-            time.sleep(0.5)
-        return None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -123,27 +120,18 @@ class SessionDiscovery:
                 line = line.strip()
                 if not line:
                     continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:  # json.JSONDecodeError is a ValueError
+                    continue
+                if not isinstance(entry, dict):
+                    continue
                 message_count += 1
                 if not first_message:
-                    try:
-                        entry = json.loads(line)
-                        if entry.get("type") == "user":
-                            msg = entry.get("message", {})
-                            content = msg.get("content", "")
-                            if isinstance(content, list):
-                                # Multi-part content — extract first text block
-                                for part in content:
-                                    if isinstance(part, dict) and part.get("type") == "text":
-                                        content = part.get("text", "")
-                                        break
-                                else:
-                                    content = ""
-                            if content:
-                                first_message = content[:80]
-                    except (json.JSONDecodeError, AttributeError):
-                        pass
+                    first_message = _user_preview(entry)
 
         if message_count == 0:
+            logger.debug("Skipping session file with no readable record: %s", path.name)
             return None
 
         return SessionInfo(

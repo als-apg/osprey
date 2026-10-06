@@ -8,12 +8,27 @@
 import { entriesApi, draftsApi, ApiError } from './api.js';
 import { escapeHtml } from './components.js';
 import { showEntry } from './entries-detail.js';
+import { collectEntryFieldValues, entryFieldsRendered, markEntryFieldError } from './entry-fields.js';
 import { formatFileSize } from './entries-helpers.js';
 import { messageOf } from './utils.js';
 
 // Draft metadata (populated when loading a draft)
 /** @type {any} */
 let draftMetadata = null;
+
+/** Error codes that name one declared entry field the operator must correct. */
+const ENTRY_FIELD_ERROR_CODES = ['invalid_entry_field', 'entry_field_options_unavailable'];
+
+/**
+ * The metadata to submit: the draft's metadata with the declared entry-field
+ * values on top, or null when there is neither.
+ * @returns {Record<string, any>|null}
+ */
+function submissionMetadata() {
+  const declared = collectEntryFieldValues();
+  if (!draftMetadata && Object.keys(declared).length === 0) return null;
+  return { ...(draftMetadata || {}), ...declared };
+}
 
 /**
  * Handle entry creation form submission.
@@ -47,7 +62,7 @@ export async function handleCreateEntry(e) {
       logbook: formData.get('logbook'),
       shift: formData.get('shift'),
       tags,
-      metadata: draftMetadata,
+      metadata: submissionMetadata(),
       auth_user: formData.get('auth_user') || null,
       auth_password: formData.get('auth_password') || null,
     };
@@ -110,6 +125,14 @@ export async function handleCreateEntry(e) {
       // type and resubmit.
       alert('Logbook credentials required to publish. Please enter your username and password.');
       document.getElementById('entry-auth-user')?.focus();
+    } else if (
+      error instanceof ApiError
+      && ENTRY_FIELD_ERROR_CODES.includes(error.code ?? '')
+      && error.field
+      && markEntryFieldError(error.field, error.message)
+    ) {
+      // The named entry field was rejected: it is marked and focused, and the
+      // form stays populated so the operator can correct it and resubmit.
     } else {
       alert(`Failed to create entry: ${messageOf(error)}`);
     }
@@ -284,6 +307,49 @@ function renderSessionInfoPanel(meta) {
 }
 
 /**
+ * Pre-fill the rendered declared inputs from a draft's `fields`, and drop every
+ * declared name from the forwarded draft metadata so the inputs alone decide
+ * what is submitted for them.
+ * @param {any} draft - Draft as returned by the drafts API
+ */
+function applyDraftFields(draft) {
+  const form = document.getElementById('create-entry-form');
+  if (!form) return;
+
+  // A declared logbook/shift override replaces the built-in input, possibly
+  // after the built-in one was filled, so fill it again.
+  for (const name of ['logbook', 'shift']) {
+    const input = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (
+      form.querySelector(`[name="${name}"]`)
+    );
+    if (input && draft[name]) input.value = draft[name];
+  }
+
+  const controls = /** @type {(HTMLInputElement|HTMLSelectElement)[]} */ (
+    Array.from(form.querySelectorAll('[data-entry-field]'))
+  );
+  const values = draft.fields && typeof draft.fields === 'object' ? draft.fields : {};
+  // Document order puts a parent before the inputs whose choices depend on it.
+  for (const control of controls) {
+    const name = control.dataset.entryField || '';
+    if (!Object.prototype.hasOwnProperty.call(values, name)) continue;
+    const value = values[name];
+    if (control instanceof HTMLInputElement && control.type === 'checkbox') {
+      control.checked = value === true;
+    } else {
+      control.value = value === null || value === undefined ? '' : String(value);
+    }
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  if (draftMetadata && typeof draftMetadata === 'object') {
+    const kept = { ...draftMetadata };
+    for (const control of controls) delete kept[control.dataset.entryField || ''];
+    draftMetadata = kept;
+  }
+}
+
+/**
  * Load a draft into the entry creation form.
  * @param {string} draftId - Draft ID to load
  */
@@ -375,6 +441,10 @@ export async function loadDraft(draftId) {
     if (draftMetadata?.session_metadata) {
       renderSessionInfoPanel(draftMetadata.session_metadata);
     }
+
+    // The declared inputs exist only once publish-info has been rendered.
+    await entryFieldsRendered();
+    applyDraftFields(draft);
   } catch (error) {
     console.error('Failed to load draft:', error);
   }

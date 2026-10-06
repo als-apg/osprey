@@ -1,0 +1,1 @@
+Logging out of the login page now survives a restart or redeploy of the login service. Logged-out sessions are kept as one-way digests under `var/audit/sidecar/`, so a cookie copied before the logout stays refused until it would have expired.

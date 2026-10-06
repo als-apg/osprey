@@ -1,17 +1,17 @@
 // @ts-check
-/* OSPREY Web Terminal — Posture Confirm Dialog
+/* OSPREY Web Terminal — Confirm Dialog
  *
- * The `.posture-modal` overlay both control-target confirms are built from,
- * split out of control-target-popover.js: that module owns what the dialogs
- * SAY and what confirming does; this one owns the mechanics — build, mount,
- * the one-at-a-time rule, the "don't ask again" checkbox, and the single
- * dismissal chokepoint.
+ * The confirm dialog the web terminal raises before a consequential action:
+ * the `.posture-modal` overlay the control-target confirms and the question
+ * about an agent's started commands (started-commands.js) are built from.
+ * The raisers own what a dialog SAYS and what confirming does; this module
+ * owns the mechanics — build, mount, the one-at-a-time rule, the "don't ask
+ * again" checkbox, and the single dismissal chokepoint.
  *
  * Structure and lifecycle mirror the badge-era dialog (posture-badge.js): the
  * overlay is appended to `document.body`, `.visible` lands on the next frame,
- * and one dismissal path runs on every way out. One confirm at a time: both
- * are raised from the same popover, and a second overlay would bury the first
- * without dismissing it.
+ * and one dismissal path runs on every way out. One confirm at a time: a
+ * second overlay would bury the first without dismissing it.
  */
 
 import { fadeOutOverlay, mountOverlay } from './modal-overlay.js';
@@ -59,8 +59,12 @@ export function isConfirmUp() {
  *          body: (import('./control-target-facts.js').ConfirmRun)[][],
  *          live: string|null, confirmLabel: string,
  *          skipKeyBase?: string|null,
+ *          focus?: 'confirm'|'cancel',
  *          onConfirm: (ui: ConfirmUi) => void,
  *          onDismiss?: () => void}} spec
+ *   `focus` names the button that has focus when the dialog opens:
+ *   `'confirm'` (the default) or `'cancel'`, for a question whose safe answer
+ *   is the one a stray Enter should give.
  */
 export function showConfirm(spec) {
   dismissConfirm();
@@ -130,7 +134,7 @@ export function showConfirm(spec) {
     if (spec.skipKeyBase && skipBox) rememberConfirmSkip(spec.skipKeyBase, skipBox.checked);
     spec.onConfirm({ error, confirm, cancel, done: dismissConfirm });
   });
-  confirm.focus();
+  (spec.focus === 'cancel' ? cancel : confirm).focus();
 }
 
 /**

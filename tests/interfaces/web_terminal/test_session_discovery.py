@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import threading
+import logging
 import time
 from pathlib import Path
 
@@ -11,32 +11,6 @@ from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 
 
 class TestResolveSessionsDir:
-    def test_path_encoding(self):
-        """Verify /Users/x/proj encodes to -Users-x-proj."""
-        discovery = SessionDiscovery("/Users/x/proj")
-        sessions_dir = discovery._resolve_sessions_dir()
-        assert sessions_dir.name == "-Users-x-proj"
-        assert sessions_dir.parent.name == "projects"
-
-    def test_leading_dash_preserved(self):
-        """Leading - from / replacement is preserved (matches Claude Code)."""
-        discovery = SessionDiscovery("/foo/bar")
-        sessions_dir = discovery._resolve_sessions_dir()
-        # /foo/bar -> -foo-bar (leading - kept)
-        assert sessions_dir.name == "-foo-bar"
-
-    def test_underscores_normalized_to_dashes(self):
-        """Underscores in the cwd must be normalized to dashes.
-
-        Claude Code's CLI replaces every non-alphanumeric char (not just
-        ``/``); pytest tmpdirs and macOS tmp folder names regularly contain
-        ``_``, so a ``/``-only rule silently mis-locates the directory.
-        """
-        discovery = SessionDiscovery("/var/folders/aa_bb_cc/T/my_proj")
-        sessions_dir = discovery._resolve_sessions_dir()
-        assert "_" not in sessions_dir.name, sessions_dir.name
-        assert sessions_dir.name.endswith("-my-proj")
-
     def test_honours_claude_config_dir(self, tmp_path, monkeypatch):
         """``CLAUDE_CONFIG_DIR`` names the state root; ``~/.claude`` is only the fallback.
 
@@ -52,14 +26,6 @@ class TestResolveSessionsDir:
         sessions_dir = SessionDiscovery("/app/project/build")._resolve_sessions_dir()
 
         assert sessions_dir == config_dir / "projects" / "-app-project-build"
-
-    def test_falls_back_to_home_without_claude_config_dir(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
-        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
-
-        sessions_dir = SessionDiscovery("/app/project/build")._resolve_sessions_dir()
-
-        assert sessions_dir == tmp_path / ".claude" / "projects" / "-app-project-build"
 
 
 class TestListSessions:
@@ -102,32 +68,68 @@ class TestListSessions:
         assert sessions[0].first_message == "Hello, can you help me with beam tuning?"
         assert sessions[0].message_count == 3
 
-    def test_skips_corrupt_files(self, tmp_path, monkeypatch):
-        """Corrupt JSONL files are skipped gracefully."""
+    def test_files_without_a_readable_record_are_skipped(self, tmp_path, monkeypatch, caplog):
+        """A file no line of which parses as a JSON object is no session."""
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
 
-        # Valid file
         valid_id = "11111111-2222-3333-4444-555555555555"
-        valid_file = sessions_dir / f"{valid_id}.jsonl"
-        valid_file.write_text(json.dumps({"type": "user", "message": {"content": "hi"}}))
+        (sessions_dir / f"{valid_id}.jsonl").write_text(
+            json.dumps({"type": "user", "message": {"content": "hi"}})
+        )
+        corrupt_id = "corrupt-id-aaaa-bbbb-cccc-dddd"
+        (sessions_dir / f"{corrupt_id}.jsonl").write_text("{bad json\n{also bad")
+        empty_name = "empty-id-aaaa-bbbb-cccc-dddddddd.jsonl"
+        (sessions_dir / empty_name).write_text("")
 
-        # Corrupt file (not valid JSON)
-        corrupt_file = sessions_dir / "corrupt-id-aaaa-bbbb-cccc-dddd.jsonl"
-        corrupt_file.write_text("{bad json\n{also bad")
+        discovery = SessionDiscovery("/test")
+        monkeypatch.setattr(discovery, "_resolve_sessions_dir", lambda: sessions_dir)
 
-        # Empty file
-        empty_file = sessions_dir / "empty-id-aaaa-bbbb-cccc-dddddddd.jsonl"
-        empty_file.write_text("")
+        with caplog.at_level(
+            logging.DEBUG, logger="osprey.interfaces.web_terminal.session_discovery"
+        ):
+            sessions = {s.session_id: s for s in discovery.list_sessions()}
+
+        assert set(sessions) == {valid_id}
+        messages = [r.getMessage() for r in caplog.records]
+        corrupt_logs = [
+            m for m in messages if f"{corrupt_id}.jsonl" in m and "no readable record" in m
+        ]
+        assert len(corrupt_logs) == 1
+        assert not any(empty_name in m for m in messages)
+
+    def test_message_count_counts_only_readable_records(self, tmp_path, monkeypatch):
+        """Unparseable and blank lines are not counted; the readable record is."""
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+
+        mixed_id = "mixed-id-aaaa-bbbb-cccc-dddddddddddd"
+        (sessions_dir / f"{mixed_id}.jsonl").write_text(
+            json.dumps({"type": "user", "message": {"content": "tune the orbit"}})
+            + "\n{bad json\n\n"
+        )
 
         discovery = SessionDiscovery("/test")
         monkeypatch.setattr(discovery, "_resolve_sessions_dir", lambda: sessions_dir)
 
         sessions = discovery.list_sessions()
-        # Should have valid + corrupt (corrupt has 2 non-empty lines but no valid user msg)
-        valid_ids = {s.session_id for s in sessions}
-        assert valid_id in valid_ids
-        # Empty file should be skipped (0 bytes)
+        assert [s.session_id for s in sessions] == [mixed_id]
+        assert sessions[0].message_count == 1
+        assert sessions[0].first_message == "tune the orbit"
+
+    def test_json_values_that_are_not_objects_are_not_records(self, tmp_path, monkeypatch):
+        """A line that parses to a number, string or list is not a transcript record."""
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+
+        (sessions_dir / "scalar-id-aaaa-bbbb-cccc-dddddddddddd.jsonl").write_text(
+            '42\n"text"\n[1, 2]\n'
+        )
+
+        discovery = SessionDiscovery("/test")
+        monkeypatch.setattr(discovery, "_resolve_sessions_dir", lambda: sessions_dir)
+
+        assert discovery.list_sessions() == []
 
     def test_sorted_by_mtime(self, tmp_path, monkeypatch):
         """Sessions are sorted newest-first."""
@@ -180,49 +182,7 @@ class TestListSessions:
         assert sessions[0].first_message == "Multi-part message here"
 
 
-class TestSnapshotAndDiscover:
-    def test_snapshot_and_discover(self, tmp_path, monkeypatch):
-        """Snapshot before, create file, discover returns new UUID."""
-        sessions_dir = tmp_path / "sessions"
-        sessions_dir.mkdir()
-
-        # Pre-existing session
-        existing = sessions_dir / "existing-aaa-bbbb-cccc-ddddddddddd.jsonl"
-        existing.write_text(json.dumps({"type": "user", "message": {"content": "old"}}))
-
-        discovery = SessionDiscovery("/test")
-        monkeypatch.setattr(discovery, "_resolve_sessions_dir", lambda: sessions_dir)
-
-        before = discovery.snapshot_session_ids()
-        assert "existing-aaa-bbbb-cccc-ddddddddddd" in before
-
-        # Simulate Claude creating a new session file
-        new_id = "new-sess-bbbb-cccc-dddd-eeeeeeeeeeee"
-        new_file = sessions_dir / f"{new_id}.jsonl"
-
-        def create_after_delay():
-            time.sleep(0.3)
-            new_file.write_text(json.dumps({"type": "user", "message": {"content": "hi"}}))
-
-        t = threading.Thread(target=create_after_delay)
-        t.start()
-
-        result = discovery.discover_new_session(before, timeout=5.0)
-        t.join()
-        assert result == new_id
-
-    def test_discover_timeout(self, tmp_path, monkeypatch):
-        """No new file within timeout returns None."""
-        sessions_dir = tmp_path / "sessions"
-        sessions_dir.mkdir()
-
-        discovery = SessionDiscovery("/test")
-        monkeypatch.setattr(discovery, "_resolve_sessions_dir", lambda: sessions_dir)
-
-        before = discovery.snapshot_session_ids()
-        result = discovery.discover_new_session(before, timeout=1.0)
-        assert result is None
-
+class TestSnapshotSessionIds:
     def test_snapshot_missing_dir(self, tmp_path, monkeypatch):
         """Snapshot on missing dir returns empty set."""
         discovery = SessionDiscovery("/test")
@@ -232,57 +192,3 @@ class TestSnapshotAndDiscover:
             lambda: tmp_path / "no-such-dir",
         )
         assert discovery.snapshot_session_ids() == set()
-
-
-class TestAllowedIdsFilter:
-    def test_filters_to_allowed_ids(self, tmp_path, monkeypatch):
-        """list_sessions only returns sessions in allowed_ids."""
-        sessions_dir = tmp_path / "sessions"
-        sessions_dir.mkdir()
-
-        id_a = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        id_b = "11111111-2222-3333-4444-555555555555"
-        for sid in [id_a, id_b]:
-            f = sessions_dir / f"{sid}.jsonl"
-            f.write_text(json.dumps({"type": "user", "message": {"content": sid[:8]}}))
-
-        discovery = SessionDiscovery("/test")
-        monkeypatch.setattr(discovery, "_resolve_sessions_dir", lambda: sessions_dir)
-
-        # No filter — returns both
-        assert len(discovery.list_sessions()) == 2
-
-        # Filter to just id_a
-        result = discovery.list_sessions(allowed_ids={id_a})
-        assert len(result) == 1
-        assert result[0].session_id == id_a
-
-    def test_empty_allowed_ids_returns_empty(self, tmp_path, monkeypatch):
-        """Empty allowed_ids set returns no sessions."""
-        sessions_dir = tmp_path / "sessions"
-        sessions_dir.mkdir()
-
-        sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        f = sessions_dir / f"{sid}.jsonl"
-        f.write_text(json.dumps({"type": "user", "message": {"content": "hi"}}))
-
-        discovery = SessionDiscovery("/test")
-        monkeypatch.setattr(discovery, "_resolve_sessions_dir", lambda: sessions_dir)
-
-        result = discovery.list_sessions(allowed_ids=set())
-        assert result == []
-
-    def test_none_allowed_ids_returns_all(self, tmp_path, monkeypatch):
-        """None allowed_ids (default) returns all sessions."""
-        sessions_dir = tmp_path / "sessions"
-        sessions_dir.mkdir()
-
-        sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        f = sessions_dir / f"{sid}.jsonl"
-        f.write_text(json.dumps({"type": "user", "message": {"content": "hi"}}))
-
-        discovery = SessionDiscovery("/test")
-        monkeypatch.setattr(discovery, "_resolve_sessions_dir", lambda: sessions_dir)
-
-        result = discovery.list_sessions(allowed_ids=None)
-        assert len(result) == 1

@@ -38,7 +38,11 @@ from click.testing import CliRunner
 import osprey.cli.deploy_cmd as deploy_cmd
 from osprey.cli.deploy_cmd import up_verb
 from osprey.deployment import container_lifecycle, docker_desktop
-from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
+from osprey.deployment.compose_generator import (
+    LABELS_OVERRIDE_FILENAME,
+    REPO_ID_LABEL,
+    repo_identity,
+)
 from osprey.deployment.web_terminals import provision
 from osprey.utils.workspace import container_image_context
 from tests.cli._lifecycle_build import stub_build
@@ -841,6 +845,7 @@ def test_a_web_terminal_deploy_counts_as_exposed(lifecycle_repo, monkeypatch, ca
                 "build_dir": "./build",
                 "deployed_services": [],
                 "claude_code": {"provider": "anthropic"},
+                "registry": {"url": "registry.example.org/demo"},
                 "modules": {"web_terminals": {"enabled": True}},
             }
         ),
@@ -929,6 +934,7 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
             "project_root": str(repo),
             "facility": {"prefix": "ex"},
             "deploy": {"fqdn": "example.invalid"},
+            "registry": {"url": "registry.example.org/demo"},
             "modules": {
                 "web_terminals": {
                     "enabled": True,
@@ -1013,6 +1019,7 @@ def test_the_web_re_render_lands_in_the_block_the_build_recorded(lifecycle_repo,
                 "claude_code": {"provider": "anthropic"},
                 "facility": {"prefix": "ex"},
                 "deploy": {"fqdn": "example.invalid"},
+                "registry": {"url": "registry.example.org/demo"},
                 "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
             }
         ),
@@ -1162,6 +1169,7 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, monkeypatch):
                 "build_dir": "./build",
                 "deployed_services": [],
                 "claude_code": {"provider": "anthropic"},
+                "registry": {"url": "registry.example.org/demo"},
                 "modules": {
                     "web_terminals": {
                         "enabled": True,
@@ -1418,21 +1426,29 @@ def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):
     finding this deployment's containers, ``reset`` refusing another checkout's
     — sees a value, not an unexpanded variable.
 
+    Containers take the label from the build's generated labels override, which
+    names every rendered service; volumes take it from the templates, because
+    the override labels services only. So services are enumerated from the
+    rendered documents and looked up in the override, where a missing entry
+    reads as unlabelled, never as skipped.
+
     Enumerated from the rendered documents, never filtered by what already
-    carries the label. An earlier version of this test collected the files
-    containing ``REPO_ID_LABEL`` and asserted things about those, which made it
-    structurally incapable of noticing a service that had no label at all —
-    and two of them (``bluesky-redis`` and ``tiled``, the only services whose
-    templates carried no ``labels:`` block to append to) went unlabelled
-    exactly that way. An unlabelled container is not cosmetic: ``down``'s
-    label-driven fallback would leave a Redis and a Tiled server running while
-    the operator believed the stack was down.
+    carries the label. A test that starts from the files containing
+    ``REPO_ID_LABEL`` cannot notice a service with no label at all, and the
+    services whose templates carry no ``labels:`` block to append to are
+    exactly the ones at risk. An unlabelled container is not cosmetic:
+    ``down``'s label-driven fallback leaves its server running while the
+    operator believes the stack is down.
     """
     import yaml
 
     identity = repo_identity(built_repo)
     compose_files = sorted((built_repo / "build" / "services").rglob("docker-compose.yml"))
     assert compose_files
+    override = yaml.safe_load(
+        (built_repo / "build" / LABELS_OVERRIDE_FILENAME).read_text(encoding="utf-8")
+    )
+    override_services = override.get("services") or {}
 
     unlabelled_services: list[str] = []
     unlabelled_volumes: list[str] = []
@@ -1445,9 +1461,9 @@ def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):
         document = yaml.safe_load(text) or {}
         where = compose_file.relative_to(built_repo)
 
-        for name, definition in (document.get("services") or {}).items():
+        for name in document.get("services") or {}:
             seen_services += 1
-            labels = (definition or {}).get("labels") or {}
+            labels = (override_services.get(name) or {}).get("labels") or {}
             if labels.get(REPO_ID_LABEL) != identity:
                 unlabelled_services.append(f"{where}::{name}")
 
@@ -1482,6 +1498,7 @@ def test_the_web_stack_labels_every_container_and_volume_too(tmp_path):
             "project_root": str(repo),
             "facility": {"prefix": "ex"},
             "deploy": {"fqdn": "example.invalid"},
+            "registry": {"url": "registry.example.org/demo"},
             "modules": {
                 "web_terminals": {
                     "enabled": True,

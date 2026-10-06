@@ -307,6 +307,7 @@ def ledger_path(surface: str, identity: str | None = None) -> Path:
     already cut for — and it would silently cost every record the process
     writes rather than one file's name.
     """
+    who: str | None
     if identity is None:
         who = acting_identity()
     else:

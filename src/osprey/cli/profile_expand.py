@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import io
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -485,13 +486,14 @@ def _reference_document(preset: str, *, repo_name: str, profile_name: str) -> Co
     raw, anchor = _load_preset_raw(preset)
     resolved = _resolve_extends(dict(raw), anchor)
     config = resolved.get("config")
-    personas = persona_catalog(config if hasattr(config, "items") else {})
+    personas = persona_catalog(config if isinstance(config, Mapping) else {})
     layers: tuple[dict[str, Any], ...] = (
         *((persona_catalog_layer(personas, repo_name=repo_name),) if personas else ()),
         *((triggers_layer(),) if hasattr(resolved.get("dispatch"), "items") else ()),
     )
     text = emit_standalone_profile_yaml(preset, (), profile_name, extra_layers=layers)
-    return YAML().load(text)
+    document: CommentedMap = YAML().load(text)
+    return document
 
 
 def _resolve_preset(document: Any, from_preset: str | None, profile_path: Path) -> str:

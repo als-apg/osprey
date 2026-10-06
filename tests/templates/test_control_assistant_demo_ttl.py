@@ -26,10 +26,10 @@ handling that would uppercase it to `HASBINDING`, and the example queries the
 agent is given all spell the camelCase form. A corpus carrying uppercase names
 would import into a graph where every shipped query returns nothing.
 
-Finally, ariel_standalone is asserted to seed the same corpus from its own
-`data/` tree, byte for byte: the two presets ship two copies of one generated
-file, and a regeneration that reaches only one of them would leave the two
-demos describing different machines.
+Finally, ariel_standalone is asserted to seed the same corpus: its template
+ships no copy of its own and takes the file from the control-assistant data
+tree through its `shared_data.yml`, so there is one generated file and the two
+demos cannot describe different machines.
 """
 
 import hashlib
@@ -41,6 +41,7 @@ import pytest
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.shared_data import shared_data_files
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -97,13 +98,6 @@ DEMO_DATA = Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/con
 
 #: The corpus as it ships in the preset's data tree.
 TEMPLATE_TTL = DEMO_DATA / "demo_machine.ttl"
-
-#: The second committed copy of that one generated file, in ariel_standalone's
-#: own data tree.
-ARIEL_STANDALONE_TTL = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/ariel_standalone/data/demo_machine.ttl"
-)
 
 #: The three inputs ``osprey knowledge build-ttl`` reads: the tier-3 tree that
 #: supplies the addresses and the per-level prose, the in-context database that
@@ -223,13 +217,21 @@ def test_configured_corpus_is_on_disk_in_a_rendered_project(
     assert resolved.read_bytes() == TEMPLATE_TTL.read_bytes()
 
 
-def test_ariel_standalone_seeds_the_same_demo_corpus(tmp_path: Path) -> None:
-    project = _render_project("demo-ttl-ariel", "ariel_standalone", tmp_path)
+def test_ariel_standalone_seeds_the_same_demo_corpus() -> None:
+    """The standalone preset's corpus is the control-assistant file, not a copy.
+
+    ``osprey init`` and ``osprey scaffold pull`` materialize a template's data
+    tree through :func:`shared_data_files`, so the file the standalone
+    declaration resolves to is the one a standalone deployment seeds from.
+    """
+    standalone_root = _bundle_data_root("ariel_standalone").parent
+
     assert _graphdb_block("ariel-standalone")["ttl_path"] == EXPECTED_TTL_PATH
-    assert (project / "data" / "demo_machine.ttl").read_bytes() == TEMPLATE_TTL.read_bytes(), (
-        "ariel_standalone ships its own copy of the demo corpus; it has drifted "
-        "from the control-assistant copy, so the two demos describe different machines"
+    assert not (standalone_root / "data" / "demo_machine.ttl").exists(), (
+        "ariel_standalone ships its own copy of the demo corpus again; the source "
+        "keeps one copy, which shared_data.yml takes from control_assistant"
     )
+    assert shared_data_files(standalone_root)["demo_machine.ttl"] == TEMPLATE_TTL
 
 
 # ---------------------------------------------------------------------------
@@ -344,12 +346,6 @@ def control_assistant_ttl() -> Path:
 
 
 @pytest.fixture(scope="module")
-def ariel_standalone_ttl() -> Path:
-    """The same generated file, as ariel_standalone ships it."""
-    return ARIEL_STANDALONE_TTL
-
-
-@pytest.fixture(scope="module")
 def regenerated_ttl_text() -> str:
     """Rebuild the corpus from the three inputs committed beside it.
 
@@ -421,12 +417,11 @@ def _first_difference(left: bytes, right: bytes) -> str:
     )
 
 
-def test_regenerated_corpus_is_byte_identical_to_both_committed_copies(
+def test_regenerated_corpus_is_byte_identical_to_the_committed_copy(
     regenerated_ttl_text: str,
     control_assistant_ttl: Path,
-    ariel_standalone_ttl: Path,
 ) -> None:
-    """Regenerating the corpus reproduces both committed copies byte for byte.
+    """Regenerating the corpus reproduces the committed copy byte for byte.
 
     The sibling guard in ``tests/services/facility_knowledge`` compares the
     regeneration to the committed file *semantically*, which is the right test
@@ -446,16 +441,11 @@ def test_regenerated_corpus_is_byte_identical_to_both_committed_copies(
     regenerated = regenerated_ttl_text.encode("utf-8")
     committed = control_assistant_ttl.read_bytes()
 
-    assert committed == ariel_standalone_ttl.read_bytes(), (
-        "The two committed copies of the demo corpus differ, so at most one of "
-        "them can match a regeneration; regenerate and copy to both data trees."
-    )
-
-    assert regenerated == committed == ariel_standalone_ttl.read_bytes(), (
+    assert regenerated == committed, (
         "The committed corpus is not byte-identical to regenerating it from "
         "today's inputs, so the deploy's sha256 seed marker names a corpus "
         "nobody can reproduce. Re-run `osprey knowledge build-ttl` and commit "
-        "the result to both preset data trees.\n"
+        "the result to the control-assistant data tree.\n"
         f"regenerated sha256 {hashlib.sha256(regenerated).hexdigest()} "
         f"({len(regenerated)} bytes)\n"
         f"committed   sha256 {hashlib.sha256(committed).hexdigest()} "

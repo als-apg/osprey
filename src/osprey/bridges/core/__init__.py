@@ -23,6 +23,7 @@ Layers:
         capabilities — fail-closed peer capability probe
         health_gate — drain gate over dispatcher/worker health
         artifacts — worker artifact fetch and normalization
+        filenames — collision-free storage names for a run's files
         dispatch_client — three-step dispatch handshake
         drain — supervised retry-queue drain thread
 
@@ -54,6 +55,7 @@ from .dedup import DedupStore
 from .dispatch_client import DispatchClient, DispatchPipelineError
 from .drain import DrainCallbacks, DrainDeps, drain_once, ensure_alive, run_drain_thread
 from .errors import UndeliverableError
+from .filenames import DELIVERED_EXTENSIONS, unique_stems, upload_name, upload_stem
 from .health_gate import gate_open
 from .history import HistoryStore
 from .people import MENTION_PLACEHOLDER_RE, MENTION_RULE, MENTIONS_OFF_NOTE, asker_of
@@ -95,6 +97,7 @@ __all__ = [
     "is_retryable",
     "may_redispatch",
     # the pair over HTTP
+    "DELIVERED_EXTENSIONS",
     "KNOWN_EXTENSIONS",
     "MAX_DELIVERED_DOC_BYTES",
     "MAX_DELIVERED_IMAGE_BYTES",
@@ -110,6 +113,9 @@ __all__ = [
     "gate_open",
     "pair_supports",
     "safe_label",
+    "unique_stems",
+    "upload_name",
+    "upload_stem",
     # the seam adapters implement
     "RESERVED_ENTRY_KEYS",
     "ChannelOps",

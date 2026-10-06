@@ -70,6 +70,8 @@
  *   whose proxy is where the plan queue is read
  * @property {boolean} [systemHealthAvailable] - deployment enables the SYSTEM
  *   panel, whose proxy is where the health report is read
+ * @property {boolean} [controlTargetAvailable] - deployment offers the
+ *   control-target picker (`web.control_target_picker`)
  */
 
 /**
@@ -204,7 +206,8 @@ export const BAR_CATALOG = Object.freeze({
     align: 'center',
     flex: NO_FLEX,
     overflowLabel: NEVER_FOLDS,
-    available: ALWAYS,
+    // A deployment can switch the picker off, and the item is then absent.
+    available: (ctx) => ctx.controlTargetAvailable === true,
   },
 
   display: {
@@ -311,10 +314,12 @@ export const BAR_CATALOG = Object.freeze({
     group: 'System',
     multi: true,
     // `none` is the plain clock: local time, no zone suffix anywhere. `local`
-    // is the same time with the zone's name beside it; `utc` and `both` say
-    // what they are. `format` is the hour cycle, 24h or 12h with AM/PM.
+    // is the same time with the zone's name beside it; `facility` is the time
+    // in the zone the page is stamped with (`system.timezone`); `utc` and
+    // `both` say what they are. `format` is the hour cycle, 24h or 12h with
+    // AM/PM.
     options: Object.freeze({
-      zone: enumSpec(Object.freeze(['none', 'local', 'utc', 'both']), 'none'),
+      zone: enumSpec(Object.freeze(['none', 'local', 'facility', 'utc', 'both']), 'none'),
       format: enumSpec(Object.freeze(['24h', '12h']), '24h'),
       seconds: booleanSpec(false),
     }),

@@ -2,10 +2,14 @@
 
 import json
 import logging
+from typing import TYPE_CHECKING
 
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
+
+if TYPE_CHECKING:
+    from osprey.stores.artifact_store import ArtifactEntry, ArtifactStore
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_read")
 
@@ -437,8 +441,8 @@ def _save_image_reading(store, address: str, value, summary: dict, np, png_bytes
                 ),
             },
             "view_hint": (
-                "Use the Read tool on the PNG beside this entry's data_file (the same path "
-                "with a .png extension) to view the image."
+                "Open the PNG beside this entry's data_file (the same path with a .png "
+                "extension) with your file-reading tool to view the image."
             ),
         },
         category="channel_values",
@@ -460,11 +464,11 @@ def _save_image_reading(store, address: str, value, summary: dict, np, png_bytes
     }
     png_path = _agent_path_for(store, entry)
     if png_path:
-        handle["view_hint"] = f"Use the Read tool on {png_path} to view the image."
+        handle["view_hint"] = f"Open {png_path} with your file-reading tool to view the image."
     return handle
 
 
-def _agent_path_for(store, entry) -> str | None:
+def _agent_path_for(store: "ArtifactStore", entry: "ArtifactEntry") -> str | None:
     """Agent-facing path of the entry's primary file, or None when unresolvable.
 
     Reported the way the rest of the repo reports file paths - relative to the

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
+from osprey.models.config import provider_requests_per_minute
 from osprey.models.providers.litellm_adapter import get_litellm_model_name
 from osprey.services.channel_finder.benchmarks.harness import (
     combined_text_from_react,
@@ -15,37 +18,15 @@ from osprey.services.channel_finder.benchmarks.harness import (
 from osprey.services.channel_finder.benchmarks.sdk import _read_agent_prompt
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter
 
+from ..project_env import expand_api_providers, project_config, project_dotenv
 from .base import Backend, WorkflowOutput
-
-# Per-provider LiteLLM call rate caps (calls per minute). Set conservatively
-# below the documented limit to leave a small safety margin. ``None`` disables
-# throttling for that provider.
-_PROVIDER_RATE_LIMIT_RPM: dict[str, int | None] = {
-    "cborg": 18,  # CBORG free tier is 20 req/min/key
-    "anthropic": None,  # Direct Anthropic — no proxy throttle needed
-    "als-apg": None,
-}
 
 logger = logging.getLogger(__name__)
 
 
-def _project_dotenv(project_dir: Path) -> dict[str, str]:
-    """Read the project's ``.env``, so a benchmark run needs no exported shell vars.
-
-    Returns an empty mapping when there is no file, or when ``python-dotenv``
-    is not installed — the caller falls back to the process environment.
-    """
-    env_file = project_dir / ".env"
-    if not env_file.is_file():
-        return {}
-    try:
-        from dotenv import dotenv_values
-    except ImportError:
-        return {}
-    return {key: value for key, value in dotenv_values(env_file).items() if value is not None}
-
-
-def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
+def _resolve_litellm_endpoint(
+    project_dir: Path, config: Mapping[str, Any] | None, provider: str
+) -> dict | None:
     """Resolve provider routing kwargs for a non-ollama provider.
 
     The SDK path injects ``ANTHROPIC_BASE_URL`` + ``ANTHROPIC_AUTH_TOKEN``
@@ -54,36 +35,33 @@ def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
     so env inheritance can't carry the override — we have to pass
     ``api_base`` / ``api_key`` explicitly to ``litellm.acompletion()``.
 
-    Returns ``None`` for ollama (already handled by ``_litellm_call_kwargs``)
-    and for direct Anthropic (LiteLLM's default routing is correct).
+    Returns ``None`` for ollama (already handled by ``_litellm_call_kwargs``),
+    for a project with no ``config.yml`` (``config`` is ``None``), and for
+    direct Anthropic (LiteLLM's default routing is correct).
 
-    NOTE (#307 follow-up): this benchmark-only path still does a raw
-    ``yaml.safe_load`` + ``ClaudeCodeModelResolver.resolve`` rather than going
-    through ``load_provider_spec``, because the contract differs (synthetic
+    This benchmark-only path takes the project's config as
+    :func:`~osprey.services.channel_finder.benchmarks.project_env.project_config`
+    read it and calls ``ClaudeCodeModelResolver.resolve`` rather than going through
+    ``load_provider_spec``, because the contract differs (synthetic
     ``{"provider": provider}`` config + litellm ``api_base``). It does expand
-    ``${VAR}`` in a provider's ``base_url``, against the same
-    ``os.environ`` + project ``.env`` overlay the auth secret is read from, and
-    refuses a reference that resolves to nothing rather than handing litellm a
-    placeholder as a hostname — the shipped catalog spells gateway endpoints
-    that way.
+    ``${VAR}`` in a provider's ``base_url``, against the overlay
+    ``project_env`` defines (``os.environ`` over the project ``.env``) that the
+    auth secret is read from, and refuses a reference that resolves to nothing
+    rather than handing litellm a placeholder as a hostname — the shipped
+    catalog spells gateway endpoints that way.
     """
     if provider == "ollama":
         return None
 
-    import yaml
+    from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
+    from osprey_connectors.config import is_unresolved_placeholder
 
-    from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
-    from osprey_connectors.config import is_unresolved_placeholder, resolve_env_vars
-
-    config_path = project_dir / "config.yml"
-    if not config_path.exists():
+    if config is None:
         return None
-    config = yaml.safe_load(config_path.read_text()) or {}
     # os.environ wins over the project .env, so a sweep can redirect a provider
     # for one run without editing the deployment's file.
-    dotenv = _project_dotenv(project_dir)
-    overlay = {**dotenv, **os.environ}
-    api_providers = resolve_env_vars(config.get("api", {}).get("providers", {}), environ=overlay)
+    dotenv = project_dotenv(project_dir)
+    api_providers = expand_api_providers(config, {**dotenv, **os.environ})
     spec = ClaudeCodeModelResolver.resolve({"provider": provider}, api_providers)
     if spec is None:
         return None
@@ -131,14 +109,11 @@ class ReactBackend(Backend):
         self.litellm_model = get_litellm_model_name(self.provider, self.wire_id)
         self.max_turns = max_turns
         self.system_prompt = _read_agent_prompt(project_dir)
-        self._call_kwargs_override = _resolve_litellm_endpoint(project_dir, self.provider)
+        config = project_config(project_dir)
+        self._call_kwargs_override = _resolve_litellm_endpoint(project_dir, config, self.provider)
 
-        # Arm the global rate limiter based on which provider the project
-        # is configured to hit. Ollama models bypass this (the override
-        # resolver returned None earlier and the provider is local).
-        if self.provider != "ollama":
-            rpm = _PROVIDER_RATE_LIMIT_RPM.get(self.provider, None)
-            configure_rate_limiter(rpm)
+        # Pace calls to the provider's catalog cap; a provider without one is not paced.
+        configure_rate_limiter(provider_requests_per_minute(config or {}, self.provider))
 
     async def run_query(self, prompt: str, pipeline_mode: str) -> WorkflowOutput:
         async with mcp_client_session(self.project_dir, pipeline_mode) as client:

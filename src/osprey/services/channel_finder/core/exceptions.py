@@ -43,6 +43,17 @@ class QueryProcessingError(ChannelFinderError):
     pass
 
 
+class CoverageJudgeError(ChannelFinderError):
+    """Raised when the benchmark's coverage judge cannot score a query.
+
+    Either the judge cannot be resolved from the project's configuration, or a
+    judge call fails or returns no verdict. A query the judge could not score is
+    not scored another way. The message says which of the two it was.
+    """
+
+    pass
+
+
 class GraphIndexBuildError(ChannelFinderError):
     """Raised when the graph search index cannot be built from the corpus."""
 

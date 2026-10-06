@@ -22,6 +22,12 @@
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { initHookDebug } from '../../../src/osprey/interfaces/web_terminal/static/js/hook-debug.js';
+import {
+  FACILITY_ZONE,
+  VIEWER_ZONE,
+  stampFacilityZone,
+  zoneName,
+} from '../_support/facility-zone.mjs';
 
 /**
  * Build a Response-like object for the stubbed `fetch`. `fetchJSON` only
@@ -150,6 +156,51 @@ describe('populated activity log', () => {
   });
 });
 
+describe('times on the facility clock', () => {
+  afterEach(() => stampFacilityZone(null));
+
+  /** @returns {string[]} */
+  function headers() {
+    return Array.from(logBodyEl().querySelectorAll('thead th')).map((th) => th.textContent ?? '');
+  }
+
+  test('the time column reads the stamped zone to the millisecond and the header names it', async () => {
+    stampFacilityZone(FACILITY_ZONE);
+    stubFetch({ entries: [{ ts: '2026-01-15T20:04:05.123Z', hook: 'PreToolUse', status: 'allowed' }] });
+    initHookDebug();
+    await expandLog();
+
+    const expected = new Intl.DateTimeFormat(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3,
+      hourCycle: 'h23',
+      timeZone: FACILITY_ZONE,
+    }).format(new Date('2026-01-15T20:04:05.123Z'));
+    expect(logBodyEl().querySelector('td.log-ts')?.textContent).toBe(expected);
+    expect(headers()[0]).toBe(`Time (${zoneName(FACILITY_ZONE)})`);
+  });
+
+  test('a viewer on the facility clock sees a plain Time header', async () => {
+    stampFacilityZone(VIEWER_ZONE);
+    stubFetch({ entries: [{ ts: '2026-01-15T20:04:05.123Z', hook: 'PreToolUse', status: 'allowed' }] });
+    initHookDebug();
+    await expandLog();
+
+    expect(headers()[0]).toBe('Time');
+  });
+
+  test('an unparseable stamp is shown as written', async () => {
+    stampFacilityZone(FACILITY_ZONE);
+    stubFetch({ entries: [{ ts: 'yesterday-ish', hook: 'PreToolUse', status: 'allowed' }] });
+    initHookDebug();
+    await expandLog();
+
+    expect(logBodyEl().querySelector('td.log-ts')?.textContent).toBe('yesterday-ish');
+  });
+});
+
 describe('empty activity log', () => {
   test('an empty entries array renders the "No entries" placeholder, not a table', async () => {
     stubFetch({ entries: [] });
@@ -199,8 +250,8 @@ describe('hostile payload inertness', () => {
   });
 });
 
-describe('debug toggle: prefix-aware PATCH', () => {
-  test('prepends window.__OSPREY_PREFIX__ to the /api/config PATCH (multi-user deployments)', async () => {
+describe('debug toggle: the config PATCH', () => {
+  test('turning the toggle on PATCHes hooks.debug through the multi-user prefix', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
     stubFetch({ entries: [] });
     initHookDebug();
@@ -217,6 +268,10 @@ describe('debug toggle: prefix-aware PATCH', () => {
       ([url]) => typeof url === 'string' && url.includes('/api/config')
     );
     expect(patchCall?.[0]).toBe('/u/alice/api/config');
+    // The toggle's own contract: a PATCH of the one key that turns hook
+    // debug logging on.
+    expect(patchCall?.[1]?.method).toBe('PATCH');
+    expect(JSON.parse(patchCall?.[1]?.body)).toEqual({ updates: { 'hooks.debug': true } });
   });
 });
 

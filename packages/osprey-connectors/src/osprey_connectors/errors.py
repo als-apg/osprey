@@ -90,7 +90,9 @@ class ChannelWriteBlockedError(Exception):
     attempted and its outcome is a failure rather than a denial.
 
     reason is one of: "WRITES_DISABLED", "LIMITS", "VALIDATION_ERROR",
-    "CONTROL_SYSTEM_REFUSED".
+    "CONTROL_SYSTEM_REFUSED", "RAW_CLIENT_WRITE". "RAW_CLIENT_WRITE" means user
+    code called a control-system client library's put directly instead of going
+    through ``osprey.runtime.write_channel``; nothing was sent.
     """
 
     _VALID_REASONS = (
@@ -98,6 +100,7 @@ class ChannelWriteBlockedError(Exception):
         "LIMITS",
         "VALIDATION_ERROR",
         "CONTROL_SYSTEM_REFUSED",
+        "RAW_CLIENT_WRITE",
     )
 
     def __init__(self, channel_address: str, reason: str, message: str | None = None):
@@ -111,6 +114,26 @@ class ChannelWriteBlockedError(Exception):
         )
         text = message or f"Write to '{channel_address}' refused by {refuser} ({reason})"
         super().__init__(text)
+
+
+#: Shared substring of every raw-client-write refusal message. Refusals raised
+#: inside an executor subprocess reach the parent only as stderr text, so the
+#: parent recognises them by this marker; a test pins the message to it.
+RAW_CLIENT_WRITE_MARKER = "raw client write refused"
+
+
+def raw_client_write_message(address: str) -> str:
+    """Return the refusal text for a direct client-library write to ``address``.
+
+    ``address`` may be ``"<unknown>"`` when the refused call does not expose a
+    channel name (a low-level handle put, for instance).
+    """
+    return (
+        f"{RAW_CLIENT_WRITE_MARKER}: write to '{address}' bypassed the reference "
+        "monitor. Use osprey.runtime.write_channel(address, value) or "
+        "osprey.runtime.write_channels({address: value, ...}) so limits and "
+        "approval apply."
+    )
 
 
 class ChannelWriteFailedError(Exception):

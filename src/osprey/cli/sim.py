@@ -111,8 +111,8 @@ def _load_project_engine(repo: Path | None):
     Exits with a clear message if the deployment is not simulation-backed.
     """
     from osprey.connectors.types import MOCK
-    from osprey.simulation.apply import resolve_simulation_file
     from osprey.simulation.engine import SimulationEngine, resolve_state_dir
+    from osprey_connectors.simulation.engine import resolve_simulation_file
 
     repo_root, config = _resolve_deployment(repo)
     machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, repo_root)
@@ -278,10 +278,10 @@ def apply_command(
         apply_scenarios,
         compute_scenario_physics_env,
         preflight_archive_rewrite,
-        resolve_simulation_file,
         write_scenario_physics_env,
     )
     from osprey.simulation.engine import resolve_active_scenarios
+    from osprey_connectors.simulation.engine import resolve_simulation_file
 
     seed_logbook = not (no_seed or no_seed_logbook)
     seed_archive = not (no_seed or no_seed_archiver)

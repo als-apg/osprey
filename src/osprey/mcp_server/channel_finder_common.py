@@ -17,12 +17,9 @@ package.
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-
-import yaml
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     # NOT a runtime import. ``fastmcp.settings`` snapshots the environment when
@@ -95,27 +92,48 @@ def build_cf_server(
     return mcp
 
 
-def load_cf_config(logger: logging.Logger) -> dict[str, Any]:
-    """Load ``config.yml`` from the ``OSPREY_CONFIG`` env var or cwd.
-
-    Returns an empty dict when the file is missing.
-    """
-    config_path = Path(
-        os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
-    )
-    raw: dict[str, Any] = {}
-    if config_path.exists():
-        with open(config_path) as f:
-            raw = yaml.safe_load(f) or {}
-        logger.info("config loaded from %s", config_path)
-    else:
-        logger.warning("Config file not found: %s", config_path)
-
-    return raw
-
-
 def _config_path() -> Path:
-    return Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml"))))
+    """Return the channel-finder servers' view of the framework's config path.
+
+    It is :func:`~osprey.utils.workspace.resolve_config_path`, asked directly.
+    Loading, data anchoring and state anchoring all answer from it, so they
+    cannot disagree with each other or with the graph pipeline.
+    """
+    from osprey.utils.workspace import resolve_config_path
+
+    return resolve_config_path()
+
+
+def load_cf_config(logger: logging.Logger) -> dict[str, Any]:
+    """Load the deployment's ``config.yml`` through the shared ``ConfigBuilder``.
+
+    ``${VAR}`` and ``${VAR:-default}`` resolve exactly as they do for every
+    other config reader, and the server shares the builder
+    :func:`~osprey.mcp_server.startup.prime_config_builder` already loaded.
+    Returns ``{}``, with a warning naming the path, when the file is missing or
+    cannot be loaded.
+    """
+    config_path = _config_path()
+    if not config_path.exists():
+        logger.warning("Config file not found: %s", config_path)
+        return {}
+
+    try:
+        from osprey.utils.config import get_config_builder
+
+        raw: dict[str, Any] = get_config_builder(
+            config_path=str(config_path), set_as_default=True
+        ).raw_config
+    except Exception as exc:
+        logger.warning(
+            "Config file %s could not be loaded, channel finder starts unconfigured: %s",
+            config_path,
+            exc,
+        )
+        return {}
+
+    logger.info("config loaded from %s", config_path)
+    return raw
 
 
 def resolve_cf_path(path_str: str) -> str:

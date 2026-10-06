@@ -49,7 +49,7 @@ import logging
 import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, overload
 
 from osprey.connectors.archiver.base import ArchiverConnector
 from osprey.connectors.control_system.base import ControlSystemConnector
@@ -62,6 +62,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     switch_capable,
 )
 from osprey_connectors import control_context
+from osprey_connectors.config import mapping_or_empty
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.types import configured_targets, target_writes_enabled
 
@@ -208,25 +209,25 @@ class MCPServerConfig:
     raw: dict[str, Any] = field(default_factory=dict)
     config_path: Path | None = None
 
+    def _section(self, key: str) -> dict[str, Any]:
+        """Read the section at ``key`` as a mapping; empty reads as ``{}``."""
+        return mapping_or_empty(self.raw.get(key), key, self.config_path)
+
     @property
     def control_system(self) -> dict[str, Any]:
-        return self.raw.get("control_system", {})
+        return self._section("control_system")
 
     @property
     def archiver(self) -> dict[str, Any]:
-        return self.raw.get("archiver", {})
+        return self._section("archiver")
 
     @property
     def channel_finder(self) -> dict[str, Any]:
-        return self.raw.get("channel_finder", {})
+        return self._section("channel_finder")
 
     @property
     def ariel(self) -> dict[str, Any]:
-        return self.raw.get("ariel", {})
-
-    @property
-    def writes_enabled(self) -> bool:
-        return self.control_system.get("writes_enabled", False)
+        return self._section("ariel")
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +384,17 @@ class ControlSystemContext:
         """
         return await self._get_connector("archiver")
 
-    async def _get_connector(self, name: str) -> Any:
+    @overload
+    async def _get_connector(
+        self, name: Literal["control_system"]
+    ) -> ControlSystemConnector | ConnectorHostProxy: ...
+
+    @overload
+    async def _get_connector(self, name: Literal["archiver"]) -> ArchiverConnector: ...
+
+    async def _get_connector(
+        self, name: str
+    ) -> ControlSystemConnector | ArchiverConnector | ConnectorHostProxy:
         """Lazy-create and cache a connector, reconnecting on failure."""
         entry = self._connectors.get(name)
         if entry is None:
@@ -397,20 +408,24 @@ class ControlSystemContext:
 
         from osprey.connectors.factory import ConnectorFactory
 
+        instance: ControlSystemConnector | ArchiverConnector
         if name == "control_system":
             # A deployment on this path serves one target and never switches, so
             # the target it is on is the deployment's own baseline. Naming it
             # rather than leaving the stamp blank is what makes the rebuild after
             # invalidate_connector() carry the same session posture the instance
             # it replaces was reading.
-            entry.instance = await ConnectorFactory.create_control_system_connector(
+            instance = await ConnectorFactory.create_control_system_connector(
                 entry.config, control_target=self.baseline
             )
         elif name == "archiver":
-            entry.instance = await ConnectorFactory.create_archiver_connector(entry.config)
+            instance = await ConnectorFactory.create_archiver_connector(entry.config)
+        else:
+            raise ValueError(f"Unknown connector: {name}")
+        entry.instance = instance
 
         logger.info("ControlSystemContext: created %s connector", name)
-        return entry.instance
+        return instance
 
     async def _connector_host(self) -> ConnectorHostProxy:
         """The live child's proxy, or the no-child refusal.

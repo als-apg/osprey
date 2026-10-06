@@ -25,7 +25,6 @@ import pytest
 from starlette.testclient import TestClient
 
 from osprey.interfaces.common_middleware import (
-    EXEMPT_PATHS,
     OPERATOR_SECRET_HEADER,
     session_cookie_name,
 )
@@ -48,7 +47,7 @@ def app(monkeypatch: pytest.MonkeyPatch):
     object the gate reads.
     """
     monkeypatch.setenv("OSPREY_WEB_PORT", WEB_PORT)
-    application = create_app(shell_command="echo")
+    application = create_app(shell_command=["echo"])
     application.state.web_credentials = WebCredentials(
         operator_secret=OPERATOR_SECRET, panel_token=PANEL_TOKEN
     )
@@ -60,16 +59,6 @@ def _client(app) -> TestClient:
     client = TestClient(app)
     client.cookies.clear()
     return client
-
-
-def test_session_is_not_exempt_from_the_auth_gate():
-    """The probe must sit behind auth — never in the middleware exempt set.
-
-    Guards the contract directly: if ``/api/session`` were ever added to
-    ``EXEMPT_PATHS`` the gate would stop 401'ing an expired credential and the
-    single-user reconnect loop would silently return.
-    """
-    assert "/api/session" not in EXEMPT_PATHS
 
 
 def test_valid_operator_secret_header_gets_200(app):

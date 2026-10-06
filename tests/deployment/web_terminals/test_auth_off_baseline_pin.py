@@ -18,7 +18,7 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly five
+byte-for-byte what it rendered before this feature, with exactly six
 exceptions:
 
   1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
@@ -69,6 +69,14 @@ exceptions:
      watching. Neither line names an account, a role or a claim: the identity
      they address is the roster name this render already spells in
      ``OSPREY_AUDIT_IDENTITY``.
+  6. **the one-origin rule** — the content server's ``server_name`` names the
+     host of the deployment's origin instead of ``_``, and one more server, the
+     ``default_server`` on the same listener, answers every other name with a
+     ``301`` to that origin. The terminals accept actions only from the one
+     origin, so a page served under another name would load and then refuse
+     every write. It is a perimeter rule that renders the same under every
+     method, carries no account, role or claim, and names only the host
+     ``deploy.fqdn`` already sets.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -426,17 +434,6 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # absent `auth:` block already resolves to, so the line restates today's
         # behaviour rather than changing it.
         "      - OSPREY_TERMINAL_SESSION_LIFETIME=43200": 2,
-        # The proxy passthrough — the FOURTH exception to SC6. Every per-user
-        # container now receives the deploy env chain's three uppercase proxy
-        # names, as the login service already did, because `.env.users` is a
-        # closed credential allowlist and carries none of them. It is not an
-        # authentication or authorization line: it renders identically under
-        # every method, `token` included, and on a host with no proxy the
-        # `${VAR:-}` directives resolve to empty and change nothing. Count 2 =
-        # alice + bob.
-        "      - HTTP_PROXY=${HTTP_PROXY:-}": 2,
-        "      - HTTPS_PROXY=${HTTPS_PROXY:-}": 2,
-        "      - NO_PROXY=${NO_PROXY:-}": 2,
         # The control-context tree — the FIFTH exception to SC6, on the same
         # argument as the audit pair at the top of this list. Each per-user
         # container is told where to file the narrowing record for the operator
@@ -498,6 +495,11 @@ _REWORDED_NGINX_LINES = frozenset(
     }
 )
 
+#: The content server's catch-all name, which the one-origin rule (SC6
+#: exception 6) replaces with the origin's host. This line — and ONLY this one —
+#: may be replaced in the `token` render.
+_REPLACED_NGINX_LINES = frozenset({"    server_name _;"})
+
 #: Task 4.7 (nginx-identity-headers), ungated arm. Four clears per `/u/<user>/`
 #: location, and NOTHING else: no `auth_request_set`, no forward, no `/auth/`
 #: location — those render only with authentication on.
@@ -507,6 +509,21 @@ _ALLOWED_NGINX_LINES = Counter(
         '        proxy_set_header X-Osprey-Auth-Subject "";': 2,
         '        proxy_set_header X-Osprey-Auth-Role "";': 2,
         '        proxy_set_header X-Osprey-Auth-Role-Source "";': 2,
+        # The one-origin rule — the SIXTH exception to SC6. The content server
+        # names the origin's host, and a default server on the same listener
+        # sends every other name there. It is a perimeter rule that renders the
+        # same under every method, carries no account, role or claim, and names
+        # only the host `deploy.fqdn` already sets. The redirect server's own
+        # `server_name _;` pairs with the baseline line the content server's
+        # name replaces, so difflib counts one of each here.
+        "    server_name dls-deploy.dls.example.org;": 1,
+        "server {": 1,
+        "    listen <port> default_server;": 1,
+        "    listen [::]:<port> default_server;": 1,
+        "    server_name _;": 1,
+        "    access_log /dev/stdout osprey_sanitized;": 1,
+        "    return 301 http://dls-deploy.dls.example.org:<port>$request_uri;": 1,
+        "}": 1,
     }
 )
 
@@ -681,6 +698,10 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
         )
 
     nginx = (_BASELINE_DIR / "nginx.conf").read_text()
+    for line in _REPLACED_NGINX_LINES:
+        assert line in nginx, (
+            f"the frozen baseline lacks the catch-all name it is said to carry: {line!r}"
+        )
     for line in _REWORDED_NGINX_LINES:
         assert line in nginx, (
             f"the frozen baseline lacks the pre-retirement comment it is said to carry: {line!r}"
@@ -821,7 +842,7 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
         replaceable = (
             _REPLACED_COMPOSE_LINES | _REWORDED_COMPOSE_LINES
             if name == "docker-compose.web.yml"
-            else _REWORDED_NGINX_LINES
+            else _REPLACED_NGINX_LINES | _REWORDED_NGINX_LINES
             if name == "nginx.conf"
             else frozenset()
         )
@@ -863,11 +884,12 @@ def test_compose_adds_exactly_the_audit_emitters_and_mounts() -> None:
     _assert_added_directives_are_exactly_allowed("docker-compose.web.yml")
 
 
-def test_nginx_adds_exactly_the_four_identity_header_clears() -> None:
-    """The nginx config's whole SC6 exception: the four clears, once each in
-    each of the two ungated `/u/<user>/` locations, from task 4.7. Nothing from
-    the gated arm may appear here — no `auth_request_set`, no forward — and the
-    count catches a clear that reached only one of the two locations."""
+def test_nginx_adds_exactly_the_identity_header_clears_and_the_one_origin_rule() -> None:
+    """The nginx config's whole SC6 exceptions: the four clears, once each in
+    each of the two ungated `/u/<user>/` locations, from task 4.7, and the
+    one-origin rule's server name and redirect server. Nothing from the gated
+    arm may appear here — no `auth_request_set`, no forward — and the count
+    catches a clear that reached only one of the two locations."""
     _assert_added_directives_are_exactly_allowed("nginx.conf")
 
 

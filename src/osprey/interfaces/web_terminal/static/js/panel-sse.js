@@ -83,10 +83,7 @@ export function subscribePanelEvents(sseDeps) {
 
   // Listen for SSE events via createEventSource (api.js) so the URL picks up
   // window.__OSPREY_PREFIX__ under multi-user deployments (empty prefix ⇒
-  // unchanged behavior). createEventSource also drives the module-level
-  // sseState in api.js, but nothing currently reads getConnectionState().sse
-  // (only .ws is consumed, by app.js's status dot), so that side effect is
-  // harmless. These event types are handled:
+  // unchanged behavior). These event types are handled:
   //
   //   panel_focus      {type, panel, url?}      — explicit open_panel MCP call
   //                                               or the echo of a human focus

@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 import re
 
+from osprey.interfaces.common_middleware import url_mount_prefix
+
 logger = logging.getLogger(__name__)
 
 MAX_RETURN_TO_LENGTH = 2048
@@ -69,7 +71,7 @@ def safe_return_to(raw: object, user: str, *, flow: str = "login") -> str:
         A same-origin absolute path, safe to put in a ``Location`` header and in
         a hidden field.
     """
-    default = f"/u/{user}/"
+    default = f"{url_mount_prefix(user)}/"
     if not isinstance(raw, str) or not raw:
         return default
 

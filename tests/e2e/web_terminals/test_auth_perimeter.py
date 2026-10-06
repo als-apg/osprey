@@ -347,7 +347,7 @@ def _profile_edits() -> dict[str, Any]:
             "container_runtime": RUNTIME,
             "facility.name": "E2E Auth Perimeter Fixture",
             "facility.prefix": PREFIX,
-            "facility.timezone": "UTC",
+            "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             "deployed_services": [],
             "claude_code.telemetry.enabled": False,

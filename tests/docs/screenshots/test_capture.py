@@ -7,6 +7,7 @@ chromium binary or Playwright is unavailable.
 
 from __future__ import annotations
 
+import gc
 import json
 
 import pytest
@@ -234,6 +235,22 @@ def test_a_real_driver_killed_by_its_preload_is_a_skip(monkeypatch, tmp_path) ->
     with pytest.raises(ScreenshotSkip, match="exited before its handshake"):
         with capture.chromium_context():
             pytest.fail("no browser should be yielded")
+
+
+def test_a_real_driver_killed_by_its_preload_leaves_no_task_error_behind(
+    monkeypatch, tmp_path, caplog
+) -> None:
+    # The dead driver's handshake failure is the skip's cause. If nothing reads it, asyncio
+    # reports it whenever the garbage collector reaches it -- in whichever later test, and
+    # into whichever stream that test is capturing.
+    monkeypatch.setenv("NODE_OPTIONS", f"--require {tmp_path / 'deleted-preload.js'}")
+
+    with pytest.raises(ScreenshotSkip, match="exited before its handshake"):
+        with capture.chromium_context():
+            pytest.fail("no browser should be yielded")
+    gc.collect()
+
+    assert [r.getMessage() for r in caplog.records if r.name == "asyncio"] == []
 
 
 # ---------------------------------------------------------------------------

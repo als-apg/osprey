@@ -10,6 +10,7 @@
 
 import { fetchJSON, postJSON, deleteJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
+import { facilityZoneLabel, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
 import { formModal, confirmModal } from './modal.js';
 import { showToast } from './app.js';
 import { getContainer, setContainer, getCurrentKey, setCurrentKey, setRerender, setRenderList } from './feedback-state.js';
@@ -140,6 +141,8 @@ async function _renderList() {
   const totalSuccesses = entries.reduce((/** @type {number} */ s, /** @type {any} */ e) => s + e.success_count, 0);
   const totalFailures = entries.reduce((/** @type {number} */ s, /** @type {any} */ e) => s + e.failure_count, 0);
 
+  const activityHeader = viewerSharesFacilityClock() ? 'Last Activity' : `Last Activity (${facilityZoneLabel()})`;
+
   let html = `
     <div class="fb-toolbar">
       <div class="fb-toolbar-left">
@@ -179,7 +182,7 @@ async function _renderList() {
               <th>Facility</th>
               <th>Successes</th>
               <th>Failures</th>
-              <th>Last Activity</th>
+              <th>${esc(activityHeader)}</th>
               <th></th>
             </tr>
           </thead>

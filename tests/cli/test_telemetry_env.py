@@ -12,13 +12,14 @@ import base64
 
 import pytest
 
-from osprey.build import claude_code_resolver as resolver
-from osprey.build.claude_code_resolver import (
+from osprey.agent_runner import provider_env as resolver
+from osprey.agent_runner.provider_env import (
     MANAGED_ENV_VARS,
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,
 )
 from osprey.build.claude_code_telemetry import (
+    _TELEMETRY_CONTENT_GATES,
     TELEMETRY_ENV_VARS,
     ObservabilityCredentialError,
     TelemetryConfigError,
@@ -26,6 +27,7 @@ from osprey.build.claude_code_telemetry import (
     _gate_is_on,
     _openobserve_host_override,
     _running_in_container,
+    telemetry_auth_token_env,
 )
 from osprey.port_layout import default_port
 
@@ -377,42 +379,150 @@ def test_creds_default_still_fails_loud_for_runtime():
         )
 
 
-def test_config_headers_merge_auth_wins():
-    """Config headers are merged; computed auth wins on key collision."""
-    env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "backend": "openobserve",
-            "openobserve": {"user": "u", "password": "p"},
-            "headers": {"X-Trace": "abc", "Authorization": "Basic stale"},
-        },
-        in_container=False,
-    )
-    headers = env["OTEL_EXPORTER_OTLP_HEADERS"]
-    assert "X-Trace=abc" in headers
-    expected = base64.b64encode(b"u:p").decode()
-    assert f"Authorization=Basic {expected}" in headers
-    assert "Basic stale" not in headers
-
-
-def test_config_headers_string_form():
-    """A pre-formatted comma-separated header string is accepted."""
-    env = _build_telemetry_env(
-        {
-            "enabled": True,
-            "endpoint": "http://c:4318",
-            "headers": "X-Trace=abc,X-Env=prod",
-        }
-    )
-    headers = env["OTEL_EXPORTER_OTLP_HEADERS"]
-    assert "X-Trace=abc" in headers
-    assert "X-Env=prod" in headers
-
-
 def test_no_headers_when_none_configured():
     """Non-openobserve backend with no headers emits no HEADERS var."""
     env = _build_telemetry_env({"enabled": True, "endpoint": "http://c:4318"})
     assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
+
+
+def test_headers_key_is_refused_naming_auth_token_env():
+    """The free-form header map is gone; the refusal names its replacement."""
+    with pytest.raises(TelemetryConfigError, match="claude_code.telemetry.auth.token_env"):
+        _build_telemetry_env(
+            {
+                "enabled": True,
+                "endpoint": "http://c:4318",
+                "headers": {"Authorization": "Bearer t"},
+            }
+        )
+
+
+def test_headers_on_a_disabled_block_is_inert():
+    """A disabled block exports nothing, whatever keys it carries."""
+    assert _build_telemetry_env({"enabled": False, "headers": {"X-Trace": "abc"}}) == {}
+
+
+# ── collector bearer token (auth.token_env) ─────────────────────
+
+_COLLECTOR_CFG = {
+    "enabled": True,
+    "backend": "generic",
+    "endpoint": "https://collector.example.org:4318",
+    "auth": {"token_env": "OTLP_TOKEN"},
+    # Content capture off: an off-host backend warns about it otherwise, and
+    # these tests assert on the warnings the token path records.
+    **dict.fromkeys(_TELEMETRY_CONTENT_GATES.values(), False),
+}
+
+
+def test_bearer_token_header_from_the_named_variable():
+    """The token handed in is sent as a bearer token."""
+    env = _build_telemetry_env(_COLLECTOR_CFG, auth_token="s3cret-token")
+    assert env["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer s3cret-token"
+    assert telemetry_auth_token_env(_COLLECTOR_CFG) == "OTLP_TOKEN"
+
+
+def test_bearer_token_absent_at_launch_names_the_variable():
+    """No token at launch is a credential refusal naming the variable."""
+    with pytest.raises(ObservabilityCredentialError) as excinfo:
+        _build_telemetry_env(_COLLECTOR_CFG)
+    assert excinfo.value.unresolved_vars == ("OTLP_TOKEN",)
+    assert "OTLP_TOKEN" in str(excinfo.value)
+    assert "claude_code.telemetry.auth.token_env" in str(excinfo.value)
+
+
+def test_bearer_token_blank_is_refused_like_unset():
+    """Compose's ``${VAR:-}`` makes an unset variable a blank one: same fault."""
+    with pytest.raises(ObservabilityCredentialError) as excinfo:
+        _build_telemetry_env(_COLLECTOR_CFG, auth_token="  ")
+    assert excinfo.value.unresolved_vars == ("OTLP_TOKEN",)
+
+
+def test_bearer_token_deferred_at_build_omits_the_header(recwarn):
+    """A build never carries the token, so its absence there says nothing."""
+    env = _build_telemetry_env(_COLLECTOR_CFG, defer_unresolved_creds=True)
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
+    assert len(recwarn) == 0
+
+
+def test_token_env_holding_a_value_is_refused_without_echoing_it():
+    """A value where a name belongs may already be the expanded secret."""
+    cfg = {**_COLLECTOR_CFG, "auth": {"token_env": "abc.def-123"}}
+    with pytest.raises(TelemetryConfigError) as excinfo:
+        _build_telemetry_env(cfg, auth_token="x")
+    assert "abc.def-123" not in str(excinfo.value)
+    assert "claude_code.telemetry.auth.token_env" in str(excinfo.value)
+
+
+def test_token_env_with_a_trailing_newline_is_refused():
+    cfg = {**_COLLECTOR_CFG, "auth": {"token_env": "OTLP_TOKEN\n"}}
+    with pytest.raises(TelemetryConfigError, match="claude_code.telemetry.auth.token_env"):
+        telemetry_auth_token_env(cfg)
+
+
+def test_token_with_a_comma_is_refused_without_echoing_it():
+    """A comma would split the comma-joined OTLP header list."""
+    with pytest.raises(ObservabilityCredentialError) as excinfo:
+        _build_telemetry_env(_COLLECTOR_CFG, auth_token="abc,X-Evil=1")
+    assert "abc,X-Evil=1" not in str(excinfo.value)
+    assert "OTLP_TOKEN" in str(excinfo.value)
+
+
+def test_auth_on_the_openobserve_backend_is_refused():
+    """The bundled store authenticates with its own account; two sources is a fault."""
+    cfg = {**_OO_CFG, "auth": {"token_env": "OTLP_TOKEN"}}
+    with pytest.raises(TelemetryConfigError, match="claude_code.telemetry.auth"):
+        _build_telemetry_env(cfg, auth_token="x")
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [
+        {"token_env": "OTLP_TOKEN", "username": "u"},
+        {"username": "u", "password_env": "OTLP_PASSWORD"},
+        "OTLP_TOKEN",
+    ],
+)
+def test_auth_members_other_than_token_env_are_refused(auth):
+    """The collector takes a bearer token and nothing else."""
+    cfg = {**_COLLECTOR_CFG, "auth": auth}
+    with pytest.raises(TelemetryConfigError, match="auth.token_env"):
+        telemetry_auth_token_env(cfg)
+
+
+def test_resolve_reads_the_token_from_the_supplied_environ_only(monkeypatch):
+    """A render passes no environ, so the ambient token never reaches it."""
+    monkeypatch.setenv("OTLP_TOKEN", "ambient-token")
+    spec = ClaudeCodeModelResolver.resolve(
+        {"provider": "anthropic", "telemetry": _COLLECTOR_CFG},
+        defer_unresolved_telemetry_creds=True,
+    )
+    assert spec is not None
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in spec.env_block
+
+    spec = ClaudeCodeModelResolver.resolve(
+        {"provider": "anthropic", "telemetry": _COLLECTOR_CFG},
+        environ={"OTLP_TOKEN": "handed-token"},
+    )
+    assert spec is not None
+    assert spec.env_block["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer handed-token"
+
+
+def test_load_provider_spec_reads_the_token_from_the_project_env(tmp_path, monkeypatch):
+    """The runtime launch reads the token from the project's ``.env``."""
+    import yaml
+
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    monkeypatch.delenv("OTLP_TOKEN", raising=False)
+    (tmp_path / "config.yml").write_text(
+        yaml.safe_dump({"claude_code": {"provider": "anthropic", "telemetry": _COLLECTOR_CFG}}),
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text("OTLP_TOKEN=from-dotenv\n", encoding="utf-8")
+    spec = load_provider_spec(tmp_path)
+    assert spec is not None
+    assert spec.env_block["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=Bearer from-dotenv"
 
 
 # ── TELEMETRY_ENV_VARS invariants ────────────────────────────────
@@ -431,11 +541,11 @@ def test_telemetry_env_vars_covers_all_emitted_keys():
             "backend": "openobserve",
             "openobserve": {"user": "u", "password": "p"},
             "resource_attributes": "service.name=osprey",
-            "headers": {"X-Trace": "abc"},
             "content_max_length": 262144,
         },
         in_container=False,
     )
+    env.update(_build_telemetry_env(_COLLECTOR_CFG, auth_token="t"))
     assert set(env).issubset(TELEMETRY_ENV_VARS)
 
 
@@ -697,7 +807,7 @@ def test_load_provider_spec_dials_the_published_port(tmp_path, monkeypatch):
     """The runtime launch path threads ``services.openobserve.port`` through."""
     import yaml
 
-    from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.agent_runner.provider_env import load_provider_spec
     from osprey.build.claude_code_telemetry import OPENOBSERVE_PORT_ENV_VAR
 
     monkeypatch.delenv(OPENOBSERVE_PORT_ENV_VAR, raising=False)
@@ -1013,7 +1123,7 @@ class TestTelemetryPortIsATelemetryInput:
     )
 
     def test_without_telemetry_the_port_is_never_resolved(self, tmp_path, monkeypatch):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
         (tmp_path / "config.yml").write_text(self._CONFIG)
@@ -1026,7 +1136,7 @@ class TestTelemetryPortIsATelemetryInput:
     def test_with_telemetry_the_port_fault_is_loud(self, tmp_path, monkeypatch):
         import pytest
 
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
         from osprey.build.claude_code_telemetry import TelemetryConfigError
 
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
@@ -1034,3 +1144,138 @@ class TestTelemetryPortIsATelemetryInput:
 
         with pytest.raises(TelemetryConfigError, match="services.openobserve.port"):
             load_provider_spec(tmp_path, include_telemetry=True)
+
+
+# ── claude_code.telemetry.signals ─────────────────────────────────
+
+_EXPORTERS = {
+    "metrics": "OTEL_METRICS_EXPORTER",
+    "logs": "OTEL_LOGS_EXPORTER",
+    "traces": "OTEL_TRACES_EXPORTER",
+}
+_SIGNAL_KEYS = {*_EXPORTERS.values(), "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"}
+
+
+def _signals_cfg(signals) -> dict:
+    """An enabled openobserve block with inline credentials and ``signals``."""
+    return {
+        "enabled": True,
+        "backend": "openobserve",
+        "openobserve": {"user": "u", "password": "p"},
+        "signals": signals,
+    }
+
+
+def _signals_env(signals) -> dict[str, str]:
+    return _build_telemetry_env(_signals_cfg(signals), in_container=False)
+
+
+def test_absent_signals_export_all_three():
+    """Unset, ``None`` and the full list give the same block: every signal on."""
+    absent = _build_telemetry_env(
+        {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u", "password": "p"}},
+        in_container=False,
+    )
+    assert _signals_env(None) == absent
+    assert _signals_env(["metrics", "logs", "traces"]) == absent
+    for exporter in _EXPORTERS.values():
+        assert absent[exporter] == "otlp"
+    assert absent["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "1"
+
+
+@pytest.mark.parametrize(
+    "signals",
+    [["metrics", "logs"], ["traces"], ["logs"], ["metrics", "traces"]],
+)
+def test_a_signal_left_out_is_exported_as_none(signals):
+    """Each exporter is ``otlp`` when listed and ``none`` otherwise, never missing."""
+    env = _signals_env(signals)
+    for signal, exporter in _EXPORTERS.items():
+        assert env[exporter] == ("otlp" if signal in signals else "none"), exporter
+    expected_switch = "1" if "traces" in signals else "0"
+    assert env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == expected_switch
+
+
+def test_signals_change_nothing_but_the_exporters():
+    """Endpoint, headers, protocol and content gates do not follow ``signals``."""
+    default = _signals_env(None)
+    narrowed = _signals_env(["metrics"])
+    assert set(narrowed) == set(default)
+    for key in set(default) - _SIGNAL_KEYS:
+        assert narrowed[key] == default[key], key
+
+
+def test_a_repeated_signal_counts_once():
+    assert _signals_env(["logs", "logs"]) == _signals_env(["logs"])
+
+
+@pytest.mark.parametrize(
+    ("signals", "named"),
+    [
+        (["metrics", "spans"], "spans"),
+        (["Traces"], "Traces"),
+        ("metrics", "must be a list"),
+        ({"metrics": True}, "must be a list"),
+    ],
+)
+def test_signals_outside_the_three_are_refused(signals, named):
+    with pytest.raises(TelemetryConfigError, match="claude_code.telemetry.signals") as exc:
+        _signals_env(signals)
+    assert named in str(exc.value)
+
+
+def test_empty_signals_are_refused_toward_enabled_false():
+    with pytest.raises(TelemetryConfigError, match="enabled: false"):
+        _signals_env([])
+
+
+def test_signals_are_inert_while_telemetry_is_off():
+    """A disabled block is not validated, as with every other key in it."""
+    assert _build_telemetry_env({"enabled": False, "signals": []}) == {}
+
+
+def test_build_refuses_empty_signals(tmp_path, monkeypatch):
+    """The build's own spec load stops on an empty list."""
+    import yaml
+
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
+    (tmp_path / "config.yml").write_text(
+        yaml.safe_dump(
+            {"claude_code": {"provider": "anthropic", "telemetry": {**_OO_CFG, "signals": []}}}
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(TelemetryConfigError, match="claude_code.telemetry.signals is empty"):
+        load_provider_spec(
+            tmp_path, defer_unresolved_telemetry_creds=True, defer_unresolved_base_url=True
+        )
+
+
+def _resolve_with_signals(monkeypatch, signals) -> ClaudeCodeModelSpec:
+    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
+    spec = ClaudeCodeModelResolver.resolve(
+        {"provider": "anthropic", "telemetry": _signals_cfg(signals)}
+    )
+    assert spec is not None
+    return spec
+
+
+def test_a_left_out_signal_overrides_a_shell_export(monkeypatch):
+    """A stale shell export of a left-out signal is overwritten at launch."""
+    spec = _resolve_with_signals(monkeypatch, ["metrics", "logs"])
+    environ = {"OTEL_TRACES_EXPORTER": "otlp", "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1"}
+    resolver.inject_provider_env(environ, spec)
+    assert environ["OTEL_TRACES_EXPORTER"] == "none"
+    assert environ["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "0"
+    assert spec.detect_env_conflicts({"OTEL_TRACES_EXPORTER": "otlp"}) == {}
+
+
+def test_a_left_out_signal_overrides_the_project_env_file(tmp_path, monkeypatch):
+    """A ``.env`` line for a left-out signal is overwritten at launch."""
+    spec = _resolve_with_signals(monkeypatch, ["metrics", "logs"])
+    (tmp_path / ".env").write_text("OTEL_TRACES_EXPORTER=otlp\n", encoding="utf-8")
+    environ: dict[str, str] = {}
+    resolver.inject_provider_env(environ, spec, project_dir=tmp_path)
+    assert environ["OTEL_TRACES_EXPORTER"] == "none"

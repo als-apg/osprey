@@ -1114,7 +1114,7 @@ def _usable_suffix(suffix: str) -> bool:
     """Whether *suffix* is a key a roster variable could actually have.
 
     Every key the map can legitimately carry was produced by
-    :func:`~osprey.deployment.web_terminals.personas.env_var_suffix`, whose
+    :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`, whose
     output is ASCII letters, digits and ``_`` and nothing else. Holding keys to
     that is how :func:`_roster_owners_from_env` recognises an entry it cannot
     read — a key it could never have been handed is a value that was mangled

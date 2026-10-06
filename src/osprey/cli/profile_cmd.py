@@ -531,11 +531,12 @@ def _triggers_source(resolved: BuildProfile, preset_dir: Path) -> Path | None:
     ``None`` for a profile that declares no dispatch block — there is nothing to
     materialize and nothing to repoint.
 
-    Resolution mirrors the build's exactly
-    (:func:`~osprey.cli.build_injectors._inject_dispatch`): profile-relative
-    first, then the bundled triggers directory. ``resolve_build_profile`` has
-    already rejected a value that resolves to neither, so a miss here is a
-    packaging problem rather than something the caller could have got wrong.
+    Resolution is the build's own
+    (:func:`~osprey.cli.build_profile_presets.resolve_triggers_path`):
+    profile-relative first, then the bundled triggers directory.
+    ``resolve_build_profile`` has already rejected a value that resolves to
+    neither, so a miss here is a packaging problem rather than something the
+    caller could have got wrong.
 
     Raises:
         BuildProfileError: If neither candidate exists.
@@ -543,14 +544,11 @@ def _triggers_source(resolved: BuildProfile, preset_dir: Path) -> Path | None:
     if resolved.dispatch is None:
         return None
 
-    from .build_profile_presets import _triggers_dir
+    from .build_profile_presets import resolve_triggers_path
 
-    for candidate in (
-        preset_dir / resolved.dispatch.triggers,
-        _triggers_dir() / resolved.dispatch.triggers,
-    ):
-        if candidate.is_file():
-            return candidate
+    source = resolve_triggers_path(preset_dir, resolved.dispatch.triggers)
+    if source is not None:
+        return source.path
     raise BuildProfileError(
         f"dispatch.triggers not found: {resolved.dispatch.triggers!r} — looked in "
         f"{preset_dir} and the bundled triggers directory."
@@ -1626,6 +1624,7 @@ def _materialize_profile_directory(
     )
     from .build_profile_presets import preset_data_bundle
     from .templates.manager import TemplateManager
+    from .templates.shared_data import shared_data_files
 
     # Resolving through the public path validates the preset AND its --set
     # edits up front, and names the bundle whose data tree gets copied. It also
@@ -1662,6 +1661,12 @@ def _materialize_profile_directory(
     # never reaches the profile the emission below writes.
     data_bundle = preset_data_bundle(normalized_preset)
     data_source = _packaged_data_source(manager, data_bundle)
+    # Read before the first mkdir, like every other input here: a malformed
+    # declaration refuses before anything is written.
+    try:
+        shared_files = shared_data_files(_app_template_root(manager, data_bundle))
+    except ValueError as e:
+        raise click.UsageError(f"Cannot materialize {preset_name!r}: {e}") from e
 
     # How the emitted persona comments spell their own paths: repo-relative,
     # because the repo root is where a reader stands.
@@ -1755,11 +1760,20 @@ def _materialize_profile_directory(
         # come across byte-identical — a profile data tree is content, never
         # templates, so nothing here is rendered. The one exclusion is build
         # exhaust the wheel does not ship either (_EXCLUDED_DATA_SUBTREES).
-        shutil.copytree(
-            data_source,
-            target / _PROFILE_DATA_DIRNAME,
-            ignore=_data_copy_ignore(data_source),
-        )
+        if data_source.is_dir():
+            shutil.copytree(
+                data_source,
+                target / _PROFILE_DATA_DIRNAME,
+                ignore=_data_copy_ignore(data_source),
+            )
+        else:
+            (target / _PROFILE_DATA_DIRNAME).mkdir(parents=True)
+        # The files this template shares with another one land beside its own,
+        # byte-identical, so the profile cannot tell them apart.
+        for relative, source in shared_files.items():
+            destination = target / _PROFILE_DATA_DIRNAME / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
         (target / "profile.yml").write_text(profile_text, encoding="utf-8")
         (target / PROVIDERS_FILENAME).write_text(catalog.text, encoding="utf-8")
         if catalog.carried:
@@ -1840,11 +1854,11 @@ def _materialize_profile_directory(
         if FACILITY_RULE_NAME in resolved.rules:
             rules_dir = target / FACILITY_RULE_DIR
             fresh = not rules_dir.exists()
-            written = ensure_profile_facility_rule(
+            moved = ensure_profile_facility_rule(
                 target, build_dir=None, enabled_agents=resolved.agents
             )
-            if written:
-                logger.debug("  %s", written)
+            if moved:
+                logger.debug("  %s", moved)
                 if fresh:
                     # This run created the directory, so this run owns it: a
                     # failure below removes it again rather than leaving half a

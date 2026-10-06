@@ -92,7 +92,7 @@ def _refuse_if_reserved(project_dir: Path, rel_path: str) -> None:
 
 
 class ClaudeCodeFileService:
-    """Service for discovering, reading, writing, and creating Claude Code files.
+    """Service for discovering, writing, and creating Claude Code files.
 
     Centralises file system logic and path security checks so that API route
     handlers stay thin.
@@ -144,24 +144,6 @@ class ClaudeCodeFileService:
             )
 
         return files
-
-    def read_file(self, rel_path: str) -> dict:
-        """Read a single file by relative path."""
-        resolved = self._validate_path(rel_path)
-
-        if not resolved.exists():
-            raise FileNotFoundError(f"File not found: {rel_path}")
-        if not resolved.is_file():
-            raise ValueError(f"Not a file: {rel_path}")
-
-        content = resolved.read_text(encoding="utf-8")
-        return {
-            "name": resolved.name,
-            "path": rel_path,
-            "category": self.categorize(resolved.name, rel_path),
-            "content": content,
-            "language": self.detect_language(resolved.name),
-        }
 
     def write_file(self, rel_path: str, content: str) -> dict:
         """Write content to an existing file with path security + syntax validation.

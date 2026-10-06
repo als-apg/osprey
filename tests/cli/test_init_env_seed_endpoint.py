@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS
+from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS
 from osprey.cli.profile_cmd import _exported_provider_keys
 
 _GATEWAY = "gateway-without-endpoint"

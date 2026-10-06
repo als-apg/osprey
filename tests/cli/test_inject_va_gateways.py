@@ -58,7 +58,7 @@ control_system:
     mock:
       response_delay_ms: 0
     epics:
-      timeout: 5.0
+      timeout_s: 5.0
       gateways:
         read_only:
           address: your-gateway.example.com
@@ -92,7 +92,7 @@ control_system:
   type: "mock"
   connector:
     virtual_accelerator:
-      timeout: 5.0
+      timeout_s: 5.0
       probe_channel: SR:BPM:1:X
       # The VA lives on another host, so the port IS written out here.
       gateways:
@@ -116,7 +116,7 @@ control_system:
   type: "mock"
   connector:
     virtual_accelerator:
-      timeout: 5.0
+      timeout_s: 5.0
       probe_channel: SR:BPM:1:X
 
 # Trailing section banner
@@ -217,7 +217,7 @@ def test_existing_block_without_gateways_gains_only_gateways(tmp_path):
     text = _inject(tmp_path, CONFIG_WITH_BLOCK_NO_GATEWAYS)
 
     assert _va_block(text) == {
-        "timeout": 5.0,
+        "timeout_s": 5.0,
         "probe_channel": "SR:BPM:1:X",
         "gateways": EXPECTED_GATEWAYS,
     }
@@ -377,7 +377,7 @@ control_system:
   type: "mock"
   connector:
     virtual_accelerator:
-      timeout: 5.0
+      timeout_s: 5.0
       probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
       gateways:
         read_only:
@@ -387,7 +387,7 @@ control_system:
           address: localhost
           use_name_server: true
     epics:
-      timeout: 5.0
+      timeout_s: 5.0
   target_switch:
     drain_timeout_s: 5      # Seconds in-flight operations get to finish on the
                             # old target before it is torn down regardless

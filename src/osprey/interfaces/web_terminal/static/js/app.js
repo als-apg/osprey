@@ -10,7 +10,14 @@ import {
   stopTerminal,
 } from './terminal.js';
 import { logout } from './logout.js';
-import { initPanelManager, broadcastMode, handleUiModeFlip, navigateAndActivatePanel } from './panel-manager.js';
+import {
+  initPanelManager,
+  broadcastMode,
+  handleUiModeFlip,
+  navigateAndActivatePanel,
+  getPanelStandaloneUrl,
+} from './panel-manager.js';
+import { wireAgentLinks } from './agent-links.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -18,6 +25,7 @@ import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initCommandPalette } from './palette-boot.js';
+import { initActivityLogButton } from './activity-log-link.js';
 import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-display-menu.js';
@@ -40,7 +48,7 @@ import { initFeedback } from './feedback-boot.js';
 import './bar-items.js';
 import './bar-item-queue.js';
 import './bar-item-health.js';
-import './bar-sync.js';
+import { deploymentContext } from './bar-sync.js';
 import './bar-customize.js';
 import { watchCrowding } from './bar-overflow.js';
 
@@ -65,6 +73,12 @@ document.addEventListener('DOMContentLoaded', () => {
     console.error('Failed to init operator chat:', err);
     renderChatBootFailure('operator-container');
   }
+  // Guarded the same way: a link failure must not break the rest of boot.
+  try {
+    initAgentLinks();
+  } catch (err) {
+    console.error('Failed to init agent answer links:', err);
+  }
   // Before the panel manager creates any iframe, so no contribution can
   // arrive without a listener.
   initHeaderContrib();
@@ -80,6 +94,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   initKeyboardShortcuts();
   initCommandPalette();
+  try {
+    initActivityLogButton(getCurrentSessionId);
+  } catch (err) {
+    console.error('Failed to init activity log button:', err);
+  }
   initNewSessionButton();
   initLogoutButton();
   initUiModeFollowUps();
@@ -89,11 +108,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // whether a write there would land. Mounts itself into `.header-actions`
   // ahead of the palette trigger and stays hidden until the terminal reports
   // a session, so boot order only needs the static header markup.
-  initControlTargetChip();
+  // With the picker switched off neither mounts, so no chip lands in the
+  // header-actions fallback and nothing reads the posture route.
+  const controlTargetAvailable = deploymentContext(document).controlTargetAvailable;
+  if (controlTargetAvailable) initControlTargetChip();
   // Its popover — the roster and every gesture that changes where this session
   // writes. Mounts under the chip's own positioning context, so it has to
   // follow the chip's init and no-ops on a page that renders no chip.
-  initControlTargetPopover();
+  if (controlTargetAvailable) initControlTargetPopover();
   // Last of the bar wiring, and deliberately after the chip: the ladder's first
   // pass MEASURES the bars, and a bar measured before its widest item mounted
   // would report room it does not have.
@@ -378,6 +400,27 @@ function initBars() {
 }
 
 /* ---- Iframe Paste Bridge ---- */
+
+/**
+ * Route clicks on links in the Simple view's agent answers: a link to a panel
+ * this hub hosts opens it in the workspace, any other http(s) link opens in a
+ * new tab, and the hub page itself never navigates away. Whether a panel is
+ * hosted is read at click time, so a panel whose URL has not resolved opens in
+ * a new tab instead.
+ *
+ * Exported so the wiring can be driven directly in tests: the bootstrap above
+ * runs on DOMContentLoaded, which has already fired by then.
+ */
+export function initAgentLinks() {
+  const operatorRoot = document.getElementById('operator-container');
+  if (!operatorRoot) return;
+  wireAgentLinks(operatorRoot, {
+    prefix: window.__OSPREY_PREFIX__ || '',
+    isHostedPanel: (id) => getPanelStandaloneUrl(id) !== null,
+    openPanel: navigateAndActivatePanel,
+    openWindow: (url, target, features) => { window.open(url, target, features); },
+  });
+}
 
 /**
  * Let an embedded panel put text where the operator is composing.

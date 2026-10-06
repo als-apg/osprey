@@ -3,8 +3,14 @@
 import json
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
-from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
+from tests.mcp_server.ariel.conftest import (
+    attach_fake_attachment_reader,
+    get_tool_fn,
+    make_mock_entry,
+)
 from tests.mcp_server.conftest import assert_raises_error
 
 
@@ -20,11 +26,12 @@ def _get_filter_options():
     return get_tool_fn(filter_options)
 
 
-def _setup_registry(tmp_path, monkeypatch):
+def _setup_registry(tmp_path, monkeypatch, entry_text=None):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
-    )
+    ariel: dict = {"database": {"uri": "postgresql://localhost/test"}}
+    if entry_text is not None:
+        ariel["entry_text"] = entry_text
+    (tmp_path / "config.yml").write_text(json.dumps({"ariel": ariel}))
     initialize_ariel_context()
 
 
@@ -38,6 +45,7 @@ async def test_browse_returns_entries(tmp_path, monkeypatch):
     ]
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.repository.search_by_time_range.return_value = entries
     mock_service.repository.count_entries.return_value = 100
 
@@ -59,6 +67,7 @@ async def test_browse_empty_db(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.repository.search_by_time_range.return_value = []
     mock_service.repository.count_entries.return_value = 0
 
@@ -91,6 +100,7 @@ async def test_browse_author_filter(tmp_path, monkeypatch):
     ]
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.repository.search_by_time_range.return_value = entries
     # Alice's entries, not the 500 in the table.
     mock_service.repository.count_entries.return_value = 2
@@ -120,6 +130,7 @@ async def test_browse_source_system_filter(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.repository.search_by_time_range.return_value = [
         make_mock_entry(entry_id="e1", source_system="ARIEL Web")
     ]
@@ -145,6 +156,7 @@ async def test_filter_options_authors(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_distinct_authors.return_value = ["Alice", "Bob", "Charlie"]
 
     with patch(
@@ -164,6 +176,7 @@ async def test_filter_options_source_systems(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_distinct_source_systems.return_value = ["Example eLog", "ARIEL Web"]
 
     with patch(
@@ -183,6 +196,7 @@ async def test_filter_options_unknown_field(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
 
     with patch(
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
@@ -193,3 +207,104 @@ async def test_filter_options_unknown_field(tmp_path, monkeypatch):
             await fn(field="unknown")
 
     _exc_ctx["envelope"]
+
+
+@pytest.mark.parametrize(
+    ("entry_text", "expected_chars"),
+    [(None, 400), ({"listing_chars": 10}, 10)],
+)
+async def test_browse_carries_the_listing_budget(tmp_path, monkeypatch, entry_text, expected_chars):
+    """Browse cuts at the listing budget: 400 characters fit the default."""
+    _setup_registry(tmp_path, monkeypatch, entry_text=entry_text)
+
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
+    mock_service.repository.search_by_time_range.return_value = [
+        make_mock_entry(entry_id="e1", raw_text="x" * 400)
+    ]
+    mock_service.repository.count_entries.return_value = 1
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        result = await _get_browse()()
+
+    [entry] = json.loads(result)["entries"]
+    assert entry["raw_text"] == "x" * expected_chars
+    if expected_chars == 400:
+        assert "raw_text_truncated" not in entry
+    else:
+        assert entry["raw_text_truncated"] is True
+        assert entry["raw_text_length"] == 400
+
+
+# ---------------------------------------------------------------------------
+# Attachment summaries in the listing
+# ---------------------------------------------------------------------------
+
+_PNG = {"url": "https://elog.example/f/plot.png", "type": "image/png", "filename": "plot.png"}
+
+
+async def _run_browse(mock_service):
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        return json.loads(await _get_browse()())
+
+
+def _browse_service(entries, **reader):
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service, **reader)
+    mock_service.repository.search_by_time_range.return_value = entries
+    mock_service.repository.count_entries.return_value = len(entries)
+    return mock_service
+
+
+async def test_browse_reads_the_attachment_rows_once_per_page(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch)
+    entries = [make_mock_entry(entry_id=f"e{i}", attachments=[_PNG]) for i in range(3)]
+    mock_service = _browse_service(entries)
+
+    data = await _run_browse(mock_service)
+
+    assert data["returned"] == 3
+    mock_service.repository.get_attachment_rows.assert_awaited_once_with(["e0", "e1", "e2"])
+    assert all(e["attachment_count"] == 1 for e in data["entries"])
+
+
+async def test_browse_on_an_unmigrated_store_gives_the_fallback_summaries(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch)
+    mock_service = _browse_service(
+        [make_mock_entry(entry_id="e1", attachments=[_PNG])], unmigrated=True
+    )
+
+    [entry] = (await _run_browse(mock_service))["entries"]
+
+    [summary] = entry["attachments"]
+    assert summary["copy_status"] == "pending"
+    assert "attachment_id" not in summary
+
+
+async def test_browse_with_a_failing_reader_keeps_its_entries(tmp_path, monkeypatch):
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+    _setup_registry(tmp_path, monkeypatch)
+    entries = [make_mock_entry(entry_id="e1", attachments=[_PNG])]
+
+    expected = await _run_browse(_browse_service(entries, unmigrated=True))
+    data = await _run_browse(_browse_service(entries, error=DatabaseQueryError("boom")))
+
+    assert data == expected
+    assert data["returned"] == 1
+
+
+async def test_browse_with_listing_attachments_zero_keeps_only_the_count(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch, entry_text={"listing_attachments": 0})
+    mock_service = _browse_service([make_mock_entry(entry_id="e1", attachments=[_PNG])])
+
+    [entry] = (await _run_browse(mock_service))["entries"]
+
+    assert entry["attachment_count"] == 1
+    assert "attachments" not in entry

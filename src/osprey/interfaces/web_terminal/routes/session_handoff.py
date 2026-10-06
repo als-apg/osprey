@@ -1,7 +1,7 @@
 """Hand a session key to the Simple view.
 
 ``POST /api/session/{key}/handoff``
-Body: ``{"to": "simple", "interrupt": false}``
+Body: ``{"to": "simple", "interrupt": false, "end_started": false}``
 
 This is the Simple view's half of the one door every surface acquire walks
 through. The Expert view acquires its surface on the ``/ws/terminal``
@@ -20,6 +20,7 @@ Condition                                    Status  ``detail.error``
 ===========================================  ======  =============================
 another connection or view holds the key     409     ``session_attached_elsewhere``
 a terminal holds it and reports no turns     409     ``handoff_needs_interrupt``
+commands the terminal agent started run on   409     ``handoff_started_commands``
 a newer request with interrupt took the key  409     ``handoff_superseded``
 the chat was torn down as it started         409     ``chat_terminated``
 every chat is busy and the pool is full      429     ``chat_capacity``
@@ -37,6 +38,13 @@ takes the key over from the earlier one: the waiting request is answered
 ``handoff_superseded`` and the interrupting one proceeds, so the operator can
 end a wait from the transitional state without the abandoned request standing
 in the way.
+
+``handoff_started_commands`` answers a request that did not agree to end the
+commands the terminal agent started and that are still running. Ending the
+agent ends them too, so ``detail.commands`` lists them, one
+``{"label", "command"}`` per process group the agent split off for a command,
+and the client asks the operator; on their agreement it sends the same POST
+with ``end_started: true``.
 """
 
 from __future__ import annotations
@@ -48,9 +56,9 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from osprey.agent_runner import HAS_SDK
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionTerminatedError
 from osprey.interfaces.web_terminal.operator_session import (
-    CLAUDE_SDK_AVAILABLE,
     POSTURE_SOURCE_LIVE,
     OperatorRegistry,
     OperatorSession,
@@ -86,10 +94,15 @@ class HandoffRequest(BaseModel):
     short rather than waited for. It defaults to False: the ordinary flip
     waits, and cutting a turn short is a gesture the operator makes after
     being told the key is held (``handoff_needs_interrupt``).
+
+    ``end_started`` is the operator's answer to ``handoff_started_commands``:
+    ending the terminal agent also ends the commands it started. It defaults
+    to False, so a hand-off that would end them is refused with the list.
     """
 
     to: Literal["simple"]
     interrupt: bool = False
+    end_started: bool = False
 
 
 @router.post("/api/session/{key}/handoff")
@@ -122,7 +135,7 @@ async def hand_off_session(key: str, body: HandoffRequest, request: Request) -> 
                 "message": "session_id must be a Claude session UUID.",
             },
         )
-    if not CLAUDE_SDK_AVAILABLE:
+    if not HAS_SDK:
         # Before the acquire, not after: a hand-off that tears the terminal
         # down and then finds it has nothing to start would leave the key with
         # no live process at all.
@@ -172,6 +185,7 @@ async def hand_off_session(key: str, body: HandoffRequest, request: Request) -> 
             ChannelToken(request.is_disconnected),
             interrupt=body.interrupt,
             spawn=spawn,
+            end_started=body.end_started,
         )
     except ChannelClosed:
         # The operator navigated away or flipped back while the outgoing turn
@@ -182,7 +196,7 @@ async def hand_off_session(key: str, body: HandoffRequest, request: Request) -> 
     except HandoffRefused as refused:
         raise HTTPException(
             status_code=refused.status,
-            detail={"error": refused.error, "message": str(refused)},
+            detail={"error": refused.error, "message": str(refused), **refused.extra},
         ) from None
     except HandoffError as failed:
         raise HTTPException(

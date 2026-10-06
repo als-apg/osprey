@@ -91,6 +91,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     )
     from .build_profile_drift import MARKER_REACH, preset_drift_report
     from .build_profile_panels import bar_items_selection_warnings
+    from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
     from .variant_selection import VARIANT_DIRNAME, VariantSelection, resolve_variant_selection
 
     variant = VariantSelection(name=None, path=None)
@@ -131,7 +132,11 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     # it is a claim the `config:` block makes about a posture, checked once,
     # here and in the build's own profile-side pass. Folded into the web lint it
     # would be asked twice during a build and refuse the same profile twice.
-    web_errors = [*web_errors, *limits_block_errors(build_profile.config)]
+    web_errors = [
+        *web_errors,
+        *limits_block_errors(build_profile.config),
+        *system_timezone_errors(build_profile.config),
+    ]
     if web_errors:
         # "Profile validation failed", not "Build profile ...": the success line
         # below says "Profile is valid", and `BuildProfile.validate` already owns
@@ -149,6 +154,8 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         # The same line `osprey build` prints for a `web.bar_items` entry the
         # served default drops because its panel is not selected.
         *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
+        # The same UTC reminder `osprey build` prints.
+        *system_timezone_reminders(build_profile.config),
     ):
         note(f"⚠ {warning}")
 

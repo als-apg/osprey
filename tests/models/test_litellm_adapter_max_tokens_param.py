@@ -5,8 +5,9 @@ OpenAI's API takes ``max_completion_tokens`` on every chat model and refuses
 the OpenAI families it recognises, so the adapter sends the parameter the
 provider's adapter class declares instead of leaving it to that recognition.
 Every other route keeps ``max_tokens``, which LiteLLM maps per provider.
-The same declaration decides whether a request carries a temperature: OpenAI's
-reasoning models refuse every temperature but their default.
+The adapter also decides, per model, whether a request carries a temperature:
+OpenAI's chat models take one, its reasoning models refuse every temperature but
+their default.
 """
 
 import json
@@ -164,7 +165,10 @@ class TestTheWireCarriesTheDeclaredParameter:
 TEMPERATURE_ROUTES = [
     ("openai", "gpt-6-astra", "https://api.openai.com/v1", False),
     ("openai", "gpt-5.6-luna", "https://api.openai.com/v1", False),
-    ("openai", "gpt-4o", "https://api.openai.com/v1", False),
+    ("openai", "gpt-4o", "https://api.openai.com/v1", True),
+    ("openai", "gpt-4.1-mini", "https://api.openai.com/v1", True),
+    ("openai", "o4-mini", "https://api.openai.com/v1", False),
+    ("openai", "gpt-7-nova", "https://api.openai.com/v1", False),
     ("anthropic", "claude-haiku-4-5-20251001", None, True),
     ("google", "gemini-2.5-flash", None, True),
     ("als-apg", "claude-haiku-4-5-20251001", GATEWAY_URL, True),
@@ -174,7 +178,8 @@ TEMPERATURE_ROUTES = [
 
 
 class TestTheTemperatureIsSentOnlyWhereTheEndpointTakesIt:
-    """OpenAI's reasoning models refuse every temperature but their default."""
+    """The adapter decides per model: OpenAI's reasoning models refuse every temperature
+    but their default, its chat models take the caller's."""
 
     @pytest.mark.parametrize(
         ("provider", "model_id", "base_url", "sent"),
@@ -199,12 +204,59 @@ class TestTheTemperatureIsSentOnlyWhereTheEndpointTakesIt:
         else:
             assert "temperature" not in kwargs
 
-    def test_openai_declares_no_temperature(self):
-        from osprey.models.providers.base import BaseProvider
+    @pytest.mark.parametrize(
+        ("model_id", "takes"),
+        [
+            ("gpt-4o", True),
+            ("gpt-4o-mini", True),
+            ("gpt-4o-2024-08-06", True),
+            ("gpt-4", True),
+            ("gpt-4-turbo", True),
+            ("gpt-4.1-nano", True),
+            ("gpt-4.5-preview", True),
+            ("gpt-3.5-turbo", True),
+            ("chatgpt-4o-latest", True),
+            ("gpt-6-sol", False),
+            ("gpt-5.6-luna", False),
+            ("gpt-5", False),
+            ("o3", False),
+            ("o4-mini", False),
+            ("gpt-4oo", False),
+            ("gpt-7-nova", False),
+        ],
+    )
+    def test_openai_decides_per_model(self, model_id, takes):
         from osprey.models.providers.openai import OpenAIProviderAdapter
 
-        assert OpenAIProviderAdapter.accepts_temperature is False
-        assert BaseProvider.accepts_temperature is True
+        assert OpenAIProviderAdapter.accepts_temperature(model_id) is takes
+
+    def test_every_model_takes_one_unless_the_adapter_says_otherwise(self):
+        from osprey.models.providers.base import BaseProvider
+
+        assert BaseProvider.accepts_temperature("any-model") is True
+
+    def test_a_gpt_4o_completion_carries_its_temperature_to_the_wire(self):
+        """LiteLLM passes a chat model's temperature through to the request body."""
+        bodies = []
+
+        def fake_send(_client, request, **_kwargs):
+            bodies.append(json.loads(request.content))
+            raise httpx.ConnectError("intercepted", request=request)
+
+        with patch.object(httpx.Client, "send", fake_send), pytest.raises(Exception) as exc:
+            execute_litellm_completion(
+                provider="openai",
+                message="hi",
+                model_id="gpt-4o",
+                api_key="sk-test",
+                base_url="https://api.openai.com/v1",
+                max_tokens=64,
+                temperature=0.0,
+            )
+        assert "UnsupportedParams" not in type(exc.value).__name__
+        assert bodies, "no request reached the HTTP layer"
+        assert bodies[0]["temperature"] == 0.0
+        assert bodies[0]["max_completion_tokens"] == 64
 
     def test_a_gpt_5_completion_at_the_default_temperature_reaches_the_wire(self):
         """LiteLLM refuses temperature 0.0 on a GPT-5 id before sending anything."""

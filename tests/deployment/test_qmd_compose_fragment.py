@@ -185,6 +185,25 @@ def test_port_override_moves_publish_environment_and_healthcheck_together():
     assert "127.0.0.1:9999/health" in service["healthcheck"]["test"][1]
 
 
+def test_loopback_requests_bypass_any_proxy_in_the_container_env():
+    """The healthcheck and the entrypoint's probes target the container itself.
+
+    A site container carries ``http_proxy``, and its ``no_proxy`` rarely lists
+    ``::1``; a loopback request routed to that proxy never reaches qmd. The
+    entrypoint's probe is exercised for real in
+    ``test_qmd_entrypoint_loopback_probe``; this holds every curl call to it.
+    """
+    assert "--noproxy '*'" in compose_service()["healthcheck"]["test"][1]
+
+    curls = [
+        line
+        for line in _packaged_text("services/qmd/entrypoint.sh").splitlines()
+        if re.search(r"\bcurl\b", line) and not line.lstrip().startswith("#")
+    ]
+    assert curls, "the entrypoint no longer probes its daemon with curl"
+    assert all("--noproxy '*'" in line for line in curls), curls
+
+
 def test_port_default_tracks_the_schema_module():
     """The template carries no port literal of its own.
 
@@ -243,6 +262,7 @@ def test_explicit_service_image_replaces_the_built_default():
     service = compose_service(qmd={"image": "registry.example/osprey-qmd:2.5.3"})
 
     assert service["image"] == "${OSPREY_QMD_IMAGE:-registry.example/osprey-qmd:2.5.3}"
+    assert "build" not in service
 
 
 def test_build_context_is_repo_root_relative():

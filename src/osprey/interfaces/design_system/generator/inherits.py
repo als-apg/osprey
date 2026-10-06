@@ -17,6 +17,7 @@ validator passes it anyway.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -49,7 +50,7 @@ def string_inherits(tree: TokenTree, stem: str) -> dict[str, str]:
     }
 
 
-def observed_modes(tokens: dict[str, object]) -> set[str]:
+def observed_modes(tokens: Mapping[str, object]) -> set[str]:
     """The mode groups an interface's flattened token dict actually authors.
 
     Keys are mode-prefixed dot-paths (``"dark.wt-crt.opacity"``); the mode is
@@ -59,7 +60,7 @@ def observed_modes(tokens: dict[str, object]) -> set[str]:
 
 
 def source_mode(
-    tree: TokenTree, stem: str, tokens: dict[str, object], theme_stem: str
+    tree: TokenTree, stem: str, tokens: Mapping[str, object], theme_stem: str
 ) -> str | None:
     """Which of an interface's own mode groups supplies ``theme_stem``'s tokens.
 

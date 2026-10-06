@@ -1137,8 +1137,8 @@ def _hetero_config_dict(default_persona_path: Path, alt_persona_path: Path) -> d
         "facility": {
             "name": "E2E Heterogeneous Persona Fixture",
             "prefix": HETERO_PREFIX,
-            "timezone": "UTC",
         },
+        "system": {"timezone": "UTC"},
         "llm": {"api_key_env_var": "ANTHROPIC_API_KEY"},
         "registry": {
             "url": "unused-registry.example.invalid",

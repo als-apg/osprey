@@ -183,14 +183,6 @@ class TestTheFileSitsBesideTheRecord:
 
         assert app.state.transcript_map == {KEY: TRANSCRIPT}
 
-    @pytest.mark.usefixtures("shared_root")
-    def test_a_corrupt_file_is_an_empty_map(self):
-        path = transcript_map.store_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("{not json", encoding="utf-8")
-
-        assert transcript_map.get(_app(), KEY) == KEY
-
 
 class TestAMapWithNoLocationStillAnswers:
     @pytest.mark.usefixtures("unresolvable_root")

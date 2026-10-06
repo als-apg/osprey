@@ -807,7 +807,15 @@ class TestControlAssistantMongoDBArchiver:
         )
 
         overrides = va_archiver_config_overrides(VAArchiverConfig())
-        for key in ("host", "port", "name", "collection", "auth", "username", "password_env"):
+        for key in (
+            "host",
+            "port",
+            "name",
+            "collection",
+            "auth.source",
+            "auth.username",
+            "auth.password_env",
+        ):
             assert f"{CONNECTION_CONFIG_PREFIX}.{key}" in overrides, (
                 f"required key {key!r} missing from the derived connection block"
             )

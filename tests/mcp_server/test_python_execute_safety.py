@@ -4,6 +4,7 @@ Covers: syntax errors caught before execution, exec()/eval() flagged,
 prohibited imports blocked, valid code passes through.
 """
 
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -346,3 +347,114 @@ def _clean_result():
     from osprey.mcp_server.python_executor.executor import ExecutionResult
 
     return ExecutionResult(success=True, stdout="2\n", stderr="", execution_time_seconds=0.1)
+
+
+# ---------------------------------------------------------------------------
+# Raw client writes refused mid-run are reported
+#
+# In a readwrite run the armed raw-put block refuses a direct client-library
+# write (``epics.caput`` and friends) inside the subprocess. All the parent
+# sees is the refusal on stderr, so the parent has to recognise it there and
+# both alert the operator and file the record — exactly as it does for the
+# readonly guard.
+# ---------------------------------------------------------------------------
+
+
+def _raw_refusal_stderr():
+    from osprey_connectors.errors import raw_client_write_message
+
+    return (
+        "Traceback (most recent call last):\n"
+        '  File "<user>", line 2, in <module>\n'
+        "osprey_connectors.errors.ChannelWriteBlockedError: "
+        f"{raw_client_write_message('SR:CORR:SP')}\n"
+    )
+
+
+async def _report(tmp_path, monkeypatch, *, stderr, execution_mode):
+    from osprey.audit import writer
+    from osprey.mcp_server.python_executor.tools import _execution_gates as gates
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
+    alerts: list[str] = []
+
+    async def _alert(_tool, _kind, *, detail):
+        alerts.append(detail)
+
+    monkeypatch.setattr(gates, "notify_agent_activity_async", _alert)
+    reported = await gates.report_runtime_refusal(
+        tool="execute",
+        stderr=stderr,
+        code="import epics\nepics.caput('SR:CORR:SP', 1.0)\n",
+        description="nudge a corrector",
+        execution_mode=execution_mode,
+    )
+    return reported, _audit_records(tmp_path), alerts
+
+
+async def test_a_raw_client_write_refusal_is_recorded_and_alerted_once(tmp_path, monkeypatch):
+    """Marker present in a readwrite run: exactly one record and one alert."""
+    import pwd
+
+    from osprey.mcp_server.python_executor.tools import _execution_gates as gates
+
+    reported, records, alerts = await _report(
+        tmp_path, monkeypatch, stderr=_raw_refusal_stderr(), execution_mode="readwrite"
+    )
+
+    assert reported is True
+    (record,) = records
+    assert record["decision"] == "refused"
+    assert record["reason"] == gates.LAYER_RAW_CLIENT_WRITE == "raw_client_write"
+    assert record["source"] == "import epics\nepics.caput('SR:CORR:SP', 1.0)\n"
+    assert "mode=readwrite" in record["detail"]
+    assert "SR:CORR:SP" in record["detail"], "the refused channel is what an auditor reads"
+    assert f"ca_user={pwd.getpwuid(os.getuid()).pw_name}" in record["detail"]
+    assert alerts == ["BLOCKED a control-system write in readwrite mode (raw_client_write)"]
+
+
+async def test_a_readwrite_run_without_the_marker_reports_nothing(tmp_path, monkeypatch):
+    """Marker absent: neither a record nor an alert — an ordinary error is not a refusal."""
+    reported, records, alerts = await _report(
+        tmp_path,
+        monkeypatch,
+        stderr="Traceback (most recent call last):\nValueError: bad value\n",
+        execution_mode="readwrite",
+    )
+
+    assert reported is False
+    assert records == []
+    assert alerts == []
+
+
+async def test_readonly_runtime_guard_reporting_is_unchanged(tmp_path, monkeypatch):
+    """The readonly guard still reports as ``runtime_guard``, without a ``ca_user`` stamp."""
+    from osprey.services.python_executor.execution.wrapper import READONLY_REFUSAL_MARKER
+
+    reported, records, alerts = await _report(
+        tmp_path,
+        monkeypatch,
+        stderr=f"RuntimeError: {READONLY_REFUSAL_MARKER}: refused a write to SR:CORR:SP\n",
+        execution_mode="readonly",
+    )
+
+    assert reported is True
+    (record,) = records
+    assert record["reason"] == "runtime_guard"
+    assert "mode=readonly" in record["detail"]
+    assert "ca_user=" not in record["detail"]
+    assert alerts == ["BLOCKED a control-system write in readonly mode (runtime_guard)"]
+
+
+async def test_a_raw_client_marker_in_a_readonly_run_is_not_filed_as_a_raw_write(
+    tmp_path, monkeypatch
+):
+    """Only readwrite runs arm the raw-put block, so only they match its marker."""
+    reported, records, alerts = await _report(
+        tmp_path, monkeypatch, stderr=_raw_refusal_stderr(), execution_mode="readonly"
+    )
+
+    assert reported is False
+    assert records == []
+    assert alerts == []

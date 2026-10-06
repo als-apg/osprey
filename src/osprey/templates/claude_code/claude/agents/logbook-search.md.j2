@@ -4,7 +4,7 @@ description: "Searches the facility logbook for operational history, shift logs,
 summary: Searches the electronic logbook for operational entries
 {% if claude_code_model_spec is defined and claude_code_model_spec %}model: {{ claude_code_model_spec.agent_model("logbook-search") }}
 {% endif %}maxTurns: 30
-tools: mcp__ariel__keyword_search, mcp__ariel__semantic_search, mcp__ariel__browse, mcp__ariel__filter_options, mcp__ariel__entry_get, mcp__ariel__capabilities, mcp__osprey_workspace__submit_response
+tools: mcp__ariel__keyword_search, mcp__ariel__semantic_search, mcp__ariel__hybrid_search, mcp__ariel__browse, mcp__ariel__filter_options, mcp__ariel__entry_get, mcp__ariel__capabilities, {% if ariel_attachment_view %}mcp__ariel__attachment_view, {% endif %}mcp__osprey_workspace__submit_response
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---
 
@@ -25,10 +25,15 @@ You have access to these ARIEL MCP tools:
 
 - `keyword_search` — Full-text keyword search (exact matching, operators)
 - `semantic_search` — Embedding similarity search (conceptual matching)
+- `hybrid_search` — Keyword and semantic ranking combined; also matches entries
+  by their pictures when `capabilities` reports picture search
 - `browse` — List recent entries with optional filters
 - `filter_options` — Discover available authors and source systems
 - `entry_get` — Fetch full entry details by ID
 - `capabilities` — Check available search modes and modules
+{%- if ariel_attachment_view %}
+- `attachment_view` — Look at one logbook picture by its `attachment_id`
+{%- endif %}
 
 ## Multi-Strategy Search Pattern
 
@@ -51,15 +56,22 @@ Follow this approach to find the most relevant logbook entries:
    `semantic_search(query=...)` — finds conceptually similar entries even when
    exact terms don't match.
 
-4. **Browse for time-based queries**: For "what happened today/this week" style
+4. **Hybrid search for mixed questions**: If `capabilities().search_modes`
+   includes `hybrid`, run `hybrid_search(query=...)` when a known term and a
+   fuzzy description matter at once, or when the question is about a picture;
+   otherwise skip it silently.
+
+5. **Browse for time-based queries**: For "what happened today/this week" style
    questions, use `browse` with date range filters to explore entries
    chronologically.
 
-5. **Discover filter options**: Use `filter_options` to find available
+6. **Discover filter options**: Use `filter_options` to find available
    authors and source systems, then refine searches with those filters.
 
-6. **Get full details**: Use `entry_get` with an entry ID when summaries
+7. **Get full details**: Use `entry_get` with an entry ID when summaries
    from search results aren't detailed enough.
+
+{% include "claude_code/claude/agents/_shared/attachments.md.j2" %}
 
 ## Synthesis Guidelines
 

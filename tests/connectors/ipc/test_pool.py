@@ -535,7 +535,7 @@ async def test_a_channel_access_block_with_no_gateway_to_select_is_refused_befor
 ):
     # Spawned, this child would set no EPICS_CA_* at all and search by
     # broadcast. Refused on config alone, so nothing here touches a network.
-    section = {"type": connector_type, "connector": {connector_type: {"timeout": 1.0, **block}}}
+    section = {"type": connector_type, "connector": {connector_type: {"timeout_s": 1.0, **block}}}
     pool = pools(section)
     with pytest.raises(ConnectorHostStartError) as caught:
         await pool.connector(target)

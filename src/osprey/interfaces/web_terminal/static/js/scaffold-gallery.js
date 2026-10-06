@@ -21,13 +21,12 @@
 import { el as _el } from '/design-system/js/dom.js';
 import {
   BEHAVIOR_CATEGORIES,
-  BEHAVIOR_NAMES,
+  BEHAVIOR_OUTPUTS,
   BEHAVIOR_CATEGORY_OVERRIDES,
   BEHAVIOR_CATEGORY_REMAPS,
   BEHAVIOR_PINNED_CATEGORIES,
   SAFETY_CATEGORIES,
   CONFIG_NAMES,
-  configureMarked,
 } from './scaffold/utils.js';
 import {
   resetFetchCache,
@@ -56,7 +55,7 @@ import { createScaffoldGalleryEdit } from './scaffold/edit.js';
  * @property {boolean} [showFilterChips]
  * @property {(() => void)|null} [onDetailOpen]
  * @property {(() => void)|null} [onDetailClose]
- * @property {Record<string, string>} [categoryOverrides]
+ * @property {Record<string, string>} [categoryOverrides] keyed by output path
  * @property {Record<string, string>} [categoryRemaps]
  * @property {string[]} [pinnedCategories]
  */
@@ -307,14 +306,9 @@ class ArtifactGallery {
   //
   // Rendering (search bar, filter chips, untracked-file banner, summary,
   // category/card grid) and the artifact-list filter live in
-  // scaffold/view.js — see createScaffoldGalleryView(). Only
-  // renderGallery() is ever called back through the gallery host (from
-  // scaffold/edit.js, after a save/reload/ownership change); view.js's
-  // other rendering entry points (renderUntrackedBanner, renderFilterChips,
-  // renderSummary, bindSearch, renderCategories, renderArtifactCard,
-  // renderSkillGroup, getFilteredArtifacts) are only ever called from
-  // within view.js's own renderGallery(), so this class doesn't re-expose
-  // them as delegators.
+  // scaffold/view.js — see createScaffoldGalleryView(), whose one entry
+  // point is renderGallery(). It is called back through the gallery host
+  // from scaffold/edit.js after a save, reload or ownership change.
 
   renderGallery() {
     return this._view.renderGallery();
@@ -353,10 +347,6 @@ class ArtifactGallery {
   /** @param {string} category */
   showCreateDialog(category) {
     return this._detail.showCreateDialog(category);
-  }
-
-  renderDetailHeader() {
-    return this._detail.renderDetailHeader();
   }
 
   renderDetailModes() {
@@ -438,8 +428,6 @@ export function initScaffoldGallery() {
   );
   if (!drawer) return;
 
-  configureMarked();
-
   const behaviorPanel = document.getElementById('tab-behavior');
   const safetyPanel = document.getElementById('tab-safety');
   const configGallerySection = document.getElementById('config-gallery-section');
@@ -459,7 +447,7 @@ export function initScaffoldGallery() {
     document.getElementById('behavior-gallery-section') || behaviorPanel;
   const behaviorGallery = new ArtifactGallery({
     container: behaviorGalleryContainer,
-    categoryFilter: (a) => BEHAVIOR_CATEGORIES.has(a.category) || BEHAVIOR_NAMES.has(a.name),
+    categoryFilter: (a) => BEHAVIOR_CATEGORIES.has(a.category) || BEHAVIOR_OUTPUTS.has(a.output_path),
     options: {
       categoryOverrides: BEHAVIOR_CATEGORY_OVERRIDES,
       categoryRemaps: BEHAVIOR_CATEGORY_REMAPS,
