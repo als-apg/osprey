@@ -211,9 +211,7 @@ types none of them.
    demo or not. Run it, then emit again. Scenario bundles under
    `data/simulation/scenarios/` are refused on the same terms, each held against the
    `machine.json` the deployment will serve — the one a 2.0 export writes, the one
-   already on the tree otherwise. So a 2.0 harvest refuses the demo's scenarios (their
-   channels leave with the demo's machine) and a 1.0 harvest keeps them (that machine is
-   still the one being served). A bundle the simulation cannot read is refused too.
+   already on the tree otherwise. A bundle the simulation cannot read is refused too.
    A 2.0 export also writes
    `data/simulation/lattice.json`, `data/simulation/va_bindings.json`,
    `data/simulation/machine.json` and `data/machine_state_channels.json`; the

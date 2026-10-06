@@ -1,7 +1,7 @@
 """DB-backed contract for ``apply_scenarios`` logbook seeding (Postgres-gated).
 
 Exercises the full apply path end to end against a real database: compose the
-active scenarios, purge the logbook, reseed from the bundles' relative-timestamp
+active scenarios, purge the logbook, reseed from the scenarios' relative-timestamp
 entries against a fixed anchor, and assert the DB holds exactly the expected
 entries with timestamps pinned to the documented time-of-day. Uses the shared
 ``database_url`` fixture (skips when no Postgres is available).
@@ -27,10 +27,6 @@ from tests._simulator_view import facility_scenarios, write_scenarios_view
 # would otherwise collide on migrations/seed/truncate.
 pytestmark = [pytest.mark.xdist_group("docker")]
 
-TEMPLATE_DATA = (
-    Path(__file__).resolve().parents[3] / "src/osprey/templates/apps/control_assistant/data"
-)
-TEMPLATE_SIM = TEMPLATE_DATA / "simulation"
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[3] / "src/osprey/templates/facilities/example"
 # Fixed apply-time anchor T0 so resolved timestamps are deterministic.
 T0 = datetime(2026, 6, 13, 12, 0, 0, tzinfo=UTC)
@@ -68,12 +64,7 @@ def _make_project(tmp_path: Path, database_url: str) -> Path:
     """Stage a sim-backed project's simulator view, pointing ARIEL at the test DB."""
     scenarios = TEMPLATE_FACILITY / "scenarios"
     write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
-    config = {
-        "control_system": {
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
-        },
-        "ariel": {"database": {"uri": database_url}},
-    }
+    config = {"ariel": {"database": {"uri": database_url}}}
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
     return tmp_path
 
@@ -237,17 +228,18 @@ async def _original(database_url: str, attachment_id: str) -> bytes:
 
 def _drawn(entry_id: str) -> bytes:
     """The PNG seeding draws for ``entry_id``'s plot spec when applied at :data:`T0`."""
-    from osprey.simulation.machine import load_narratives
+    from osprey.facility.scenarios import scenario_logbook
     from osprey.simulation.plots import render_plot_spec
     from osprey.utils.relative_time import resolve_relative_timestamp
     from osprey_connectors.simulation.logbook import PlotSpec
 
-    for entries in load_narratives(TEMPLATE_SIM / "scenarios").values():
-        for entry in entries:
+    scenarios = TEMPLATE_FACILITY / "scenarios"
+    for name, scenario in facility_scenarios(scenarios).items():
+        for entry in scenario_logbook({"name": name, **scenario}, scenarios / name):
             if entry.entry_id == entry_id:
                 (spec,) = [item for item in entry.attachments if isinstance(item, PlotSpec)]
                 return render_plot_spec(spec, resolve_relative_timestamp(entry.when, T0))
-    raise AssertionError(f"no bundle entry {entry_id}")
+    raise AssertionError(f"no scenario entry {entry_id}")
 
 
 def test_seeded_pictures_are_copied_with_a_viewable_rendition(tmp_path, database_url):

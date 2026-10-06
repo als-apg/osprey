@@ -5,8 +5,7 @@ by the driver's name, so every channel coupled to it sees the identical value
 at a given instant — that shared term is what correlates otherwise independent
 channels. These tests pin the schema (and each refusal), composition, the
 correlation behaviour (|r| ~ 1 without noise, an elongated cloud with noise,
-drifting strength under ``gain_wander``), live/history agreement, and the
-shipped ``rf-thermal-live`` bundle's target correlation bands.
+drifting strength under ``gain_wander``) and live/history agreement.
 """
 
 from types import SimpleNamespace
@@ -19,11 +18,6 @@ from osprey_connectors.simulation.machine import DriverCoupling, NoiseOverride, 
 
 T0 = 1_790_000_000.0
 DRIVER = {"kind": "wander", "amplitude": 1.0, "period_s": 300.0}
-
-CAV_T = "SR:RF:CAVITY:01:TEMPERATURE:RB"
-CAV_REV = "SR:RF:CAVITY:01:POWER:REV"
-CAV_FWD = "SR:RF:CAVITY:01:POWER:FWD"
-CAV_TUNER = "SR:RF:CAVITY:01:TUNER:RB"
 
 
 def _r(x, y) -> float:
@@ -327,48 +321,3 @@ class TestLiveHistoryConsistency:
         for t, h in zip(stamps[::17], history[::17], strict=True):
             _freeze_now(monkeypatch, t)
             assert engine.read("T:A").value == h
-
-
-class TestShippedRfThermalLive:
-    """The shipped bundle's correlation targets, on 1 s sampling over 5-min windows."""
-
-    WINDOW = 300
-
-    @pytest.fixture
-    def series(self, engine_factory):
-        engine = engine_factory("rf-thermal-live")
-        stamps = _window(3 * 3600)
-        return {
-            pv: np.array(engine.synthesize_series(pv, stamps))
-            for pv in (CAV_T, CAV_REV, CAV_FWD, CAV_TUNER)
-        }
-
-    def _windowed(self, x, y) -> list[float]:
-        n, w = len(x), self.WINDOW
-        return [_r(x[s : s + w], y[s : s + w]) for s in range(0, n - w + 1, 30)]
-
-    def test_temperature_vs_reflected_power_wanders_in_band(self, series):
-        rs = self._windowed(series[CAV_T], series[CAV_REV])
-        assert 0.35 < min(rs) and max(rs) < 0.95
-        assert 0.6 < float(np.median(rs)) < 0.85
-        assert max(rs) - min(rs) > 0.2  # correlation strength drifts
-
-    def test_temperature_vs_tuner_is_tight(self, series):
-        rs = self._windowed(series[CAV_T], series[CAV_TUNER])
-        assert min(rs) > 0.9 and max(rs) < 0.995  # tight, but a cloud, not a line
-
-    def test_fastest_motion_is_tens_of_seconds(self, series):
-        # Noise-free driver view: temperature minus its mean, smoothed over 5 s.
-        t = np.convolve(series[CAV_T] - series[CAV_T].mean(), np.ones(5) / 5, mode="valid")
-        crossings = np.count_nonzero(np.diff(np.sign(t)) != 0)
-        # a 27 s fastest component would give ~800 crossings in 3 h; noise-only ~thousands
-        assert 50 < crossings < 2000
-
-    def test_levels_stay_physical(self, series):
-        assert series[CAV_REV].min() > 0.0
-        assert 26.0 < series[CAV_T].min() and series[CAV_T].max() < 28.0
-
-    def test_composes_with_vacuum_burst_but_not_rf_thermal(self, engine_factory):
-        engine = engine_factory("nominal")
-        assert engine.validate_composition(["nominal", "rf-thermal-live", "vacuum-burst"]) == []
-        assert engine.validate_composition(["nominal", "rf-thermal-live", "rf-thermal"])

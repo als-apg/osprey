@@ -935,8 +935,7 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     """The control-assistant preset bundles the simulation machine model.
 
     Pins the wiring: the data bundle ships ``data/simulation/machine.json``
-    (shared channels) plus a ``scenarios/`` tree of self-contained bundles, and
-    the rendered ``config.yml`` names the machine file exactly once, under the
+    (shared channels) and no scenario bundle tree beside it, and the rendered ``config.yml`` names the machine file exactly once, under the
     key path the connector factory scopes
     (``control_system.connector.mock``). The mock archiver derives its own copy
     from there, so a second declaration would be a divergence waiting to
@@ -956,18 +955,9 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     assert machine_path.exists(), "machine.json missing from built project"
     machine = json.loads(machine_path.read_text(encoding="utf-8"))
     assert "channels" in machine
-    assert "scenarios" not in machine, "scenarios moved to bundle tree, not the machine file"
+    assert "scenarios" not in machine, "the scenarios are the facility's, not the machine file's"
     assert "default_scenarios" not in machine, "the start set is the profile's to state"
-
-    # Self-contained scenario bundles (telemetry + optional logbook).
-    for name in ("nominal", "vacuum-burst", "rf-thermal"):
-        assert (sim_dir / "scenarios" / name / "scenario.json").exists(), f"{name} bundle missing"
-    assert (sim_dir / "scenarios" / "nominal" / "logbook.json").exists()
-    assert (sim_dir / "scenarios" / "rf-thermal" / "logbook.json").exists()
-    # The pictures and plot specs logbook entries attach ship with their bundles.
-    assert (sim_dir / "scenarios" / "rf-thermal" / "plots" / "cavity_temperatures.json").exists()
-    # vacuum-burst is telemetry-only by design (no logbook narrative).
-    assert not (sim_dir / "scenarios" / "vacuum-burst" / "logbook.json").exists()
+    assert not (sim_dir / "scenarios").exists(), "the scenarios ship as facility scenario files"
 
     assert not (sim_dir / "active_scenarios").exists(), (
         "active_scenarios is runtime state — it must not ship in the build-owned data/ tree"

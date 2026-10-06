@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import json
-from dataclasses import replace
 from datetime import time
 from pathlib import Path
 
 import pytest
 
 from osprey.facility.scenarios import ScenarioLogEntry, scenario_logbook
-from osprey.facility.sources import read_yaml
 from osprey_connectors.relative_time import RelativeTimestamp
 
-DATA = Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/control_assistant/data"
 FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
 
@@ -78,41 +74,6 @@ def test_a_malformed_entry_is_refused_by_name(fields, match):
         scenario_logbook({"name": "burst", "logbook": [_entry(**fields)]})
 
     assert "'burst'" in str(raised.value)
-
-
-def _shipped(entries: tuple[ScenarioLogEntry, ...], directory: Path) -> list:
-    """The entries with each shipped picture as its path in ``directory`` and its bytes."""
-    return [
-        replace(
-            entry,
-            attachments=tuple(
-                (item.relative_to(directory.resolve()), item.read_bytes())
-                if isinstance(item, Path)
-                else item
-                for item in entry.attachments
-            ),
-        )
-        for entry in entries
-    ]
-
-
-def test_the_demo_translations_narrate_what_their_bundles_narrate():
-    for bundle in sorted((DATA / "simulation" / "scenarios").iterdir()):
-        logbook_file = bundle / "logbook.json"
-        if not logbook_file.is_file():
-            continue
-        directory = FACILITY / "scenarios" / bundle.name
-        translation = read_yaml(
-            (FACILITY / "scenarios" / f"{bundle.name}.yaml").read_text(encoding="utf-8")
-        )
-        bundled = json.loads(logbook_file.read_text(encoding="utf-8"))
-
-        entries = scenario_logbook({"name": bundle.name, **translation}, directory)
-
-        assert entries
-        assert _shipped(entries, directory) == _shipped(
-            scenario_logbook({"name": bundle.name, "logbook": bundled}, bundle), bundle
-        )
 
 
 def test_an_entrys_pictures_resolve_against_the_scenario_directory(tmp_path):
