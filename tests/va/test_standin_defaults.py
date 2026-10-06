@@ -271,38 +271,3 @@ class TestWhichTreeADeploymentIsHanded:
         (tmp_path / "data").mkdir()
 
         assert served_data_root(tmp_path, tmp_path / "build") is None
-
-
-class TestStandinDefaultErrorsMatchTheBuildRefusal:
-    """The build-time check and the shipped default must agree.
-
-    The build refuses a non-offset field in a profile's stand-in fault set;
-    this pins the framework's own default against that same check, so the
-    thing OSPREY ships could itself be built.
-    """
-
-    def test_standin_default_errors_pass_the_build_offset_only_check(self) -> None:
-        checker = _shipped_bpm_errors_field_errors()
-        if checker is None:
-            pytest.skip("build-side offset-only check not present in this tree")
-        assert checker(STANDIN_BPM_ERRORS_DEFAULT) == []
-
-
-def _shipped_bpm_errors_field_errors():
-    """The build's offset-only checker, or ``None`` where it does not exist.
-
-    Resolved by lookup rather than imported at module scope: the check lands in
-    the build layer on its own schedule, and this file must collect either way.
-    """
-    for module_name in (
-        "osprey.cli.build_profile_va_faults",
-        "osprey.cli.build_profile_model",
-    ):
-        try:
-            module = __import__(module_name, fromlist=["_"])
-        except ImportError:
-            continue
-        checker = getattr(module, "shipped_bpm_errors_field_errors", None)
-        if checker is not None:
-            return checker
-    return None

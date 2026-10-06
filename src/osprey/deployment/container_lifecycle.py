@@ -4835,9 +4835,7 @@ def _preflight_archiver_pymongo(config: dict) -> None:
 #: is the whole design: with the rest of the readout chain at identity, a
 #: reading is exactly ``truth - offset``, so the seed reproduces the stand-in's
 #: systematic error by arithmetic on the value it already synthesized rather
-#: than by running a second copy of the readout. The same two fields are the
-#: only ones the shipped default may carry
-#: (``osprey.cli.build_profile_va_faults.STANDIN_BPM_ERROR_FIELDS``).
+#: than by running a second copy of the readout.
 _STANDIN_OFFSET_AXES = {"offset_x": "x", "offset_y": "y"}
 
 #: How the fingerprint names this transform. One kind today; the field exists so

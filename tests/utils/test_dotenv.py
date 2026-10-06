@@ -283,11 +283,11 @@ class TestBuildDerivedKeys:
 class TestResolvedVaLattice:
     """``resolved_va_lattice`` — the one answer to "which lattice will it boot with".
 
-    Read by the build's stand-in refusal
-    (``osprey.cli.build_profile_va_faults.live_standin_lattice_errors``) and by
+    Read by the build's stand-in default
+    (``osprey.cli.build_profile_va_faults.effective_standin_bpm_errors``) and by
     the deployment layer that renders and probes the same containers, which is
-    the whole reason it is one function: a build that refuses on one reading of
-    these files and renders on another is worse than either reading alone.
+    the whole reason it is one function: two readings of these files for one
+    deployment are worse than either reading alone.
     """
 
     def test_an_empty_chain_serves_no_lattice(self, tmp_path):
