@@ -170,8 +170,17 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
     The layout the IOC reads is the one ``osprey build`` writes for a project:
     the simulator view under ``<root>/simulator/``. It is rendered from a copy
     of the preset's ``data/facility`` that also carries this suite's synthetic
-    scenario (:data:`BURST_SCENARIO_NAME`), so the scenario is one the
-    container's composite and ``osprey sim apply`` both know.
+    additions, so each is one the container's composite and ``osprey sim
+    apply`` both know:
+
+    * the burst scenario (:data:`BURST_SCENARIO_NAME`), which moves one gauge;
+    * the unstable scenario (:data:`UNSTABLE_SCENARIO_NAME`), under which the
+      physics model's closed-orbit solve fails;
+    * the kick scenario (:data:`KICK_SCENARIO_NAME`), which puts a nonzero
+      closed orbit at :data:`KICK_MONITOR`;
+    * a string channel (:data:`STRING_CHANNEL`) seeded with
+      :data:`STRING_NOMINAL`, so the served view holds a string channel the
+      texture owns beside the physics model's status channel.
 
     The shared container serves monitors without their declared motion, so a
     suite whose oracle is the noiseless model reads the solved orbit; a caller
@@ -190,18 +199,44 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
     with tempfile.TemporaryDirectory(prefix="osprey-va-e2e-facility-") as scratch:
         facility = Path(scratch) / "facility"
         shutil.copytree(PRESET_FACILITY_DIR, facility)
-        (facility / "scenarios" / f"{BURST_SCENARIO_NAME}.yaml").write_text(
-            yaml.safe_dump(
-                {
-                    "description": (
-                        "e2e-only synthetic scenario: overrides one VAC gauge to a "
-                        "value unambiguously distinct from its nominal baseline."
-                    ),
-                    "overrides": {BURST_CHANNEL: BURST_VALUE},
-                }
+        for name, description, overrides in (
+            (
+                BURST_SCENARIO_NAME,
+                "e2e-only synthetic scenario: overrides one VAC gauge to a "
+                "value unambiguously distinct from its nominal baseline.",
+                {BURST_CHANNEL: BURST_VALUE},
             ),
-            encoding="utf-8",
-        )
+            (
+                UNSTABLE_SCENARIO_NAME,
+                "e2e-only synthetic scenario: a focusing quadrupole at a current "
+                "with no stable closed orbit, so the physics model fails.",
+                {UNSTABLE_QUADRUPOLE: UNSTABLE_CURRENT},
+            ),
+            (
+                KICK_SCENARIO_NAME,
+                "e2e-only synthetic scenario: one vertical corrector excited, so "
+                "the vertical closed orbit is nonzero at the monitors.",
+                {KICK_CORRECTOR: KICK_CURRENT},
+            ),
+        ):
+            (facility / "scenarios" / f"{name}.yaml").write_text(
+                yaml.safe_dump({"description": description, "overrides": overrides}),
+                encoding="utf-8",
+            )
+        with (facility / "records" / "channels.yaml").open("a", encoding="utf-8") as records:
+            records.write(
+                yaml.safe_dump(
+                    [
+                        {
+                            "id": STRING_CHANNEL,
+                            "value_type": "string",
+                            "description": "e2e-only synthetic string channel",
+                        }
+                    ]
+                )
+            )
+        with (facility / "seeds.yaml").open("a", encoding="utf-8") as seeds:
+            seeds.write(yaml.safe_dump({STRING_CHANNEL: {"nominal": STRING_NOMINAL}}))
         if still_monitors:
             still_monitor_motion(Path(scratch))
         doc = build_facility(facility, project_name="control_assistant")
@@ -264,6 +299,24 @@ READINESS_ADDRESS = "SR:MAG:HCM:01:CURRENT:RB"
 BURST_SCENARIO_NAME = "va-e2e-burst"
 BURST_CHANNEL = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
 BURST_VALUE = 3.0e-6  # nominal machine.json baseline is 5e-8 Torr (3% noise) -- unambiguous jump
+
+#: Synthetic scenario under which the physics model's closed-orbit solve
+#: fails: the quadrupole at twice its demo current has no stable orbit.
+UNSTABLE_SCENARIO_NAME = "va-e2e-unstable"
+UNSTABLE_QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
+UNSTABLE_CURRENT = 712.2
+
+#: Synthetic scenario that excites one vertical corrector, so the vertical
+#: closed orbit at :data:`KICK_MONITOR` is nonzero: at rest the demo's closed
+#: orbit is exactly zero at every monitor.
+KICK_SCENARIO_NAME = "va-e2e-kick"
+KICK_CORRECTOR = "SR:MAG:VCM:05:CURRENT:SP"
+KICK_CURRENT = 1.0
+KICK_MONITOR = "SR:DIAG:BPM:17:POSITION:Y"
+
+#: Synthetic string channel, owned by the texture, and the text it is seeded with.
+STRING_CHANNEL = "SR:DIAG:E2E:TEXT"
+STRING_NOMINAL = "synthetic e2e text"
 
 # CA gateway config: read_only and write_access both point at the container's
 # single published port (matches the preset's config.yml.j2 virtual_accelerator
