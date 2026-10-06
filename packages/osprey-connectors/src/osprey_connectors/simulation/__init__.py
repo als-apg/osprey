@@ -21,6 +21,7 @@ from osprey_connectors.simulation.state import (
     resolve_active_scenarios,
     scenario_targets,
     validate_composition,
+    write_active_state,
 )
 from osprey_connectors.simulation.status import model_status
 from osprey_connectors.simulation.values import coerce
@@ -42,6 +43,7 @@ __all__ = [
     "resolve_tick_s",
     "scenario_targets",
     "validate_composition",
+    "write_active_state",
 ]
 
 #: The config key holding the simulated machine's tick period, in seconds.
