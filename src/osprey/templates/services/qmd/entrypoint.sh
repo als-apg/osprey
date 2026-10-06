@@ -90,8 +90,10 @@ POLL_INTERVAL="${OSPREY_QMD_MARKER_POLL_INTERVAL:-5}"
 # race a producer that is mid-write.
 MARKER_NAME="${OSPREY_QMD_MARKER_NAME:-.qmd-touch}"
 
-# How long to wait for the daemon's /health to come up before giving up.
-HEALTH_TIMEOUT="${OSPREY_QMD_HEALTH_TIMEOUT:-120}"
+# How long to wait for the daemon's /health to come up before giving up. The
+# daemon opens the whole index before it answers, which takes minutes for an
+# index of several GB.
+HEALTH_TIMEOUT="${OSPREY_QMD_HEALTH_TIMEOUT:-900}"
 
 # Escape hatch: force the full rebuild path even when the embedder matches.
 FORCE_REINDEX="${OSPREY_QMD_FORCE_REINDEX:-0}"
@@ -105,6 +107,9 @@ QMD_PID=""
 SOCAT_PID=""
 STAGE_PID=""
 HEARTBEAT_PID=""
+
+# Documents left without vectors after the last embedding pass.
+EMBED_PENDING=0
 
 # ── logging ──────────────────────────────────────────────────────────────────
 
@@ -402,6 +407,35 @@ announce_full_build() {
     log "  search while this runs. Progress is reported every 2 minutes."
 }
 
+# `qmd embed` runs in a session with a fixed time limit (30 minutes in qmd
+# 2.5.3). When the limit hits it skips the remaining batches and still exits 0,
+# so one call leaves any corpus that takes longer than that partly embedded:
+# keyword-searchable, invisible to vector search, and reported as done. Repeat
+# it until nothing is pending, or until a round embeds nothing -- some chunks
+# fail on every retry, and a loop that waited for them would never end.
+#
+# The first round runs unconditionally. The pending count is parsed out of
+# `qmd status` and fails towards zero, which must not be read as "nothing to
+# embed" before anything has been embedded at all.
+embed_until_done() {
+    _eu_round=1
+    _eu_prev=""
+    while :; do
+        run_stage qmd embed || log "WARNING: 'qmd embed' exited non-zero (round $_eu_round)"
+        EMBED_PENDING=$(status_field "$(qmd status 2>&1 || true)" Pending)
+        [ "$EMBED_PENDING" -gt 0 ] || return 0
+        if [ -n "$_eu_prev" ] && [ "$EMBED_PENDING" -ge "$_eu_prev" ]; then
+            log "WARNING: $EMBED_PENDING document(s) still have no vectors after round $_eu_round,"
+            log "         which embedded none of them. They are keyword-searchable only."
+            log "         See the 'qmd embed' output above for the chunks that failed."
+            return 0
+        fi
+        log "'qmd embed' stopped with $EMBED_PENDING document(s) still pending; running it again"
+        _eu_prev=$EMBED_PENDING
+        _eu_round=$((_eu_round + 1))
+    done
+}
+
 run_startup_pass() {
     decide_build_mode
 
@@ -434,7 +468,7 @@ run_startup_pass() {
     # serve keyword hits and silently return nothing for vector searches.
     log "computing embeddings ('qmd embed')"
     start_heartbeat "embedding"
-    run_stage qmd embed || log "WARNING: 'qmd embed' exited non-zero; continuing to the index assertion"
+    embed_until_done
     stop_heartbeat
 
     _pass_elapsed=$(( $(date +%s) - _pass_t0 ))
@@ -453,7 +487,7 @@ assert_index_populated() {
     _total=$(status_field "$_status" Total)
     _vectors=$(status_field "$_status" Vectors)
 
-    log "index reports $_total document(s), $_vectors vector(s)"
+    log "index reports $_total document(s), $_vectors vector(s), $EMBED_PENDING document(s) without vectors"
 
     for _name in $(collection_counts | awk '$2 == 0 { print $1 }'); do
         log "WARNING: collection '$_name' indexed 0 files. Either its corpus is"
@@ -589,7 +623,7 @@ run_update() {
     _upd_t0=$(date +%s)
     log "update triggered by $_upd_reason"
     run_stage qmd update || log "WARNING: 'qmd update' exited non-zero; keeping the previous index and continuing"
-    run_stage qmd embed || log "WARNING: 'qmd embed' exited non-zero; new documents are keyword-searchable but not vector-searchable until the next tick"
+    embed_until_done
     log "update finished in $(fmt_duration "$(( $(date +%s) - _upd_t0 ))")"
 }
 
