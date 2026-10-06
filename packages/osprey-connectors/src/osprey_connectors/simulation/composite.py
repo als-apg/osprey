@@ -85,6 +85,13 @@ from osprey_connectors.simulation.texture import (
     channel_variable,
     is_float_channel,
 )
+from osprey_connectors.simulation.view_files import (
+    ADDRESSES_FILE,
+    SCENARIOS_FILE,
+    SEEDS_FILE,
+    SERVED_MODELS_FILE,
+    VARIABLES_FILE,
+)
 from osprey_connectors.workspace import repo_root_for_config
 
 __all__ = [
@@ -127,13 +134,6 @@ STUCK = "stuck"
 
 #: The condition :meth:`Composite.output_severity` names for a failed child's channel.
 UDF = "udf"
-
-#: The files of the simulator view the composite reads.
-SERVED_MODELS_FILE = "served_models.json"
-ADDRESSES_FILE = "addresses.json"
-VARIABLES_FILE = "variables.json"
-SEEDS_FILE = "seeds.json"
-SCENARIOS_FILE = "scenarios.json"
 
 _ELLIPSIS = "…"
 _SETPOINT = "setpoint"
