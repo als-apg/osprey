@@ -277,7 +277,7 @@ RETRIEVAL_LIMIT_QUERIES = frozenset(
         "chromaticity correction",
         "cavity tuner loop",
         "pressure readback",
-        "what happens to the beam when an interlock opens the shutter",
+        "how do we keep the stored current constant during user shifts",
     }
 )
 
@@ -287,16 +287,16 @@ RETRIEVAL_LIMIT_QUERIES = frozenset(
 #: quality), so the reason a number is 10/14 rather than 14/14 has to travel
 #: with the number.
 RETRIEVAL_LIMIT_XFAIL = (
-    "EMBEDDING-RETRIEVAL limit of the curated fixture set, not a product defect. "
+    "RETRIEVAL limit of the curated fixture set, not a product defect. "
     "Measured over the live sidecar: 10 of 14 curated queries rank their expected "
-    "concept in the top 3. That number is invariant across search-type weighting "
-    "(lex+vec 10/14, vec+lex 10/14, vec-only 10/14) and across reranking "
-    "(rerank=True returns identical top-3s at ~38-42 s/query), so the misses are a "
-    "retrieval limit rather than a configuration one — there is no knob that "
-    "recovers them. lex-only scores 0/14, which independently confirms the 3.6 "
-    "construction rule held: every query really is substring-hostile. "
-    "THREE OF THE FOUR return the fixture's OWN DECLARED DECOY at rank 1 "
-    "(chromaticity correction -> magnets/quadrupoles, cavity tuner loop -> "
+    "concept in the top 3. The count is the same in every mode (lex+vec, vec+lex, "
+    "vec-only, and lex+vec with rerank=True, which hits and misses the same "
+    "queries as without it), so there is no knob that raises it. lex-only scores 4/14, all "
+    "four of them full-sentence questions: the keyword leg reads a question as an "
+    "OR of its content words, while every short query is substring-hostile by the "
+    "3.6 construction rule. "
+    "THREE OF THE FOUR return the fixture's OWN DECLARED DECOY at rank 1 in every "
+    "mode (chromaticity correction -> magnets/quadrupoles, cavity tuner loop -> "
     "rf/accelerating_cavities, pressure readback -> safety/machine_protection): "
     "the rule guaranteed lexical search would fail by writing a decoy that "
     "contains the query verbatim, but nothing ever established that the embedder "
@@ -305,11 +305,18 @@ RETRIEVAL_LIMIT_XFAIL = (
     "names the cavity tuner loop and explains what it does, while the expected "
     "document describes it without naming it; whether to re-point that fixture is "
     "an accelerator-physics judgement that belongs to the operator, not here. "
+    "The fourth is a fusion trade: vec-only ranks operations/top_off_injection "
+    "3rd for 'how do we keep the stored current constant during user shifts', "
+    "and the keyword leg, matching 'stored current' and 'shifts', lifts "
+    "rf/low_level_rf_control past it to 4th. The same leg is what puts "
+    "'what happens to the beam when an interlock opens the shutter' in the top 3 "
+    "(its rank-1 keyword hit; vec-only misses it), so the fused modes and "
+    "vec-only reach 10/14 with different sets. "
     "Document depth is ruled out: all 19 documents are 151-214 words of dense "
     "domain prose, and the 10 that pass are the same shape as the 4 that fail. "
-    "strict=True on purpose — if an embedder bump or a fixture edit makes one of "
-    "these pass, this must go RED so someone re-reads this reason instead of "
-    "leaving a stale known-limitation in place."
+    "strict=True on purpose — if an embedder bump, a qmd patch or a fixture edit "
+    "makes one of these pass, this must go RED so someone re-reads this reason "
+    "instead of leaving a stale known-limitation in place."
 )
 
 _ACCEPTANCE_PARAMS = [
