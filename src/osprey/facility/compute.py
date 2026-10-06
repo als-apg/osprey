@@ -44,7 +44,11 @@ from typing import Any
 from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults, set_place_from
-from osprey.facility.scenarios import check_scenario_attachments, check_scenario_engines
+from osprey.facility.scenarios import (
+    check_scenario_attachments,
+    check_scenario_engines,
+    check_scenario_events,
+)
 from osprey.facility.sources import AUTHORED
 from osprey.facility.validate import Validated, need, paired_nominal_error, stating_files
 from osprey.facility.wiring import element_stop
@@ -163,6 +167,7 @@ def check_compute(validated: Validated) -> list[FacilityBuildError]:
     _nominal_band(run)
     run.errors.extend(check_scenario_engines(document))
     run.errors.extend(check_scenario_attachments(document, validated.facility_dir))
+    run.errors.extend(check_scenario_events(document))
     if run.errors:
         return run.errors
     _write_positions(document, positions)
