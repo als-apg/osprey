@@ -176,6 +176,11 @@ def log_dir() -> Path | None:
     return repo_root_for_config(config_path) / "var" / "simulator"
 
 
+def _default_log_dir() -> Path | None:
+    """:func:`log_dir`, looked up at call time so a replaced module function is honoured."""
+    return log_dir()
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     document: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     return document
@@ -231,6 +236,8 @@ class Composite(LUMEModel):
         clock: Returns the current instant in epoch seconds.
         model_log: ``False`` sends the model log records to the process logger
             only, for a composite no instance serves.
+        log_dir: The directory the model logs are appended in; ``None`` takes
+            :func:`log_dir` when ``model_log`` is set.
 
     Raises:
         ValueError: ``instance`` is not one of :data:`INSTANCES`.
@@ -244,6 +251,7 @@ class Composite(LUMEModel):
         instance: str = "inprocess",
         clock: Callable[[], float] = time.time,
         model_log: bool = True,
+        log_dir: Path | str | None = None,
     ) -> None:
         if instance not in INSTANCES:
             raise ValueError(f"instance is {instance!r}; use one of {list(INSTANCES)}")
@@ -253,7 +261,9 @@ class Composite(LUMEModel):
         self._state_path = (
             None if state_dir is None else Path(state_dir) / ACTIVE_SCENARIOS_FILENAME
         )
-        self._log_dir = log_dir() if model_log else None
+        self._log_dir = (
+            Path(log_dir) if log_dir is not None else (_default_log_dir() if model_log else None)
+        )
         self._active: list[str] = []
 
         variables = _read_json(self._view_dir / VARIABLES_FILE)

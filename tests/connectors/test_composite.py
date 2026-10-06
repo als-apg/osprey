@@ -535,6 +535,20 @@ def test_an_event_is_appended_to_every_physics_models_log_only(
     assert sorted(path.name for path in logs.iterdir()) == ["M.log"]
 
 
+def test_a_given_log_dir_holds_the_model_logs_without_a_loaded_config(tmp_path: Path) -> None:
+    logs = tmp_path / "logs"
+    Composite(_view(tmp_path), state_dir=tmp_path / "state", log_dir=logs, clock=lambda: T0)
+
+    records = [json.loads(line) for line in (logs / "M.log").read_text().splitlines()]
+    assert [record["event"] for record in records] == ["built"]
+
+
+def test_no_log_dir_and_no_loaded_config_writes_no_model_log(tmp_path: Path) -> None:
+    _composite(tmp_path)
+
+    assert not list(tmp_path.rglob("*.log"))
+
+
 # -- the active scenarios ------------------------------------------------------
 
 

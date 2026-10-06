@@ -56,6 +56,11 @@ SIMULATOR_DIR = "simulator"
 #: more, ``inprocess``, which is never a served instance.
 VA_INSTANCES = ("virtual_accelerator", "live_standin")
 
+#: The directory the model logs are appended in: the mount target of every
+#: virtual accelerator compose block, whose host side is ``var/simulator/`` for
+#: the virtual accelerator and ``var/simulator/standin/`` for the live stand-in.
+LOG_DIR = Path("/var/simulator")
+
 #: The view's documents this module reads.
 SERVED_MODELS_FILE = "served_models.json"
 ADDRESSES_FILE = "addresses.json"
@@ -230,7 +235,7 @@ def main() -> None:
 
     from osprey_connectors.simulation.composite import Composite
 
-    composite = Composite(view, state_dir=state_dir, instance=instance)
+    composite = Composite(view, state_dir=state_dir, instance=instance, log_dir=LOG_DIR)
 
     # The runner module reaches the Channel Access server extension at import.
     # Constructing the runner creates the servers and starts serving.
