@@ -12,7 +12,7 @@ model is served and its wiring records, in the shape an authored
 ``models.yaml`` states them::
 
     address: <the channel>
-    element: <deck element>            # or slices: [{element, weight?, device?}]; neither for energy
+    element: <deck element>            # or slices: [{element, weight?, device?, curve?}]; neither for energy
     engine: {attribute, index} | {axis} | {attribute: energy}
     calibration:
       curve: {linear: {gain, offset}} | {table: {grid, values}}
@@ -30,12 +30,15 @@ Rules of the derivation:
 
 * **One supply, one record.** A supply the export names against several
   devices feeds them in series, so they are one record with a slice each. The
-  curve is the first device's; every other device carries the factor that puts
-  it at its own strength where the supply starts, the mean of the hardware
-  nominals its devices state. A device split over several deck elements is a
-  slice per piece; a kick is shared out over the pieces, a strength or a
-  reading describes each piece whole. A slice names its device only where the
-  address is a shared endpoint of several.
+  supply starts at the mean of the hardware nominals its devices state, and
+  each device converts the supply's change from that start through its own
+  exported row from its own nominal, so it moves by the export's own amount
+  per unit of current. The record's curve is the first device's; another
+  device's slice states its own ``curve`` wherever that differs. A slice's
+  weight is its split share and its polarity. A device split over several
+  deck elements is a slice per piece; a kick is shared out over the pieces, a
+  strength or a reading describes each piece whole. A slice names its device
+  only where the address is a shared endpoint of several.
 * **A device with no element is not wired.** It is on the supply and not in
   the deck, so it enters no slice and no mean.
 * **The tunes are read off the solve.** A model's ``tune`` block wires its
@@ -48,10 +51,12 @@ Rules of the derivation:
   at are named for the reader, never bound.
 * **Curves are the export's.** ``curve`` is the calibration of the wired field
   and ``inverse`` the ``monitor_inverse`` of the family's ``Monitor`` field;
-  neither is derived from the other. A sampled curve keeps the points that are
-  numbers at both ends, and where its grid turns back on itself it keeps the
-  stretch holding the supply's operating point, because a table is read by
-  interpolating on a grid that runs one way.
+  neither is derived from the other. Each is a device's exported row, moved
+  along its hardware axis by the supply's start less the device's own nominal,
+  so that the supply's start reads the device at its own nominal. A sampled
+  curve keeps the points that are numbers at both ends, and where its grid
+  turns back on itself it keeps the stretch holding the device's operating
+  point, because a table is read by interpolating on a grid that runs one way.
 * **Energy scaling** is the word the export states beside the wired field's
   calibration, carried for a strength or a kick and ``none`` for everything
   else.
@@ -94,7 +99,7 @@ from osprey.facility.layers.mml.mapping import (
     WiringFamily,
     exported_number,
 )
-from osprey.simulation.engines.calibration import Calibration, Linear, Table, evaluate
+from osprey.simulation.engines.calibration import Calibration, Linear, Table, evaluate, shifted
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
     from osprey.services.mml.family import FamilyView, FieldView
@@ -161,6 +166,7 @@ class _Slice:
     element: str
     weight: float
     device: int
+    curve: Calibration | None = None
 
 
 def wire_model(
@@ -382,7 +388,8 @@ def _family_records(
     where nothing hangs on the nominal: the start value comes from the deck.
     Two things do hang on it, and refuse such a device: a sampled conversion
     that turns back, whose stretch the operating point picks, and a supply
-    feeding several devices in series, whose shares the nominals set.
+    feeding several devices in series, each of which converts from its own
+    nominal.
 
     Returns:
         The records, whether a device was wired without a nominal, and the
@@ -474,9 +481,11 @@ def _supply_record(
 ) -> dict[str, Any]:
     """One supply's record body, whether it feeds one device or several in series.
 
-    The supply starts at the mean of the hardware nominals its devices state
-    and converts through the first device's curve. With one device the mean is
-    its own nominal and its slice weighs what a split shares out.
+    The supply starts at the mean of the hardware nominals its devices state,
+    the shared nominal itself where they all state one, and converts through
+    the first device's row moved so that the start reads it at its own
+    nominal. With one device the start is its own nominal, nothing moves, and
+    its slice weighs what a split shares out.
 
     Returns:
         ``{slices, engine, calibration}`` with ``slices`` as :class:`_Slice`
@@ -485,9 +494,9 @@ def _supply_record(
         element.
 
     Raises:
-        ValueError: The first device states no calibration or one of another
-            shape than the mapping names, a sampled curve reads one way
-            nowhere, or a device of a series sits at no strength.
+        ValueError: A device states no calibration, the first one states one
+            of another shape than the mapping names, or a sampled curve reads
+            one way nowhere.
     """
     written = str(wiring.element_field)
     devices = view.n_devices
@@ -498,9 +507,13 @@ def _supply_record(
         for device in members
     ]
     stated = [value for value in nominals if value is not None]
-    hardware = math.fsum(stated) / len(stated) if stated else 0.0
+    if stated and all(value == stated[0] for value in stated):
+        hardware = stated[0]
+    else:
+        hardware = math.fsum(stated) / len(stated) if stated else 0.0
     if kind == _ENERGY:
         return _energy_record(family, engine, wiring, block, hardware)
+    own = hardware if nominals[0] is None else nominals[0]
 
     sampled = _curve_for_device(block.get(written), "calibration", reference, devices, where)
     if sampled is None:
@@ -511,12 +524,16 @@ def _supply_record(
             f"{where}: the mapping names a {wiring.calibration} calibration "
             f"and the export states a {shape} one"
         )
-    curve = _one_way(sampled, where, "calibration", hardware=hardware)
+    curve = shifted(_one_way(sampled, where, "calibration", hardware=own), hardware - own)
     inverse = _curve_for_device(
         block.get(MONITOR_FIELD), "monitor_inverse", reference, devices, where
     )
     if inverse is not None:
-        inverse = _one_way(inverse, where, "monitor_inverse", hardware=hardware, on_values=True)
+        inverse = shifted(
+            _one_way(inverse, where, "monitor_inverse", hardware=own, on_values=True),
+            hardware - own,
+            on_values=True,
+        )
 
     calibration: dict[str, Any] = {"curve": _curve_record(curve)}
     if inverse is not None:
@@ -524,7 +541,7 @@ def _supply_record(
     calibration["energy_scaling"] = _energy_scaling(kind, block.get(written))
     return {
         "slices": _slices(
-            family, kind, written, view, block, elements, members, evaluate(curve, hardware), deck
+            family, kind, written, view, block, elements, members, hardware, curve, deck
         ),
         "engine": _engine_record(engine),
         "calibration": calibration,
@@ -590,7 +607,7 @@ def _stated(body: dict[str, Any], ids: Sequence[str] | None) -> dict[str, Any]:
 
     One slice of weight 1 on the channel's own device is an ``element``; every
     other record states ``slices``, a weight of 1 and the channel's own device
-    left out.
+    left out, and a slice's own ``curve`` where it has one.
 
     Args:
         body: What :func:`_supply_record` returned.
@@ -599,7 +616,7 @@ def _stated(body: dict[str, Any], ids: Sequence[str] | None) -> dict[str, Any]:
     """
     slices: list[_Slice] = body["slices"]
     rest = {key: value for key, value in body.items() if key != "slices"}
-    if ids is None and len(slices) == 1 and slices[0].weight == 1.0:
+    if ids is None and len(slices) == 1 and slices[0].weight == 1.0 and slices[0].curve is None:
         return {"element": slices[0].element, **rest}
     rows: list[dict[str, Any]] = []
     for piece in slices:
@@ -608,6 +625,8 @@ def _stated(body: dict[str, Any], ids: Sequence[str] | None) -> dict[str, Any]:
             row["weight"] = piece.weight
         if ids is not None:
             row["device"] = ids[piece.device]
+        if piece.curve is not None:
+            row["curve"] = _curve_record(piece.curve)
         rows.append(row)
     return {"slices": rows, **rest}
 
@@ -663,41 +682,51 @@ def _slices(
     block: Map[str, Any],
     elements: Map[int, decks.ElementBinding],
     members: list[int],
-    start_physics: float,
+    start: float,
+    record_curve: Calibration,
     deck: Any,
 ) -> list[_Slice]:
-    """Every element one supply writes, each with the share it carries there.
+    """Every element one supply writes, each with its share and its conversion.
 
-    Two shares and a sign multiply into one weight. The split share divides a
-    value over the pieces one device is modelled as. The series factor is what
-    one device of a series holds against the supply: the physics its own curve
-    puts it at over the physics the supply's curve answers at the starting
-    value. The sign is the device's polarity: where the physics the export's
-    curve puts the device at from its stated nominal and the strength the deck
-    holds on its first piece have opposite signs, the deck is wound the other
-    way, and the slice carries -1 so the device starts at its stated nominal.
+    A share and a sign multiply into one weight. The split share divides a
+    value over the pieces one device is modelled as. The sign is the device's
+    polarity: where the physics the export's row puts the device at from its
+    stated nominal and the strength the deck holds on its first piece have
+    opposite signs, the deck is wound the other way, and the slice carries -1
+    so the device starts at its stated nominal.
+
+    A device's conversion is its own exported row moved along its hardware
+    axis by ``start`` less its own nominal, so the supply's change from
+    ``start`` moves it as its own row does from its nominal. The first device's
+    is ``record_curve``; another device's slices state theirs only where it
+    differs.
 
     Raises:
-        ValueError: A device of a series sits at no strength while the supply
-            sits at some; no fixed share puts a device at zero and still moves
-            it with the supply.
+        ValueError: A device after the first states no calibration, or its
+            sampled curve reads one way nowhere.
     """
     devices = view.n_devices
     rows: list[_Slice] = []
     for device in members:
         pieces = elements[device].slices
         share = 1.0 / len(pieces) if kind in _SHARED_KINDS and len(pieces) > 1 else 1.0
-        factor = 1.0
         where = f"family {family} device {device + 1}"
         nominal = _nominal_for(block, written, device, devices, where)
-        physics = start_physics if nominal is not None else 0.0
-        if len(members) > 1:
-            own = _curve_for_device(block.get(written), "calibration", device, devices, where)
-            physics = evaluate(own, nominal) if own is not None and nominal is not None else 0.0
-            factor = _series_factor(where, physics, start_physics)
+        own = start if nominal is None else nominal
+        if device == members[0]:
+            curve, physics = record_curve, evaluate(record_curve, start)
+        else:
+            row = _curve_for_device(block.get(written), "calibration", device, devices, where)
+            if row is None:
+                raise ValueError(f"{where}: its {written} block states no calibration")
+            converts = _one_way(row, where, "calibration", hardware=own)
+            curve, physics = shifted(converts, start - own), evaluate(converts, own)
+        if nominal is None:
+            physics = 0.0
         held = _deck_strength(deck, pieces[0].position, elements[device].engine)
         sign = -1.0 if held is not None and physics * held < 0.0 else 1.0
-        rows.extend(_Slice(piece.element, share * factor * sign, device) for piece in pieces)
+        stated = None if curve == record_curve else curve
+        rows.extend(_Slice(piece.element, share * sign, device, stated) for piece in pieces)
     return rows
 
 
@@ -711,24 +740,6 @@ def _deck_strength(deck: Any, position: int, engine: EngineBlock) -> float | Non
     except (IndexError, TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
-
-
-def _series_factor(where: str, strength: float, start_physics: float) -> float:
-    """What one device of a series holds against the supply at the starting value.
-
-    A supply whose own curve answers nothing there has no ratio to divide by,
-    and its devices all sit at nothing too, so each moves one for one with it.
-    """
-    if not math.isfinite(start_physics) or start_physics == 0.0:
-        return 1.0
-    factor = strength / start_physics
-    if not math.isfinite(factor) or factor == 0.0:
-        raise ValueError(
-            f"{where}: its supply feeds it in series, the export puts it at {strength:.6g} "
-            f"and the supply itself at {start_physics:.6g}; a device held at nothing by a "
-            "supply that is not cannot be a fixed share of it"
-        )
-    return factor
 
 
 def _element_by_device(

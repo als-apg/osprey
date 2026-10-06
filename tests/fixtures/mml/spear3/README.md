@@ -48,7 +48,8 @@ is a fact about the facility's file, not about the exporter.
 21 families are driven and 22 stand still. `BEND` is the energy knob, `RF` the
 cavity, `BPMx`/`BPMy` the monitors, and the quadrupole and sextupole families drive
 strengths. Fifteen supplies feed their magnets in series, the widest being `SD` and
-`SF` at 28 magnets each; every string is one knob with a fixed share per magnet.
+`SF` at 28 magnets each; every string is one knob; each magnet converts the supply's
+change through its own exported curve from its own nominal.
 
 Three families the type table does not know are answered `latch` in the mapping,
 with the reason written beside the answer: `KickerAmp`, `KickerDelay` and `Septum`
