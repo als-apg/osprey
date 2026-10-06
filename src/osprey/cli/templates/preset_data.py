@@ -21,8 +21,6 @@ from pathlib import Path
 
 from osprey.errors import BuildProfileError
 
-from .shared_data import shared_data_files
-
 #: The directory under the template root holding the bundled facilities.
 FACILITIES_DIRNAME = "facilities"
 
@@ -53,17 +51,13 @@ class PresetData:
     def placed_files(self) -> dict[str, Path]:
         """The files that land in ``data/`` from outside the app template's ``data/``.
 
-        The facility's files at ``facility/<path>``, and the files the app
-        template declares it takes from another one (:func:`shared_data_files`).
+        The facility's files, at ``facility/<path>``.
 
         Returns:
             Data-relative POSIX path -> the packaged file it is copied from,
             sorted by path.
-
-        Raises:
-            ValueError: If the app template's shared-data declaration is malformed.
         """
-        files = dict(shared_data_files(self.app_root))
+        files: dict[str, Path] = {}
         if self.facility_root is not None:
             for path in sorted(self.facility_root.rglob("*")):
                 if path.is_file():
@@ -81,9 +75,6 @@ class PresetData:
         The app template's ``data/`` is copied as it stands (filtered by
         *ignore*, a :func:`shutil.copytree` ignore callable), then every
         :meth:`placed_files` entry lands beside it, byte-identical.
-
-        Raises:
-            ValueError: If the app template's shared-data declaration is malformed.
         """
         import shutil
 

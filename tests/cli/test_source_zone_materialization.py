@@ -665,8 +665,7 @@ def test_data_tree_is_byte_identical_to_the_bundle(
     The sole exception is build exhaust the wheel does not ship either
     (``_EXCLUDED_DATA_SUBTREES``), so that a source checkout which has run the
     benchmarks materializes the same tree a wheel install does. The facility the
-    preset names, and the files a bundle takes from another one
-    (``shared_data.yml``), arrive unchanged too, where they land.
+    preset names arrives unchanged too, where it lands.
     """
     from pathlib import PurePath
 
