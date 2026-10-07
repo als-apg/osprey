@@ -99,6 +99,7 @@ export function handleSSEEvent(data, handlers) {
 /**
  * @typedef {object} NetCallbacks
  * @property {(state: any) => void} onState - fired after /api/state resolves (initial load, re-fetch, or a 'state_updated' SSE signal)
+ * @property {(models: import('./models.js').ModelEntry[]) => void} onModels - fired after /api/models resolves
  * @property {(result: any) => void} onParamSet - fired with the updated state after a slider change is applied
  * @property {(name: string, figData: any) => void} onFigureData - fired with figure JSON once fetched (initial ready figures and 'figure_ready' events)
  * @property {(name: string, status: string) => void} onFigureStatus - fired on a 'figure_status' SSE event
@@ -126,6 +127,33 @@ export function createNetClient(callbacks) {
     } catch (err) {
       console.warn('Failed to fetch state:', err);
     }
+  }
+
+  async function fetchModels() {
+    try {
+      callbacks.onModels(await apiFetch('/api/models'));
+    } catch (err) {
+      console.warn('Failed to fetch models:', err);
+    }
+  }
+
+  /**
+   * Load the named model, then re-read the state and the model list so both
+   * renderings of the choice follow the server. A refused pick re-reads the
+   * list only, which puts the selectors back on the model still loaded.
+   * @param {string} name
+   */
+  async function selectModel(name) {
+    try {
+      await apiFetch('/api/models/select', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      await fetchState();
+    } catch (err) {
+      console.error('Select model failed:', err);
+    }
+    await fetchModels();
   }
 
   async function setBaseline() {
@@ -213,6 +241,8 @@ export function createNetClient(callbacks) {
 
   return {
     fetchState,
+    fetchModels,
+    selectModel,
     setBaseline,
     setParam,
     fetchAndRenderFigure,
