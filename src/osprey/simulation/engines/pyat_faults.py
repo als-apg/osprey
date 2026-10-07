@@ -27,6 +27,7 @@ is a pure function of the reading's address and the time it is read at.
 from __future__ import annotations
 
 import math
+import weakref
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -273,8 +274,16 @@ def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
     return dict(sorted(slots.items()))
 
 
+_MONITORS: weakref.WeakKeyDictionary[Any, dict[str, dict[str, str]]] = weakref.WeakKeyDictionary()
+""":func:`_monitors` per model. A model's variable set is fixed once it is
+built, so the map is too; a rebuilt model is a new key."""
+
+
 def _monitors(model: Any) -> dict[str, dict[str, str]]:
     """Each monitor element's readings, axis -> address, from the model's variables."""
+    cached = _MONITORS.get(model)
+    if cached is not None:
+        return cached
     monitors: dict[str, dict[str, str]] = {}
     for address, variable in model.supported_variables.items():
         axis = getattr(variable, "axis", None)
@@ -282,6 +291,7 @@ def _monitors(model: Any) -> dict[str, dict[str, str]]:
         if not getattr(variable, "read_only", False) or axis not in _AXES or element is None:
             continue
         monitors.setdefault(str(element), {})[axis] = address
+    _MONITORS[model] = monitors
     return monitors
 
 
