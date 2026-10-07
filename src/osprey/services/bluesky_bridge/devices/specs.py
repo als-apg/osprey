@@ -18,11 +18,16 @@ class SettableSpec:
 
     ``readback_pv`` defaults to ``setpoint_pv`` when omitted, for a PV that is
     both read and written (no separate readback record).
+
+    ``settle_tolerance`` is how far the readback may sit from the demand once
+    the move has settled, when the device declares one; ``None`` leaves it on
+    the profile's floor.
     """
 
     name: str
     setpoint_pv: str
     readback_pv: str | None = None
+    settle_tolerance: float | None = None
 
 
 @dataclass(frozen=True)

@@ -16,6 +16,7 @@ line naming the document and its version::
       - name: SR:C01:QF:1          # device name; also the event-data column key
         setpoint: SR:C01:QF:1:SP
         readback: SR:C01:QF:1:RB   # optional; omitted => reads the setpoint PV
+        settle_tolerance: 0.011    # optional; omitted => the profile's settle floor
     readables:
       - name: SR:C01:BPM:1:X
         pv: SR:C01:BPM:1:X:RB
@@ -68,6 +69,13 @@ ACCEPTED_KEYS = (SCHEMA_KEY, *TOP_LEVEL_KEYS)
 
 _SETTABLE_REQUIRED = ("name", "setpoint")
 _SETTABLE_OPTIONAL = ("readback",)
+SETTLE_TOLERANCE_KEY = "settle_tolerance"
+"""Optional settable key: how far the readback may sit from the demand once settled.
+
+A number >= 0 in the channel's unit. A device without one settles within the
+profile's ``bluesky.settle_tolerance``; a device with one settles within the
+larger of the two."""
+_SETTABLE_NUMERIC_OPTIONAL = (SETTLE_TOLERANCE_KEY,)
 _READABLE_REQUIRED = ("name", "pv")
 _READABLE_OPTIONAL: tuple[str, ...] = ()
 
@@ -82,6 +90,19 @@ def _clean(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     return value.strip() or None
+
+
+def _tolerance(value: Any) -> float | None:
+    """Return ``value`` as a float >= 0, or ``None`` if it is not one.
+
+    A bool is refused although Python counts it as an int: ``true`` in a
+    device file is a typo, never a tolerance of 1. NaN compares false and is
+    refused with the negatives.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    number = float(value)
+    return number if number >= 0 else None
 
 
 def _load_document(path: Path) -> Any:
@@ -124,6 +145,8 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
     optional: absent or explicitly null means the device reads its setpoint PV;
     present but not a non-empty string is a malformed entry, because silently
     reading the setpoint would hide a typo'd readback address.
+    ``settle_tolerance`` is optional too: absent or null leaves the device on
+    the profile's floor; present but not a number >= 0 is a malformed entry.
     """
     specs: list[SettableSpec] = []
     for index, entry in enumerate(_entries(section, SETTABLES_KEY)):
@@ -153,7 +176,26 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
                 )
                 continue
 
-        specs.append(SettableSpec(name=name, setpoint_pv=setpoint_pv, readback_pv=readback_pv))
+        settle: float | None = None
+        if entry.get(SETTLE_TOLERANCE_KEY) is not None:
+            settle = _tolerance(entry[SETTLE_TOLERANCE_KEY])
+            if settle is None:
+                logger.warning(
+                    "skipping %s (%r): %r is present but not a number >= 0",
+                    where,
+                    name,
+                    SETTLE_TOLERANCE_KEY,
+                )
+                continue
+
+        specs.append(
+            SettableSpec(
+                name=name,
+                setpoint_pv=setpoint_pv,
+                readback_pv=readback_pv,
+                settle_tolerance=settle,
+            )
+        )
     return specs
 
 
@@ -254,15 +296,23 @@ def specs_from_file(path: str | Path) -> tuple[list[SettableSpec], list[Readable
 
 
 def _validate_section(
-    section: Any, key: str, required: tuple[str, ...], optional: tuple[str, ...]
+    section: Any,
+    key: str,
+    required: tuple[str, ...],
+    optional: tuple[str, ...],
+    numeric: tuple[str, ...] = (),
 ) -> list[str]:
-    """Return the problems in one device section (empty list ⇒ none)."""
+    """Return the problems in one device section (empty list ⇒ none).
+
+    ``optional`` keys are strings when present; ``numeric`` keys are numbers
+    >= 0 when present.
+    """
     if section is None:
         return []
     if not isinstance(section, list):
         return [f"{key!r} must be a list of device entries, got {type(section).__name__}"]
 
-    known = set(required) | set(optional)
+    known = set(required) | set(optional) | set(numeric)
     problems: list[str] = []
     for index, entry in enumerate(section):
         where = f"{key}[{index}]"
@@ -275,6 +325,9 @@ def _validate_section(
         for field in optional:
             if entry.get(field) is not None and _clean(entry[field]) is None:
                 problems.append(f"{where}: {field!r} must be a non-empty string when present")
+        for field in numeric:
+            if entry.get(field) is not None and _tolerance(entry[field]) is None:
+                problems.append(f"{where}: {field!r} must be a number >= 0 when present")
         unknown = [name for name in entry if name not in known]
         if unknown:
             problems.append(f"{where}: unknown key(s) {unknown!r}; expected only {sorted(known)!r}")
@@ -338,7 +391,11 @@ def validate_device_document(doc: Any) -> list[str]:
             f"unknown top-level key(s) {unknown!r}; expected only {list(ACCEPTED_KEYS)!r}"
         )
     problems += _validate_section(
-        doc.get(SETTABLES_KEY), SETTABLES_KEY, _SETTABLE_REQUIRED, _SETTABLE_OPTIONAL
+        doc.get(SETTABLES_KEY),
+        SETTABLES_KEY,
+        _SETTABLE_REQUIRED,
+        _SETTABLE_OPTIONAL,
+        _SETTABLE_NUMERIC_OPTIONAL,
     )
     problems += _validate_section(
         doc.get(READABLES_KEY), READABLES_KEY, _READABLE_REQUIRED, _READABLE_OPTIONAL
