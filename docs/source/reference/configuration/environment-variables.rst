@@ -105,9 +105,11 @@ container that is already running reads nothing from them.
 Virtual accelerator source
 ==========================
 
-Two variables in the deployment's ``.env`` decide what the virtual
-accelerator container serves; the image runs
-``osprey.services.virtual_accelerator.entrypoint`` by name.
+The virtual accelerator container serves the simulator view that
+``osprey build`` writes under its data mount; the image runs
+``osprey.services.virtual_accelerator.entrypoint`` by name. These variables,
+rendered by the compose file, name the instance it serves as and the mount
+points it reads.
 
 .. list-table::
    :header-rows: 1
@@ -115,15 +117,27 @@ accelerator container serves; the image runs
 
    * - Variable
      - What it does
-   * - ``VA_CHANNELS_FILE``
-     - The generated channel manifest's file name, which ``osprey build``
-       writes. Required by the container, which refuses to boot without it.
-   * - ``VA_LATTICE``
-     - The served tree's lattice file name, or ``none``, which
-       ``osprey build`` writes.
-
-How the build writes them --- append-only, with a value already on
-file winning --- is in :doc:`/how-to/deploy-project/env-chain`.
+   * - ``VA_INSTANCE``
+     - Which instance the container serves as: ``virtual_accelerator`` or
+       ``live_standin``. Required; a missing or unknown value refuses the
+       boot. It is written into the model logs and the model RPC's
+       ``status`` reply.
+   * - ``VA_DATA_DIR``
+     - The data root the simulator view sits under, read as
+       ``<VA_DATA_DIR>/simulator/``. Default ``/data``, where the compose file
+       mounts the render's ``build/data`` read-only.
+   * - ``VA_POLL_INTERVAL_S``
+     - The period of the served model's passes, in seconds, greater than
+       zero. Set by ``simulation.tick_s``; a project ``.env`` value is not
+       read.
+   * - ``VA_STATE_DIR``
+     - The directory holding the active scenarios ``osprey sim apply``
+       writes; the container re-reads them when they change. Unset serves
+       ``nominal`` alone.
+   * - ``VA_MODEL_WRITE_TOKEN``
+     - The secret a model RPC write must present, passed through from the
+       project ``.env`` to the virtual accelerator instance only. Unset or
+       empty refuses every model write.
 
 The Phoebus server's overrides
 ==============================
