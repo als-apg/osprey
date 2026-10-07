@@ -228,9 +228,6 @@ DENIED: tuple[Denied, ...] = (
                 "tests/simulation/matlab_reference.py",
                 "tests/simulation/test_artifact.py",
                 "tests/simulation/test_facility_spec.py",
-                "tests/simulation/test_fidelity.py",
-                "tests/simulation/test_lattice.py",
-                "tests/simulation/test_orbit_closure.py",
             }
         ),
     ),
@@ -279,9 +276,6 @@ DENIED: tuple[Denied, ...] = (
                 "tests/simulation/matlab_reference.py",
                 "tests/simulation/test_artifact.py",
                 "tests/simulation/test_facility_spec.py",
-                "tests/simulation/test_fidelity.py",
-                "tests/simulation/test_lattice.py",
-                "tests/simulation/test_orbit_closure.py",
                 # The suites for the shipped reference ingestion adapter, which
                 # returns "ALS eLog": an expectation spelled any other way would
                 # assert a value no adapter produces.
