@@ -61,7 +61,10 @@ SELF_EXEMPT: tuple[str, ...] = (
 
 #: Retired token -> the stage that deleted its last producer or reader.
 RETIRED: dict[str, str] = {
+    "ACTIVE_SCENARIO_FILENAME": "7a0",
     "BUILD_TTL_COMMAND": "5",
+    "CohostDriver": "7d",
+    "CohostRunner": "7d",
     "DIRECTION_UNDERIVABLE": "2",
     "DatabaseWriteError": "4b",
     "FACILITY_PREFIX_CONFIG_KEY": "5",
@@ -70,11 +73,14 @@ RETIRED: dict[str, str] = {
     "GRAPH_MALFORMED": "2",
     "GRAPH_NO_TTL": "2",
     "GRAPH_SOURCE_PARADIGM": "2",
+    "TestKindAwareNoiseFloor": "7d",
     "TierSpec": "4a",
+    "VA_ENTRYPOINT_MODULE": "7d",
     "_DerivedDevices": "4b",
     "_GRAPHDB_RECOVERY_HINT": "5",
     "_check_empty_facility_prefix": "3b",
     "_control_system_simulation_file": "7a",
+    "_extend_pvdb": "7d",
     "_hierarchical_write": "4b",
     "_resolve_ttl": "5",
     "_with_derived_simulation_file": "7a",
