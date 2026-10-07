@@ -211,7 +211,8 @@ The imperfections a machine starts from are scenario faults. A scenario under
 and then by address, each a value, ``stuck``, or a map of fault fields to
 values; the composite seeds them into its models when the scenario is
 active. ``stuck`` is a fault of the composite's write path rather than of a
-model: a stuck setpoint accepts a write and does not forward it.
+model: a stuck setpoint accepts a write, reads the value written, and forwards
+none of it; its readback shows the model where it was.
 
 A readout fault never moves the orbit; it changes what a monitor reports.
 ``diff`` is where it becomes visible, as a served reading that has parted from
