@@ -855,8 +855,7 @@ def test_p1_co_deploy_health_binding_and_ordering() -> None:
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-@pytest.mark.usefixtures("deployed_stack")
-def test_p2_full_manifest_liveness() -> None:
+def test_p2_full_manifest_liveness(deployed_stack: DeployedStack) -> None:
     # Runs scripts/va/sweep_check.py as its OWN subprocess/CA client, exactly
     # as it's meant to be invoked against a host-published container (see its
     # module docstring) — never in-process here: this process also acts as an
@@ -867,9 +866,11 @@ def test_p2_full_manifest_liveness() -> None:
     # The sweep script defaults EPICS_CA_NAME_SERVERS to localhost:5064; this
     # stack serves CA on the module's ephemeral VA_CA_PORT, so the subprocess
     # must be told explicitly (the in-process connectors get it via
-    # _VA_GATEWAY instead).
+    # _VA_GATEWAY instead). The addresses file is the deployed render's, named
+    # absolutely: the script's default is relative to its working directory.
+    addresses_json = deployed_stack.repo / "build" / "data" / "simulator" / "addresses.json"
     proc = subprocess.run(
-        [sys.executable, str(SWEEP_SCRIPT)],
+        [sys.executable, str(SWEEP_SCRIPT), str(addresses_json)],
         capture_output=True,
         text=True,
         timeout=SWEEP_TIMEOUT_SEC,
