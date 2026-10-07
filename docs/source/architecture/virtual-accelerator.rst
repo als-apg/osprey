@@ -64,8 +64,7 @@ Two transports, one write path
 One process serves both protocols. **Channel Access carries the whole
 namespace and is the authoritative view**; PVAccess additionally serves the
 model's own variables natively. Every setpoint write from either transport
-enters the same ``write_path``, passes the same drive-limit clamp and physics
-hand-off, and is committed on both views — a write on either transport moves
+passes the same drive-limit clamp and physics hand-off, and is committed on both views — a write on either transport moves
 both, a refused write moves neither. Only the completion differs, forced by
 the protocols: CA put-completion carries no status, so a refusal withholds the
 echo and raises an alarm; a PVAccess put completes with the model's error
@@ -83,7 +82,7 @@ Physics is optional
 
 ``VA_LATTICE`` names the lattice file the container serves; ``osprey build``
 writes it, and the value ``none`` boots the same service with no lattice: pyAT
-is never imported and the served model is the empty ``NullModel``. The Channel Access
+is never imported. The Channel Access
 namespace is *identical* to a lattice-backed boot; the only difference is that
 a pyat-coupled setpoint simply latches its written value. That is what makes
 the service usable for a facility that has a channel list but no model behind
@@ -141,8 +140,7 @@ Bringing your own model
 
 The runner is built around one ``LUMEModel``, and the entrypoint is what
 chooses it. The shipped ``entrypoint.py`` builds ``PyATRingModel`` when
-``VA_LATTICE`` names a lattice and ``NullModel`` when it is ``none``, and hands
-that to the runner. Nothing in a profile, ``config.yml`` or ``.env`` passes it
+``VA_LATTICE`` names a lattice, and hands that to the runner. Nothing in a profile, ``config.yml`` or ``.env`` passes it
 another.
 
 **A pyAT ring is data.** Any facility's pyAT deck is served by the shipped

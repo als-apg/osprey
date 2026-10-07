@@ -260,15 +260,11 @@ The virtual accelerator serves one ``lume.model.LUMEModel``, chosen by the
 module the container runs. The shipped
 ``osprey.services.virtual_accelerator.entrypoint`` builds
 ``osprey.services.virtual_accelerator.model.pyat.PyATRingModel`` over the
-served tree's lattice, or the floor,
-``osprey.services.virtual_accelerator.serving.model_stub.NullModel``, which
-serves a channel list and no physics. A different pyAT deck needs no code (see
+served tree's lattice. A different pyAT deck needs no code (see
 "Bringing your own model" on :doc:`/architecture/virtual-accelerator`). A
 different backend is a replacement entrypoint module, run by an image whose
 ``CMD`` names it; the stock image's ``CMD`` runs
-``osprey.services.virtual_accelerator.entrypoint`` by name. For a shipped model wrapped so that setpoint writes
-carry a calibration and push recomputed readings back onto their channels, see
-``osprey.services.virtual_accelerator.serving.write_path.SetpointRoutedModel``.
+``osprey.services.virtual_accelerator.entrypoint`` by name.
 
 A replacement entrypoint honours the same contract as the shipped one, which
 is its reference implementation:
@@ -289,9 +285,7 @@ is its reference implementation:
 - **Clamp writes to the drive bands.** The shipped entrypoint reads
   ``channel_limits.json`` from the data directory and hands the bands to the
   runner, which clamps every written value into its band before anything else
-  happens to it (the clamp is
-  ``osprey.services.virtual_accelerator.serving.write_path.clamp_into``). A
-  replacement that builds its own server without them serves setpoints with no
+  happens to it. A replacement that builds its own server without them serves setpoints with no
   band on the IOC side. The connector's own ``limits_checking`` is separate and
   unchanged.
 - **Announce readiness.** Once every boot value is on the wire, print one line
