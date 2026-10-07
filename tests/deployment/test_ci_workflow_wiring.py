@@ -7541,6 +7541,22 @@ def test_spending_lane_gating__mutation_adds_a_schedule_arm() -> None:
         test_spending_lane_runs_only_under_label_or_revalidation(mutated, "agentic-per-preset")
 
 
+def test_spending_lanes_name_no_base_ref(workflow: dict[str, Any]) -> None:
+    """The label is the only pull-request gate on a spending lane: no clause
+    names the base branch. Widening the workflow trigger to another base
+    therefore cannot start a spending lane on an unlabeled pull request."""
+    scoped = sorted(lane for lane in SPENDING_LANES if "base.ref" in _jobs(workflow)[lane]["if"])
+    assert scoped == [], f"spending lanes whose if: names a base ref: {scoped}"
+
+
+def test_spending_lanes_name_no_base_ref__mutation_adds_an_integration_base() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)["scan-agentic-e2e"]
+    job["if"] = job["if"] + " || startsWith(github.event.pull_request.base.ref, 'integration/')"
+    with pytest.raises(AssertionError, match="names a base ref"):
+        test_spending_lanes_name_no_base_ref(mutated)
+
+
 def test_workflow_has_no_schedule_trigger(workflow: dict[str, Any]) -> None:
     """No cron at all: every run of this workflow is one somebody asked for
     (a push, a pull request, a dispatch), so every red has a reader. A
