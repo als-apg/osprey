@@ -378,10 +378,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         if os.environ.get("ALS_APG_BASE_URL")
         else ""
     )
-    # APPENDED, never rewritten: `osprey init` seeded this file and `osprey
-    # build` appended the keys the virtual-accelerator containers boot from
-    # (VA_CHANNELS_FILE, VA_LATTICE). Rewriting it would drop those, and both
-    # VA instances would refuse to start against an unnamed manifest.
+    # APPENDED, never rewritten: `osprey init` seeded this file, and a rewrite
+    # would drop what it put there.
     with (repo / ".env").open("a", encoding="utf-8") as handle:
         handle.write(
             "\n# ── e2e fixture ──\n"

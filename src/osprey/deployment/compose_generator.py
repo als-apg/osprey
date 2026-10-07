@@ -1557,57 +1557,6 @@ def _bluesky_lane_write_posture(services, control_system):
     }
 
 
-def _standin_perturbation(config, repo_root):
-    """The lattice the stand-in will boot with, and the perturbation that follows.
-
-    Which perturbation follows from which lattice is
-    :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`'s
-    to say: a chain serving no lattice has no model for those offsets to
-    displace, so the stand-in serves its manifest unperturbed rather than
-    carrying faults nothing can apply. Asked here rather than restated, because
-    the build resolves the same rule to decide what it can boot with
-    (:func:`osprey.cli.build_profile_va_faults.effective_standin_bpm_errors`).
-
-    The perturbation itself is the deployment's own
-    (:func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.served_data_root`
-    over the same two roots the lattice resolves from): a deployment is handed
-    the machine its own tree describes, never another facility's devices.
-
-    Read through :func:`~osprey_connectors.dotenv.resolved_va_lattice`, the
-    resolver :func:`osprey.cli.build_profile_va_faults.effective_standin_bpm_errors`
-    reads too, from the same two roots — the deployment repo, then the render
-    zone the containers are actually handed — so the build and the render
-    cannot come to two answers.
-
-    The manifest package is imported inside the function, following
-    ``container_lifecycle``'s own use of it: it pulls in the channel-finder
-    database readers at import, and the deployment layer keeps that off the
-    module import path every ``osprey`` invocation pays for.
-
-    :param config: The config being rendered; read for its ``build_dir`` only.
-    :param repo_root: The deployment repo root, already resolved by the caller.
-    :return: ``(lattice, default)`` — the resolved ``VA_LATTICE``, and the value
-        the stand-in's ``${VA_STANDIN_BPM_ERRORS-...}`` interpolation falls back
-        to when the chain names no perturbation.
-    :rtype: tuple[str, str]
-    """
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-        default_bpm_errors_for_lattice,
-        served_data_root,
-    )
-    from osprey.utils.workspace import BUILD_DIR_NAME
-
-    build_dir = Path(str(config.get("build_dir", f"./{BUILD_DIR_NAME}")))
-    if not build_dir.is_absolute():
-        build_dir = Path(repo_root) / build_dir
-    lattice = dotenv.resolved_va_lattice(Path(repo_root), build_dir)
-    default = default_bpm_errors_for_lattice(
-        lattice != dotenv.VA_LATTICE_DEFAULT,
-        served_data_root(Path(repo_root), build_dir),
-    )
-    return lattice, default
-
-
 def _va_noise_level(config):
     """The noise the Virtual Accelerator's synthesised readings carry, as text.
 
@@ -4677,27 +4626,6 @@ def prepare_compose_files(
     record_env_chain_membership(
         config.get("build_dir", "./build"), env_chain_names(resolve_repo_root(config))
     )
-
-    # What a stand-in without a lattice actually serves. The shipped readout
-    # perturbation displaces a model, and a chain that serves no lattice has
-    # none — so the render hands the stand-in the EMPTY set
-    # (:func:`_standin_perturbation`) instead of refusing the build,
-    # and the operator is told which of the two they got. Reported here rather
-    # than beside the derivation because this function runs once per render
-    # while ``_inject_project_metadata`` runs once per service template.
-    #
-    # Gated on a stand-in existing at all: ``live_standin_port`` is the single
-    # piece of evidence that this deployment built one, and a project without
-    # one has no fact here to report.
-    from osprey_connectors.standin import live_standin_port
-
-    if live_standin_port(config) is not None:
-        standin_lattice, standin_default = _standin_perturbation(config, resolve_repo_root(config))
-        if not standin_default:
-            _report_fact(
-                "stand-in serves the facility manifest unperturbed "
-                f"(VA_LATTICE={standin_lattice}: no model to displace)"
-            )
 
     compose_files = []
 

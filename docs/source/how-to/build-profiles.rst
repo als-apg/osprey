@@ -734,9 +734,8 @@ start it yourself:
 Who else writes to ``.env``
 ---------------------------
 
-``osprey up`` and ``osprey build`` both append to the file — minted credentials
-and derived pointers respectively — and both leave a value already on file
-alone; :ref:`deployment-env-chain` has what each writes and why.
+``osprey up`` appends minted credentials to the file and leaves a value
+already on file alone; :ref:`deployment-env-chain` has what it writes and why.
 
 
 Profile YAML reference

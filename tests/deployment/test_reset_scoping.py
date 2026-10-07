@@ -47,7 +47,6 @@ from osprey.cli.reset_cmd import reset as reset_command
 from osprey.deployment import reset as reset_mod
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
 from osprey.deployment.reset import (
-    DERIVED_ENV_BANNER,
     MINTED_ENV_BANNERS,
     ForeignCheckoutError,
     ResetOutcome,
@@ -1062,17 +1061,16 @@ def test_the_plan_counts_the_provider_keys_it_is_keeping(repo):
 
 
 # ---------------------------------------------------------------------------
-# The build's derived section: pointers, not secrets, and every build makes them
+# Pointer lines under no banner: the operator's, whatever they name
 # ---------------------------------------------------------------------------
 
 
-def _with_derived_block(repo: Path) -> Path:
-    """Give a repo the ``.env`` section ``osprey build`` writes its pointers into."""
+def _with_unbannered_pointers(repo: Path) -> Path:
+    """Give a repo two ``VA_*`` pointer lines under no OSPREY banner."""
     env = repo / ".env"
     env.write_text(
         env.read_text(encoding="utf-8")
-        + f"\n# {DERIVED_ENV_BANNER}\n"
-        + "VA_CHANNELS_FILE=channel_manifest.json\n"
+        + "\nVA_CHANNELS_FILE=channel_manifest.json\n"
         + "VA_LATTICE=lattice.json\n",
         encoding="utf-8",
     )
@@ -1080,70 +1078,46 @@ def _with_derived_block(repo: Path) -> Path:
 
 
 @pytest.mark.usefixtures("no_down")
-def test_the_build_derived_pointers_go_with_the_deployment(repo):
-    """A discarded deployment keeps no pointer into the build tree it discarded.
-
-    The next build re-derives both from the project's own content, and a value
-    surviving the reset wins over the fresh one — the file is append-only — so
-    the stack would come back up aimed at a tree that no longer exists.
-    """
-    env = _with_derived_block(repo)
+def test_the_operators_keys_survive_beside_unbannered_pointers(repo):
+    """A line under no OSPREY banner is the operator's, and the reset keeps it."""
+    env = _with_unbannered_pointers(repo)
 
     run_reset(repo, FakeRuntime())
 
     text = env.read_text(encoding="utf-8")
-    assert "VA_LATTICE" not in text
-    assert "VA_CHANNELS_FILE" not in text
-    assert DERIVED_ENV_BANNER not in text
+    assert "ANTHROPIC_API_KEY=sk-provider-secret" in text
+    assert "VA_CHANNELS_FILE=channel_manifest.json" in text
 
 
 @pytest.mark.usefixtures("no_down")
-def test_the_operators_keys_survive_the_derived_strip(repo):
-    env = _with_derived_block(repo)
-
-    run_reset(repo, FakeRuntime())
-
-    assert "ANTHROPIC_API_KEY=sk-provider-secret" in env.read_text(encoding="utf-8")
-
-
-@pytest.mark.usefixtures("no_down")
-def test_a_pointer_pinned_outside_the_builds_section_is_the_operators(repo):
-    """The banner is what makes a line the build's. A line above it is not."""
+def test_a_pointer_pinned_by_the_operator_is_the_operators(repo):
+    """No banner, no claim: OSPREY strips only the blocks it wrote."""
     (repo / ".env").write_text(
-        "VA_LATTICE=my-own-ring.json\nANTHROPIC_API_KEY=sk-x\n", encoding="utf-8"
+        "VA_LATTICE=my-own-lattice.json\nANTHROPIC_API_KEY=sk-x\n", encoding="utf-8"
     )
 
     run_reset(repo, FakeRuntime())
 
-    assert "VA_LATTICE=my-own-ring.json" in (repo / ".env").read_text(encoding="utf-8")
+    assert "VA_LATTICE=my-own-lattice.json" in (repo / ".env").read_text(encoding="utf-8")
 
 
-def test_the_plan_names_the_derived_pointers_it_will_remove(repo):
-    _with_derived_block(repo)
-
-    rendered = "\n".join(plan_reset(repo, probe=make_probe(FakeRuntime())).render())
-
-    assert "VA_LATTICE" in rendered
-    assert "VA_CHANNELS_FILE" in rendered
-
-
-def test_the_confirmation_counts_the_pointers_apart_from_the_secrets(repo):
-    """Two nouns, because the two sections cost an operator different things."""
-    _with_derived_block(repo)
+def test_the_confirmation_counts_only_the_minted_values(repo):
+    _with_unbannered_pointers(repo)
 
     summary = plan_reset(repo, probe=make_probe(FakeRuntime())).confirmation_summary()
 
     assert "2 minted values" in summary
-    assert "2 build-derived pointers" in summary
+    assert "build-derived" not in summary
 
 
-def test_the_closing_report_counts_the_pointers_apart_too(repo):
-    _with_derived_block(repo)
+def test_the_closing_report_counts_only_the_minted_values(repo):
+    _with_unbannered_pointers(repo)
     plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
 
     reported = "\n".join(reset_mod._condensed_outcome_lines(plan))
 
-    assert "stripped 2 minted values, 2 build-derived pointers" in reported
+    assert "stripped 2 minted values" in reported
+    assert "build-derived" not in reported
 
 
 def test_every_banner_the_deploy_writes_is_one_reset_knows_about():

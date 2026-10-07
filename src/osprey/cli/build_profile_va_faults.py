@@ -31,7 +31,6 @@ Two of them are about the third target rather than about ports:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
 # The one nested-tree walker, borrowed rather than repeated for the same reason
@@ -53,11 +52,6 @@ from osprey_connectors.types import (
 # second answer free to disagree with the renderer's.
 from .build_profile_archiver import VAArchiverConfig, _expand_dotted
 from .build_profile_schema import VAConfig
-
-#: Environment variable carrying the stand-in's shipped readout perturbation.
-#: Named here so the build-time render check (which owns the default's value)
-#: and this grammar check name the same variable.
-STANDIN_BPM_ERRORS_ENV = "VA_STANDIN_BPM_ERRORS"
 
 #: Key of the VA gateway table, in the nested spelling a rendered config reads.
 #: Mirrors ``_VA_CONNECTOR_PATH`` in ``build_injectors``; the two ends of the
@@ -292,47 +286,3 @@ def _baseline_type(config: Any) -> str:
         dotted_get(_expand_dotted(config), _CONTROL_SYSTEM_KEY)
     )
     return baseline
-
-
-def effective_standin_bpm_errors(project_root: Path, build_dir: Path | None = None) -> str:
-    """The readout perturbation the stand-in would actually boot with.
-
-    The compose file renders the stand-in's ``VA_BPM_ERRORS`` from the
-    deployment's ``VA_STANDIN_BPM_ERRORS``, so a chain that names the key
-    answers this on its own — including with an EMPTY value, which is an empty
-    perturbation rather than an absent one, so a deployment that turns the
-    shipped faults off gets no faults rather than the default back.
-
-    **The fallback is the deployment's own machine, and it is
-    lattice-conditional.** Both halves are asked of
-    :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`
-    rather than restated here: the perturbation is the one the served tree's
-    ``machine.json`` states, and it applies only to a deployment serving a
-    lattice, since it names offsets on a model and there is nothing to displace
-    without one. That is the same function the render side writes the compose
-    interpolation from, over the same two roots, so validation and the rendered
-    file cannot come to different answers about what the container receives.
-
-    Args:
-        project_root: The deployment repo root, whose env chain the containers
-            are handed. Also the profile root at validation time.
-        build_dir: The published output zone, when the caller has one — handed
-            on to the lattice resolver, whose chain it extends.
-
-    Returns:
-        The perturbation spec, stripped; empty when the stand-in ships none.
-    """
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-        default_bpm_errors_for_lattice,
-        served_data_root,
-    )
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, merge_chain, resolved_va_lattice
-
-    chain: dict[str, str] = merge_chain(Path(project_root))
-    if STANDIN_BPM_ERRORS_ENV in chain:
-        return chain[STANDIN_BPM_ERRORS_ENV].strip()
-    lattice = resolved_va_lattice(project_root, build_dir)
-    return default_bpm_errors_for_lattice(
-        lattice != VA_LATTICE_DEFAULT,
-        served_data_root(Path(project_root), build_dir),
-    ).strip()

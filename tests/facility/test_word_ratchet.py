@@ -61,7 +61,6 @@ CLEAN_PATHS: tuple[str, ...] = (
 
 ALLOWLIST: dict[str, str] = {
     "src/osprey/cli/mml_cmd.py": "delete:7e",
-    "src/osprey/deployment/container_lifecycle.py": "rename:12",
     "src/osprey/interfaces/ariel/static/css/components.css": "rename:12",
     "src/osprey/interfaces/channel_finder/database_api.py": "rename:12",
     "src/osprey/interfaces/design_system/static/css/highlight.css": "rename:12",
