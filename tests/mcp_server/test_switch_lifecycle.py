@@ -408,6 +408,36 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
             await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
         )
 
+    async def test_a_child_whose_posture_is_not_the_derived_one_is_refused(
+        self, make_manager, monkeypatch
+    ):
+        manager = await started_on(make_manager, "live")
+        real_writes = connector_host_manager.effective_writes_for_target
+
+        def writes(section, target):
+            # The parent derives 'va' armed; the child, handed no project
+            # config, comes up with its writes off. The 'va' block has no
+            # gateways, so only the posture check can tell the two apart.
+            return True if target == "va" else real_writes(section, target)
+
+        monkeypatch.setattr(connector_host_manager, "effective_writes_for_target", writes)
+
+        with pytest.raises(SwitchError) as raised:
+            await manager.switch("va")
+
+        assert raised.value.stage == "verify"
+        assert raised.value.reason == connector_host_manager.REASON_VERIFICATION_FAILED
+        assert raised.value.verification.field == "writes_enabled"
+        assert raised.value.verification.expected is True
+
+        candidate = manager.spawned[1]
+        assert await wait_for(lambda: candidate.returncode is not None)
+        assert manager.active_target() == "live"
+        assert manager.active_generation() == 0
+        assert isinstance(
+            await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
+        )
+
     async def test_a_target_without_a_probe_channel_is_refused_before_any_spawn(self, make_manager):
         manager = await started_on(make_manager, "live", raw=raw_config(va_probe=None))
         spawned_before = len(manager.spawned)
@@ -1655,6 +1685,87 @@ class TestVerificationRule:
         assert verification.field == "host"
         assert verification.expected == "gw.example.org"
         assert verification.got == "elsewhere.example.org"
+
+    def _posture_report(self, **changes):
+        report = {
+            **self.NOTHING_CONFIGURED,
+            "connector_type": "virtual_accelerator",
+            "writes_enabled": False,
+            "readonly_run": False,
+        }
+        report.update(changes)
+        return report
+
+    def test_a_gatewayless_child_armed_where_the_parent_derived_off_fails_on_writes(self):
+        # The endpoint check sees posture only through the gateway role, which
+        # a gatewayless target never varies: only the posture check catches it.
+        verification = verify_host_report(
+            self._derivation(),
+            self._posture_report(writes_enabled=True),
+            readonly_run=False,
+            writes_enabled=False,
+        )
+
+        assert verification.ok is False
+        assert verification.field == "writes_enabled"
+        assert verification.expected is False
+        assert verification.got is True
+
+    def test_a_read_only_row_child_not_in_the_readonly_run_fails_on_readonly_run(self):
+        derivation = self._derivation(
+            {"read_only": Endpoint(host="gw.example.org", port=5064, mode="addr_list")}
+        )
+        report = self._posture_report(
+            selected_role="read_only",
+            mode="addr_list",
+            host="gw.example.org",
+            port=5064,
+            _epics_configured=True,
+            readonly_run=False,
+        )
+
+        verification = verify_host_report(
+            derivation, report, readonly_run=True, writes_enabled=False
+        )
+
+        assert verification.ok is False
+        assert verification.field == "readonly_run"
+        assert verification.expected is True
+        assert verification.got is False
+
+    def test_a_child_reporting_another_connector_type_fails_on_connector_type(self):
+        verification = verify_host_report(
+            self._derivation(),
+            self._posture_report(connector_type="epics"),
+            readonly_run=False,
+            writes_enabled=False,
+        )
+
+        assert verification.ok is False
+        assert verification.field == "connector_type"
+        assert verification.expected == "virtual_accelerator"
+        assert verification.got == "epics"
+
+    def test_a_child_whose_posture_matches_goes_on_to_the_endpoint_check(self):
+        verification = verify_host_report(
+            self._derivation(),
+            self._posture_report(),
+            readonly_run=False,
+            writes_enabled=False,
+        )
+
+        assert verification.ok is True
+        assert "derives no gateway" in verification.detail
+
+    def test_without_a_posture_the_check_is_the_endpoint_check_alone(self):
+        # Neither posture argument given: the report's type and posture fields
+        # are not consulted at all.
+        verification = verify_host_report(
+            self._derivation(),
+            self._posture_report(connector_type="epics", writes_enabled=True, readonly_run=False),
+        )
+
+        assert verification.ok is True
 
 
 # ------------------------------------------------- config-derived facts (unit)

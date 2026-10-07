@@ -865,42 +865,36 @@ class ConnectorHostPool:
         failure: Any,
     ) -> None:
         """Refuse a child whose report is not what this process derives."""
-        # The child echoes the target it was sent, so only the type it resolved
-        # that target to can differ — a child from another build of the package.
-        if report.get("connector_type") != derivation.connector_type:
+        verification = verify_host_report(
+            derivation, report, readonly_run=readonly_run, writes_enabled=writes
+        )
+        if verification.ok:
+            return
+        if verification.field == "connector_type":
             raise failure(
                 STAGE_VERIFY,
-                f"reports connector_type {report.get('connector_type')!r} where "
-                f"{derivation.connector_type!r} was derived.",
+                f"reports connector_type {verification.got!r} where "
+                f"{verification.expected!r} was derived.",
             )
-
-        # Posture first, for every connector type: the endpoint check below
-        # only sees posture through the gateway role, which a connector with no
-        # gateways, or with a read_only row alone, never varies.
-        if readonly_run:
-            if report.get("readonly_run") is not True:
-                raise failure(
-                    STAGE_VERIFY,
-                    "was asked to run readonly but reports it is not in a readonly run.",
-                )
-        else:
-            child_writes = report.get("writes_enabled") is True
-            if child_writes != writes:
-                source = self._config_file or "none given, so CONFIG_FILE or ./config.yml"
-                raise failure(
-                    STAGE_VERIFY,
-                    f"reports writes {'armed' if child_writes else 'off'} where the section "
-                    f"given to the pool has them {'armed' if writes else 'off'}. The child "
-                    f"reads its write posture from config_file ({source}), not from the "
-                    "section; the two must agree.",
-                )
-
-        verification = verify_host_report(derivation, report)
-        if not verification.ok:
+        if verification.field == "readonly_run":
             raise failure(
                 STAGE_VERIFY,
-                f"came up somewhere other than derived: {verification.detail}",
+                "was asked to run readonly but reports it is not in a readonly run.",
             )
+        if verification.field == "writes_enabled":
+            child_writes = verification.got is True
+            source = self._config_file or "none given, so CONFIG_FILE or ./config.yml"
+            raise failure(
+                STAGE_VERIFY,
+                f"reports writes {'armed' if child_writes else 'off'} where the section "
+                f"given to the pool has them {'armed' if writes else 'off'}. The child "
+                f"reads its write posture from config_file ({source}), not from the "
+                "section; the two must agree.",
+            )
+        raise failure(
+            STAGE_VERIFY,
+            f"came up somewhere other than derived: {verification.detail}",
+        )
 
     async def _discard(self, child: _PoolChild, reason: str, cause: str) -> None:
         """Drop a child that failed: attribute, kill, and let the proxy settle.
