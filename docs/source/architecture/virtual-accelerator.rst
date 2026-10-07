@@ -177,13 +177,27 @@ addresses from the composite and model variables from their model. ``diff``
 puts the value the control system serves beside the composite's own for every
 channel of ``addresses.json``, the composite's read without motion or readout.
 ``status`` reports on the server itself: ``instance``, ``endpoint``,
-``last_cycle_ms``, ``queue_depth``, ``uptime_s``, ``last_refused_write`` and
+``last_cycle_ms``, ``queue_depth``, ``uptime_s``, ``last_refused_write``,
 ``last_failed_pass``, which is ``null`` or the ``error`` and ``uptime_s`` of
-the latest publishing pass that failed.
+the latest publishing pass that failed, and ``health``, the server's health
+record.
 ``set`` writes model variables only: a served address, a value that is not
 finite and a name the composite refuses are each refused. ``reset`` writes
 every drifted writable model variable back to the value it held when its model
 was built at the active scenarios, and returns the names it reset.
+
+The health record counts every publishing pass. Its ``state`` is ``serving``
+when the latest pass succeeded, ``degraded`` while up to
+``failed_pass_tolerance`` passes in a row have failed (three by default), and
+``failed`` once more than that have; a pass that succeeds returns it to
+``serving``. It also carries the latest pass's outcome, ``uptime_s`` and
+wall-clock ``at``, the ``passes_ok`` and ``passes_failed`` counters, and the
+latest failed pass. The runner rewrites the record atomically to
+``/run/osprey-va/health.json`` inside the container after every pass, and the
+container's compose healthcheck reads that file: it passes while the record is
+``serving`` or ``degraded`` and fails on ``failed``, a missing file or one that
+is not JSON. The ready line the container prints at boot reports the first
+pass only.
 
 Those two write verbs ask for an administrative token. The container reads it
 from ``VA_MODEL_WRITE_TOKEN`` at startup and compares what a caller presents
