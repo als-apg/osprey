@@ -24,12 +24,14 @@ import threading
 import time
 from collections.abc import Mapping
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from lume_pva_apg.runner import Runner
 from p4p import Value
 from p4p.server.thread import SharedPV
 
+from osprey.services.virtual_accelerator.serving.health import write_document
 from osprey.services.virtual_accelerator.serving.model_rpc import (
     ERR_NOT_READY,
     ERR_TIMEOUT,
@@ -175,9 +177,10 @@ class ModelRunner(Runner):
     A failed pass rolls the composite back to the state cached before it only
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
     composite as it was. The model RPC's write verbs reply only after a
-    publishing pass has run. Every pass that fails is recorded for
-    ``status``. Every publishing pass's outcome, success or failure, is
-    recorded in the surface's health record, which ``status`` reports.
+    publishing pass has run. Every publishing pass's outcome, success or
+    failure, is recorded in the surface's health record, which ``status``
+    reports and which is rewritten to the health file after every pass when
+    one is named.
     """
 
     def __init__(
@@ -189,6 +192,7 @@ class ModelRunner(Runner):
         model_write_token: str | None,
         tick_interval_s: float | None = None,
         instance: str | None = None,
+        health_file: Path | None = None,
         failed_pass_tolerance: int | None = None,
     ) -> None:
         """Serve ``composite``, built from the simulator view ``view`` describes.
@@ -203,6 +207,9 @@ class ModelRunner(Runner):
                 ``None`` for none.
             instance: the instance name the model RPC's ``status`` reports,
                 or ``None`` for the host this server answers as.
+            health_file: where the health record is rewritten, atomically,
+                after every publishing pass, or ``None`` to keep it in
+                process only.
             failed_pass_tolerance: how many consecutive failed publishing
                 passes the health record still counts as ``degraded``, or
                 ``None`` for the default of
@@ -210,6 +217,7 @@ class ModelRunner(Runner):
         """
         self._addresses_json = addresses_json
         self._instance = instance
+        self._health_file = health_file
         self._model_write_token = model_write_token
         self._chromaticity = chromaticity_addresses(view)
         self._write_pass = False
@@ -260,7 +268,9 @@ class ModelRunner(Runner):
         if self._passes_run == 0:
             self._first_pass_error = error
         self._passes_run += 1
-        self._surface.record_pass(error)
+        document = self._surface.record_pass(error)
+        if self._health_file is not None:
+            write_document(self._health_file, document)
 
     def _cycle_output_names(self) -> list[str]:
         """The roster read after ``model.set``; a write pass leaves the chromaticity out."""

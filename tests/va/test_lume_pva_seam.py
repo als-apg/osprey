@@ -513,6 +513,7 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
             json.loads((view_dir / "addresses.json").read_text(encoding="utf-8")),
             model_write_token=TOKEN,
             tick_interval_s=spec["tick"],
+            health_file=Path(spec["health_file"]),
         )
         _instrument(runner, observed)
         started: dict[str, Any] | None = None
@@ -523,6 +524,7 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
             started = {
                 "error": error,
                 "last_failed_pass": runner._surface.status()["last_failed_pass"],
+                "health": runner._surface.status()["health"],
             }
         else:
             threading.Thread(target=runner._run, daemon=True, name="model-runner-loop").start()
@@ -591,6 +593,7 @@ class _Server:
         self.state_dir = state_dir
         self.channels = {str(c["address"]): c for c in view["channels"]}
         self.started: dict[str, Any] | None = None
+        self.health_file = Path(spec["health_file"])
         context = multiprocessing.get_context("spawn")
         self._conn, child = context.Pipe()
         self._proc = context.Process(target=_serve, args=(spec, child), daemon=True)
@@ -674,6 +677,7 @@ def _served(
         "physics": physics,
         "stub": stub,
         "first_pass_fault": first_pass_fault,
+        "health_file": str(view_dir.parent / f"{server}-health" / "health.json"),
     }
     view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
     served = _Server(spec, view, state_dir)
@@ -974,6 +978,32 @@ class TestDemoComposite:
 
         assert status["last_failed_pass"]["error"] == "the tick failed on purpose"
         assert 0.0 <= status["last_failed_pass"]["uptime_s"] <= status["uptime_s"]
+        assert status["health"]["state"] == "degraded"
+        assert status["health"]["passes_failed"] >= 1
+
+    def test_passes_failing_beyond_the_tolerance_flip_the_record_to_failed_and_a_success_restores_serving(
+        self, demo_server: _Server
+    ) -> None:
+        tolerance = demo_server.ask("config")["failed_pass_tolerance"]
+        for _ in range(tolerance + 1):
+            demo_server.ask("fail_next_pass", "the tick failed on purpose", False)
+            _tick_and_wait(demo_server)
+
+        failed = demo_server.rpc("status")["health"]
+        failed_file = json.loads(demo_server.health_file.read_text(encoding="utf-8"))
+
+        _tick_and_wait(demo_server)
+        restored = demo_server.rpc("status")["health"]
+        restored_file = json.loads(demo_server.health_file.read_text(encoding="utf-8"))
+
+        assert failed["state"] == "failed"
+        assert failed["consecutive_failed"] > tolerance
+        assert failed_file["state"] == "failed"
+        assert restored["state"] == "serving"
+        assert restored["consecutive_failed"] == 0
+        assert restored["passes_failed"] == failed["passes_failed"]
+        assert restored["last_pass"]["outcome"] == "ok"
+        assert restored_file == restored
 
     def test_a_failed_pyat_childs_in_range_float_reports_udf_on_both_wires(
         self, demo_server: _Server
@@ -1107,3 +1137,6 @@ def test_a_failing_start_up_pass_is_what_first_pass_returns(
     assert started is not None
     assert started["error"] == "the start-up pass failed"
     assert started["last_failed_pass"]["error"] == "the start-up pass failed"
+    assert started["health"]["state"] == "degraded"
+    assert started["health"]["passes_failed"] == 1
+    assert started["health"]["last_pass"]["outcome"] == "failed"
