@@ -29,6 +29,7 @@ the image by hand against a built project:
 docker run --rm -p 5064:5064/tcp \
     -v <project>/build/data:/data:ro \
     -v <project>/var/agent_data/simulation:/state/simulation:ro \
+    -v <project>/var/simulator:/var/simulator \
     -e VA_INSTANCE=virtual_accelerator \
     -e VA_STATE_DIR=/state/simulation \
     osprey-va-full:latest
@@ -57,6 +58,11 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   into place, and a directory mount lets that inode swap through, so the
   composite sees the change on its next pass with no restart. With
   `VA_STATE_DIR` unset the IOC serves `nominal` alone.
+- **Bind-mount the repo's `var/simulator/`** read-write to `/var/simulator`
+  for the virtual accelerator, or `var/simulator/standin/` for the live
+  stand-in. It is the one directory the IOC writes: the composite appends each
+  physics model's log records to `<model>.log` there, so a reader tells the
+  two machines apart by where a record sits.
 - **`VA_POLL_INTERVAL_S`** is the period of the runner's own passes, in
   seconds, greater than zero (the compose block fills it from
   `simulation.tick_s`); unset, the default tick applies. **`VA_MODEL_WRITE_TOKEN`**
@@ -160,24 +166,48 @@ need no special copy step; they ship automatically with the `src/` copy the
 ## Validating
 
 ```bash
-scripts/va/build_and_boot_check.sh [DATA_DIR]
+scripts/va/build_and_boot_check.sh [DATA_ROOT]
 ```
 
-Stages the build context, builds the image, boots a container (bind-mounting
-`DATA_DIR`, defaulting to the packaged control_assistant preset's own
-`data/simulation/` with the limits view rendered from its
-`data/facility/limits.yaml`), waits up to 240 s for the ready log line, then reads a PV
-over CA from the host. Exits 0 only if all of that succeeds; tears the
-container down either way.
+Stages the build context, builds the image and boots a container serving a
+simulator view. `DATA_ROOT` is a render's data root, `<project>/build/data`;
+the script refuses one without `simulator/served_models.json`. With no
+`DATA_ROOT` it renders the demo view from the packaged example facility,
+`src/osprey/templates/facilities/example`, the way `osprey build` does. Either
+way it serves a copy of the view with the declared motion removed from the two
+monitor readings it measures, so a served reading is the model's reading and
+nothing else. Before asserting anything it runs an identity handshake, so the
+steps below measure its own container and not another one holding the port.
+Then it asserts eight steps:
 
-`OSPREY_VA_CA_PORT` overrides the port, for a host where something else
-already holds 5064. `OSPREY_VA_BOOT_TIMEOUT_SECS` overrides the ready wait;
-the 240 s default covers a linux/amd64 boot under emulation on an arm64 host.
+1. The ready line carries the marker and a positive channel count.
+2. A Channel Access read of a quiescent BPM answers; this is the baseline.
+3. Exciting a corrector moves the BPMs off zero.
+4. The runner's own control PV is absent, beside a known-good PV that answers.
+5. The model RPC answers from the host over the published PVAccess port:
+   `status` carries its six keys, `info` lists the served addresses and the
+   models' own variables, a `set` without a token is refused, a `set` with the
+   run's token is accepted, and `diff` then shows the written offset.
+6. A PVAccess put above the drive limit lands clamped, on both views.
+7. A refused put moves nothing.
+8. Both served ports are live inside the container.
 
-Worth knowing if you extend it: **reading a BPM position at boot proves
-connectivity, not physics.** The tutorial lattice's closed orbit with no
-correctors excited is exactly zero, so `SR:DIAG:BPM:01:POSITION:X` reads `0`
-on a fully working IOC — indistinguishable from an unseeded PV. What
-exercises the manifest → serving database → physics bridge → lattice chain is
-writing a corrector and requiring the orbit to move: `SR:MAG:HCM:01:CURRENT:SP`
-= 0.5 puts `SR:DIAG:BPM:01:POSITION:X` at ~4.5e-6.
+Exits 0 only if all of that holds; tears the container down either way.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `OSPREY_VA_CA_PORT` | `5164` | Channel Access port to bind and publish. |
+| `OSPREY_VA_PVA_PORT` | `5175` | PVAccess port to bind and publish. |
+| `OSPREY_VA_RUNTIME` | auto-detected | Container runtime, podman or docker. |
+| `OSPREY_VA_BOOT_TIMEOUT_SECS` | `240` | Seconds to wait for the ready line; covers a linux/amd64 boot under emulation on an arm64 host. |
+
+Building the image needs BuildKit (`docker buildx`): the `Containerfile`'s
+`FROM --platform=linux/amd64` is honoured by BuildKit only, and a legacy
+builder pulls the host's own architecture and stops at the `Containerfile`'s
+architecture guard.
+
+Worth knowing if you extend it: **a quiescent BPM read proves connectivity,
+not physics.** The demo deck's closed orbit with no corrector excited is
+exactly zero, so a BPM reads `0` on a fully working IOC, indistinguishable
+from an unseeded PV. The corrector write is what proves the view → composite →
+physics model chain: only that chain can move a reading.
