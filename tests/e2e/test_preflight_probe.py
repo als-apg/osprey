@@ -26,8 +26,8 @@ must NOT turn into a refused run (a loaded gateway dropping one probe is not a
 dead machine). Producing that deterministically needs a channel whose *second*
 answer differs from its first, inside a sub-second window — the retry runs as
 soon as the first pass finishes — and the Virtual Accelerator offers no seam
-for it: its namespace is fixed at startup, ``VA_STUCK_SETPOINTS`` freezes an
-echo rather than a connection, and pausing the container would fail every
+for it: its namespace is fixed at startup, a scenario's ``stuck`` fault freezes
+a setpoint rather than a connection, and pausing the container would fail every
 address at once with no control over when. Engineering it out of container
 timing would produce a flaky test of a retry, which is worse than no test. So
 that case stays at the seam where it IS deterministic — a stub connector whose
