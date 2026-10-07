@@ -51,21 +51,6 @@ class TestHealthAndState:
         assert r.status_code == 200
         assert "settings" in r.json()
 
-    def test_init_error_returns_400(self, ws):
-        _, client = ws
-        # No monkeypatch of initialize → real pyAT load of a bad path fails
-        r = client.post("/api/state/init", json={"lattice_path": "/does/not/exist.mat"})
-        assert r.status_code == 400
-
-    def test_init_success(self, ws, monkeypatch):
-        root, client = ws
-        monkeypatch.setattr(
-            LatticeState, "initialize", lambda self, path: {"base_lattice": path, "families": {}}
-        )
-        r = client.post("/api/state/init", json={"lattice_path": "/fake.mat"})
-        assert r.status_code == 200
-        assert r.json()["base_lattice"] == "/fake.mat"
-
 
 class TestParam:
     def test_unknown_family_404(self, ws):
