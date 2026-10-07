@@ -731,7 +731,9 @@ class ConnectorHostPool:
                     # The pipe closed, so the child is exiting: its status is
                     # reaped before anything signals it. A signal sent to an
                     # exited, unreaped child reaps it out from under the event
-                    # loop's watcher, which then reports exit code 255.
+                    # loop's watcher, which then reports exit code 255. The
+                    # pipe is known closed here, so this wait runs the full
+                    # grace on purpose, longer than terminate_host's own window.
                     with contextlib.suppress(TimeoutError):
                         await asyncio.wait_for(process.wait(), self._terminate_grace_s)
                     await terminate_host(process, self._terminate_grace_s)
