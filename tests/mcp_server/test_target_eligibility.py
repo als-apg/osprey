@@ -906,6 +906,36 @@ def test_unset_va_ports_follow_the_deployed_va_service_port(monkeypatch) -> None
     assert derivation.endpoints["write_access"].port == 5077
 
 
+def test_eligibility_fills_an_unset_va_port_from_the_config_file_it_is_given(
+    tmp_path, monkeypatch
+) -> None:
+    """The file the child reads, not whatever ``CONFIG_FILE`` this process has."""
+    import yaml
+
+    def project(name: str, port: int):
+        path = tmp_path / name
+        path.write_text(yaml.safe_dump({"services": {"virtual_accelerator": {"port": port}}}))
+        return str(path)
+
+    file_a = project("a.yml", 5071)
+    monkeypatch.setenv("CONFIG_FILE", project("b.yml", 5072))
+    # The live gateway sits on the port file B would fill in, so the verdict
+    # turns on which file the derivation read.
+    live = _epics_block(
+        gateways={"read_only": {"address": "localhost", "port": 5072, "use_name_server": True}}
+    )
+    va = _va_block(
+        gateways={
+            "read_only": {"address": "localhost", "use_name_server": True},
+            "write_access": {"address": "localhost", "use_name_server": True},
+        }
+    )
+    config = _config(control_system_type=VA_TYPE, connector={EPICS_TYPE: live, VA_TYPE: va})
+
+    assert _eligibility(config, VA, config_path=file_a).eligible is True
+    assert _eligibility(config, VA).reason == te.REASON_REACHES_LIVE_MACHINE
+
+
 def test_an_explicit_va_port_wins_over_the_service_port(monkeypatch) -> None:
     from osprey_connectors import config as config_module
 

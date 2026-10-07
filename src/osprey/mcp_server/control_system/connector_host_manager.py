@@ -524,7 +524,10 @@ def _display_writes(config: Any, target: str, effective_writes: Mapping[str, boo
 
 
 def target_display_metadata(
-    config: Any, *, effective_writes: Mapping[str, bool] | None = None
+    config: Any,
+    *,
+    effective_writes: Mapping[str, bool] | None = None,
+    config_path: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Per-target display metadata for the state file's single writer.
 
@@ -561,6 +564,9 @@ def target_display_metadata(
             so the rendering and the enforcement cannot disagree; a target the
             mapping does not answer for falls back to this process's own
             posture.
+        config_path: The project config the child reads, which an unset
+            virtual-accelerator gateway port is filled from; ``None`` reads
+            ``CONFIG_FILE``, else ``./config.yml``.
 
     Returns:
         One entry per target name. Every entry carries every key: a target
@@ -571,7 +577,7 @@ def target_display_metadata(
     for target in target_state.TARGET_NAMES:
         try:
             # The ceiling derivation, and the only one identity is read from.
-            ceiling = derive_endpoints(config, target)
+            ceiling = derive_endpoints(config, target, config_path=config_path)
         except ValueError:
             # A deployment that has never named its real machine still needs a
             # slot: "unknown" is a truthful rendering, an absent key is not.
@@ -591,7 +597,10 @@ def target_display_metadata(
         # without them.
         standin = _is_live_standin(config, target, ceiling.selected_endpoint())
         selected = derive_endpoints(
-            config, target, writes_enabled=_display_writes(config, target, effective_writes)
+            config,
+            target,
+            writes_enabled=_display_writes(config, target, effective_writes),
+            config_path=config_path,
         )
         metadata[target] = {
             "label": _label(target, ceiling.connector_type, standin=standin),
@@ -962,7 +971,8 @@ class ConnectorHostManager:
             :func:`~osprey.mcp_server.control_system.target_state.publish_targets`
             takes.
         """
-        metadata = target_display_metadata(self._config.raw)
+        config_file = self._config_file()
+        metadata = target_display_metadata(self._config.raw, config_path=config_file)
         child = self._live_child()
         if child is None:
             return metadata
@@ -971,7 +981,9 @@ class ConnectorHostManager:
         if slot is None or reported is None:
             return metadata
         try:
-            endpoints = derive_endpoints(self._config.raw, self._target).endpoints
+            endpoints = derive_endpoints(
+                self._config.raw, self._target, config_path=config_file
+            ).endpoints
         except ValueError:
             # The slot is already the "not configured" rendering; a role
             # without an endpoint to put beside it would say less, not more.
@@ -1643,6 +1655,7 @@ class ConnectorHostManager:
                 target,
                 writes_enabled=writes,
                 readonly_run=readonly_run,
+                config_path=self._config_file(),
             )
         except ValueError as exc:
             raise SwitchError(target, STAGE_TARGET, REASON_TARGET_UNRESOLVABLE, str(exc)) from exc
@@ -1849,6 +1862,17 @@ class ConnectorHostManager:
                 f"Could not spawn a connector-host child for target {target!r}: {exc}",
             ) from exc
 
+    def _config_file(self) -> str | None:
+        """The project config file every child is handed, resolved, or ``None``.
+
+        The one answer to "which file does the child read": the derivation, the
+        display and the init payload all take it from here, so an unset
+        virtual-accelerator gateway port is filled from the same file on both
+        sides of the pipe.
+        """
+        config_path = getattr(self._config, "config_path", None)
+        return str(Path(config_path).resolve()) if config_path else None
+
     def _init_kwargs(
         self, target: str, connector_type: str, *, without_write_gateway: bool = False
     ) -> dict[str, Any]:
@@ -1860,9 +1884,9 @@ class ConnectorHostManager:
             "control_system": control_system,
             "target": target,
         }
-        config_path = getattr(self._config, "config_path", None)
-        if config_path:
-            kwargs["config_file"] = str(Path(config_path).resolve())
+        config_file = self._config_file()
+        if config_file:
+            kwargs["config_file"] = config_file
         if is_readonly_run():
             # Restriction only. The child cannot be granted writes by launch
             # payload; ``control_system.writes_enabled`` is the only thing that
