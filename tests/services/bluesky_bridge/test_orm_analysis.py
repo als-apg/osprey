@@ -17,6 +17,7 @@ from osprey.services.bluesky_bridge.orm_analysis import (
     row_anomaly,
     singular_values,
 )
+from osprey.services.bluesky_bridge.plan_fields import resolve_regressor_column
 
 CORRECTORS = ["corr1", "corr2", "corr3"]
 BPMS = ["bpm1", "bpm2", "bpm3", "bpm4"]
@@ -106,6 +107,23 @@ def test_matrix_prefers_the_exact_column_over_a_prefixed_one() -> None:
 
     assert result.shape == (1, 1)
     assert result[0, 0] == pytest.approx(2.0)
+
+
+def test_setpoint_regressor_takes_the_demand_column_and_falls_back_to_the_one_column() -> None:
+    """The setpoint regressor reads ``<name>_setpoint`` when the device reports one.
+
+    A device with no separate demand reports one column, and that column is
+    its demand, so the setpoint regressor falls back to it. The readback
+    regressor always reads the device's own column.
+    """
+    both = ["hcm1", "hcm1_setpoint", "bpm1"]
+    assert resolve_regressor_column("hcm1", both, "setpoint") == "hcm1_setpoint"
+    assert resolve_regressor_column("hcm1", ["hcm1", "bpm1"], "setpoint") == "hcm1"
+    assert resolve_regressor_column("hcm1", ["hcm1-readback", "bpm1"], "setpoint") == (
+        "hcm1-readback"
+    )
+    assert resolve_regressor_column("hcm1", both, "readback") == "hcm1"
+    assert resolve_regressor_column("hcm1", ["bpm1"], "setpoint") is None
 
 
 def test_matrix_skips_a_row_whose_corrector_column_holds_no_value() -> None:
