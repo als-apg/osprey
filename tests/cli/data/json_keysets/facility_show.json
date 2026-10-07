@@ -1,0 +1,15 @@
+[
+  "counts",
+  "counts.channels",
+  "counts.devices",
+  "counts.groups",
+  "counts.places",
+  "counts.wiring",
+  "identity",
+  "models",
+  "models[].engine",
+  "models[].name",
+  "models[].served",
+  "models[].solve",
+  "views"
+]

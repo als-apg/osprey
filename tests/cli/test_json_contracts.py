@@ -1,10 +1,11 @@
 """Standing structural contracts for every ``--json`` path the CLI exposes.
 
-Five verbs have a ``--json`` flag: ``audit``, ``health``, ``query``,
-``ariel status`` and ``ariel search``. Whatever the output hierarchy does to a
+Six verbs have a ``--json`` flag: ``audit``, ``health``, ``query``,
+``ariel status``, ``ariel search`` and ``facility show``, which has two
+documents (the facility, and one record under an ID). Whatever the output hierarchy does to a
 verb's *human* output, its *machine* output has one job -- a caller pipes stdout
 into ``json.load`` and gets the document it expected. Three things have to hold
-for that, and each is pinned here for all five paths:
+for that, and each is pinned here for every path:
 
 1. **stdout is exactly one JSON document.** It parses from the first byte (no
    banner, no progress line ahead of it) and nothing follows it (no trailing
@@ -37,7 +38,7 @@ migration rather than protect one. The three contracts above are asserted for
 the success path of each verb; a caller relying on the error shape of an ARIEL
 verb has no test standing behind it.
 
-All five verbs now hold contract 3 the same way, by opening a machine-mode block
+All six verbs now hold contract 3 the same way, by opening a machine-mode block
 over the whole verb body. ``audit`` was the last one to do so: it used to rely on
 ``if not json_output:`` guards, which cover the lines audit itself prints and
 nothing else, so a renderer line from deeper in the stack landed on stdout ahead
@@ -71,6 +72,7 @@ from osprey.cli.audit_prompts import AuditFinding, AuditReport
 from osprey.cli.health_cmd import health
 from osprey.cli.query_cmd import query
 from osprey.health.models import CheckReport, CheckResult, Status
+from tests._builds import init_project
 from tests.cli._lifecycle_build import stub_build
 from tests.cli.test_json_keyset_capture import (
     build_ariel_status_repository,
@@ -336,22 +338,96 @@ def _invoke_ariel_search(
         return runner.invoke(ariel_group, ["search", "coupler", "--json"])
 
 
+#: A device of the probe facility that no group holds, and its one channel.
+_UNGROUPED_DEVICE = {"id": "BR/SPARE01", "class": "BeamPositionMonitor", "place": "BR"}
+_UNGROUPED_CHANNEL = {"id": "BR:DIAG:SPARE:01:POSITION:X", "on": {"device": "BR/SPARE01"}}
+
+#: The note the middle-layer view prints for channels outside every family.
+_LEFT_OUT_NOTE = "channels in no family left out"
+
+
+@pytest.fixture(scope="module")
+def facility_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A control-assistant repo selecting the middle-layer index, with one ungrouped device.
+
+    The render writes the middle-layer view, which counts the channels it
+    leaves out in a note on stderr. Never edited after it is made.
+    """
+    import yaml
+
+    repo = init_project(tmp_path_factory.mktemp("facility"), "control-assistant", "demo")
+    profile = repo / "profile.yml"
+    lines = profile.read_text(encoding="utf-8").splitlines()
+    lines = [line for line in lines if not line.startswith("channel_finder_mode:")]
+    profile.write_text("\n".join([*lines, "channel_finder_mode: middle_layer", ""]), "utf-8")
+    records = repo / "data" / "facility" / "records"
+    for name, record in (("devices", _UNGROUPED_DEVICE), ("channels", _UNGROUPED_CHANNEL)):
+        with (records / f"{name}.yaml").open("a", encoding="utf-8") as stream:
+            stream.write(yaml.safe_dump([record], sort_keys=False))
+    return repo
+
+
+def _invoke_facility(runner: CliRunner, repo: Path, hook: Callable[[], None], *args: str) -> Result:
+    """Run ``facility show --json`` over the probe repo, hooked at the views' render."""
+    from osprey.cli.facility_cmd import facility
+    from osprey.facility import render
+
+    real = render.render_facility_outputs
+
+    def _render(*a: Any, **kw: Any) -> list[Path]:
+        hook()
+        return real(*a, **kw)
+
+    with patch.object(render, "render_facility_outputs", _render):
+        return runner.invoke(facility, ["show", "--repo", str(repo), "--json", *args])
+
+
+def _invoke_facility_show(
+    runner: CliRunner, _tmp_path: Path, repo: Path, hook: Callable[[], None]
+) -> Result:
+    """Run ``facility show --json`` over the probe repo."""
+    return _invoke_facility(runner, repo, hook)
+
+
+def _invoke_facility_show_record(
+    runner: CliRunner, _tmp_path: Path, repo: Path, hook: Callable[[], None]
+) -> Result:
+    """Run ``facility show --json ID`` for the probe's ungrouped device."""
+    return _invoke_facility(runner, repo, hook, str(_UNGROUPED_DEVICE["id"]))
+
+
 #: Golden name -> the invoker that drives that verb's ``--json`` path.
 _INVOKERS: dict[str, Any] = {
     "ariel_search": _invoke_ariel_search,
     "ariel_status": _invoke_ariel_status,
     "audit": _invoke_audit,
+    "facility_show": _invoke_facility_show,
+    "facility_show_record": _invoke_facility_show_record,
     "health": _invoke_health,
     "query": _invoke_query,
 }
 
+#: The golden names driven over a real build of the probe repo.
+_FACILITY_VERBS = frozenset({"facility_show", "facility_show_record"})
+
+#: Every golden name, the ones over a real build marked slow.
+_VERBS = [
+    pytest.param(verb, marks=pytest.mark.slow) if verb in _FACILITY_VERBS else verb
+    for verb in sorted(_INVOKERS)
+]
+
 
 @pytest.fixture
-def json_run(runner: CliRunner, tmp_path: Path, lifecycle_repo: Path):
+def json_run(
+    runner: CliRunner, tmp_path: Path, lifecycle_repo: Path, request: pytest.FixtureRequest
+):
     """Return ``run(verb, hook=None)``, driving one verb's ``--json`` path."""
 
     def _run(verb: str, hook: Callable[[], None] | None = None) -> Result:
-        return _INVOKERS[verb](runner, tmp_path, lifecycle_repo, hook or (lambda: None))
+        repo = (
+            request.getfixturevalue("facility_probe") if verb in _FACILITY_VERBS else lifecycle_repo
+        )
+        return _INVOKERS[verb](runner, tmp_path, repo, hook or (lambda: None))
 
     return _run
 
@@ -367,7 +443,7 @@ def runner() -> CliRunner:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("verb", sorted(_INVOKERS))
+@pytest.mark.parametrize("verb", _VERBS)
 def test_stdout_carries_exactly_one_json_document(verb: str, json_run) -> None:
     """stdout opens with the document, and nothing follows it."""
     result = json_run(verb)
@@ -376,7 +452,7 @@ def test_stdout_carries_exactly_one_json_document(verb: str, json_run) -> None:
     _sole_document(result.stdout)
 
 
-@pytest.mark.parametrize("verb", sorted(_INVOKERS))
+@pytest.mark.parametrize("verb", _VERBS)
 def test_top_level_keys_are_the_pre_migration_golden(verb: str, json_run) -> None:
     """The document still has exactly the top-level keys captured before."""
     payload = _sole_document(json_run(verb).stdout)
@@ -384,7 +460,7 @@ def test_top_level_keys_are_the_pre_migration_golden(verb: str, json_run) -> Non
     assert sorted(payload) == _golden_top_level(verb)
 
 
-@pytest.mark.parametrize("verb", sorted(_INVOKERS))
+@pytest.mark.parametrize("verb", _VERBS)
 def test_human_lines_from_inside_the_verb_land_on_stderr(verb: str, json_run) -> None:
     """A renderer line printed mid-run reaches stderr, not the document."""
     result = json_run(verb, hook=lambda: output.report(_PROBE))
@@ -394,7 +470,7 @@ def test_human_lines_from_inside_the_verb_land_on_stderr(verb: str, json_run) ->
     _sole_document(result.stdout)
 
 
-@pytest.mark.parametrize("verb", sorted(_INVOKERS))
+@pytest.mark.parametrize("verb", _VERBS)
 def test_trouble_from_inside_the_verb_lands_on_stderr(verb: str, json_run) -> None:
     """A warning printed mid-run reaches stderr, not the document."""
     result = json_run(verb, hook=lambda: output.warn(_PROBE))
@@ -459,6 +535,22 @@ def test_audit_verbose_keeps_the_reviewer_transcript_off_the_document(
 def test_every_json_verb_has_a_golden_and_an_invoker() -> None:
     """The contracts cover every ``--json`` verb the goldens record."""
     assert {path.stem for path in _GOLDEN_DIR.glob("*.json")} == set(_INVOKERS)
+
+
+@pytest.mark.slow
+def test_facility_show_prints_its_counted_notice_while_stdout_parses(
+    runner: CliRunner, facility_probe: Path
+) -> None:
+    """The middle-layer view's left-out count reaches stderr; stdout is one document."""
+    result = _invoke_facility(runner, facility_probe, lambda: None)
+
+    assert result.exit_code == 0, result.output
+    (note,) = [line for line in result.stderr.splitlines() if _LEFT_OUT_NOTE in line]
+    assert note.startswith("  view middle_layer: ")
+    assert _LEFT_OUT_NOTE not in result.stdout
+    document = _sole_document(result.stdout)
+    (view,) = [view for view in document["views"] if view["name"] == "middle_layer"]
+    assert view["written"] is True
 
 
 def test_ariel_status_module_health_rides_in_the_one_document(runner: CliRunner) -> None:
