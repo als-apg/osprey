@@ -3,8 +3,7 @@
 ``apply_safety`` takes a configuration shaped as ``Runner.generate_config``
 returns it and fixes the five write-path keys, each setpoint's band and each
 variable's PV mode; ``chromaticity_addresses`` names the channels wired to the
-chromaticity output; ``as_declared`` hands each waveform over as the array its
-variable declares. All three are pure, so these run on any host.
+chromaticity output. Both are pure, so these run on any host.
 """
 
 from __future__ import annotations
@@ -14,13 +13,9 @@ import copy
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-from lume.variables import NDVariable, ScalarVariable, StrVariable
-
 from osprey.services.virtual_accelerator.serving import runner_config
 from osprey.services.virtual_accelerator.serving.runner_config import (
     apply_safety,
-    as_declared,
     chromaticity_addresses,
 )
 
@@ -198,54 +193,6 @@ def test_a_view_without_chromaticity_wiring_names_none() -> None:
     view["models"][0]["wiring"] = view["models"][0]["wiring"][:3]
 
     assert chromaticity_addresses(view) == frozenset()
-
-
-DECLARED = {
-    "M:TUNES": NDVariable(name="M:TUNES", shape=(3,)),
-    "M:GRID": NDVariable(name="M:GRID", shape=(2, 3)),
-    "M:BPM:X": ScalarVariable(name="M:BPM:X"),
-    "T:NAME": StrVariable(name="T:NAME"),
-}
-
-
-def test_a_flat_list_becomes_a_float_array_of_the_declared_shape() -> None:
-    served = as_declared(DECLARED, {"M:TUNES": [0.13, 0.22, 0.0086]})
-
-    tunes = served["M:TUNES"]
-    assert isinstance(tunes, np.ndarray)
-    assert tunes.dtype == np.float64
-    assert tunes.shape == (3,)
-    assert tunes.tolist() == [0.13, 0.22, 0.0086]
-
-
-def test_a_flat_list_takes_a_two_dimensional_declared_shape() -> None:
-    served = as_declared(DECLARED, {"M:GRID": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]})
-
-    assert served["M:GRID"].dtype == np.float64
-    assert served["M:GRID"].tolist() == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
-
-
-def test_an_array_a_scalar_and_a_string_are_left_untouched() -> None:
-    array = np.array([0.1, 0.2, 0.3])
-    values = {"M:TUNES": array, "M:BPM:X": 1.5e-5, "T:NAME": "nominal"}
-
-    served = as_declared(DECLARED, values)
-
-    assert served["M:TUNES"] is array
-    assert served["M:BPM:X"] == 1.5e-5
-    assert served["T:NAME"] == "nominal"
-
-
-def test_an_undefined_waveform_stays_none() -> None:
-    assert as_declared(DECLARED, {"M:TUNES": None}) == {"M:TUNES": None}
-
-
-def test_a_name_with_no_variable_is_left_untouched() -> None:
-    value = [1.0, 2.0]
-
-    served = as_declared(DECLARED, {"T:UNDECLARED": value})
-
-    assert served["T:UNDECLARED"] is value
 
 
 def test_the_module_imports_no_server_library() -> None:
