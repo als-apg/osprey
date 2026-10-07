@@ -156,6 +156,17 @@ export function createNetClient(callbacks) {
     await fetchModels();
   }
 
+  /**
+   * Recompute the selected model's fast figures — the `fast_figures` of the
+   * last state read — marking each computing before the server reports it.
+   */
+  async function refresh() {
+    for (const name of state ? state.fast_figures : []) {
+      callbacks.onFigureStatus(name, 'computing');
+    }
+    await refreshFast();
+  }
+
   async function setBaseline() {
     try {
       await apiFetch('/api/baseline', { method: 'POST' });
@@ -243,6 +254,7 @@ export function createNetClient(callbacks) {
     fetchState,
     fetchModels,
     selectModel,
+    refresh,
     setBaseline,
     setParam,
     fetchAndRenderFigure,

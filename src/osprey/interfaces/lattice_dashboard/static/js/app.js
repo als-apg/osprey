@@ -10,7 +10,7 @@
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded, isEmbedded, onModeChange } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-display-menu.js';
-import { refreshFast, runVerification, createNetClient } from './net.js';
+import { runVerification, createNetClient } from './net.js';
 import {
   updateSummaryStats,
   updateLED,
@@ -37,9 +37,9 @@ initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
 // ── Configuration ───────────────────────────────────────
 
-const FAST_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint'];
-const VERIFICATION_FIGURES = ['da', 'lma'];
-const ALL_FIGURES = [...FAST_FIGURES, ...VERIFICATION_FIGURES];
+// Every figure cell the page has. Which of them Refresh computes is the
+// selected model's, and comes with each /api/state as `fast_figures`.
+const ALL_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint', 'da', 'lma'];
 
 // ── Renderer ─────────────────────────────────────────────
 // Network effects are threaded through as callbacks — render.js has no
@@ -93,7 +93,7 @@ const ui = createUI(ALL_FIGURES);
 // ── Header Actions (standalone top bar + embedded tile bar) ──
 
 const header = createHeader({
-  onRefresh: refreshFast,
+  onRefresh: () => net.refresh(),
   onVerify: runVerification,
   onBaseline: net.setBaseline,
   onSelectModel: net.selectModel,
