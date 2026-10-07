@@ -18,9 +18,6 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
 :func:`chromaticity_addresses` names the channels wired to a physics model's
 chromaticity output, which a write pass leaves for the next periodic pass.
 
-:func:`as_declared` hands each transport a waveform as the array its variable
-declares.
-
 Nothing here imports the serving runtime, so the configuration is decided and
 tested in process.
 """
@@ -29,12 +26,9 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from lume.variables import Variable
-
-__all__ = ["SAFETY_KEYS", "apply_safety", "as_declared", "chromaticity_addresses"]
+__all__ = ["SAFETY_KEYS", "apply_safety", "chromaticity_addresses"]
 
 #: The write-path keys every model runner configuration carries.
 SAFETY_KEYS: Mapping[str, Any] = {
@@ -112,37 +106,3 @@ def chromaticity_addresses(view: Mapping[str, Any]) -> frozenset[str]:
         and isinstance(entry.get("engine"), Mapping)
         and entry["engine"].get("attribute") in attributes
     )
-
-
-def as_declared(variables: Mapping[str, Variable], values: Mapping[str, Any]) -> dict[str, Any]:
-    """``values`` with each waveform as the array its variable declares.
-
-    The composite holds a waveform as a flat list; the serving layer hands
-    each transport the array its variable declares. A value whose variable is
-    an ``NDVariable`` of numeric dtype, and that is not already an
-    ``np.ndarray``, becomes an array of that dtype and shape. Every other
-    value -- an array, ``None``, a scalar, a string or enum, or a name with
-    no variable -- passes through untouched.
-
-    Args:
-        variables: The served variables, keyed by name.
-        values: Variable name -> value, as ``model.get`` returns them. Not
-            modified.
-
-    Returns:
-        A new mapping of the same names.
-    """
-    import numpy as np
-    from lume.variables import NDVariable
-
-    declared: dict[str, Any] = dict(values)
-    for name, value in values.items():
-        variable = variables.get(name)
-        if (
-            isinstance(variable, NDVariable)
-            and np.issubdtype(np.dtype(variable.dtype), np.number)
-            and value is not None
-            and not isinstance(value, np.ndarray)
-        ):
-            declared[name] = np.asarray(value, dtype=variable.dtype).reshape(variable.shape)
-    return declared
