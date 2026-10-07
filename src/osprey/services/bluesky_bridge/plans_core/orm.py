@@ -147,22 +147,6 @@ class PARAMS(BaseModel):
         return self
 
 
-def _read_working_point(corrector: Any) -> Any:
-    """Read the working point a corrector is restored to: the demand it reports.
-
-    The plan restores the working point as a demand, so it records the demand
-    the device reports under its ``setpoint_key``, never a readback sample,
-    which carries the readback channel's drift and noise. A device that
-    reports no separate demand is read through its hinted field, and for that
-    device the hinted field is the demand channel.
-    """
-    reading = yield from bps.read(corrector)
-    demand = (reading or {}).get(getattr(corrector, "setpoint_key", None))
-    if demand is not None:
-        return float(demand["value"])
-    return float((yield from bps.rd(corrector)))
-
-
 def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     """Build the orbit-response-matrix sweep generator.
 
@@ -185,13 +169,11 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     the plan mean the same thing on a real ring as on a virtual accelerator
     whose correctors happen to idle at zero.
 
-    The working point is the setpoint the corrector reports, because the
-    restore is a setpoint write: it puts back what was demanded, and a
-    readback sample carries the readback channel's drift and noise, so
-    restoring one would leave the corrector shifted by exactly that much. A
-    corrector that reports no separate setpoint (an aliased device, whose
-    readback is its setpoint channel, or a mock) is read through ``bps.rd``.
-    It happens BEFORE the ``try``, so a corrector whose read fails is never
+    The working point is the setpoint the corrector locates at
+    (``bps.locate``), because the restore is a setpoint write: it puts back
+    what was demanded, and a readback sample carries the readback channel's
+    drift and noise, so restoring one would leave the corrector shifted by
+    exactly that much. It happens BEFORE the ``try``, so a corrector whose read fails is never
     entered at all and the restore below can never run without a target.
 
     Each corrector is restored to its recorded working point once its own
@@ -234,7 +216,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     )
     def _sweep():
         for name, corrector in correctors:
-            working_point = yield from _read_working_point(corrector)
+            working_point = float((yield from bps.locate(corrector))["setpoint"])
             if not math.isfinite(working_point):
                 raise ValueError(
                     f"orm plan: corrector {name!r} read back a non-finite working "
