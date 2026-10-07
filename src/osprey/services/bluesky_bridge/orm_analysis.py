@@ -5,8 +5,9 @@ document `data`, one dict per point — see `plans_core/orm.py`'s `build_plan`),
 live-buffer or Tiled-specific shape, so this module has no dependency on
 `bluesky`/`ophyd-async`/`tiled` and imports cleanly on the MCP side without
 loading the bluesky stack (a core dependency, but heavier than this numeric
-analysis needs). Its one non-numeric import is `plan_fields.resolve_column`,
-which is pydantic-only and carries no stack of its own.
+analysis needs). Its only non-numeric imports come from `plan_fields` (the
+column resolvers and the `Regressor` literal), which is pydantic-only and
+carries no stack of its own.
 
 Four pieces:
 
@@ -23,7 +24,7 @@ Four pieces:
 `build_response_matrix`'s fit depends on an invariant the real `orm` plan
 upholds (see `plans_core/orm.py`'s `build_plan` docstring): every emitted row carries
 EVERY corrector's current, not just the one being swept — a non-swept
-corrector simply reads back its idle value in that row. The fit still
+corrector simply reports its idle value in that row. The fit still
 recovers the right slope only because each corrector's own sweep is
 symmetric about that same idle value: together those put every idle sample
 at the fit's x-mean, so it carries zero leverage on the polyfit slope no
@@ -42,6 +43,13 @@ declares child signals, so a channel lands under `"bpm1-value"`;
 `devices/connector.py` emits one entry named for the device, so the same
 channel lands under `"bpm1"`), and `resolve_column`'s docstring is where that
 is written down.
+
+A corrector's current is read from its regressor column, chosen by the fit's
+`regressor` argument through `plan_fields.resolve_regressor_column`: by
+default the commanded demand (`f"{channel}_setpoint"` on a connector device
+with a distinct readback, the device's one column otherwise), so slopes are
+per unit of commanded current; `"readback"` reads the corrector's measured
+value instead. BPMs are always read through `resolve_column`.
 """
 
 from __future__ import annotations
@@ -52,7 +60,11 @@ from typing import Any
 
 import numpy as np
 
-from osprey.services.bluesky_bridge.plan_fields import resolve_column
+from osprey.services.bluesky_bridge.plan_fields import (
+    Regressor,
+    resolve_column,
+    resolve_regressor_column,
+)
 
 
 class DegenerateFitError(ValueError):
@@ -79,6 +91,8 @@ def build_response_matrix(
     rows: Sequence[Mapping[str, Any]],
     correctors: Sequence[str],
     readbacks: Sequence[str],
+    *,
+    regressor: Regressor = "setpoint",
 ) -> np.ndarray:
     """Fit the `[n_bpm, n_corr]` response-slope matrix from emitted ORM rows.
 
@@ -86,14 +100,17 @@ def build_response_matrix(
     every row carries a value for EVERY corrector in `correctors` — not just
     the one currently being swept (see `plans_core/orm.py`'s `build_plan` docstring) —
     plus a reading for every BPM. For each corrector, every row where that
-    corrector's column is present (in practice: every row) forms one
-    (current, BPM reading) sample; `numpy.polyfit` (degree 1) over those
-    samples gives the response slope for each (BPM, corrector) pair.
+    corrector's regressor column is present (in practice: every row) forms
+    one (regressor value, BPM reading) sample; `numpy.polyfit` (degree 1)
+    over those samples gives the response slope for each (BPM, corrector)
+    pair. *regressor* chooses the column: ``"setpoint"`` (the commanded
+    demand, the default) or ``"readback"`` (the measured current); see
+    `plan_fields.resolve_regressor_column`.
 
     This only recovers the correct slope because the real plan sweeps each
-    corrector symmetrically about the very value that corrector reads back
-    while idle — its pre-scan working point. That puts the fit's x-mean
-    exactly at the idle value (the sweep's own offsets sum to zero), so every
+    corrector symmetrically about the very value that corrector's regressor
+    column holds while idle — its pre-scan working point. That puts the fit's
+    x-mean exactly at the idle value (the sweep's own offsets sum to zero), so every
     idle-corrector sample sits exactly at that mean and carries zero leverage
     on the fitted slope — regardless of what BPM reading that row actually
     carries (driven by whichever OTHER corrector was being swept at the
@@ -101,8 +118,8 @@ def build_response_matrix(
     zero": zero is simply where a machine with no orbit to correct happens to
     idle, and a real ring's correctors do not.
 
-    Before fitting, each corrector's collected currents are checked against
-    that invariant (see `_SWEEP_SYMMETRY_TOL`) by comparing their mean to
+    Before fitting, each corrector's collected regressor values are checked
+    against that invariant (see `_SWEEP_SYMMETRY_TOL`) by comparing their mean to
     their median. The median IS the idle value for any run this function is
     meant to take: idle samples are `(n_correctors - 1) / n_correctors` of a
     corrector's rows, so they are at least half of them whenever more than
@@ -137,7 +154,7 @@ def build_response_matrix(
         currents: list[float] = []
         readings: list[list[float]] = [[] for _ in readbacks]
         for row in rows:
-            column = resolve_column(corrector, row)
+            column = resolve_regressor_column(corrector, row, regressor)
             current = None if column is None else row[column]
             if current is None:
                 continue  # row built without this corrector's column (see docstring)
@@ -200,14 +217,17 @@ class SlicedResponseFit:
             `correctors` is.
         fitted_correctors: The names of the correctors that produced a
             `matrix` column, in column order. A subsequence of `correctors`.
-        currents: Per requested corrector, that corrector's own recorded
-            currents over its slice, `[k]` with `k <= num` — the x-axis of a
-            sweep trace. Present for incomplete correctors too.
+        currents: Per requested corrector, the regressor values over its
+            slice, `[k]` with `k <= num` — the x-axis of a sweep trace.
+            Present for incomplete correctors too.
         readings: Per requested corrector, the BPM block over its slice,
             `[k, n_readbacks]` — the y-axes of a sweep trace, one column per BPM.
             Present for incomplete correctors too. A BPM that did not report
             reads back as `nan` here (in `matrix` it lands on `0.0`; see
             `sliced_response_matrix`).
+        regressor: The corrector value the slopes are per unit of:
+            ``"setpoint"`` (the commanded demand) or ``"readback"`` (the
+            measured current).
     """
 
     correctors: tuple[str, ...]
@@ -217,6 +237,7 @@ class SlicedResponseFit:
     fitted_correctors: tuple[str, ...]
     currents: tuple[np.ndarray, ...]
     readings: tuple[np.ndarray, ...]
+    regressor: str
 
 
 def sliced_response_matrix(
@@ -224,6 +245,8 @@ def sliced_response_matrix(
     correctors: Sequence[str],
     readbacks: Sequence[str],
     num: int,
+    *,
+    regressor: Regressor = "setpoint",
 ) -> SlicedResponseFit:
     """Fit the response matrix by slicing *rows* into one sweep per corrector.
 
@@ -279,6 +302,11 @@ def sliced_response_matrix(
         correctors: Corrector channel names, in the order the plan swept them.
         readbacks: BPM channel names; the matrix's row axis.
         num: Points per corrector sweep — the plan's `num` parameter.
+        regressor: Which corrector column the slopes regress on:
+            ``"setpoint"`` (the commanded demand, the default) or
+            ``"readback"`` (the measured current); see
+            `plan_fields.resolve_regressor_column`. BPMs are read through
+            `plan_fields.resolve_column` either way.
 
     Raises:
         ValueError: *num* is below 2 (no slope is defined over fewer than
@@ -307,6 +335,7 @@ def sliced_response_matrix(
             fitted_correctors=(),
             currents=tuple(np.zeros(0) for _ in correctors),
             readings=tuple(np.zeros((0, n_bpm)) for _ in correctors),
+            regressor=regressor,
         )
 
     # Resolve every channel to its data column once. The first row normally
@@ -317,7 +346,10 @@ def sliced_response_matrix(
     names = correctors + readbacks
     for row in rows[:n_rows]:
         for position in tuple(unresolved):
-            key = resolve_column(names[position], row)
+            if position < n_corr:
+                key = resolve_regressor_column(names[position], row, regressor)
+            else:
+                key = resolve_column(names[position], row)
             if key is not None:
                 keys[position] = key
                 unresolved.discard(position)
@@ -378,6 +410,7 @@ def sliced_response_matrix(
         fitted_correctors=tuple(fitted),
         currents=tuple(slice_currents),
         readings=tuple(slice_readings),
+        regressor=regressor,
     )
 
 
