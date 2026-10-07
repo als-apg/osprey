@@ -25,7 +25,7 @@ def ws(tmp_path, monkeypatch):
     monkeypatch.setattr(ComputeManager, "refresh_fast", lambda self: ["optics"])
     monkeypatch.setattr(ComputeManager, "refresh_verification", lambda self: ["da", "lma"])
     monkeypatch.setattr(ComputeManager, "refresh_one", lambda self, name: None)
-    app = create_app(workspace_root=tmp_path)
+    app = create_app(workspace_root=tmp_path, render_root=tmp_path)
     return tmp_path, TestClient(app)
 
 
