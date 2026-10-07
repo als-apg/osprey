@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from lume.exceptions import ReadOnlyError
 from lume.model import LUMEModel
-from lume.variables import ScalarVariable, Variable
+from lume.variables import ConfigEnum, NDVariable, ScalarVariable, StrVariable, Variable
 
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import series
@@ -41,7 +41,7 @@ class StubModel(LUMEModel):
     """One wiring's channels: settable writes, monitor readings at a held truth."""
 
     def __init__(self, wiring: list[Mapping[str, Any]], active: Mapping[str, Any]) -> None:
-        self.truth: dict[str, float] = {}
+        self.truth: dict[str, Any] = {}
         self.monitors: dict[str, dict[str, str]] = {}
         self._variables: dict[str, Variable] = {}
         self._defaults: dict[str, float] = {}
@@ -50,6 +50,15 @@ class StubModel(LUMEModel):
             if entry.get("direction") == "write":
                 self._defaults[address] = float(active.get(address, entry.get("default", 0.0)))
                 self._variables[address] = ScalarVariable(name=address, read_only=False)
+            elif isinstance(entry.get("default"), list):
+                default = np.asarray(entry["default"], dtype=np.float64)
+                self._variables[address] = NDVariable(
+                    name=address, shape=default.shape, read_only=True
+                )
+                self.truth[address] = default
+            elif isinstance(entry.get("default"), str):
+                self._variables[address] = StrVariable(name=address, read_only=True)
+                self.truth[address] = entry["default"]
             else:
                 self._variables[address] = ScalarVariable(name=address, read_only=True)
                 self.truth[address] = float(entry.get("default", 0.0))
@@ -145,7 +154,8 @@ def _channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, A
     }
 
 
-def _wiring() -> list[dict[str, Any]]:
+def _wiring(*, waveform: bool = False) -> list[dict[str, Any]]:
+    trace = [{"id": "7", "address": "M:TRACE", "direction": "read", "default": [0.1, 0.2, 0.3]}]
     return [
         {"id": "1", "address": "M:SP", "direction": "write", "default": 2.0},
         {"id": "2", "address": "M:STUCK:SP", "direction": "write", "default": 1.0},
@@ -154,7 +164,8 @@ def _wiring() -> list[dict[str, Any]]:
         {"id": "4", "address": "M:BPM:Y", "direction": "read", "element": "B1"}
         | {"engine": {"axis": "y"}, "default": -0.5},
         {"id": "5", "address": "M:RB", "direction": "read", "default": 4.0},
-        {"id": "6", "address": "M:STATE", "direction": "read", "default": 0},
+        {"id": "6", "address": "M:STATE", "direction": "read", "default": "OFF"},
+        *(trace if waveform else []),
     ]
 
 
@@ -164,7 +175,9 @@ def _view(
     settings: Mapping[str, Any] | None = None,
     engine: str = "stub",
     scenarios: list[dict[str, Any]] | None = None,
+    waveform: bool = False,
 ) -> Path:
+    trace = [_channel("M:TRACE", "M", value_type="waveform", shape=[3])]
     channels = [
         _channel("M:SP", "M", role="setpoint", writable=True),
         _channel("M:STUCK:SP", "M", role="setpoint", writable=True),
@@ -179,6 +192,7 @@ def _view(
         _channel("T:NOISY"),
         _channel("T:TRACE", role="setpoint", value_type="waveform", shape=[2, 2], writable=True),
         _channel("T:LOCKED", role="setpoint"),
+        *(trace if waveform else []),
     ]
     documents = {
         "served_models.json": {"models": ["M", "texture"]},
@@ -195,7 +209,7 @@ def _view(
                     "served": True,
                     "settings": dict(settings or {}),
                     "deck": None,
-                    "wiring": _wiring(),
+                    "wiring": _wiring(waveform=waveform),
                 },
                 {
                     "name": "texture",
@@ -346,13 +360,41 @@ def test_a_monitor_read_on_one_plane_reads_its_partner_through_the_readout(
     assert composite.get("M:BPM:X") == both["M:BPM:X"]
 
 
-def test_a_texture_waveform_is_set_nested_and_reads_flat(tmp_path: Path) -> None:
+def test_a_texture_waveform_is_set_nested_and_reads_as_its_declared_array(
+    tmp_path: Path,
+) -> None:
     composite = _composite(tmp_path)
 
     composite.set({"T:TRACE": [[1, 2], [3, 4]]})
 
-    assert composite.get("T:TRACE") == [1.0, 2.0, 3.0, 4.0]
+    read = composite.get("T:TRACE")
+    assert isinstance(read, np.ndarray)
+    assert read.shape == (2, 2)
+    assert read.tolist() == [[1.0, 2.0], [3.0, 4.0]]
     assert composite.held(["T:TRACE"]) == {"T:TRACE": [1.0, 2.0, 3.0, 4.0]}
+
+
+def _assert_reads_as_declared(composite: Composite) -> None:
+    """Every channel and status of ``composite`` reads as its variable declares it."""
+    variables = composite.supported_variables
+    together = composite.get(list(variables))
+    for name, variable in variables.items():
+        for value in (composite.get(name), together[name]):
+            variable.validate_value(value, ConfigEnum.ERROR)
+            if isinstance(variable, NDVariable):
+                assert isinstance(value, np.ndarray), name
+                assert value.dtype == variable.dtype, name
+                assert value.shape == variable.shape, name
+
+
+def test_every_channel_reads_as_its_variable_declares(tmp_path: Path) -> None:
+    composite = _composite(tmp_path, waveform=True)
+    declared = composite.supported_variables
+
+    assert isinstance(declared["T:TRACE"], NDVariable)
+    assert isinstance(declared["M:TRACE"], NDVariable)
+    _assert_reads_as_declared(composite)
+    assert composite.get("M:TRACE").tolist() == [0.1, 0.2, 0.3]
 
 
 # -- writes --------------------------------------------------------------------
@@ -655,6 +697,11 @@ def demo_view(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
     return tmp_path / "simulator"
+
+
+@pytest.mark.slow
+def test_every_demo_channel_reads_as_its_variable_declares(demo_view: Path) -> None:
+    _assert_reads_as_declared(Composite(demo_view, clock=lambda: T0))
 
 
 @pytest.mark.slow
