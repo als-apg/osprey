@@ -116,12 +116,13 @@ def render_facility_outputs(
     target.write_bytes(facility_bytes(doc))
     written = [target]
     for view in views.VIEWS:
-        if view.written_when(inputs):
+        carried, reason = view.written_when(inputs)
+        if carried:
             written.extend(view.write(render_dir / "data" / view.path, inputs))
         elif view.selected_by is not None:
             continue
         elif omitted_reported is None or view.name not in omitted_reported:
-            views.report_omitted(view)
+            views.report_omitted(view, reason)
             if omitted_reported is not None:
                 omitted_reported.add(view.name)
     return sorted(written)

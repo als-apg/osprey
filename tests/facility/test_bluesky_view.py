@@ -161,7 +161,8 @@ def test_the_view_is_registered() -> None:
     from osprey.facility.views import VIEWS
 
     (view,) = [view for view in VIEWS if view.name == "bluesky"]
-    assert (view.path, view.reason) == (".", "services.bluesky")
+    assert view.path == "."
+    assert view.written_when(_inputs([], {})) == (False, "services.bluesky")
 
 
 def test_a_build_names_the_omitted_view_once_over_all_its_renders(
