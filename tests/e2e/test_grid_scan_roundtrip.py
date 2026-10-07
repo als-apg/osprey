@@ -63,6 +63,7 @@ import pytest
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._motion_bands import served_settle_bands
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
@@ -132,9 +133,10 @@ def _find_column(columns: list[str], device_name: str) -> str:
 class DeployedGridScanStack:
     """Everything the round-trip test needs about the one deployment repo."""
 
-    def __init__(self, repo: Path, corrector_name: str, bpm_name: str):
+    def __init__(self, repo: Path, corrector_name: str, corrector_readback: str, bpm_name: str):
         self.repo = repo
         self.corrector_name = corrector_name
+        self.corrector_readback = corrector_readback
         self.bpm_name = bpm_name
 
 
@@ -196,9 +198,11 @@ def deployed_grid_scan_stack(
             _queue_drive.wait_for_worker_environment(BRIDGE_URL)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
+        corrector_name, (_, corrector_readback) = next(iter(correctors.items()))
         yield DeployedGridScanStack(
             repo=repo,
-            corrector_name=next(iter(correctors)),
+            corrector_name=corrector_name,
+            corrector_readback=corrector_readback,
             bpm_name=next(iter(bpms)),
         )
     finally:
@@ -299,20 +303,25 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
         f"detector column {bpm_col!r} has a null reading: {bpm_values}"
     )
 
-    # (b) every distinct commanded grid point was actually visited -- not
-    # stuck at one value, the corrector-echo regression this suite otherwise
-    # guards against via the orm plan's sweep.
-    distinct_values = {round(v, 3) for v in corrector_values}
-    assert len(distinct_values) == NUM_POINTS, (
-        f"expected {NUM_POINTS} distinct corrector readings (one per grid point), "
-        f"got {sorted(distinct_values)} from {corrector_values} -- the corrector may be stuck "
-        "at one value instead of stepping through the grid"
-    )
-    expected_values = {
-        round(AXIS_START_A + i * (AXIS_STOP_A - AXIS_START_A) / (NUM_POINTS - 1), 3)
+    # (b) every distinct commanded grid point was actually visited, by the
+    # readback -- not stuck at one value, the corrector-echo regression this
+    # suite otherwise guards against via the orm plan's sweep. The readback
+    # serves the demand plus the motion its seed declares, so each reading is
+    # held to that readback's settle band; the grid spacing is far wider, so a
+    # stuck corrector still fails.
+    commanded = [
+        AXIS_START_A + i * (AXIS_STOP_A - AXIS_START_A) / (NUM_POINTS - 1)
         for i in range(NUM_POINTS)
-    }
-    assert distinct_values == expected_values, (
-        f"corrector readings {sorted(distinct_values)} don't match the commanded grid points "
-        f"{sorted(expected_values)}"
+    ]
+    assert len(set(commanded)) == NUM_POINTS, (
+        f"the commanded grid points {commanded} are not {NUM_POINTS} distinct values"
+    )
+    readback = deployed_grid_scan_stack.corrector_readback
+    band = served_settle_bands(deployed_grid_scan_stack.repo, [readback])[readback]
+    visits = list(zip(commanded, corrector_values, strict=True))
+    missed = [(point, read, band) for point, read in visits if abs(read - point) > band]
+    assert not missed, (
+        f"corrector readback {readback!r} did not visit every commanded grid point within its "
+        f"settle band; (commanded, read, band) misses: {missed} of {visits} -- the corrector "
+        "may be stuck at one value instead of stepping through the grid"
     )
