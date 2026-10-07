@@ -451,7 +451,7 @@ def _unit_test_install_cmd(wf: dict[str, Any]) -> str:
 
 def test_unit_test_job_installs_required_extras(workflow: dict[str, Any]) -> None:
     """The `virtual-accelerator` extra carries the serving stack the live
-    tests/va suites need — pcaspy, and `lume-pva-apg[ca,pva]` which brings p4p
+    tests/va suites need — `lume-pva-apg[ca,pva]`, which brings pcaspy and p4p
     with it. Those suites guard their imports, so without the extra they SKIP
     rather than error and the lane reports green having never touched Channel
     Access; `dev` carries pytest itself."""
@@ -517,7 +517,7 @@ def test_lume_pyat_is_a_core_dependency() -> None:
 
 
 #: The one platform with a loadable Channel Access server wheel, and therefore
-#: the marker both serving entries must carry. Spelled with DOUBLE quotes
+#: the marker the serving entry must carry. Spelled with DOUBLE quotes
 #: because this is compared against ``str(Requirement(...).marker)``, which is
 #: packaging's normalised rendering — pyproject.toml itself writes the same
 #: marker with single quotes, and both parse to this.
@@ -551,7 +551,7 @@ def test_lume_pva_is_pinned_in_the_va_extra(pyproject: dict[str, Any]) -> None:
     image at all. Core placement would be worse than absent — the `ca` extra
     requires pcaspy unconditionally, so a core pin would drag the Channel
     Access server onto every plain `uv sync`, including the macOS hosts the
-    pcaspy marker beside it exists to keep clear of a source build."""
+    marker it carries exists to keep clear of a source build."""
     assert _requirement(_va_extra(pyproject), "lume-pva-apg") is not None, (
         "lume-pva-apg must be pinned in the `virtual-accelerator` extra"
     )
@@ -617,29 +617,30 @@ def test_lume_pva_pin_carries_both_transports__mutation_drops_one(dropped: str) 
         test_lume_pva_pin_carries_both_transports(mutated)
 
 
-def test_lume_pva_pin_shares_the_pcaspy_platform_marker(pyproject: dict[str, Any]) -> None:
-    """The two entries must be marked identically or the marker on pcaspy is
-    decorative: `lume-pva-apg[ca]` requires pcaspy with no marker of its own,
-    so an unmarked serving pin re-introduces it on exactly the hosts the
-    pcaspy line excludes — verified, not assumed (resolving
-    `lume-pva-apg[ca,pva]` for macOS at 3.13 selects pcaspy 0.8.1, whose only
-    artifact there is the sdist, i.e. the EPICS source build)."""
+def test_lume_pva_pin_carries_the_live_ca_marker(pyproject: dict[str, Any]) -> None:
+    """`lume-pva-apg[ca]` requires pcaspy with no marker of its own, so an
+    unmarked serving pin drags the Channel Access server onto hosts with no
+    loadable wheel — verified, not assumed (resolving `lume-pva-apg[ca,pva]`
+    for macOS at 3.13 selects pcaspy 0.8.1, whose only artifact there is the
+    sdist, i.e. the EPICS source build). The extra names pcaspy nowhere: the
+    serving pin is its only route in, and that pin's `ca` extra carries the
+    floor."""
     extra = _va_extra(pyproject)
-    pcaspy = _requirement(extra, "pcaspy")
     lume_pva = _requirement(extra, "lume-pva-apg")
-    # Anchored absolutely, not only to each other. Parity alone would be
-    # satisfied by two entries edited together to some other platform, which
-    # is the one way this pair can drift and still agree.
-    assert pcaspy is not None and str(pcaspy.marker) == LIVE_CA_MARKER, (
-        f"pcaspy must stay marked {LIVE_CA_MARKER!r} — the one platform with a "
-        f"loadable Channel Access server wheel; got {pcaspy.marker}"
+    # Anchored absolutely: a marker retargeted to some other platform is still
+    # a marker, and only the comparison against the one platform with a
+    # loadable Channel Access server wheel rejects it.
+    assert lume_pva is not None and str(lume_pva.marker) == LIVE_CA_MARKER, (
+        f"lume-pva-apg must stay marked {LIVE_CA_MARKER!r} — the one platform with a "
+        f"loadable Channel Access server wheel; got {lume_pva and lume_pva.marker}"
     )
-    assert lume_pva is not None and str(lume_pva.marker) == str(pcaspy.marker), (
-        f"lume-pva-apg must carry pcaspy's marker ({pcaspy.marker}); got {lume_pva.marker}"
+    assert _requirement(extra, "pcaspy") is None, (
+        "the `virtual-accelerator` extra must not declare pcaspy directly — it arrives "
+        "through lume-pva-apg[ca], which carries its floor"
     )
 
 
-def test_lume_pva_pin_shares_the_pcaspy_platform_marker__mutation_unmarks_it() -> None:
+def test_lume_pva_pin_carries_the_live_ca_marker__mutation_unmarks_it() -> None:
     """An unmarked serving pin must fail."""
     mutated = _load_pyproject()
     extra = _va_extra(mutated)
@@ -652,29 +653,38 @@ def test_lume_pva_pin_shares_the_pcaspy_platform_marker__mutation_unmarks_it() -
         "mutation matched nothing — the marker is already absent"
     )
     with pytest.raises(AssertionError):
-        test_lume_pva_pin_shares_the_pcaspy_platform_marker(mutated)
+        test_lume_pva_pin_carries_the_live_ca_marker(mutated)
 
 
-def test_lume_pva_pin_shares_the_pcaspy_platform_marker__mutation_moves_both_to_another_platform() -> (
-    None
-):
-    """Retargeting BOTH entries together must fail.
-
-    This is the mutation the parity check alone could not catch: two markers
-    edited in step still agree with each other, so only the absolute anchor
-    rejects them. Darwin is the pointed choice — it is where pcaspy's wheels
-    exist but do not load, so a plausible edit could land here."""
+def test_lume_pva_pin_carries_the_live_ca_marker__mutation_moves_to_another_platform() -> None:
+    """Retargeting the serving pin to another platform must fail. Darwin is the
+    pointed choice — it is where pcaspy's wheels exist but do not load, so a
+    plausible edit could land here."""
     mutated = _load_pyproject()
     extra = _va_extra(mutated)
     before = list(extra)
     mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
-        f"{dep.split(';', 1)[0].strip()}; sys_platform == 'darwin'" for dep in extra
+        f"{dep.split(';', 1)[0].strip()}; sys_platform == 'darwin'"
+        if Requirement(dep).name == "lume-pva-apg"
+        else dep
+        for dep in extra
     ]
     assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
-        "mutation matched nothing — the markers are already not the pinned pair"
+        "mutation matched nothing — the serving pin is gone"
     )
-    with pytest.raises(AssertionError, match="pcaspy must stay marked"):
-        test_lume_pva_pin_shares_the_pcaspy_platform_marker(mutated)
+    with pytest.raises(AssertionError, match="lume-pva-apg must stay marked"):
+        test_lume_pva_pin_carries_the_live_ca_marker(mutated)
+
+
+def test_lume_pva_pin_carries_the_live_ca_marker__mutation_redeclares_pcaspy() -> None:
+    """A direct pcaspy entry beside the serving pin must fail, marked or not."""
+    mutated = _load_pyproject()
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        *_va_extra(mutated),
+        "pcaspy>=0.8.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    ]
+    with pytest.raises(AssertionError, match="must not declare pcaspy directly"):
+        test_lume_pva_pin_carries_the_live_ca_marker(mutated)
 
 
 def test_lume_pva_pin_is_exact(pyproject: dict[str, Any]) -> None:
