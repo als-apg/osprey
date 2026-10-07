@@ -567,6 +567,125 @@ class TestWriteConfirmation:
         assert "5.0" in result.notes
 
 
+#: pyepics' TIME-form field types, which ``get_pv`` reports by default.
+TIME_SHORT, TIME_CHAR, TIME_LONG, TIME_DOUBLE = 15, 18, 19, 20
+
+
+def _typed_write_connector(ftype, *, observed=5.0, pv_type="time_double", caput=True):
+    """A write connector whose channel reports ``ftype`` through ``get_pv``."""
+    connector = _write_connector(observed=observed, caput=caput)
+    connector._epics.PV.return_value = _readback_pv(observed, pv_type=pv_type)
+    connector._epics.get_pv.return_value.connected = True
+    connector._epics.get_pv.return_value.ftype = ftype
+    return connector
+
+
+@pytest.mark.usefixtures("writes_enabled")
+class TestWriteExactness:
+    """A value goes out exactly as written, or not at all.
+
+    pyepics casts a value into the channel's wire type without checking it, so
+    a soft IOC stored 1.5 sent to a ``longout`` as 1 and 2**31 as -2147483648.
+    With confirmation off nothing reported either. Such a write is refused
+    before ``caput``.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("confirm", [True, False])
+    @pytest.mark.parametrize(
+        ("ftype", "value", "reason"),
+        [
+            (TIME_LONG, 1.5, "not a whole number"),
+            (TIME_LONG, "1.9", "not a whole number"),
+            (TIME_LONG, 2**31, "outside the channel's integer range"),
+            (TIME_LONG, "2147483648", "outside the channel's integer range"),
+            (TIME_SHORT, 40000, "outside the channel's integer range"),
+            (TIME_CHAR, 300, "outside the channel's integer range"),
+            (TIME_CHAR, -1, "outside the channel's integer range"),
+            (TIME_LONG, [1.5, 2], "not a whole number"),
+            (TIME_LONG, [2**31], "outside the channel's integer range"),
+            (TIME_LONG, float("nan"), "not a whole number"),
+        ],
+    )
+    async def test_a_value_the_integer_channel_cannot_hold_is_refused_unsent(
+        self, ftype, value, reason, confirm
+    ):
+        connector = _typed_write_connector(ftype)
+
+        result = await connector.write_channel("SR:CH", value, confirm=confirm)
+
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.refusal_reason == "VALIDATION_ERROR"
+        assert reason in result.error_message
+        connector._epics.caput.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("ftype", "value", "sent"),
+        [
+            (TIME_LONG, 2.0, 2.0),
+            (TIME_LONG, "0x10", "0x10"),
+            (TIME_LONG, -(2**31), -(2**31)),
+            (TIME_SHORT, True, True),
+            (TIME_CHAR, 255, 255),
+            (TIME_LONG, [2.0, 3], [2, 3]),
+            (TIME_DOUBLE, 1.5, 1.5),
+            (TIME_CHAR, "text for a char array", "text for a char array"),
+        ],
+    )
+    async def test_a_value_the_channel_holds_exactly_is_sent(self, ftype, value, sent):
+        """Whole floats in an integer array go out as ints: pyepics refuses
+        any float element of an integer array, even a whole one."""
+        connector = _typed_write_connector(ftype)
+
+        await connector.write_channel("SR:CH", value, confirm=False)
+
+        assert connector._epics.caput.call_args.args == ("SR:CH", sent)
+
+    @pytest.mark.asyncio
+    async def test_a_channel_that_never_connects_fails_with_nothing_sent(self):
+        connector = _typed_write_connector(TIME_DOUBLE)
+        connector._epics.get_pv.return_value.connected = False
+
+        result = await connector.write_channel("SR:CH", 5.0)
+
+        assert result.outcome is WriteOutcome.FAILED
+        assert "nothing was sent" in result.error_message
+        connector._epics.caput.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_put_pyepics_answers_with_none_fails_with_nothing_sent(self):
+        """pyepics returns None only before a put, for a PV not connected."""
+        connector = _typed_write_connector(TIME_DOUBLE, caput=None)
+
+        result = await connector.write_channel("SR:CH", 5.0)
+
+        assert result.outcome is WriteOutcome.FAILED
+        assert "nothing was sent" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_text_a_char_array_holds_is_confirmed(self):
+        """pyepics writes text to a char array as its bytes plus a NUL, and a
+        confirming read returns those bytes, never the text."""
+        held = [ord(c) for c in "hello"] + [0, 0]
+        connector = _typed_write_connector(TIME_CHAR, observed=held, pv_type="time_char")
+
+        result = await connector.write_channel("SR:CH", "hello")
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.observed_value == "hello"
+
+    @pytest.mark.asyncio
+    async def test_text_a_char_array_cut_short_is_a_mismatch(self):
+        held = [ord(c) for c in "hel"] + [0]
+        connector = _typed_write_connector(TIME_CHAR, observed=held, pv_type="time_char")
+
+        result = await connector.write_channel("SR:CH", "hello")
+
+        assert result.outcome is WriteOutcome.MISMATCH
+        assert result.observed_value == "hel"
+
+
 @pytest.mark.usefixtures("writes_enabled")
 class TestConfirmingRead:
     """What the confirming read does differently from an ordinary read."""
