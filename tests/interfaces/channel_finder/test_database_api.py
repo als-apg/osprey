@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from osprey.services.channel_finder.databases import FlatChannelDatabase, MiddleLayerDatabase
+
 _DB_PATCH = "osprey.interfaces.channel_finder.database_api._get_database"
 _FACILITY_PATCH = "osprey.interfaces.channel_finder.database_api._get_facility_name"
 
@@ -12,7 +14,7 @@ class TestInfoEndpoint:
     """Tests for GET /api/info."""
 
     def test_info_returns_pipeline_type(self, client):
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.get_statistics.return_value = {"total_channels": 100}
         mock_db.chunk_database.return_value = [[]] * 2
         mock_db.db_path = "/tmp/test.json"
@@ -33,7 +35,7 @@ class TestStatisticsEndpoint:
     """Tests for GET /api/statistics."""
 
     def test_statistics_returns_data(self, client):
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.get_statistics.return_value = {"total_channels": 250}
         mock_db.chunk_database.return_value = [[]] * 5
         with (
@@ -48,7 +50,7 @@ class TestStatisticsEndpoint:
         assert data["facility_name"] == "ERF"
 
     def test_statistics_error_returns_500(self, client):
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.get_statistics.side_effect = RuntimeError("Database not loaded")
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get("/api/statistics")
@@ -59,7 +61,7 @@ class TestValidateEndpoint:
     """Tests for POST /api/validate."""
 
     def test_validate_channels(self, client):
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.validate_channels.return_value = [
             {"channel": "SR:BPM:01:X", "valid": True},
             {"channel": "INVALID", "valid": False},
@@ -78,7 +80,7 @@ class TestChannelsEndpoint:
     """Tests for GET /api/channels (in-context)."""
 
     def test_get_channels_chunk(self, client):
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.chunk_database.return_value = [[{"name": "ch1", "description": "test"}]]
         mock_db.format_chunk_for_prompt.return_value = "ch1 - test"
         with patch(_DB_PATCH, return_value=mock_db):
@@ -97,7 +99,7 @@ class TestChannelsEndpoint:
         (issue #299). Guards the contract the client fix depends on.
         """
         all_channels = [{"channel": f"SR:CH:{i:03d}", "description": f"d{i}"} for i in range(120)]
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.get_all_channels.return_value = all_channels
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get("/api/channels")
@@ -139,7 +141,7 @@ class TestCrudEndpoints:
     """Tests for CRUD endpoints with mocked database instances."""
 
     def test_ic_create_channel(self, client):
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.add_channel.return_value = {"success": True, "channel": "TEST:CH"}
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.post(
@@ -150,7 +152,7 @@ class TestCrudEndpoints:
         assert resp.json()["success"] is True
 
     def test_ic_delete_channel(self, client):
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.delete_channel.return_value = {"success": True, "channel": "TEST:CH"}
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.delete("/api/channels/TEST:CH")
@@ -158,7 +160,7 @@ class TestCrudEndpoints:
         assert resp.json()["success"] is True
 
     def test_ic_update_channel(self, client):
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.update_channel.return_value = {"success": True, "channel": "TEST:CH"}
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.put(
@@ -170,7 +172,7 @@ class TestCrudEndpoints:
     def test_ic_create_crud_error_returns_400(self, client):
         from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.add_channel.side_effect = DatabaseWriteError("Channel already exists", "duplicate")
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.post(
@@ -180,7 +182,7 @@ class TestCrudEndpoints:
         assert resp.status_code == 400
 
     def test_ic_create_unexpected_error_returns_500(self, client):
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=FlatChannelDatabase)
         mock_db.add_channel.side_effect = RuntimeError("Unexpected")
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.post(
@@ -239,7 +241,7 @@ class TestExploreChannelsProtocol:
 
     def test_absent_protocol_keeps_the_positional_call(self, client):
         client.app.state.pipeline_type = "middle_layer"
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         mock_db.list_channel_names.return_value = ["K1:V"]
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get("/api/explore/channels?system=RING&family=KICK&field=Voltage")
@@ -271,7 +273,7 @@ class TestExploreChannelsProtocol:
 
     def test_unknown_protocol_is_refused_by_the_enum(self, client):
         client.app.state.pipeline_type = "middle_layer"
-        mock_db = MagicMock()
+        mock_db = MagicMock(spec=MiddleLayerDatabase)
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get(
                 "/api/explore/channels?system=RING&family=KICK&field=Voltage&protocol=pva"

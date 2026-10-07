@@ -23,7 +23,8 @@ an actual model turn + a provider API key, which this CI lane deliberately does
 not require. The synthetic payload exercises exactly the thing under test — the
 compose template, the credential bootstrap, and the computed Basic header — with
 no LLM dependency. An OPTIONAL live-agent smoke (``test_live_agent_...``) is
-appended and ``skipif``-gated on a provider key for when one is present.
+appended and ``skipif``-gated on a provider key for when one is present. The
+synthetic tests carry ``model_free``; the live smoke does not.
 
 CONTAINER SAFETY: every docker/podman invocation names an EXACT container/image
 — never a wildcard, never ``system prune``/``--volumes``. Teardown goes through
@@ -542,6 +543,7 @@ def _synthetic_span(now_ns: int, trace_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.model_free
 @pytest.mark.usefixtures("deployed_openobserve")
 def test_synthetic_otlp_roundtrip_via_computed_header() -> None:
     """Ingest a synthetic metric + event with the resolver's Basic header; assert both land."""
@@ -612,6 +614,7 @@ def test_synthetic_otlp_roundtrip_via_computed_header() -> None:
     assert event_total >= 1, "no claude_code event record visible in OpenObserve after ingest"
 
 
+@pytest.mark.model_free
 @pytest.mark.usefixtures("deployed_openobserve")
 def test_bad_credentials_are_rejected() -> None:
     """Sanity: OpenObserve enforces auth, so a green round-trip really proves auth."""
@@ -645,6 +648,7 @@ def _ingest_credentials(repo: Path) -> tuple[str, str]:
     return email, token
 
 
+@pytest.mark.model_free
 def test_the_deploy_provisions_a_distinct_ingest_identity(deployed_openobserve: Path) -> None:
     """The token is the STORE's, not something OSPREY minted for itself.
 
@@ -662,6 +666,7 @@ def test_the_deploy_provisions_a_distinct_ingest_identity(deployed_openobserve: 
     assert token.isalnum(), f"unexpected token shape: {len(token)} chars"
 
 
+@pytest.mark.model_free
 def test_synthetic_otlp_roundtrip_via_the_ingest_identity(deployed_openobserve: Path) -> None:
     """The round-trip the shipped telemetry blocks actually perform.
 
@@ -715,6 +720,7 @@ def test_synthetic_otlp_roundtrip_via_the_ingest_identity(deployed_openobserve: 
     assert event_total >= 1, "no record visible after ingest via the ingest identity"
 
 
+@pytest.mark.model_free
 def test_synthetic_trace_roundtrip_via_the_ingest_identity(deployed_openobserve: Path) -> None:
     """A tool span with its output event lands through the traces route.
 
@@ -755,6 +761,7 @@ def test_synthetic_trace_roundtrip_via_the_ingest_identity(deployed_openobserve:
     assert total >= 1, f"trace {trace_id} not visible in OpenObserve after ingest"
 
 
+@pytest.mark.model_free
 def test_a_wrong_token_for_the_ingest_account_is_rejected(deployed_openobserve: Path) -> None:
     """The negative half, aimed at the identity that now carries the traffic.
 
@@ -770,6 +777,7 @@ def test_a_wrong_token_for_the_ingest_account_is_rejected(deployed_openobserve: 
     assert status in (401, 403), f"expected auth rejection, got {status}"
 
 
+@pytest.mark.model_free
 def test_the_rendered_config_names_the_ingest_identity(deployed_openobserve: Path) -> None:
     """The render is what the deployed agent reads, so pin it there and not only
     in the template: user carries its own fallback, the token carries none.

@@ -10,21 +10,32 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast, get_args
+from urllib.parse import urlsplit
 
+from osprey.ariel_attachment_view import attachment_view_enabled
 from osprey.port_layout import default_port
 from osprey.utils.config_paths import resolve_config_relative_path
+from osprey.utils.seconds import positive_seconds
 
+from .attachments import DEFAULT_MAX_ATTACHMENT_MB
 from .exceptions import ConfigurationError
-from .models import normalize_search_mode, resolve_implicit_search_mode
+from .models import (
+    DEFAULT_LISTING_TEXT_CHARS,
+    DEFAULT_READ_TEXT_CHARS,
+    normalize_search_mode,
+    resolve_implicit_search_mode,
+)
 from .vocabulary.loader import load_vocabulary
 from .vocabulary.model import Vocabulary
 
 logger = logging.getLogger("osprey.services.ariel_search.config")
 
-#: Enhancement modules that drive a chat/completion endpoint rather than an
-#: embedding one.  ``ariel.embedding.provider`` is never substituted for these.
-LLM_ENHANCEMENT_MODULES = frozenset({"semantic_processor"})
+#: Enhancement modules that do not call the text-embedding endpoint, so
+#: ``ariel.embedding.provider`` is never substituted for their provider.
+NO_EMBEDDING_FALLBACK_MODULES = frozenset(
+    {"semantic_processor", "image_caption", "image_embedding"}
+)
 
 #: Defaults for the derived DSN, matching what the postgresql compose service
 #: is rendered with when ``services.postgresql`` leaves a field unset. The port
@@ -231,7 +242,9 @@ class ModelConfig:
     Attributes:
         name: Model name (e.g., "nomic-embed-text")
         dimension: Embedding dimension (must match model output)
-        max_input_tokens: Maximum input tokens for the model (optional)
+        max_input_tokens: Input window, in tokens, that the embedding server applies to this
+            model (optional). Unset means the text embedding module's
+            ``DEFAULT_MAX_INPUT_TOKENS``.
     """
 
     name: str
@@ -281,13 +294,14 @@ class EnhancementModuleConfig:
 
     Attributes:
         enabled: Whether module is active
-        provider: Provider name for embeddings (references api.providers section)
+        provider: Provider name (references the api.providers section), or an
+            inline mapping ``{name, base_url, api_key}``
         models: List of model configurations (for text_embedding)
         settings: Module-specific settings
     """
 
     enabled: bool
-    provider: str | None = None
+    provider: str | dict[str, Any] | None = None
     models: list[ModelConfig] | None = None
     settings: dict[str, Any] = field(default_factory=dict)
 
@@ -313,6 +327,36 @@ class EnhancementModuleConfig:
         )
 
 
+def _interval_seconds(data: Mapping[str, Any], key: str, default: float, *, path: str) -> float:
+    """Read an ARIEL interval as a positive, finite number of seconds.
+
+    An absent key or an explicit empty value takes ``default``.
+
+    Args:
+        data: The block that holds the key.
+        key: The key to read.
+        default: The interval used when the key is absent or empty.
+        path: The block's path under ``ariel``, e.g. ``"ingestion.watch"``.
+
+    Returns:
+        The interval in seconds.
+
+    Raises:
+        ConfigurationError: If the value is not a positive, finite number of
+            seconds.
+    """
+    raw = data.get(key)
+    if raw is None:
+        return default
+    seconds = positive_seconds(raw)
+    if seconds is None:
+        raise ConfigurationError(
+            f"ariel.{path}.{key} is {raw!r}; set a positive number of seconds",
+            config_key=f"{path}.{key}",
+        )
+    return seconds
+
+
 @dataclass
 class WatchConfig:
     """Configuration for the watch (live polling) mode.
@@ -321,13 +365,13 @@ class WatchConfig:
         require_initial_ingest: Require at least one successful ingest before watching
         max_consecutive_failures: Stop after this many consecutive poll failures
         backoff_multiplier: Multiply interval by this on consecutive failures
-        max_interval_seconds: Maximum poll interval after backoff
+        max_interval_seconds: Maximum poll interval after backoff, in seconds (positive, finite)
     """
 
     require_initial_ingest: bool = True
     max_consecutive_failures: int = 10
     backoff_multiplier: float = 2.0
-    max_interval_seconds: int = 3600
+    max_interval_seconds: float = 3600.0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WatchConfig":
@@ -336,7 +380,9 @@ class WatchConfig:
             require_initial_ingest=data.get("require_initial_ingest", True),
             max_consecutive_failures=data.get("max_consecutive_failures", 10),
             backoff_multiplier=data.get("backoff_multiplier", 2.0),
-            max_interval_seconds=data.get("max_interval_seconds", 3600),
+            max_interval_seconds=_interval_seconds(
+                data, "max_interval_seconds", cls.max_interval_seconds, path="ingestion.watch"
+            ),
         )
 
 
@@ -430,7 +476,8 @@ class IngestionConfig:
     Attributes:
         adapter: Adapter name (e.g., "als_logbook", "generic_json")
         source_url: URL for source system API (optional)
-        poll_interval_seconds: Polling interval for incremental ingestion
+        poll_interval_seconds: Polling interval for incremental ingestion, in seconds
+            (positive, finite)
         proxy_url: SOCKS proxy URL (e.g., "socks5://localhost:1080")
         verify_ssl: Whether to verify TLS certificates (default: True). Set false
             only as a deliberate opt-out for a logbook whose certificate cannot
@@ -447,7 +494,7 @@ class IngestionConfig:
 
     adapter: str
     source_url: str | None = None
-    poll_interval_seconds: int = 3600
+    poll_interval_seconds: float = 3600.0
     proxy_url: str | None = None
     verify_ssl: bool = True
     ca_bundle: str | None = None
@@ -473,6 +520,9 @@ class IngestionConfig:
                 default — the old one, ``"generic"``, is not a registered name
                 at all, so an ingestion block without an adapter never worked;
                 it just failed later, at the first ingest, instead of here.
+                Also if ``poll_interval_seconds`` or
+                ``watch.max_interval_seconds`` is not a positive, finite
+                number of seconds.
         """
         if not data.get("adapter"):
             available = ", ".join(_known_ingestion_adapters())
@@ -496,7 +546,9 @@ class IngestionConfig:
         return cls(
             adapter=data["adapter"],
             source_url=data.get("source_url"),
-            poll_interval_seconds=data.get("poll_interval_seconds", 3600),
+            poll_interval_seconds=_interval_seconds(
+                data, "poll_interval_seconds", cls.poll_interval_seconds, path="ingestion"
+            ),
             proxy_url=proxy_url,
             verify_ssl=data.get("verify_ssl", True),
             ca_bundle=data.get("ca_bundle"),
@@ -560,14 +612,17 @@ class EmbeddingConfig:
 
     Attributes:
         provider: Provider name (uses central Osprey config)
+        provider_explicit: Whether ``ariel.embedding`` named ``provider`` itself,
+            as opposed to ``provider`` holding the default.
     """
 
     provider: str = "ollama"
+    provider_explicit: bool = field(default=False, compare=False, repr=False)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "EmbeddingConfig":
         """Create EmbeddingConfig from dictionary."""
-        return cls(provider=data.get("provider", "ollama"))
+        return cls(provider=data.get("provider", "ollama"), provider_explicit="provider" in data)
 
 
 def _vocab_bool(data: dict[str, Any], key: str, default: bool) -> bool:
@@ -685,6 +740,253 @@ class VocabularyConfig:
         )
 
 
+_ENTRY_TEXT_PREFIX = "ariel.entry_text"
+
+
+def _entry_text_chars(data: dict[str, Any], key: str, default: int) -> int:
+    """Read one character budget from the ``ariel.entry_text`` block.
+
+    A *present* key of the wrong type is refused rather than defaulted or
+    clamped, for the same reason :func:`_vocab_bool` refuses one: silently
+    ignoring it would leave the deployment on the behavior it explicitly asked
+    to leave.
+
+    Args:
+        data: The ``ariel.entry_text`` mapping.
+        key: Leaf key to read.
+        default: Value to use when the key is absent.
+
+    Returns:
+        The budget, a positive whole number of characters.
+
+    Raises:
+        ValueError: If the key is present but not a positive integer.
+    """
+    value = data.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(
+            f"{_ENTRY_TEXT_PREFIX}.{key} must be a positive whole number of characters, "
+            f"got {value!r}"
+        )
+    return value
+
+
+#: Attachment summaries each listed entry carries by default.
+DEFAULT_LISTING_ATTACHMENTS = 5
+
+
+def _entry_text_count(data: dict[str, Any], key: str, default: int) -> int:
+    """Read one non-negative count from the ``ariel.entry_text`` block.
+
+    Zero is a valid count; a bool, a non-integer or a negative number is refused
+    rather than defaulted, for the same reason :func:`_entry_text_chars` refuses one.
+
+    Args:
+        data: The ``ariel.entry_text`` mapping.
+        key: Leaf key to read.
+        default: Value to use when the key is absent.
+
+    Returns:
+        The count, a whole number of at least zero.
+
+    Raises:
+        ValueError: If the key is present but not a non-negative integer.
+    """
+    value = data.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(
+            f"{_ENTRY_TEXT_PREFIX}.{key} must be a whole number of at least 0, got {value!r}"
+        )
+    return value
+
+
+@dataclass(frozen=True)
+class EntryTextConfig:
+    """The ``ariel.entry_text`` block: how much of each entry's text the agent sees.
+
+    Attributes:
+        listing_chars: Characters of each entry's text a listing carries:
+            ``keyword_search``, ``semantic_search``, ``hybrid_search`` and ``browse``.
+        read_chars: Characters of each entry's text a batch read carries:
+            ``entries_by_ids``. Never below ``listing_chars``.
+        listing_attachments: Attachment summaries each entry of a listing or a
+            batch read carries; ``0`` omits them and keeps ``attachment_count``.
+
+    ``entry_get`` is never cut and lists every attachment.
+    """
+
+    listing_chars: int = DEFAULT_LISTING_TEXT_CHARS
+    read_chars: int = DEFAULT_READ_TEXT_CHARS
+    listing_attachments: int = DEFAULT_LISTING_ATTACHMENTS
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "EntryTextConfig":
+        """Create EntryTextConfig from the ``ariel.entry_text`` mapping.
+
+        Args:
+            data: The ``ariel.entry_text`` mapping.
+
+        Returns:
+            EntryTextConfig instance.
+
+        Raises:
+            ValueError: If a budget is not a positive integer, ``read_chars``
+                is below ``listing_chars``, or ``listing_attachments`` is not a
+                non-negative integer.
+        """
+        listing = _entry_text_chars(data, "listing_chars", cls.listing_chars)
+        read = _entry_text_chars(data, "read_chars", cls.read_chars)
+        attachments = _entry_text_count(data, "listing_attachments", cls.listing_attachments)
+        if read < listing:
+            raise ValueError(
+                f"{_ENTRY_TEXT_PREFIX}.read_chars ({read}) is below "
+                f"{_ENTRY_TEXT_PREFIX}.listing_chars ({listing}): reading an entry must "
+                "show at least what a search result shows"
+            )
+        return cls(listing_chars=listing, read_chars=read, listing_attachments=attachments)
+
+
+_ATTACHMENTS_PREFIX = "ariel.attachments"
+
+#: What ingest copies into ``attachment_files``: pictures only, every file, or nothing.
+CopyOnIngest = Literal["images", "all", "none"]
+COPY_ON_INGEST_MODES: tuple[str, ...] = get_args(CopyOnIngest)
+
+#: One allowed origin as fetch compares it: (scheme, host, effective port).
+Origin = tuple[str, str, int]
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _attachments_max_file_mb(data: Mapping[str, Any]) -> int:
+    """Read ``ariel.attachments.max_file_mb``, keeping the lenient reading.
+
+    Unlike the other knobs of the block, an unusable cap is logged and the
+    default kept rather than refused: the cap guards storage, and refusing the
+    whole config over it would take the logbook down instead of bounding it.
+
+    Args:
+        data: The ``ariel.attachments`` mapping.
+
+    Returns:
+        The cap in megabytes, a positive integer.
+    """
+    value = data.get("max_file_mb")
+    if value is None:
+        return DEFAULT_MAX_ATTACHMENT_MB
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    logger.warning(
+        "ariel.attachments.max_file_mb must be an integer >= 1 (got %r); using %d MB",
+        value,
+        DEFAULT_MAX_ATTACHMENT_MB,
+    )
+    return DEFAULT_MAX_ATTACHMENT_MB
+
+
+def _attachments_origin(value: Any, index: int) -> Origin:
+    """Normalise one ``ariel.attachments.allowed_origins`` item.
+
+    Args:
+        value: The configured item.
+        index: Its position, named in the refusal.
+
+    Returns:
+        The (scheme, host, effective port) tuple.
+
+    Raises:
+        ValueError: The item is not an http(s) origin with a host and nothing
+            after it: no path beyond ``/``, query, fragment or userinfo.
+    """
+    key = f"{_ATTACHMENTS_PREFIX}.allowed_origins[{index}]"
+    shape = "an http or https origin such as 'https://elog.example.org'"
+    if not isinstance(value, str):
+        raise ValueError(f"{key} must be {shape}, got {value!r}")
+    parts = urlsplit(value.strip())
+    scheme = parts.scheme.lower()
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise ValueError(f"{key} has an invalid port ({exc}), got {value!r}") from None
+    if (
+        scheme not in _DEFAULT_PORTS
+        or not parts.hostname
+        or parts.path not in ("", "/")
+        or parts.query
+        or parts.fragment
+        or parts.username is not None
+        or parts.password is not None
+    ):
+        raise ValueError(f"{key} must be {shape}, got {value!r}")
+    return (scheme, parts.hostname, port if port is not None else _DEFAULT_PORTS[scheme])
+
+
+@dataclass(frozen=True)
+class AttachmentsConfig:
+    """The ``ariel.attachments`` block — the only parser of ``ariel.attachments.*``.
+
+    Attributes:
+        copy_on_ingest: What ingest copies into ``attachment_files``:
+            ``images`` (the default), ``all`` or ``none``.
+        max_file_mb: Largest file one entry may attach, in megabytes.
+        allowed_origins: Origins ingest may fetch attachment urls from, each
+            normalised to (scheme, host, effective port) so ``https://h`` and
+            ``https://h:443`` compare equal. Empty allows none.
+        view_enabled: ``ariel.attachments.view.enabled``; false hides
+            ``attachment_view``, ``attachment_to_artifact`` and the attachment
+            summaries from agents.
+    """
+
+    copy_on_ingest: CopyOnIngest = "images"
+    max_file_mb: int = DEFAULT_MAX_ATTACHMENT_MB
+    allowed_origins: tuple[Origin, ...] = ()
+    view_enabled: bool = True
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "AttachmentsConfig":
+        """Create AttachmentsConfig from the ``ariel.attachments`` mapping.
+
+        Args:
+            data: The ``ariel.attachments`` mapping.
+
+        Returns:
+            AttachmentsConfig instance.
+
+        Raises:
+            ValueError: ``copy_on_ingest`` is not a known mode,
+                ``allowed_origins`` is not a list of origins, or
+                ``view.enabled`` is not a boolean; each names its key. An
+                unusable ``max_file_mb`` is logged and defaulted instead.
+        """
+        copy_on_ingest = data.get("copy_on_ingest", cls.copy_on_ingest)
+        if not isinstance(copy_on_ingest, str) or copy_on_ingest not in COPY_ON_INGEST_MODES:
+            raise ValueError(
+                f"{_ATTACHMENTS_PREFIX}.copy_on_ingest must be one of "
+                f"{', '.join(repr(mode) for mode in COPY_ON_INGEST_MODES)}, "
+                f"got {copy_on_ingest!r}"
+            )
+
+        origins = data.get("allowed_origins")
+        if origins is None:
+            origins = []
+        if not isinstance(origins, list | tuple):
+            raise ValueError(
+                f"{_ATTACHMENTS_PREFIX}.allowed_origins must be a list of origins, got {origins!r}"
+            )
+        allowed_origins = tuple(
+            _attachments_origin(item, index) for index, item in enumerate(origins)
+        )
+
+        view_enabled = attachment_view_enabled({"attachments": data})
+
+        return cls(
+            copy_on_ingest=cast(CopyOnIngest, copy_on_ingest),
+            max_file_mb=_attachments_max_file_mb(data),
+            allowed_origins=allowed_origins,
+            view_enabled=view_enabled,
+        )
+
+
 @dataclass
 class ARIELConfig:
     """Root configuration for ARIEL service.
@@ -710,16 +1012,26 @@ class ARIELConfig:
             classes leave a working service.
         vocabulary_warnings: Loader warnings — a vocabulary that loads but may
             not behave as its author expects. Never blocks anything.
+        entry_text: The ``ariel.entry_text`` block — how much of each entry's text
+            the agent-facing tools return.
+        attachments: The ``ariel.attachments`` block — attachment copying, the
+            size cap, the fetch allowlist and the ``attachment_view`` switch.
 
     Documented top-level config keys read at runtime (not dataclass fields):
         entry_url_template: Optional ``str`` template for the canonical logbook
-            entry URL, e.g. ``"https://logbook.example/olog.php?id={entry_id}"``.
+            entry URL, e.g. ``"https://logbook.example.org/entry/{entry_id}"``.
             Read at egress time via ``get_config_value("ariel.entry_url_template")``
             (see ``mcp_server.ariel.server.build_entry_url``), NOT parsed by
             ``from_dict`` — the ARIEL read tools render it with the URL-encoded
-            ``entry_id`` so the agent links entries verbatim. Facility-neutral by
-            default (unset -> no ``entry_url`` emitted); a facility supplies the
-            value in its own sibling base file.
+            ``entry_id`` so the agent links entries verbatim. Unset by default (no
+            ``entry_url`` emitted); a deployment sets it in its profile's
+            ``config:`` block, where the presets that ship an ``ariel:`` block
+            carry it as a commented example.
+        demo_narrative: Optional directory of scenario narratives a deployment
+            with no simulation seeds into its empty logbook. Read by the deploy
+            and ``osprey ariel quickstart`` through
+            ``osprey.simulation.apply.demo_narrative_logbook``, NOT parsed by
+            ``from_dict``.
     """
 
     database: DatabaseConfig
@@ -732,6 +1044,8 @@ class ARIELConfig:
     loaded_vocabulary: Vocabulary | None = None
     vocabulary_errors: list[str] = field(default_factory=list)
     vocabulary_warnings: list[str] = field(default_factory=list)
+    entry_text: EntryTextConfig = field(default_factory=EntryTextConfig)
+    attachments: AttachmentsConfig = field(default_factory=AttachmentsConfig)
 
     @classmethod
     def from_dict(
@@ -768,6 +1082,8 @@ class ARIELConfig:
         Raises:
             ConfigurationError: If the deprecated 'pipelines' section is present.
             ValueError: If the ``vocabulary`` block is malformed.
+            ValueError: If the ``entry_text`` block is malformed.
+            ValueError: If the ``attachments`` block is malformed.
         """
         if "pipelines" in config_dict:
             raise ConfigurationError(
@@ -799,6 +1115,22 @@ class ARIELConfig:
         default_search_mode = config_dict.get("default_search_mode")
         if default_search_mode is not None:
             default_search_mode = normalize_search_mode(default_search_mode)
+
+        entry_text_data = config_dict.get("entry_text")
+        if entry_text_data is None:
+            entry_text = EntryTextConfig()
+        elif isinstance(entry_text_data, dict):
+            entry_text = EntryTextConfig.from_dict(entry_text_data)
+        else:
+            raise ValueError(f"{_ENTRY_TEXT_PREFIX} must be a mapping, got {entry_text_data!r}")
+
+        attachments_data = config_dict.get("attachments")
+        if attachments_data is None:
+            attachments = AttachmentsConfig()
+        elif isinstance(attachments_data, Mapping):
+            attachments = AttachmentsConfig.from_dict(attachments_data)
+        else:
+            raise ValueError(f"{_ATTACHMENTS_PREFIX} must be a mapping, got {attachments_data!r}")
 
         vocabulary_data = config_dict.get("vocabulary")
         if vocabulary_data is None:
@@ -841,6 +1173,8 @@ class ARIELConfig:
             loaded_vocabulary=loaded_vocabulary,
             vocabulary_errors=vocabulary_errors,
             vocabulary_warnings=vocabulary_warnings,
+            entry_text=entry_text,
+            attachments=attachments,
         )
 
     @property
@@ -1034,9 +1368,13 @@ class ARIELConfig:
         """Get configuration dictionary for an enhancement module.
 
         Returns the raw configuration that can be passed to module.configure().
+        ``provider_key`` names the config key an operator adds or edits to change
+        the provider: ``ariel.embedding.provider`` only when that key is set and
+        supplied the value, else ``ariel.enhancement_modules.<name>.provider``.
 
         Args:
-            name: Module name (text_embedding, semantic_processor)
+            name: Module name (text_embedding, semantic_processor, image_caption,
+                image_embedding)
 
         Returns:
             Configuration dictionary or None if module not configured
@@ -1048,13 +1386,17 @@ class ARIELConfig:
         # Convert back to dict for configure() method
         config: dict[str, Any] = {"enabled": module_config.enabled}
 
-        # `embedding.provider` is the default *embedding* endpoint; substituting it
-        # for a module that calls an LLM would silently pick the wrong service, so
-        # those modules carry their own provider or fail in configure().
+        # `embedding.provider` is the default *text-embedding* endpoint; substituting
+        # it for a module that calls another service would silently pick the wrong
+        # one, so those modules carry their own provider or fail in configure().
         provider = module_config.provider
-        if provider is None and name not in LLM_ENHANCEMENT_MODULES:
+        provider_key = f"ariel.enhancement_modules.{name}.provider"
+        if provider is None and name not in NO_EMBEDDING_FALLBACK_MODULES:
             provider = self.embedding.provider
+            if self.embedding.provider_explicit:
+                provider_key = "ariel.embedding.provider"
         config["provider"] = provider
+        config["provider_key"] = provider_key
 
         if module_config.models:
             config["models"] = [

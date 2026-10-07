@@ -1,0 +1,1 @@
+Shipped service templates no longer write the `osprey.project.name`, `com.osprey.repo-id`, `osprey.project.root` and `osprey.config.digest` container labels; the build's generated `build/osprey-labels.override.yml` gives them to every service. A facility template need not write them either, and one that still does keeps working because the values agree.

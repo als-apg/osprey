@@ -40,7 +40,7 @@ hooks:
   - approval          # Gate logbook entry creation on user approval prompt
   - error-guidance    # Post-error hook that surfaces remediation hints
   - notebook-update   # Sync CLAUDE.md notebook after each session
-  - memory-guard      # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts and notebooks
+  - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
   - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
   - panels-context    # Inject the web terminal panel inventory into agent context
@@ -232,15 +232,26 @@ config:
   # ariel.web.host: 127.0.0.1
   # ariel.web.port: <a port outside this deployment's block>
   # ariel.web.auto_launch: true
-  # Where entries come from. The bundle ships a demo logbook; for production
-  # point adapter and source_url at your logbook system and run
-  # `osprey ariel ingest`.
-  ariel.ingestion.adapter: generic_json
+  # The demo narrative: the logbook entries of every control-assistant scenario,
+  # with the pictures they attach. `osprey up` seeds it into an empty logbook and
+  # `osprey ariel quickstart` adds embeddings and captions. Remove the key to
+  # start from an empty logbook.
+  ariel.demo_narrative: data/logbook_seed
+  # Where your own entries come from: point an adapter and source_url at your
+  # logbook system and run `osprey ariel ingest` (see the data-ingestion guide).
+  # ariel.ingestion.adapter: generic_json
+  # ariel.ingestion.source_url: https://logbook.example.org/api/entries
   # Largest file one entry may attach, in MB. Attachments are stored as rows in
   # the same Postgres the logbook lives in, so this number is a storage
   # decision in both directions.
   # ariel.attachments.max_file_mb: 10
-  ariel.ingestion.source_url: data/logbook_seed/demo_logbook.json
+  # Which attachments ingest copies into the logbook database: `images` (what
+  # captions, picture search and `attachment_view` read), `all`, or `none`.
+  ariel.attachments.copy_on_ingest: images
+  # The agents' `attachment_view` tool and the attachment summaries in their
+  # search and entry results. false hides both from agents and leaves the web
+  # panel unchanged.
+  ariel.attachments.view.enabled: true
   # TLS on the logbook fetch. Verification is ON — an ingest that cannot verify
   # the logbook's certificate fails rather than trusting whatever answered.
   # Two ways out, in order of preference: name your site CA's PEM with
@@ -250,10 +261,18 @@ config:
   # authenticated.
   # ariel.ingestion.ca_bundle: /etc/ssl/certs/site-ca.pem
   # ariel.ingestion.verify_ssl: false
+  # Links from the agent's answers to each entry's page in your logbook: one
+  # URL with an `{entry_id}` placeholder. Unset, the agent shows plain IDs.
+  # ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
   # Which module answers a search that names no mode: the web interface's
   # opening tab, `osprey ariel search` without `--mode`, and the service API.
   # Naming a module that is off below is refused at startup.
   ariel.default_search_mode: hybrid
+  # How much of each entry's text the agent sees: search and browse results
+  # carry the first `listing_chars`, `entries_by_ids` the first `read_chars`,
+  # and `entry_get` the whole entry. A cut entry says so and gives its length.
+  # ariel.entry_text.listing_chars: 500
+  # ariel.entry_text.read_chars: 1000
   # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
   # to the words the logbook prose contains. Off here because a vocabulary is
   # facility content and this preset ships none: write a vocabulary.yml (the
@@ -289,6 +308,10 @@ config:
   # use the index scans the whole logbook; this returns a timeout diagnostic
   # instead of holding the caller open.
   ariel.search_modules.keyword.settings.pattern_timeout_seconds: 10.0
+  # Lowest trigram similarity, 0 to 1, a row needs to come back from the
+  # fallback a keyword search runs when nothing matches exactly. Lower accepts
+  # looser spellings.
+  ariel.search_modules.keyword.settings.fuzzy_threshold: 0.3
   # Semantic search over pgvector embeddings. Degrades to keyword-only when
   # Ollama or pgvector is unavailable, and says so.
   ariel.search_modules.semantic.enabled: true
@@ -328,10 +351,47 @@ config:
   # pgvector is unavailable.
   ariel.enhancement_modules.text_embedding.enabled: true
   ariel.enhancement_modules.text_embedding.provider: ollama
-  # Embedding models and their vector dimension.
+  # Embedding models, their vector dimension, and the input window the server
+  # applies to each, in tokens. Ollama serves nomic-embed-text with a 2048-token
+  # window; a longer entry is cut so its start is embedded.
   ariel.enhancement_modules.text_embedding.models:
     - name: nomic-embed-text
       dimension: 768
+      max_input_tokens: 2048
+  # Picture captions: a vision model describes each copied picture and lists
+  # its visible text, so search finds an entry by what its plots show. Runs
+  # when the Ollama server and the model are available; otherwise it is
+  # skipped, `osprey ariel status` says why, and everything else keeps
+  # working. `enabled: false` turns it off. Provider and model are this
+  # module's own, never the deployment's main model.
+  ariel.enhancement_modules.image_caption.enabled: true
+  ariel.enhancement_modules.image_caption.provider: ollama
+  ariel.enhancement_modules.image_caption.model.model_id: qwen3-vl:4b
+  # Pictures captioned per entry, in attachment order; the rest are recorded
+  # as over the cap and never sent to the model.
+  # ariel.enhancement_modules.image_caption.max_images_per_entry: 8
+  # Replaces the caption prompt; `{text}` is replaced by the entry text. A
+  # replacement must keep asking for the `Visible text:` list the reply is
+  # split at.
+  # ariel.enhancement_modules.image_caption.prompt_template: |
+  # Seconds one vision call may take; a local vision model on CPU can spend
+  # minutes on one picture. A timeout is retried on the next pass.
+  # ariel.enhancement_modules.image_caption.timeout_seconds: 1320
+  # Picture embedding for picture search: hybrid search also ranks pictures
+  # against the query. Needs a site-run llama-server serving the model (see
+  # the ARIEL guide). Runs when that server and the model are available;
+  # otherwise it is skipped, `osprey ariel status` says why, `hybrid_search`
+  # answers text-only with a diagnostic, and everything else keeps working.
+  # `enabled: false` turns it off.
+  ariel.enhancement_modules.image_embedding.enabled: true
+  ariel.enhancement_modules.image_embedding.provider: llama-cpp
+  # The model id the server advertises and the vector width it is cut to;
+  # changing either makes every picture owed again.
+  ariel.enhancement_modules.image_embedding.model: qwen3-vl-embedding-2b
+  ariel.enhancement_modules.image_embedding.dimensions: 1024
+  # Seconds one picture embedding call may take, many times what one picture
+  # takes on a CPU-only server; a timeout is retried on the next pass.
+  # ariel.enhancement_modules.image_embedding.timeout_seconds: 120
   # qmd export: one markdown file per entry into the mirror tree the sidecar
   # indexes. On for the same reason `hybrid` above is; an enabled export with
   # no mirror_path is refused at startup.
@@ -430,6 +490,9 @@ config:
   # rail's Tour control and the command palette. A roster entry's `tour:` field
   # overrides it per user.
   # web.tour: once
+  # No control-target picker in the title bar: nothing in this preset reaches
+  # a machine, so the bar names none.
+  web.control_target_picker: false
   # Whether the web Config panel may edit this deployment's config.yml and
   # .claude/ setup files. `false` withdraws the panel's whole server surface
   # (every /api/config verb answers 403), not just its tab: these files are what
@@ -486,6 +549,13 @@ config:
   # web.panels.<id>.hidden: true          # launch a panel but keep its tab hidden
   # web.allow_runtime_panels: true        # let the agent register ad-hoc URL panels
   # web.runtime_panel_allowlist: ["dashboard.local:3000"]   # restrict those targets
+
+  # ── Health checks ──────────────────────────────────────────────────────────
+  # `osprey health` warns when the disk holding this deployment has less than
+  # min_free_gb free or is at least max_used_percent full. Raise both on a
+  # large shared volume that runs full by design.
+  # health.disk.min_free_gb: 1.0
+  # health.disk.max_used_percent: 90
 
   # ── Runtime ────────────────────────────────────────────────────────────────
   # Agent Python runs as a host subprocess.

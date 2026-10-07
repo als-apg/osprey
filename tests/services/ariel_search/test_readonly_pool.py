@@ -10,6 +10,10 @@ The fallback is the part that has to keep working: a data volume older than the
 role has no ``_ro`` login, and a project pointing at a database osprey did not
 provision has no read-only identity at all. Both keep the tool on the ingestion
 pool — where it already was — and say so once, at start-up.
+
+The second pool belongs to the one build that hosts ``sql_query``. Every other
+build (sync, enhance, the web app) opens the ingestion pool alone and says
+nothing about a SQL tool it does not have.
 """
 
 from __future__ import annotations
@@ -70,7 +74,7 @@ async def test_a_derived_dsn_opens_both_pools(pool_factory):
     serves a single tool, not the search and ingestion traffic."""
     from osprey.services.ariel_search.service import create_ariel_service
 
-    service = await create_ariel_service(_config())
+    service = await create_ariel_service(_config(), serves_sql_tool=True)
 
     assert pool_factory == [
         ("postgresql://ariel:owner-secret@localhost:5432/ariel", 10),
@@ -87,7 +91,7 @@ async def test_an_explicit_dsn_leaves_one_pool_and_one_warning(pool_factory, cap
 
     explicit = "postgresql://someone:else@logbook-db.example.org:5432/ariel"
     with caplog.at_level(logging.WARNING, logger=ARIEL_LOGGER):
-        service = await create_ariel_service(_config(uri=explicit))
+        service = await create_ariel_service(_config(uri=explicit), serves_sql_tool=True)
 
     assert pool_factory == [(explicit, 10)]
     assert service.readonly_pool is None
@@ -120,12 +124,39 @@ async def test_a_refused_readonly_login_falls_back_and_says_so(monkeypatch, capl
     from osprey.services.ariel_search.service import create_ariel_service
 
     with caplog.at_level(logging.WARNING, logger=ARIEL_LOGGER):
-        service = await create_ariel_service(_config())
+        service = await create_ariel_service(_config(), serves_sql_tool=True)
 
     assert len(calls) == 2
     assert service.readonly_pool is None
     assert "SQL tool is running on the ingestion role" in caplog.text
     assert "ariel_ro" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("database", "ingestion_uri"),
+    [
+        ({}, "postgresql://ariel:owner-secret@localhost:5432/ariel"),
+        (
+            {"uri": "postgresql://someone:else@logbook-db.example.org:5432/ariel"},
+            "postgresql://someone:else@logbook-db.example.org:5432/ariel",
+        ),
+    ],
+    ids=["derived-dsn", "explicit-dsn"],
+)
+async def test_a_build_without_the_sql_tool_opens_one_pool_and_says_nothing(
+    pool_factory, caplog, database, ingestion_uri
+):
+    """The sync and enhance builds have no SQL tool, so they neither dial the
+    ``_ro`` role nor warn about it."""
+    from osprey.services.ariel_search.service import create_ariel_service
+
+    with caplog.at_level(logging.WARNING, logger=ARIEL_LOGGER):
+        service = await create_ariel_service(_config(**database))
+
+    assert pool_factory == [(ingestion_uri, 10)]
+    assert service.readonly_pool is None
+    assert "SQL tool" not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -204,6 +235,24 @@ async def test_the_mcp_context_shutdown_closes_both_pools():
 
     assert ingest.closed
     assert readonly.closed
+
+
+@pytest.mark.asyncio
+async def test_the_mcp_context_builds_the_service_that_hosts_the_sql_tool(monkeypatch):
+    """The MCP server registers ``sql_query``, so its build opens the read-only pool."""
+    from unittest.mock import AsyncMock
+
+    from osprey.mcp_server.ariel.server_context import ARIELContext
+
+    context = ARIELContext.__new__(ARIELContext)
+    context._service = None
+    context._ariel_config = _config()
+    create = AsyncMock(return_value=object())
+    monkeypatch.setattr("osprey.services.ariel_search.service.create_ariel_service", create)
+
+    await context.service()
+
+    assert create.await_args.kwargs == {"serves_sql_tool": True}
 
 
 @pytest.mark.asyncio

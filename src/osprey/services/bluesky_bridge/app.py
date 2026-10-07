@@ -67,6 +67,7 @@ from .queue_backend import (
     PLAN_META_KEY,
     FunctionFailedError,
     FunctionTimeoutError,
+    QueueBackend,
     QueueBackendError,
     QueueUnavailableError,
     run_id_of,
@@ -122,25 +123,23 @@ def _use_the_queue(detail: str) -> HTTPException:
 # whole process, built lazily on first use so no route ever constructs its own.
 # `None` until then; on a browse-only deployment the backend it builds holds no
 # manager at all (`QSERVER_ZMQ_CONTROL_ADDRESS` unset).
-_queue_backend: Any | None = None
+_queue_backend: QueueBackend | None = None
 
 
-def get_queue_backend() -> Any:
+def get_queue_backend() -> QueueBackend:
     """The bridge's single `QueueBackend`, built from the compose env on first use.
 
     Every route that speaks to the queue server comes through here, so the
-    process holds exactly one 0MQ handle. The import is deliberately lazy:
-    `app.py`'s module-level import graph stays exactly as it was.
+    process holds exactly one 0MQ handle. `QueueBackend` is built from the
+    compose environment on the first call.
     """
     global _queue_backend
     if _queue_backend is None:
-        from .queue_backend import QueueBackend
-
         _queue_backend = QueueBackend.from_env()
     return _queue_backend
 
 
-def set_queue_backend(backend: Any | None) -> None:
+def set_queue_backend(backend: QueueBackend | None) -> None:
     """Override the backend `get_queue_backend` returns.
 
     Passing `None` clears it, so the next `get_queue_backend()` rebuilds from

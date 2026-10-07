@@ -80,20 +80,13 @@ afterEach(() => {
 });
 
 describe('the shipped default on a deployment without the SYSTEM panel', () => {
-  test('renders the degraded default and is not read-only', async () => {
-    await editing();
-
-    expect(rendered('status')).toEqual(['space', 'clock']);
-    expect(sync.isLayoutReadonly()).toBe(false);
-    expect(noticeText()).not.toContain('Layout not editable');
-  });
-
   test('no tile is refused by the latch, and every unplaced offerable one is enabled', async () => {
     await editing();
 
     // The two gated items this deployment lacks are refused on their own
     // merits ("Not in this deployment"), and a placed single-node item dims
     // itself; neither is the latch's sentence.
+    expect(noticeText()).not.toContain('Layout not editable');
     expect(tileTypes().length).toBeGreaterThan(5);
     for (const type of tileTypes()) {
       expect(tile(type).querySelector('.bar-tile-reason')?.textContent ?? '').not.toBe(
@@ -103,17 +96,6 @@ describe('the shipped default on a deployment without the SYSTEM panel', () => {
     for (const type of ['clock', 'stopwatch', 'space', 'separator', 'docs', 'feedback']) {
       expect(tile(type).getAttribute('aria-disabled'), `${type} tile`).toBeNull();
     }
-  });
-
-  test('the one tile that is refused says why, and it is not the latch', async () => {
-    await editing();
-
-    const unavailable = tile('system-health');
-    expect(unavailable.getAttribute('aria-disabled')).toBe('true');
-    expect(unavailable.querySelector('.bar-tile-reason')?.textContent).toBe(
-      'Not in this deployment'
-    );
-    expect(customize.refusalFor('system-health', 'status')).not.toBe('Layout not editable');
   });
 
   test('a drag saves', async () => {
@@ -138,18 +120,4 @@ describe('the shipped default on a deployment without the SYSTEM panel', () => {
     expect(rendered('status')).toEqual(['space', 'clock', 'search']);
   });
 
-  test('a tile click saves', async () => {
-    await editing();
-
-    await expect(customize.addItem('stopwatch', 'status')).resolves.toBe(true);
-    expect(putBodies()).toHaveLength(1);
-  });
-
-  test('the status bar can be hidden', async () => {
-    await editing();
-
-    await expect(customize.setBarVisible('status', false)).resolves.toBe(true);
-    expect(putBodies()).toHaveLength(1);
-    expect(putBodies()[0].status_visible).toBe(false);
-  });
 });

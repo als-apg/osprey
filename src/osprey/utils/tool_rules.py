@@ -1,7 +1,7 @@
 """Shared tool-name denylist matching.
 
 Single implementation of the denylist semantics used by the dispatch worker
-(``dispatch_api.DENIED_TOOLS``) and the web-terminal permission callback
+(``tool_names.DISPATCH_DENIED_TOOLS``) and the web-terminal permission callback
 (``sdk_context.make_tool_allowlist``): entries ending in ``*`` match by prefix
 (e.g. ``mcp__plugin_playwright_playwright__*`` blocks every playwright tool);
 all other entries match exactly.

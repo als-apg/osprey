@@ -1314,7 +1314,7 @@ def _prose_of(node: ast.expr) -> str:
 
 def _offer_the_env_seed(monkeypatch: pytest.MonkeyPatch, *, answer: bool) -> None:
     """Put ``ensure_repo_env`` in the state where it offers to seed a ``.env``."""
-    from osprey.build.claude_code_resolver import provider_auth_secret_env
+    from osprey.agent_runner.provider_env import provider_auth_secret_env
 
     secret_var = provider_auth_secret_env(_SEED_PROVIDER, None)
     assert secret_var, "the seed offer needs a provider with a secret variable"
@@ -1849,7 +1849,8 @@ def _stored_value(env_auth_path: Path, var: str) -> str:
 
 #: A local-mode web-terminal deployment, the only mode ``.env.users`` generates in.
 _LOCAL_WEB_CONFIG = {
-    "facility": {"name": "Demo", "prefix": "dls", "timezone": "UTC"},
+    "facility": {"name": "Demo", "prefix": "dls"},
+    "system": {"timezone": "UTC"},
     "llm": {"provider": "cborg", "api_key_env_var": "CBORG_API_KEY"},
     "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
 }
@@ -1925,7 +1926,8 @@ def _seed_config(users: list[str]) -> dict:
     """A roster the seed loop can resolve personas for."""
     return {
         "project_name": "demo",
-        "facility": {"name": "Demo", "prefix": "dls", "timezone": "UTC"},
+        "facility": {"name": "Demo", "prefix": "dls"},
+        "system": {"timezone": "UTC"},
         "modules": {"web_terminals": {"enabled": True, "users": users}},
     }
 
@@ -2032,6 +2034,42 @@ class TestTheArchiveKnobDiff:
         )
 
         assert "knobs changed" not in printed.flowed
+
+
+class TestDefaultScenariosReachTheArchive:
+    """A set the deploy just activated is written into a base that never saw it."""
+
+    @staticmethod
+    def _reapplies(monkeypatch, archiver_stubs, tmp_path, *, state, activated) -> int:
+        calls: list = []
+        monkeypatch.setattr(
+            container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: calls.append(a)
+        )
+        archiver_stubs["state"] = _seed_state(state)
+        container_lifecycle._stage_archiver_store(
+            {"deployed_services": ["archiver_store"]},
+            ["compose.yml"],
+            {},
+            tmp_path,
+            scenarios_activated=activated,
+        )
+        return len(calls)
+
+    @pytest.mark.usefixtures("default_altitude", "printed")
+    def test_a_matching_base_is_reapplied_onto_after_defaults_were_activated(
+        self, monkeypatch, archiver_stubs, tmp_path
+    ):
+        assert self._reapplies(monkeypatch, archiver_stubs, tmp_path, state="MATCH", activated=True)
+        assert not self._reapplies(
+            monkeypatch, archiver_stubs, tmp_path, state="MATCH", activated=False
+        )
+
+    @pytest.mark.usefixtures("default_altitude", "printed")
+    def test_a_rebuilt_base_is_reapplied_onto_once(self, monkeypatch, archiver_stubs, tmp_path):
+        assert (
+            self._reapplies(monkeypatch, archiver_stubs, tmp_path, state="ABSENT", activated=True)
+            == 1
+        )
 
 
 @pytest.fixture

@@ -12,62 +12,19 @@
  * arrangement from that echo (panel-placement.js). A human "Layouts" click and
  * an agent `arrange_workspace(preset=...)` call are therefore literally the same
  * server operation, with no local orchestration to drift from it.
- *
- * {@link computePresetDiff} stays here as the executable statement of those
- * exclusive semantics — the resolution the route performs mirrors its fail-safe
- * filtering, and its tests are where that contract is pinned.
  */
 
 import { initPanelAddMenu } from './panel-add-menu.js';
 import { arrangePanels } from './panel-commands.js';
 
 /**
- * @typedef {object} PresetDiff
- * @property {string[]} toShow  - member ids not currently visible
- * @property {string[]} toHide  - visible ids that are not preset members
- * @property {string | null} focus - first known member to focus, or null (no-op guard)
- */
-
-/**
- * Compute the exclusive show/hide diff for applying a preset.
- *
- * Members are first filtered to knownSet (enabled built-ins + custom ids) so a
- * typo'd or disabled id is skipped fail-safe; a preset where no member survives
- * that filtering reports `focus: null`.
- *
- * That last case is ENFORCED server-side, not here: routes/panels.py's
- * `_resolve_preset_tiles` applies the same filtering and rejects an empty
- * result with a 422 naming the valid ids, so the arrangement is never
- * broadcast. Since {@link applyPreset} is fire-and-forget the rejection is
- * dropped silently, which lands on the intended fail-safe — an inapplicable
- * preset leaves the workspace exactly as it was, rather than stranding the
- * operator on a blank one.
- *
- * @param {string[]} members - the preset's member panel ids, in config order
- * @param {Set<string>} visibleSet - currently-visible panel ids
- * @param {Set<string>} knownSet - all known panel ids (enabled + custom)
- * @returns {PresetDiff}
- */
-export function computePresetDiff(members, visibleSet, knownSet) {
-  const filtered = members.filter((id) => knownSet.has(id));
-  if (filtered.length === 0) {
-    return { toShow: [], toHide: [], focus: null };
-  }
-  const memberSet = new Set(filtered);
-  const toShow = filtered.filter((id) => !visibleSet.has(id));
-  const toHide = [...visibleSet].filter((id) => !memberSet.has(id));
-  return { toShow, toHide, focus: filtered[0] };
-}
-
-/**
  * Apply a config-defined preset by NAME: one arrange request, applied on every
  * client by the panel_arrange handler.
  *
  * Nothing is orchestrated locally. The server resolves the preset's members
- * (filtered fail-safe to known ids, as {@link computePresetDiff} describes),
- * prunes rail membership to them, and broadcasts the arrangement; the echo then
- * opens exactly those tiles and focuses the first healthy one — the same focus
- * rule this module used to apply by hand, now applied once for everyone.
+ * (filtered fail-safe to known ids), prunes rail membership to them, and
+ * broadcasts the arrangement; the echo then opens exactly those tiles and
+ * focuses the first healthy one, on every client alike.
  * @param {string} name  a `web.presets` entry name
  */
 export function applyPreset(name) {

@@ -3,18 +3,16 @@
  * OSPREY Web Terminal — Scaffold Gallery: pure utilities
  *
  * Module-level pure utilities and shared constants used by scaffold-gallery.js:
- * category metadata/routing tables, YAML front-matter parsing, code/diagram
- * rendering helpers, and the one-time Marked.js configuration.
+ * category metadata/routing tables, YAML front-matter parsing, and the
+ * code/diagram rendering helpers.
  *
- * `marked` and `hljs` are vendored classic-script globals (see
- * src/osprey/interfaces/vendor-globals.d.ts) rather than ES imports; every
+ * `hljs` is a vendored classic-script global (see
+ * src/osprey/interfaces/vendor-globals.d.ts) rather than an ES import; every
  * reference here is guarded with a `typeof` check so this module is safe to
- * import (and its functions safe to call) before those scripts have loaded.
+ * import (and its functions safe to call) before that script has loaded.
  *
  * @module scaffold/utils
  */
-
-import { escapeHtml } from '/design-system/js/dom.js';
 
 // ---- Constants ---- //
 
@@ -49,87 +47,30 @@ export const CATEGORY_HELP = {
 // ---- Category Routing ---- //
 
 export const BEHAVIOR_CATEGORIES = new Set(['agents', 'skills', 'rules', 'output-styles']);
-export const BEHAVIOR_NAMES = new Set(['claude-md']);        // config category, behavior tab
+export const BEHAVIOR_OUTPUTS = new Set(['CLAUDE.md']);      // whichever persona renders it, behavior tab
 export const SAFETY_CATEGORIES = new Set(['hooks']);
 export const CONFIG_NAMES = new Set(['mcp-json', 'settings-json']); // config category, config tab
 
 /**
  * Behavior-tab display-category tables, consumed by initScaffoldGallery.
  *
- * `claude-md` has no "/" in its canonical name, so the service reports it in
- * the catch-all `config` category; the override gives it a section of its own.
+ * Keys are output paths, not canonical names: the artifact at `CLAUDE.md` is
+ * the deployment's persona (`claude-md`, `claude-md-ariel`, …). None of those
+ * names has a "/", so the service reports it in the catch-all `config`
+ * category; the override gives it a section of its own.
  * It is deliberately NOT called "system prompt": CLAUDE.md is delivered as a
  * message after the system prompt, and the one artifact here that really does
  * modify the system prompt is the output style.
  *
  * @type {Record<string, string>}
  */
-export const BEHAVIOR_CATEGORY_OVERRIDES = { 'claude-md': 'project instructions' };
+export const BEHAVIOR_CATEGORY_OVERRIDES = { 'CLAUDE.md': 'project instructions' };
 
 /** @type {Record<string, string>} */
 export const BEHAVIOR_CATEGORY_REMAPS = { rules: 'instructions' };
 
 /** @type {string[]} */
 export const BEHAVIOR_PINNED_CATEGORIES = ['project instructions', 'instructions'];
-
-// ---- Marked.js Configuration (one-time) ---- //
-
-let _markedConfigured = false;
-
-/**
- * @typedef {object} MarkedCodeToken
- * @property {string} text
- * @property {string} [lang]
- */
-
-/**
- * Configure the vendored `marked` global with a syntax-highlighting code
- * renderer, once. Safe to call repeatedly (no-op after the first call) and
- * safe to call before `marked` has loaded (early-returns).
- * @returns {void}
- */
-export function configureMarked() {
-  if (_markedConfigured) return;
-  _markedConfigured = true;
-
-  if (typeof marked === 'undefined') return;
-
-  const renderer = {
-    /**
-     * @param {MarkedCodeToken} token
-     * @returns {string}
-     */
-    code({ text, lang }) {
-      const src = text ?? '';
-      let highlighted = escapeHtml(src);
-      if (typeof hljs !== 'undefined' && src) {
-        try {
-          if (lang && hljs.getLanguage(lang)) {
-            highlighted = hljs.highlight(src, { language: lang }).value;
-          } else {
-            highlighted = hljs.highlightAuto(src).value;
-          }
-        } catch {
-          // Fall back to escaped text on any hljs error
-        }
-      }
-      const langClass = lang ? ` class="language-${lang}"` : '';
-      return `<pre><code${langClass}>${highlighted}</code></pre>`;
-    },
-  };
-
-  /**
-   * @param {{type: string, text?: unknown}} token
-   * @returns {void}
-   */
-  function walkTokens(token) {
-    if (token.type === 'code' && typeof token.text !== 'string') {
-      token.text = token.text != null ? String(token.text) : '';
-    }
-  }
-
-  marked.use({ gfm: true, breaks: false, renderer, walkTokens });
-}
 
 // ---- Module-Level Utility Functions ---- //
 

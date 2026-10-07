@@ -88,6 +88,16 @@ class TestSubmitResponse:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
+    async def test_an_entry_gone_before_its_metadata_is_reported_by_id(self, monkeypatch):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        monkeypatch.setattr(ArtifactStore, "update_entry_metadata", lambda self, *a, **kw: None)
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await _fn(title="Orphan", content="Saved, then gone.")
+        assert "left the index" in _exc_ctx["envelope"]["error_message"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("workspace")
     async def test_submit_response_whitespace_title(self):
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await _fn(title="   ", content="Some content.")

@@ -88,28 +88,17 @@ afterEach(() => {
 });
 
 describe('the display-menu row', () => {
-  test('Expert mode projects a Customize row into the action row', async () => {
-    ({ customize, sync } = await boot({ menu: true }));
+  test.each(['expert', 'simple'])(
+    '%s mode projects a Customize row that enters edit mode',
+    async (uiMode) => {
+      ({ customize, sync } = await boot({ menu: true, uiMode }));
 
-    expect(displayRow()).not.toBe(null);
-    expect(displayRow().textContent).toBe('Customize bars');
-  });
-
-  test('clicking it enters edit mode', async () => {
-    ({ customize, sync } = await boot({ menu: true }));
-
-    displayRow().click();
-
-    expect(customize.isEditing()).toBe(true);
-  });
-
-  test('Simple mode projects the same row', async () => {
-    ({ customize, sync } = await boot({ menu: true, uiMode: 'simple' }));
-
-    expect(displayRow()).not.toBe(null);
-    displayRow().click();
-    expect(customize.isEditing()).toBe(true);
-  });
+      expect(displayRow()).not.toBe(null);
+      expect(displayRow().textContent).toBe('Customize bars');
+      displayRow().click();
+      expect(customize.isEditing()).toBe(true);
+    }
+  );
 
   test('a deployment with no display menu is not an error', async () => {
     ({ customize, sync } = await boot());
@@ -120,19 +109,8 @@ describe('the display-menu row', () => {
 });
 
 describe('right-clicking a bar', () => {
-  test('opens the customize menu in Expert mode', async () => {
-    ({ customize, sync } = await boot({ fetch: endpoint({ get: doc(['logo'], []) }) }));
-
-    rightClick(headerHost());
-
-    expect(document.querySelector('.bar-context-menu')).not.toBe(null);
-  });
-
-  test('opens the same menu in Simple mode', async () => {
-    ({ customize, sync } = await boot({
-      fetch: endpoint({ get: doc(['logo'], []) }),
-      uiMode: 'simple',
-    }));
+  test.each(['expert', 'simple'])('opens the customize menu in %s mode', async (uiMode) => {
+    ({ customize, sync } = await boot({ fetch: endpoint({ get: doc(['logo'], []) }), uiMode }));
 
     rightClick(headerHost());
 
@@ -150,16 +128,8 @@ describe('right-clicking a bar', () => {
 });
 
 describe('the palette action', () => {
-  test('Expert mode offers it', async () => {
-    ({ customize, sync } = await boot());
-
-    await openPalette();
-
-    expect(paletteLabels()).toContain('Customize bars');
-  });
-
-  test('Simple mode offers it too', async () => {
-    ({ customize, sync } = await boot({ uiMode: 'simple' }));
+  test.each(['expert', 'simple'])('%s mode offers it', async (uiMode) => {
+    ({ customize, sync } = await boot({ uiMode }));
 
     await openPalette();
 

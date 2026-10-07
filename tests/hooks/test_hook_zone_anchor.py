@@ -699,6 +699,53 @@ def test_feedback_capture_writes_to_the_state_zone(tmp_path, hook_runner):
     assert next(iter(items.values()))["channel_count"] == 1
 
 
+def test_feedback_capture_lands_where_the_review_app_reads_under_a_relocated_root(
+    tmp_path, hook_runner, monkeypatch
+):
+    """Under a relocated ``agent_data.base_dir`` the capture and the app still pair.
+
+    The hook writes the pending-review store and the channel-finder app reads it;
+    both resolve the same key, so both move together.
+    """
+    import yaml
+    from fastapi.testclient import TestClient
+
+    from osprey.interfaces.channel_finder.app import create_app
+    from osprey.services.channel_finder.feedback.pending_store import PendingReviewStore
+
+    repo = tmp_path / "deployment"
+    repo.mkdir()
+    build = _three_zone_repo(repo, project_root_key=str(repo))
+    config_file = build / "config.yml"
+    with config_file.open("a") as fh:
+        fh.write("agent_data:\n  base_dir: relocated/agent_data\n")
+
+    hook_runner(
+        "osprey_cf_feedback_capture.py",
+        "mcp__channel-finder__build_channels",
+        {"query": "BPM channels", "facility": "test"},
+        cwd=build,
+        config_path=config_file,
+        tool_response={"channels": [{"name": "BPM:1"}], "total": 1},
+        hook_input_extra={"cwd": str(build), "session_id": "s", "transcript_path": ""},
+    )
+
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    loaded = yaml.safe_load(config_file.read_text())
+    monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda: loaded)
+    app = create_app(project_cwd=str(build))
+    with TestClient(app):
+        pending_path = app.state.pending_review_store._path
+
+    expected = (repo / "relocated/agent_data/feedback/pending_reviews.json").resolve()
+    assert pending_path == expected
+    assert expected.exists(), f"expected capture at {expected}"
+    items = PendingReviewStore(expected).list_items()
+    assert len(items) == 1
+    assert items[0]["channel_count"] == 1
+    assert not (repo / DEFAULT_AGENT_DATA_BASE_DIR / "feedback").exists()
+
+
 def test_feedback_capture_still_works_in_a_flat_project(tmp_path, hook_runner):
     """Regression guard: a project with no ``profile.yml`` anchors on itself."""
     hook_runner(

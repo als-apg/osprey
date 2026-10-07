@@ -47,7 +47,7 @@ def find_ma_at_refpt(
             result = rotated.track(rin, nturns=nturns)
             rout = unpack_tracking(result)
             try:
-                survived = np.all(np.isfinite(rout))
+                survived = bool(np.all(np.isfinite(rout)))
             except (ValueError, TypeError):
                 survived = False
             if survived:

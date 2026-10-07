@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from osprey.errors import BuildProfileError
@@ -23,6 +23,7 @@ from .build_profile_presets import (
     _load_preset_raw,
     _preset_exists,
     list_presets,
+    resolve_triggers_path,
 )
 from .profile_root import PERSONA_DIRNAME, ROOT_PROFILE_FILENAME, resolve_profile_root
 
@@ -873,6 +874,39 @@ def _fold_source_tree(
         digest.update(b"\0")
 
 
+def profile_triggers_material(
+    resolved: dict[str, Any], profile_dir: Path
+) -> tuple[str, Path] | None:
+    """The trigger file ``dispatch.triggers`` names, when it lives with the profile.
+
+    Resolved by :func:`~osprey.cli.build_profile_presets.resolve_triggers_path`,
+    the resolver the build copies the file through. A bundled trigger file is
+    never returned: it moves with the package, not with the profile, and
+    folding it would mark every build out of date on an upgrade. The value is
+    read from the unvalidated resolved dict, so any shape other than a
+    non-empty string yields ``None`` rather than an error.
+
+    Args:
+        resolved: The profile after ``extends`` (and persona-delta) resolution.
+        profile_dir: The profile root the trigger path anchors at.
+
+    Returns:
+        The spelled path normalised to POSIX form (``./triggers.yml`` keys as
+        ``triggers.yml``) and the file it resolves to, or ``None`` when the
+        profile names no trigger file beside it.
+    """
+    dispatch = resolved.get("dispatch")
+    if not isinstance(dispatch, dict):
+        return None
+    triggers = dispatch.get("triggers")
+    if not isinstance(triggers, str) or not triggers:
+        return None
+    source = resolve_triggers_path(profile_dir, triggers)
+    if source is None or source.bundled:
+        return None
+    return PurePosixPath(triggers).as_posix(), source.path
+
+
 def _fold_profile_material(
     digest: Any, resolved: dict[str, Any], profile_dir: Path, *, conventions: bool = True
 ) -> None:
@@ -899,7 +933,9 @@ def _fold_profile_material(
       (:data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`, which
       includes the ``project/`` verbatim mirror), folded in sorted name order
       so reordering the mapping table cannot move a hash;
-    * ``triggers.yml``, the dispatch trigger table the build materializes;
+    * the trigger file ``dispatch.triggers`` names, when it lives with the
+      profile (a bundled trigger file is package content, not profile
+      material);
     * every persona delta in ``personas/`` — the files a deployment's own
       per-persona projects are rendered from. Without them, editing a delta
       moves no hash at all: the deploy-side check would call the build clean,
@@ -924,7 +960,7 @@ def _fold_profile_material(
     subtracting siblings would cost a persona that silently no longer matches
     its source.
 
-    A convention directory, ``triggers.yml`` or ``personas/`` that is absent
+    A convention directory, the named trigger file or ``personas/`` that is absent
     folds nothing at all, so a profile carrying none of them hashes exactly as
     it did before they existed. Creating an empty convention directory does
     move the hash — it folds its label — which is honest: the profile tree
@@ -958,9 +994,9 @@ def _fold_profile_material(
         if candidate.exists():
             _fold_source_tree(digest, f"convention:{source}", candidate)
 
-    triggers = profile_dir / "triggers.yml"
-    if triggers.is_file():
-        _fold_source_tree(digest, "triggers", triggers)
+    triggers = profile_triggers_material(resolved, profile_dir)
+    if triggers is not None:
+        _fold_source_tree(digest, "triggers", triggers[1])
 
     # Sorted by name, which is the whole ordering rule a flat directory needs;
     # `_fold_source_tree` contributes each delta's own name beside its content
@@ -990,7 +1026,7 @@ def _hash_resolved_profile(
     Hashes the *resolved* content (canonical JSON, sorted keys) rather than
     file bytes, so comment/ordering churn is invisible while a change in any
     ``extends`` parent is not. The file inputs the resolved profile names — its
-    ``data:`` tree, convention directories, ``triggers.yml`` and the persona
+    ``data:`` tree, convention directories, the named trigger file and the persona
     deltas in ``personas/`` — are folded in on top by
     :func:`_fold_profile_material`, so a project whose facility data changed
     under an unchanged profile still reads as stale.

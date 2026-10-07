@@ -9,19 +9,24 @@ file, so it is answered with the graph guidance panel instead.
 
 import json
 from pathlib import Path
+from typing import Any
 
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from osprey.services.channel_finder.core.base_database import BaseDatabase
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
 from osprey.services.channel_finder.databases import (
     HierarchicalChannelDatabase,
     MiddleLayerDatabase,
     TemplateChannelDatabase,
 )
-from osprey.services.channel_finder.utils.detection import detect_pipeline_config
+from osprey.services.channel_finder.utils.detection import (
+    configured_database,
+    detect_pipeline_config,
+)
 
 _default_console = Console()
 
@@ -32,8 +37,8 @@ def validate_json_structure(db_path: Path) -> tuple[bool, list[str], list[str]]:
     Returns:
         (is_valid, errors, warnings)
     """
-    errors = []
-    warnings = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     if not db_path.exists():
         errors.append(f"Database file not found: {db_path}")
@@ -149,9 +154,10 @@ def validate_database_loading(db_path: Path, pipeline_type: str) -> tuple[bool, 
     Returns:
         (success, errors, stats)
     """
-    errors = []
-    stats = {}
+    errors: list[str] = []
+    stats: dict[str, Any] = {}
 
+    db: BaseDatabase
     try:
         if pipeline_type == "hierarchical":
             db = HierarchicalChannelDatabase(str(db_path))
@@ -186,9 +192,9 @@ def print_validation_results(
     is_valid: bool,
     errors: list[str],
     warnings: list[str],
-    stats: dict = None,
+    stats: dict | None = None,
     verbose: bool = False,
-    pipeline_type: str = None,
+    pipeline_type: str | None = None,
     console: Console | None = None,
 ):
     """Print formatted validation results using rich console and osprey theme."""
@@ -366,7 +372,10 @@ def run_validation(
         pipeline: Override the detected paradigm with a file-backed one
             ('hierarchical', 'middle_layer' or 'in_context'). The CLI derives
             the accepted names from the paradigm registry, so the override
-            spans every paradigm whose store is a file on disk.
+            spans every paradigm whose store is a file on disk. With
+            ``database`` it chooses how that file is read; without it, the
+            file is ``channel_finder.pipelines.<pipeline>.database.path``, and
+            a missing key is refused by name.
         verbose: Show detailed statistics.
         console: Rich Console instance for output (default: plain Console).
 
@@ -378,18 +387,20 @@ def run_validation(
     from osprey.utils.config import load_config as get_config
     from osprey.utils.workspace import resolve_path
 
-    pipeline_type = pipeline
+    pipeline_type: str
 
     if database:
         db_path = Path(database)
-        if not pipeline_type:
+        if pipeline:
+            pipeline_type = pipeline
+        else:
             try:
                 config = get_config()
                 detected_type, _ = detect_pipeline_config(config)
                 # An explicit file is the request; the graph paradigm says
                 # nothing about how to read one, so it falls back with the
                 # unconfigured case rather than reaching a file loader.
-                if detected_type in (None, "graph"):
+                if detected_type is None or detected_type == "graph":
                     pipeline_type = "in_context"
                 else:
                     pipeline_type = detected_type
@@ -398,39 +409,58 @@ def run_validation(
     else:
         try:
             config = get_config()
-            detected_type, db_config = detect_pipeline_config(config)
-
-            if detected_type == "graph":
-                print_graph_paradigm_guidance(console)
-                return 0
-
-            if not detected_type:
-                console.print()
-                console.print(
-                    Panel(
-                        "[bold error]Error:[/bold error] No database configured\n\n"
-                        "[warning]Check config.yml:[/warning] Configure one of:\n"
-                        "  \u2022 channel_finder.pipelines.hierarchical.database.path\n"
-                        "  \u2022 channel_finder.pipelines.in_context.database.path\n"
-                        "  \u2022 channel_finder.pipelines.middle_layer.database.path",
-                        border_style="error",
-                        title="\u274c Configuration Error",
+            # A named paradigm reads its own database key; the configured mode
+            # and the graph paradigm do not choose among files here.
+            if pipeline:
+                pipeline_type = pipeline
+                db_path_str = configured_database(config, pipeline).get("path")
+                if not db_path_str:
+                    console.print()
+                    console.print(
+                        Panel(
+                            "[bold error]Error:[/bold error] No database configured for "
+                            f"--pipeline {pipeline}\n\n"
+                            "[warning]Check config.yml:[/warning] set "
+                            f"channel_finder.pipelines.{pipeline}.database.path",
+                            border_style="error",
+                            title="\u274c Configuration Error",
+                        )
                     )
-                )
-                return 1
+                    return 1
+            else:
+                detected_type, db_config = detect_pipeline_config(config)
 
-            pipeline_type = detected_type
-            db_path_str = db_config.get("path")
-            if not db_path_str:
-                console.print()
-                console.print(
-                    Panel(
-                        "[bold error]Error:[/bold error] No database path in config",
-                        border_style="error",
-                        title="\u274c Configuration Error",
+                if detected_type == "graph":
+                    print_graph_paradigm_guidance(console)
+                    return 0
+
+                if not detected_type or db_config is None:
+                    console.print()
+                    console.print(
+                        Panel(
+                            "[bold error]Error:[/bold error] No database configured\n\n"
+                            "[warning]Check config.yml:[/warning] Configure one of:\n"
+                            "  \u2022 channel_finder.pipelines.hierarchical.database.path\n"
+                            "  \u2022 channel_finder.pipelines.in_context.database.path\n"
+                            "  \u2022 channel_finder.pipelines.middle_layer.database.path",
+                            border_style="error",
+                            title="\u274c Configuration Error",
+                        )
                     )
-                )
-                return 1
+                    return 1
+
+                pipeline_type = detected_type
+                db_path_str = db_config.get("path")
+                if not db_path_str:
+                    console.print()
+                    console.print(
+                        Panel(
+                            "[bold error]Error:[/bold error] No database path in config",
+                            border_style="error",
+                            title="\u274c Configuration Error",
+                        )
+                    )
+                    return 1
             db_path = resolve_path(db_path_str)
         except PipelineModeError as e:
             # A mode nobody implements is a config typo, not an unreadable

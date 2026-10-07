@@ -17,8 +17,9 @@ Three things about these handlers are deliberate and easy to undo by accident:
   is the same one that pumps the PTY WebSocket — a blocking read on it stalls
   everyone's terminal.
 * **The session id is validated before any transcript path is built.** It is
-  client-supplied and lands in ``transcript_dir / f"{session_id}.jsonl"``
-  unsanitised, so a non-UUID is refused with 422 up front.
+  client-supplied, so a non-UUID is refused with 422 up front rather than
+  reaching the transcript reader, whose own refusal would read as a dead
+  session.
 * **Identity is taken from the server, never from the request body.** A report
   says who filed it because the deployment knows, not because the browser
   claimed it.

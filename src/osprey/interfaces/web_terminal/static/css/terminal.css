@@ -1108,9 +1108,23 @@ html[data-ui-mode="simple"] .session-selector {
   border-left-color: var(--color-accent-secondary-light);
 }
 
-.panel-rail-button.disabled {
+/* Never answered (.disabled) and stopped answering (.unreachable) share the
+   dimmed look; only a never-answered entry is inert. An unreachable entry keeps
+   its click, menu and "×", and its tooltip says since when. */
+.panel-rail-button.disabled,
+.panel-rail-button.unreachable {
   opacity: 0.35;
+}
+
+.panel-rail-button.disabled {
   pointer-events: none;
+}
+
+/* A sidecar that failed to start: dimmed like an offline entry, but a click on
+   it starts the sidecar again, and its tooltip names the reason. */
+.panel-rail-button.failed {
+  opacity: 0.35;
+  cursor: pointer;
 }
 
 /* Glyph — mapped from the panel id via data-icon, with a generic fallback for
@@ -1196,8 +1210,10 @@ html[data-ui-mode="simple"] .session-selector {
 }
 
 /* An offline (disabled) entry is inert, but its "×" stays clickable and visible
-   so a panel whose backend is down can always be dismissed. */
-.panel-rail-button.disabled .panel-rail-close {
+   so a panel whose backend is down can always be dismissed; a failed entry's
+   corner shows the same way. */
+.panel-rail-button.disabled .panel-rail-close,
+.panel-rail-button.failed .panel-rail-close {
   pointer-events: auto;
   opacity: 0.6;
 }
@@ -1721,6 +1737,44 @@ html[data-rail-position="top"] .panel-utility-label {
   position: absolute;
   z-index: 1;
   pointer-events: none;
+}
+
+/* Not-answering notice over a whole tile body. dock-iframe.js sizes one of
+   these to each managed panel's group rectangle (in fallback mode, one fills
+   the #panel-content host). It is a sibling of the panel iframe rather than
+   anything inside it because the iframe is another document this stylesheet
+   cannot reach.
+
+   It takes no pointer events, strip and wash alike, so the page underneath
+   stays scrollable and clickable. While the backend is not answering, the wash
+   greys the page so a stale view is not mistaken for a live one, and the page
+   stays readable under it. While the panel answers the element stays laid out
+   but empty, so its polite live region exists before its text arrives and the
+   arrival is announced. */
+.tile-notice {
+  z-index: 2;              /* above the iframes and the agent glow (z 1) */
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.panel-content > .tile-notice { inset: 0; }   /* fallback host: the wash covers it all */
+.tile-notice:not([data-unreachable]) { background: none; }
+.tile-notice:not([data-unreachable]) .tile-notice-text { display: none; }
+.tile-notice[data-unreachable] {
+  /* grey wash over the whole page; text underneath stays readable */
+  background: color-mix(in srgb, var(--bg-primary) 35%, transparent);
+}
+.tile-notice-text {
+  display: block;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--color-warning) 12%, var(--bg-elevated));
+  border-bottom: 1px solid var(--color-warning);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-warning);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---- Terminal panel ---- */

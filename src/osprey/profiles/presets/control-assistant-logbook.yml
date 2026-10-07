@@ -74,6 +74,7 @@ exclude:
     - channel-finder
     - okf
     - system-health
+    - jupyter         # Notebook kernels read and write through the control target
 # The `safety` rule is deliberately NOT excluded, and this is the one place this
 # tier differs from the standalone preset. Its tools are gone, so the rule
 # governs nothing today and costs a few lines of prompt. It stays because this
@@ -103,10 +104,13 @@ config:
   # `services.graphdb` block is what makes the graph server render. Only a
   # server switched off is told nothing about the store.
   claude_code.servers.graph.enabled: false
-  # Pinned even though the server that would honour it is gone, for the same
-  # reason the other two tiers pin it: this key is the write boundary, and it
-  # must not drift if the base's default ever changes.
+  # Pinned even though every server that would honour it is gone, for the
+  # same reason the read-only tier pins it: this key is the write boundary,
+  # and it must not drift if the base's default ever changes. Three keys, not
+  # one — see the read-only preset for why.
   control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
   # Creating a logbook entry is this agent's only write of any kind, and it is
   # approval-gated like every other write in OSPREY. Publishing it is the half
   # that actually reaches the facility's logbook, so it is gated too.
@@ -116,6 +120,9 @@ config:
   # it needs the panel area. Pinned rather than left to the server default for
   # the same reason the other two tiers pin theirs.
   web.ui_mode: expert
+  # No control-target picker in the title bar: nothing in this persona reaches
+  # the machine, so the bar names none.
+  web.control_target_picker: false
   # No shipped example plot in this WORKSPACE: the example invites the reader
   # to ask the agent for a live plot, which this persona cannot produce.
   artifact_server.example_artifact: false

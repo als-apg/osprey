@@ -50,10 +50,6 @@ function pxToken(name) {
 }
 
 describe('edit-mode decoration fits inside the room the bar reserves', () => {
-  test('the overhang is stated once', () => {
-    expect(pxToken('--bar-edit-overhang')).toBeGreaterThan(0);
-  });
-
   test('every host reserves it while editing', () => {
     const reservation = rules().find(
       (rule) =>

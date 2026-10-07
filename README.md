@@ -63,8 +63,9 @@ renders the ready-to-run deployment into `build/`.
 - **Protocol-agnostic integration** — EPICS, DOOCS, TANGO, and Mock connectors ship in-tree;
   LabVIEW and other stacks connect through the
   [connector interface](https://als-apg.github.io/osprey/contributing/extending-osprey.html).
-- **Replaceable backends** — The agent harness, the underlying model, and the compute backend
-  are each swappable by configuration, without changing what the operator sees.
+- **One agent, any model** — Claude Code is the agent harness, the model behind it is a
+  configuration choice, and the code specific to Claude Code sits in
+  [one adapter package](https://als-apg.github.io/osprey/contributing/extending-osprey.html#agent-harness).
 - **Scalable capability management** — Dynamic classification prevents prompt explosion as
   toolsets grow.
 

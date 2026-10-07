@@ -254,7 +254,7 @@ def _create_sandbox_wrapper(
     workspace_root: Path,
     project_root: Path,
     *,
-    secret_roots: tuple[Path, ...] = (),
+    secret_roots: tuple[Path, ...],
 ) -> str:
     """Generate a wrapped script with filesystem sandboxing and output capture.
 
@@ -273,6 +273,12 @@ def _create_sandbox_wrapper(
 
     All visualization output goes through ``save_artifact()`` calls in
     user code. There is no auto-capture of matplotlib figures.
+
+    ``secret_roots`` has no default, for the same reason ``project_root``
+    has none: an empty tuple leaves every ``.env`` file readable, so a
+    caller resolves the roots
+    (:func:`~osprey.mcp_server.python_executor.executor.resolve_secret_roots`)
+    or passes ``()`` on purpose, and one that forgets gets a ``TypeError``.
     """
     exec_folder_str = str(execution_folder)
 
@@ -406,13 +412,17 @@ def _indent_code(code: str, spaces: int = 4) -> str:
 # Execution folder
 # ---------------------------------------------------------------------------
 def create_sandbox_execution_folder() -> Path:
-    """Create a timestamped folder under ``_agent_data/data/sandbox_executions/``."""
+    """Create a folder under ``_agent_data/data/sandbox_executions/``.
+
+    The folder is named for the facility-zone start time.
+    """
+    from osprey.utils.config import get_facility_timezone
     from osprey.utils.workspace import resolve_workspace_root
 
     base = resolve_workspace_root() / "data" / "sandbox_executions"
     base.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(get_facility_timezone()).strftime("%Y%m%d_%H%M%S")
     folder_name = f"{timestamp}_{uuid.uuid4().hex[:8]}"
     folder = base / folder_name
     folder.mkdir(parents=True, exist_ok=True)
@@ -427,7 +437,8 @@ def _read_execution_metadata(execution_folder: Path) -> dict | None:
     metadata_path = execution_folder / "execution_metadata.json"
     if metadata_path.exists():
         try:
-            return json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            return metadata if isinstance(metadata, dict) else None
         except Exception:
             logger.debug("Failed to read execution metadata", exc_info=True)
     return None

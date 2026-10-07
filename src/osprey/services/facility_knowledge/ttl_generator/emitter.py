@@ -354,7 +354,7 @@ def _object_sort_key(term: _Term) -> tuple[str, str]:
     return (term.kind, term.value)
 
 
-def _rdflib_term(term: _Term) -> object:
+def _rdflib_term(term: _Term) -> rdflib.Literal | rdflib.URIRef:
     """Build the rdflib term for one object.
 
     ``rdflib`` is imported here rather than at module scope; see the module

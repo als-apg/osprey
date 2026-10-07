@@ -59,6 +59,13 @@ from pathlib import Path, PurePosixPath
 import pytest
 import yaml
 
+from osprey.deployment.compose_generator import (
+    CONFIG_DIGEST_LABEL,
+    PROJECT_LABEL,
+    PROJECT_ROOT_LABEL,
+    REPO_ID_LABEL,
+)
+
 _GOLDEN_DIR = Path(__file__).parent / "render_defaults"
 
 #: Project name the whole baseline renders under. Short and obviously synthetic
@@ -285,30 +292,42 @@ def test_goldens_pin_the_env_chain_deltas() -> None:
     assert "./.env.shared" not in worker, "the default shape has no shared chain file"
 
 
-def test_every_labelled_golden_carries_the_config_digest() -> None:
-    """A service that mounts the rendered config must be recreated when it moves.
+def test_goldens_leave_the_generated_labels_to_the_override() -> None:
+    """No rendered service carries a label the build's labels override generates.
 
-    Enumerated across the whole baseline rather than spot-checked on one service,
-    because the failure is silent per service: a template without this label
-    renders, deploys and comes up healthy, and simply keeps serving the settings
-    it parsed the first time — so ``osprey set`` reports success and changes
-    nothing an operator can see.
+    The build writes ``build/osprey-labels.override.yml`` and passes it to every
+    compose invocation; it gives every rendered service the project name, the
+    checkout identity, the project root and the config digest, so a config
+    change reaches every service through it
+    (``tests/deployment/test_compose_labels_override.py`` pins that). A template
+    that spelled one of them again would be a second producer, and nothing would
+    show that a template omitting them still comes up labelled.
 
-    Keyed on carrying the project labels at all: the services-root template
-    declares only the shared network and has no container to label.
+    Named volumes are the other half: the override labels services, not volumes,
+    so every labelled volume keeps its checkout label, which ``osprey reset``
+    needs before it removes one.
     """
-    missing = []
-    for name in sorted(path.name for path in _GOLDEN_DIR.glob("*.yml")):
-        text = (_GOLDEN_DIR / name).read_text(encoding="utf-8")
-        if "osprey.project.name:" not in text:
-            continue
-        if 'osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"' not in text:
-            missing.append(name)
+    generated = (PROJECT_LABEL, REPO_ID_LABEL, PROJECT_ROOT_LABEL, CONFIG_DIGEST_LABEL)
+    service_hits = []
+    unlabelled_volumes = []
+    for path in sorted(_GOLDEN_DIR.glob("*.yml")):
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for service, body in (document.get("services") or {}).items():
+            labels = (body or {}).get("labels") or {}
+            service_hits.extend(
+                f"{path.name}: {service}.{key}" for key in generated if key in labels
+            )
+        for volume, body in (document.get("volumes") or {}).items():
+            if isinstance(body, dict) and REPO_ID_LABEL not in (body.get("labels") or {}):
+                unlabelled_volumes.append(f"{path.name}: {volume}")
 
-    assert not missing, (
-        f"these rendered services carry container labels but no config digest: {missing}. "
-        "A service that mounts the rendered config.yml needs it, or a config change "
-        "never reaches the running container."
+    assert not service_hits, (
+        f"these rendered services carry a label the labels override generates: {service_hits}. "
+        "The override is the only producer of those labels; remove them from the template."
+    )
+    assert not unlabelled_volumes, (
+        f"these named volumes lost the checkout label: {unlabelled_volumes}. "
+        "The override does not reach volumes, so the template must keep writing it."
     )
 
 

@@ -4,6 +4,7 @@ import json
 import math
 import numbers
 import os
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,7 +56,7 @@ CurrentValueReader = Callable[[str], Any]
 #: which refuses the write.
 #:
 #: How long that read takes is a property of the facility's control network,
-#: exactly like the connector's own ``timeout`` — a gateway two hops away
+#: exactly like the connector's own ``timeout_s`` — a gateway two hops away
 #: answers slower than a soft IOC on the same host — so a deployment overrides
 #: it with ``control_system.connector.<type>.step_read_timeout_s``.
 DEFAULT_STEP_READ_TIMEOUT_SECONDS = 2.0
@@ -69,19 +70,96 @@ STEP_READ_TIMEOUT_KEY = "step_read_timeout_s"
 INVALID_NUMERIC_VALUE = "INVALID_NUMERIC_VALUE"
 
 
+#: C's ``isspace`` set: what EPICS's C conversion skips around a numeral.
+_C_WHITESPACE = " \t\n\v\f\r"
+
+#: The numerals EPICS's C conversion parses into an integer field: ``strtol`` with base 0,
+#: so ``0x`` is hex and a leading ``0`` is octal.
+_C_INTEGER = re.compile(r"[+-]?(?:0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)")
+
+#: The decimal numerals EPICS's C conversion parses into a floating-point field (``strtod``).
+_C_DECIMAL_FLOAT = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+
+#: The hexadecimal numerals ``strtod`` also takes: ``0x10``, ``0x1.8p3``.
+_C_HEX_FLOAT = re.compile(
+    r"[+-]?0[xX](?:[0-9a-fA-F]+\.?[0-9a-fA-F]*|\.[0-9a-fA-F]+)(?:[pP][+-]?[0-9]+)?"
+)
+
+
+def _c_integer(text: str) -> int | None:
+    """``text`` as C reads it into an integer field, or ``None`` if it errors there."""
+    if not _C_INTEGER.fullmatch(text):
+        return None
+    sign = -1 if text[0] == "-" else 1
+    digits = text.lstrip("+-")
+    if digits[:2] in ("0x", "0X"):
+        return sign * int(digits[2:], 16)
+    if len(digits) > 1 and digits[0] == "0":
+        return sign * int(digits, 8)
+    return sign * int(digits)
+
+
+def _c_float(text: str) -> float | None:
+    """``text`` as C reads it into a floating-point field, or ``None`` if it errors there."""
+    try:
+        if _C_DECIMAL_FLOAT.fullmatch(text):
+            return float(text)
+        if _C_HEX_FLOAT.fullmatch(text):
+            return float.fromhex(text)
+    except OverflowError:
+        return None
+    return None
+
+
+def _numeral_or_reason(value: str) -> tuple[float | None, str | None]:
+    """The number a string write delivers, read the way the EPICS client reads it.
+
+    A string written to a numeric channel is converted into the channel's own
+    type by C code, not by Python, and C's reading of a numeral is not
+    ``float()``'s. An integer field takes ``strtol`` with base 0, so ``"0x10"``
+    is 16 and ``"010"`` is 8; a floating-point field takes ``strtod``, so
+    ``"0x10"`` is 16 there too but ``"010"`` is 10, and ``"1e3"`` is 1000. ``"1_000"``, ``"1,000"`` and ``"0b11"`` are errors in
+    both. Measured against a soft IOC.
+
+    The validator does not know the channel's type, so a string is accepted
+    only when every reading that succeeds gives the same number; ``"010"`` is
+    refused as ambiguous. That makes it exactly as permissive as the C rules
+    or stricter, never looser. The connector hands a string to pvapy as-is,
+    and pvData's own conversion (``parseToPOD``) follows the same rules: base-0
+    integers, ``strtod`` floats, and anything left over refused as extraneous
+    characters.
+
+    ``nan``, ``inf`` and ``infinity`` (which ``strtod`` takes) are not numerals
+    here and are refused, like their float counterparts.
+    """
+    text = value.strip(_C_WHITESPACE)
+    integer = _c_integer(text)
+    floating = _c_float(text)
+    readings = {float(r) for r in (integer, floating) if r is not None}
+    if not readings:
+        return None, (
+            f"String value {value!r} is not a finite decimal or hexadecimal numeral, so "
+            f"it cannot be checked against this channel's numeric limits. Write a number "
+            f"instead"
+        )
+    if len(readings) > 1:
+        return None, (
+            f"String value {value!r} is ambiguous: the control system reads it as "
+            f"{integer} into an integer channel and {floating} into a floating-point "
+            f"one. Write a number instead"
+        )
+    return readings.pop(), None
+
+
 def _finite_real_or_reason(value: Any) -> tuple[float | None, str | None]:
     """The value as a finite ``float``, or why it cannot be held to a numeric limit.
 
-    Only a real number is accepted: ``int``, ``float``, ``bool`` and anything
-    registered as :class:`numbers.Real` (numpy scalars included). A string is
-    refused however numeric it looks, because the validator is not the last
-    thing to parse it. The connector hands a string to the control system as-is
-    -- over pvapy an EPICS IOC parses it with ``strtod``/``strtol`` -- and C's
-    reading of a numeral is not Python's: ``"0x10"`` is 16 to the IOC and an
-    error to ``float()``; ``"010"`` is 10 to ``float()`` and 8 to a longout;
-    ``"1_000"`` is 1000 to ``float()`` and 1 to ``strtod``; ``"1e3"`` is 1 to
-    ``strtol``. Checking a number the write does not deliver checks nothing, so
-    the only string whose limits are known is none.
+    A real number is accepted as is: ``int``, ``float``, ``bool`` and anything
+    registered as :class:`numbers.Real` (numpy scalars included). A ``str`` is
+    accepted when it is a numeral the EPICS client would turn into one number
+    whatever the channel's type -- see :func:`_numeral_or_reason` -- and is
+    checked as that number. Everything else (``bytes``, lists, ``None``,
+    complex) is refused.
 
     NaN and infinity are refused too: NaN fails every comparison, so it would
     pass any ``min_value``/``max_value``/``max_step``, and an infinity is not a
@@ -90,18 +168,17 @@ def _finite_real_or_reason(value: Any) -> tuple[float | None, str | None]:
     Returns:
         ``(number, None)`` for an acceptable value, ``(None, reason)`` otherwise.
     """
-    if isinstance(value, str | bytes | bytearray):
-        return None, (
-            f"String value {value!r} cannot be checked against numeric limits: the "
-            f"control system parses it by its own rules (hex, octal, integer "
-            f"truncation), not the validator's. Write a number instead"
-        )
-    if not isinstance(value, numbers.Real):
+    if isinstance(value, str):
+        number, reason = _numeral_or_reason(value)
+        if number is None:
+            return None, reason
+    elif isinstance(value, numbers.Real):
+        number = float(value)
+    else:
         return None, (
             f"Value of type {type(value).__name__} is not a real number, so it cannot "
             f"be checked against this channel's numeric limits"
         )
-    number = float(value)
     if not math.isfinite(number):
         return None, (
             f"Value {number} is not finite, so it cannot be checked against this "
@@ -554,31 +631,6 @@ class LimitsValidator:
             logger.debug(f"Limits validator not initialized (config unavailable): {e}")
             return None
 
-    def get_limits_config(self, channel_address: str) -> dict | None:
-        """Get raw limits configuration for a channel (with defaults merged).
-
-        Returns the channel's configuration dictionary with defaults applied,
-        or None if channel is not in database and unlisted channels are allowed.
-
-        Args:
-            channel_address: Channel address to look up
-
-        Returns:
-            Configuration dictionary with defaults merged, or None if not found
-        """
-        channel_config = self.limits.get(channel_address)
-        if channel_config is None:
-            return None
-
-        # Convert ChannelLimitsConfig dataclass to dict for compatibility
-        return {
-            "channel_address": channel_config.channel_address,
-            "min_value": channel_config.min_value,
-            "max_value": channel_config.max_value,
-            "max_step": channel_config.max_step,
-            "writable": channel_config.writable,
-        }
-
     def resolve_confirm(self, channel_address: str) -> bool:
         """Whether a write to this channel must be confirmed by re-reading it.
 
@@ -1015,11 +1067,12 @@ class LimitsValidator:
         # Check 3: Min/Max bounds.
         #
         # The rule: a channel with ANY numeric limit (min_value, max_value or
-        # max_step) accepts only a finite real number. Anything else -- a
-        # string however numeric it looks, NaN, an infinity, a list, None -- is
-        # refused rather than waved past the numeric checks, because a value
-        # the validator cannot compare is a value it has not checked. See
-        # `_finite_real_or_reason` for why strings are refused, not parsed.
+        # max_step) accepts only a finite real number, or a string the EPICS
+        # client parses to one unambiguously. Anything else -- a string it
+        # would read differently by channel type, NaN, an infinity, a list,
+        # None -- is refused rather than waved past the numeric checks, because
+        # a value the validator cannot compare is a value it has not checked.
+        # See `_numeral_or_reason` for how strings are read.
         #
         # A channel with no numeric limit (a writable-only entry, e.g. an enum
         # or string record written by label) has nothing numeric to hold the

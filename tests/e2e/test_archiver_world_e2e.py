@@ -505,9 +505,11 @@ def _connector(world: DeployedArchiverWorld):
                 "port": store["port"],
                 "name": store["database"],
                 "collection": store["collection"],
-                "auth": store["auth_database"],
-                "username": store["username"],
-                "password_env": store["password_env"],
+                "auth": {
+                    "source": store["auth_source"],
+                    "username": store["username"],
+                    "password_env": store["password_env"],
+                },
             }
         )
     )

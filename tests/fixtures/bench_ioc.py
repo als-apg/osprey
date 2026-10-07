@@ -319,7 +319,7 @@ def connector_config(port: int, *, timeout: float = CONNECTOR_TIMEOUT_S) -> dict
         "type": "epics",
         "connector": {
             "epics": {
-                "timeout": timeout,
+                "timeout_s": timeout,
                 "gateways": {"read_only": dict(gateway), "write_access": dict(gateway)},
             }
         },

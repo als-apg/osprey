@@ -43,7 +43,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, create_app
 from osprey.services.auth_sidecar.identity_headers import (
@@ -52,6 +51,7 @@ from osprey.services.auth_sidecar.identity_headers import (
     SUBJECT_HEADER,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
+from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.services.auth_sidecar.routes import recheck
 from osprey.services.auth_sidecar.routes import verify as verify_module
 from osprey.services.auth_sidecar.routes.oidc import (
@@ -359,7 +359,7 @@ class TestTheOidcRowWithoutAClaimsMap:
             user="alice",
             roster_roles=RosterRoles({"alice": "observer"}),
             asserted_subject=ALICE_SUBJECT,
-            claim_role="",
+            claim_roles=frozenset(),
         )
         assert grant == LoginGrant(
             subject=ALICE_SUBJECT, role="observer", role_source=ROLE_SOURCE_ROSTER
@@ -371,7 +371,7 @@ class TestTheOidcRowWithoutAClaimsMap:
             user="alice",
             roster_roles=RosterRoles({"bob": "operator"}),
             asserted_subject=ALICE_SUBJECT,
-            claim_role="",
+            claim_roles=frozenset(),
         )
         assert grant == LoginGrant(subject=ALICE_SUBJECT, role="", role_source="")
 
@@ -399,13 +399,13 @@ class TestTheOidcRowWithAClaimsMap:
     terminal was rendered as. The token is what decided it, so the token is what
     the grant credits."""
 
-    def test_the_grant_carries_the_resolved_role(self) -> None:
+    def test_the_grant_carries_the_mapped_role(self) -> None:
         grant = recheck_login(
             method=METHOD_OIDC,
             user="alice",
             roster_roles=RosterRoles({"alice": "operator"}),
             asserted_subject=ALICE_SUBJECT,
-            claim_role="operator",
+            claim_roles=frozenset({"operator"}),
         )
         assert grant == LoginGrant(
             subject=ALICE_SUBJECT, role="operator", role_source=ROLE_SOURCE_CLAIM
@@ -421,7 +421,7 @@ class TestTheOidcRowWithAClaimsMap:
                 user="alice",
                 roster_roles=RosterRoles({"alice": "observer"}),
                 asserted_subject=ALICE_SUBJECT,
-                claim_role="operator",
+                claim_roles=frozenset({"operator"}),
             )
         assert refused.value.reason == audit.REASON_ROLE_MISMATCH
 
@@ -434,11 +434,48 @@ class TestTheOidcRowWithAClaimsMap:
             user="alice",
             roster_roles=RosterRoles({"bob": "operator"}),
             asserted_subject=ALICE_SUBJECT,
-            claim_role="operator",
+            claim_roles=frozenset({"operator"}),
         )
         assert grant == LoginGrant(
             subject=ALICE_SUBJECT, role="operator", role_source=ROLE_SOURCE_CLAIM
         )
+
+    def test_several_mapped_roles_grant_the_rendered_one(self) -> None:
+        """The card names the role; the token proves it is one of the person's.
+        The card chooses, so no member is ever picked by order."""
+        grant = recheck_login(
+            method=METHOD_OIDC,
+            user="alice",
+            roster_roles=RosterRoles({"alice": "observer"}),
+            asserted_subject=ALICE_SUBJECT,
+            claim_roles=frozenset({"operator", "observer"}),
+        )
+        assert grant == LoginGrant(
+            subject=ALICE_SUBJECT, role="observer", role_source=ROLE_SOURCE_CLAIM
+        )
+
+    def test_several_mapped_roles_without_the_rendered_one_refuse(self) -> None:
+        with pytest.raises(RecheckRefused) as refused:
+            recheck_login(
+                method=METHOD_OIDC,
+                user="alice",
+                roster_roles=RosterRoles({"alice": "observer"}),
+                asserted_subject=ALICE_SUBJECT,
+                claim_roles=frozenset({"operator", "expert"}),
+            )
+        assert refused.value.reason == audit.REASON_ROLE_MISMATCH
+
+    def test_several_mapped_roles_on_an_entry_naming_none_refuse_as_ambiguous(self) -> None:
+        """No card role to choose by, so several roles stay a refusal."""
+        with pytest.raises(RecheckRefused) as refused:
+            recheck_login(
+                method=METHOD_OIDC,
+                user="alice",
+                roster_roles=RosterRoles({"bob": "operator"}),
+                asserted_subject=ALICE_SUBJECT,
+                claim_roles=frozenset({"operator", "expert"}),
+            )
+        assert refused.value.reason == recheck.REASON_AMBIGUOUS_ROLE_CLAIM
 
     def test_a_mapped_group_becomes_the_session_role(
         self, zone: Path, monkeypatch: pytest.MonkeyPatch
@@ -530,6 +567,26 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
         assert [(r["decision"], r.get("role")) for r in _records(zone)] == [("allowed", "observer")]
         assert [(g.role, g.role_source) for g in grants] == [("observer", ROLE_SOURCE_CLAIM)]
 
+    def test_a_person_in_both_groups_opens_the_card_built_for_one(
+        self, zone: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _bind_roster_roles(monkeypatch, alice="observer")
+        app = _oidc_app(
+            userinfo={"sub": ALICE_SUBJECT, GROUP_CLAIM: [OPERATOR_GROUP, "als-observers"]},
+            binding=RoleBinding(
+                claim=GROUP_CLAIM,
+                claim_map={OPERATOR_GROUP: "operator", "als-observers": "observer"},
+            ),
+        )
+
+        result = _callback(app)
+
+        assert result.status_code == 303
+        entry = _minted_entry(_issued_cookie(result), "alice")
+        assert entry.role == "observer"
+        assert entry.role_source == ROLE_SOURCE_CLAIM
+        assert [(r["decision"], r.get("role")) for r in _records(zone)] == [("allowed", "observer")]
+
     def test_the_admitted_role_reaches_the_verify_subrequest(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -582,7 +639,7 @@ class TestFailClosed:
                 method=METHOD_PASSWORD,
                 user="alice",
                 roster_roles=RosterRoles(),
-                claim_role="operator",
+                claim_roles=frozenset({"operator"}),
             )
         assert refused.value.reason == recheck.REASON_METHOD_MISMATCH
 
@@ -594,12 +651,12 @@ class TestFailClosed:
                 user="alice",
                 roster_roles=RosterRoles(),
                 asserted_subject=subject,
-                claim_role="",
+                claim_roles=frozenset(),
             )
         assert refused.value.reason == recheck.REASON_METHOD_MISMATCH
 
     def test_an_oidc_login_that_never_asked_about_the_role_refuses(self) -> None:
-        """``claim_role=""`` is "this deployment binds no roles"; ``None`` is
+        """``claim_roles=frozenset()`` is "this deployment binds no roles"; ``None`` is
         "nobody asked", which is not an answer the matrix accepts."""
         with pytest.raises(RecheckRefused) as refused:
             recheck_login(
@@ -607,7 +664,7 @@ class TestFailClosed:
                 user="alice",
                 roster_roles=RosterRoles(),
                 asserted_subject=ALICE_SUBJECT,
-                claim_role=None,
+                claim_roles=None,
             )
         assert refused.value.reason == recheck.REASON_METHOD_MISMATCH
 
@@ -722,6 +779,7 @@ class TestTheAntiLookupInvariant:
             "ENV_ROSTER_ROLE_PREFIX",
             "METHOD_OIDC",
             "METHOD_PASSWORD",
+            "REASON_AMBIGUOUS_ROLE_CLAIM",
             "REASON_METHOD_MISMATCH",
             "REASON_ROLE_MISMATCH",
             "REASON_UNSUPPORTED_METHOD",

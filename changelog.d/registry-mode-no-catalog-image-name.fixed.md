@@ -1,0 +1,1 @@
+A registry-mode web-terminal deployment with no `registry.url` is refused by `osprey scaffold web-terminals lint`, `osprey profile validate`, `osprey build` and `osprey up` whether or not it has a persona catalog, instead of rendering the unpullable image `/web-terminal:<tag>`. The refusal names `deploy.registry.url` and `config: registry.url`.

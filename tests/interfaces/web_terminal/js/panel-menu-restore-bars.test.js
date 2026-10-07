@@ -11,7 +11,7 @@
  * Customize sheet call. These tests pin the rows: absent while both bars
  * show, present per hidden bar, effective (a PUT that turns the flag back
  * on), and offered beside whatever verbs the surface has of its own — the
- * simple-mode terminal's single close row included.
+ * simple-mode terminal's layout rows included.
  *
  * The panel modules the policy's verbs reach into (the dock, the PTY, the
  * rail) are stubbed: nothing here runs a verb, and importing dockview into
@@ -32,6 +32,7 @@ vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/sessions.js', 
 vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   openTerminalPanel: vi.fn(),
   closeTerminalPanel: vi.fn(),
+  resetDockLayout: vi.fn(),
 }));
 vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.js', () => ({ openPanelBeside: vi.fn() }));
 vi.mock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-commands.js', () => ({ setPanelVisibility: vi.fn() }));
@@ -93,13 +94,6 @@ afterEach(() => {
 });
 
 describe('the Show rows on a panel surface', () => {
-  test('with both bars showing a tile header offers only its own verbs', async () => {
-    await bootWith(doc(['logo', 'clock'], ['stopwatch']));
-
-    expect(openTileMenu('terminal')).toBe(true);
-    expect(labels()).toEqual(['Restart terminal', 'New session', 'Close terminal tile']);
-  });
-
   test('a hidden header adds Show header below the verbs, and it brings the header back', async () => {
     await bootWith(doc(['logo', 'clock'], ['stopwatch'], { headerVisible: false }));
 
@@ -140,19 +134,19 @@ describe('the Show rows on a panel surface', () => {
     await settle();
 
     openTileMenu('terminal');
-    expect(labels()).toEqual(['Restart terminal', 'New session', 'Close terminal tile']);
+    expect(labels()).toEqual(['Restart terminal', 'New session', 'Reset layout', 'Close terminal tile']);
   });
 
-  test('the simple-mode terminal keeps its close row, and a hidden bar adds its Show row', async () => {
+  test('the simple-mode terminal keeps its layout rows, and a hidden bar adds its Show row', async () => {
     await bootWith(doc(['logo'], ['stopwatch']), 'simple');
     expect(openTileMenu('terminal')).toBe(true);
-    expect(labels()).toEqual(['Close terminal tile']);
+    expect(labels()).toEqual(['Reset layout', 'Close terminal tile']);
     expect(document.querySelectorAll('.rail-context-divider')).toHaveLength(0);
     teardown(modules);
 
     await bootWith(doc(['logo'], ['stopwatch'], { headerVisible: false }), 'simple');
     expect(openTileMenu('terminal')).toBe(true);
-    expect(labels()).toEqual(['Close terminal tile', 'Show header']);
+    expect(labels()).toEqual(['Reset layout', 'Close terminal tile', 'Show header']);
     expect(document.querySelectorAll('.rail-context-divider')).toHaveLength(1);
   });
 });

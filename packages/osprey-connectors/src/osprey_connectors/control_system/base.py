@@ -6,6 +6,7 @@ subscribing to changes, and retrieving metadata from various control systems.
 
 """
 
+import asyncio
 import functools
 import logging
 import math
@@ -20,6 +21,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.types import (
     WRITES_ENABLED_KEY,
     type_writes_enabled,
@@ -640,7 +642,8 @@ def _chip_reason(control_target: str | None, *, deployment_arms: bool) -> str:
         # denied as the gate.
         return f"{narrowing}. The store answered narrowing."
     return (
-        f"{narrowing}; applies deployment-wide. {remedy} if the write is intended; "
+        f"{narrowing}; applies to every session of this login. {remedy} if the write "
+        "is intended; "
         "config.yml is not the gate here. The store answered narrowing."
     )
 
@@ -1037,6 +1040,11 @@ class ControlSystemConnector(ABC):
 
         This fires before limits validation (intentional: fast-reject when
         writes are disabled, avoiding unnecessary validation work).
+
+        Past that check the original method runs inside
+        :func:`~osprey_connectors.control_system.write_door.open_door`, so the
+        raw-client guard attributes its put to a connector. A connector whose
+        writes are disabled never opens the door.
         """
         super().__init_subclass__(**kwargs)
 
@@ -1060,7 +1068,8 @@ class ControlSystemConnector(ABC):
                         record_verdict=self._last_record_verdict,
                         record_reason=self._last_record_reason,
                     )
-                return await original_write(self, channel_address, value, *args, **kwargs)
+                with open_door():
+                    return await original_write(self, channel_address, value, *args, **kwargs)
 
             cls.write_channel = _guarded_write
 
@@ -1094,7 +1103,8 @@ class ControlSystemConnector(ABC):
                         )
                         for addr, val in operations
                     ]
-                return await original_multi(self, operations, *args, **kwargs)
+                with open_door():
+                    return await original_multi(self, operations, *args, **kwargs)
 
             cls.write_multiple_channels = _guarded_multi
 
@@ -1257,6 +1267,23 @@ class ControlSystemConnector(ABC):
             raise ChannelWriteBlockedError(channel_address, "LIMITS", message=str(exc)) from exc
 
         return raise_for_write_result(result)
+
+    async def _read_concurrently(
+        self, channel_addresses: list[str], timeout: float | None
+    ) -> dict[str, ChannelValue]:
+        """Read channels concurrently, omitting failed reads and re-raising cancellations."""
+        results = await asyncio.gather(
+            *(self.read_channel(address, timeout) for address in channel_addresses),
+            return_exceptions=True,
+        )
+        values: dict[str, ChannelValue] = {}
+        for address, result in zip(channel_addresses, results, strict=True):
+            if isinstance(result, Exception):
+                continue
+            if isinstance(result, BaseException):
+                raise result
+            values[address] = result
+        return values
 
     @abstractmethod
     async def read_multiple_channels(

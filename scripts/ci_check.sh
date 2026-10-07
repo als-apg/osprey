@@ -21,7 +21,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 echo "→ Running ruff (linting)..."
-if ! uv run ruff check src/ tests/ --output-format=github; then
+if ! uv run ruff check . --output-format=github; then
     FAILED_CHECKS+=("ruff-linting")
     echo "❌ Ruff linting failed"
 else
@@ -30,10 +30,10 @@ fi
 echo ""
 
 echo "→ Running ruff (formatting)..."
-if ! uv run ruff format --check src/ tests/; then
+if ! uv run ruff format --check .; then
     FAILED_CHECKS+=("ruff-formatting")
     echo "❌ Ruff formatting failed"
-    echo "💡 Run 'ruff format src/ tests/' to fix"
+    echo "💡 Run 'uv run ruff format .' to fix"
 else
     echo "✅ Ruff formatting passed"
 fi
@@ -42,8 +42,8 @@ echo ""
 echo "→ Running mypy (type checking)..."
 if ! uv run python scripts/mypy_gate.py; then
     FAILED_CHECKS+=("mypy")
-    echo "❌ Mypy found errors the baseline does not carry"
-    echo "💡 Fix them, or record them with 'uv run python scripts/mypy_gate.py --update'"
+    echo "❌ The type check reported errors"
+    echo "💡 Fix each error named above; the tree must report none"
 else
     echo "✅ Mypy passed"
 fi
@@ -86,6 +86,9 @@ else
 fi
 echo ""
 
+# Each pytest run below goes through scripts/run_bounded.py, which stops the run's
+# whole process group once it passes its bound and exits 124, so a run that
+# outlives its last test ends instead of holding the terminal.
 echo "→ Running pytest with coverage..."
 # -n auto sizes the worker pool to this machine; CI pins -n 4 to keep its matrix cells
 # comparable. Override with PYTEST_XDIST_AUTO_NUM_WORKERS=<n>.
@@ -97,7 +100,7 @@ echo "→ Running pytest with coverage..."
 # than the index, so leaving it in made this script red on every branch. It runs
 # on demand — `uv run pytest tests/services/channel_finder/graph_index/test_scale.py`
 # — and in the benchmark job.
-if ! uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
+if ! uv run python scripts/run_bounded.py 3600 -- uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
     echo "❌ Tests failed"
 else
@@ -111,7 +114,7 @@ echo ""
 # so it must not compete with four workers for the machine. Deselecting it
 # without this step would make a green run here mean less than it did before.
 echo "→ Running the real-terminal pty suite (serial)..."
-if ! uv run pytest tests/pty -m pty -v --tb=short; then
+if ! uv run python scripts/run_bounded.py 600 -- uv run pytest tests/pty -m pty -v --tb=short; then
     FAILED_CHECKS+=("pytest-pty")
     echo "❌ Real-terminal tests failed"
 else
@@ -258,8 +261,8 @@ else
     echo "Please fix the issues above before pushing."
     echo ""
     echo "💡 Tips:"
-    echo "   - Run 'uv run ruff format src/ tests/' to fix formatting"
-    echo "   - Run 'uv run ruff check src/ tests/ --fix' to auto-fix linting"
+    echo "   - Run 'uv run ruff format .' to fix formatting"
+    echo "   - Run 'uv run ruff check . --fix' to auto-fix linting"
     echo "   - Check test output above for specific failures"
     echo ""
     exit 1

@@ -1,8 +1,10 @@
 # The virtual-accelerator service owns the PyAT-backed EPICS soft-IOC (see
-# src/osprey/services/virtual_accelerator/). `osprey up` builds its
-# image locally on first run; subsequent runs reuse the local tag. To use a
-# prebuilt/published image instead, set OSPREY_VA_IMAGE (e.g.
-# OSPREY_VA_IMAGE=my-registry/osprey-va:dev).
+# src/osprey/services/virtual_accelerator/). Its image is built from the
+# Dockerfile beside this file unless services.virtual_accelerator.image names a
+# different image, which this file then runs as named with no build.
+# OSPREY_VA_IMAGE names one for a single shell (e.g.
+# OSPREY_VA_IMAGE=my-registry/osprey-va:dev), and a start that reads it builds
+# nothing for this service.
 # Use `osprey build --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 #
@@ -29,7 +31,7 @@
 
 services:
   virtual-accelerator:
-    image: ${OSPREY_VA_IMAGE:-my-registry/osprey-va:dev}
+    image: ${OSPREY_VA_IMAGE:-proj-va:local}
     platform: ${OSPREY_VA_PLATFORM:-linux/amd64}
     build:
       # EVERY relative path here resolves against the pinned compose project
@@ -51,19 +53,6 @@ services:
     # key `virtual-accelerator` (EPICS_CA_NAME_SERVERS, depends_on) — unchanged
     # here — so unlike postgres this rename needs no network alias.
     container_name: proj-virtual-accelerator
-    labels:
-      osprey.project.name: "proj"
-      com.osprey.repo-id: "abc123def456"
-      osprey.project.root: "/tmp/proj"
-      # Content fingerprint of the rendered config this deploy built
-      # (runtime_helper's as_built_config_digest, carried in by
-      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
-      # the other file a container reads its settings from: this service mounts
-      # the rendered config.yml, so `osprey set` changes a file the compose
-      # document never mentions and compose would leave the container running on
-      # the settings it parsed at startup. Empty when the invocation did not set
-      # the variable (a hand-run `docker compose up`).
-      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
       - "127.0.0.1:5065:5065/tcp"

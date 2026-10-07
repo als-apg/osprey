@@ -12,7 +12,6 @@ is the file-backed channel source below, :func:`load_manifest_file`.)
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -192,10 +191,11 @@ MANIFEST_CHANNEL_KEYS = frozenset(
 
 
 class ManifestFileError(RuntimeError):
-    """A file-backed channel manifest is missing, unreadable, or malformed.
+    """A channel-manifest source file is missing, unreadable, or malformed.
 
-    Raised eagerly at load time so a misconfigured IOC dies at boot with a
-    named cause, never serving a partial channel set.
+    Raised eagerly at load time so a misconfigured IOC dies at boot and a
+    build refuses, each with a named cause, never serving a partial channel
+    set.
     """
 
 
@@ -256,18 +256,13 @@ def load_manifest_file(path: Path) -> list[dict]:
     return channels
 
 
-# Matches `"<address>": { "label": ...` entries in machine_state_channels.json
-_MACHINE_STATE_KEY_RE = re.compile(r'"([^"]+)":\s*\{\s*"label"')
-
-
 def load_machine_state_candidate_addresses(paths: ManifestPaths = PACKAGE_PATHS) -> list[str]:
-    """Extract every candidate channel key in the machine-state channel list.
+    """Return every candidate address in the machine-state list.
 
-    ``machine_state_channels.json`` is a plain JSON object mapping each address
-    to a ``{"label": ..., "group": ...}`` entry, alongside underscore-prefixed
-    metadata keys (``_comment``, ``_version``). Keying off the ``"label"``
-    member picks up exactly the channel entries and skips the metadata without
-    an underscore-prefix convention having to be encoded here.
+    ``machine_state_channels.json`` is a JSON object whose keys are addresses
+    and whose underscore-prefixed keys (``_comment``, ``_version``,
+    ``_provenance``) are metadata. Only the keys are read, in document order,
+    whatever each entry holds.
 
     The caller (``manifest/build.py``) checks each candidate against the
     addresses the VA actually serves and publishes the split under
@@ -275,6 +270,13 @@ def load_machine_state_candidate_addresses(paths: ManifestPaths = PACKAGE_PATHS)
     ``valid`` / ``invalid``, so an address that drifts out of the
     ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD`` namespace shows up in the
     manifest instead of failing silently.
+
+    Raises:
+        ManifestFileError: if the top level of the file is not a JSON object.
+        json.JSONDecodeError: if the file is not parseable JSON.
     """
-    text = paths.machine_state_channels.read_text()
-    return _MACHINE_STATE_KEY_RE.findall(text)
+    path = paths.machine_state_channels
+    document = json.loads(path.read_text())
+    if not isinstance(document, dict):
+        raise ManifestFileError(f"machine-state list {path} must be a JSON object keyed by address")
+    return [key for key in document if not key.startswith("_")]

@@ -99,6 +99,8 @@ class EnhancedLogbookEntry(TypedDict):
     summary: NotRequired[str | None]
     keywords: NotRequired[list[str]]
     enhancement_status: NotRequired[dict[str, Any]]
+    attachment_text: NotRequired[str | None]
+    attachment_captions: NotRequired[dict[str, Any] | None]
 
 
 def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
@@ -132,6 +134,10 @@ def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
         entry["keywords"] = row_dict["keywords"]
     if row_dict.get("enhancement_status") is not None:
         entry["enhancement_status"] = row_dict["enhancement_status"]
+    if row_dict.get("attachment_text") is not None:
+        entry["attachment_text"] = row_dict["attachment_text"]
+    if row_dict.get("attachment_captions") is not None:
+        entry["attachment_captions"] = row_dict["attachment_captions"]
 
     return entry
 
@@ -230,7 +236,6 @@ class ARIELSearchRequest:
         time_range: Default time range filter (see Time Range Semantics)
         facility: Facility filter
         max_results: Maximum results to return (default: 10, range: 1-100)
-        include_images: Include image attachments (default: False)
     """
 
     query: str
@@ -238,7 +243,6 @@ class ARIELSearchRequest:
     time_range: tuple[datetime, datetime] | None = None
     facility: str | None = None
     max_results: int = 10
-    include_images: bool = False
     advanced_params: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -355,6 +359,41 @@ class MetadataSchema(TypedDict, total=False):
     facility_section: str | None
 
 
+#: Characters of an entry's text that one entry in a listing (search results, ``browse``)
+#: carries when ``ariel.entry_text.listing_chars`` is unset.
+DEFAULT_LISTING_TEXT_CHARS = 500
+
+#: Characters of an entry's text that a batch read (``entries_by_ids``) carries when
+#: ``ariel.entry_text.read_chars`` is unset.
+DEFAULT_READ_TEXT_CHARS = 1000
+
+
+def entry_text_fields(text: str, limit: int, *, field: str) -> dict[str, Any]:
+    """Cut an entry's text to a budget and mark the cut.
+
+    A text of at most ``limit`` characters returns ``{field: text}`` and nothing
+    else, so an uncut entry keeps its exact shape. A longer one returns
+    ``{field: text[:limit], f"{field}_truncated": True, f"{field}_length": len(text)}``.
+    The shown text is always a prefix of the stored one; nothing is appended to it.
+
+    Args:
+        text: The entry's full text.
+        limit: Characters to keep. Assumed positive: the config parse refuses
+            anything else, so it is not re-checked here.
+        field: Key the text is stored under; the marker keys are named after it.
+
+    Returns:
+        Dict with the (possibly cut) text and, only when cut, the two marker keys.
+    """
+    if len(text) <= limit:
+        return {field: text}
+    return {
+        field: text[:limit],
+        f"{field}_truncated": True,
+        f"{field}_length": len(text),
+    }
+
+
 def _format_entry_base(entry: EnhancedLogbookEntry) -> dict[str, Any]:
     """Format the common fields of a logbook entry for agent consumption.
 
@@ -362,14 +401,15 @@ def _format_entry_base(entry: EnhancedLogbookEntry) -> dict[str, Any]:
         entry: EnhancedLogbookEntry
 
     Returns:
-        Dict with entry_id, timestamp, author, text, and title
+        Dict with entry_id, timestamp, author, text, and title. The text is cut at
+        the listing default and marked as ``text_truncated``/``text_length`` when cut.
     """
     timestamp = entry.get("timestamp")
     return {
         "entry_id": entry.get("entry_id"),
         "timestamp": timestamp.isoformat() if timestamp is not None else None,
         "author": entry.get("author"),
-        "text": entry.get("raw_text", "")[:500],
+        **entry_text_fields(entry.get("raw_text", ""), DEFAULT_LISTING_TEXT_CHARS, field="text"),
         "title": entry.get("metadata", {}).get("title"),
     }
 

@@ -24,7 +24,8 @@ Failure modes
                          preset ``config:`` dotted override, or in the loader's
                          synthesized defaults
 5. ``orphan-site``       an ``orphan_sites`` regex that matches again
-6. ``parity``            an ``all-templates`` key missing from a preset
+6. ``parity``            an ``all-templates`` key missing from a preset, or a
+                         ``same-value`` key two presets state differently
 7. ``panel-port``        a ``# osprey:panel-port`` marker set that drifted
 8. ``default``           a key with no ``default:``, a ``default: required``
                          that is not a posture-floor key (or a posture-floor
@@ -274,6 +275,18 @@ def walk_paths(node: Any, prefix: str = "") -> Iterator[str]:
             yield from walk_paths(value, path)
 
 
+_ABSENT = object()
+
+
+def dotted_value(node: Any, dotted: str) -> Any:
+    """The mirror of :func:`walk_paths`: the value at the path it would yield."""
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return _ABSENT
+        node = node[part]
+    return node
+
+
 def prefixes(dotted: str) -> list[str]:
     """``a.b.c`` -> ``[a, a.b, a.b.c]``."""
     parts = dotted.split(".")
@@ -309,6 +322,7 @@ class ConfigKeyGuard:
         self._joined: dict[str, str] = {}
         self._union: dict[str, set[str]] | None = None
         self._rendered: dict[str, list[dict[str, Any]]] | None = None
+        self._stated: dict[str, dict[str, Any]] | None = None
 
     # ── plumbing ────────────────────────────────────────────────────────
 
@@ -498,6 +512,29 @@ class ConfigKeyGuard:
                 overlay.setdefault(key, port)
             out[name] = (profile, _expand_dotted(overlay))
         return out
+
+    def stated_presets(self) -> dict[str, dict[str, Any]]:
+        """preset id -> its ``config:`` as the operator wrote it, as a nested mapping.
+
+        This is the operator's own document, so :func:`layout_port_fill` is
+        deliberately NOT applied: a port the layout fills is the same at every
+        preset for the same base and is written by no preset, so comparing it
+        would prove nothing. The fill belongs to the union, which answers
+        presence questions.
+
+        :func:`resolve_build_profile` reads the presets from the installed
+        package, not from ``self.root``, so a negative control doctors this
+        cache rather than a copied tree.
+        """
+        if self._stated is not None:
+            return self._stated
+        from osprey.cli.build_profile_archiver import _expand_dotted
+
+        self._stated = {
+            name: _expand_dotted(dict(profile.config))
+            for name, (profile, _filled) in self.resolved_presets().items()
+        }
+        return self._stated
 
     def rendered(self) -> dict[str, list[dict[str, Any]]]:
         """source -> the configs it contributes to the union.
@@ -911,10 +948,15 @@ class ConfigKeyGuard:
                             f"removed site for {key} matches {hits}x under {root}/: {pattern}",
                         )
 
-    # ── failure mode 6: all-templates parity ────────────────────────────
+    # ── failure mode 6: preset parity ───────────────────────────────────
 
     def check_parity(self) -> None:
-        """Presence in all four PRESETS, never value equality.
+        """Two separate claims about the four root PRESETS.
+
+        ``all-templates`` is presence in all four. ``same-value`` is one value
+        among the presets that state the key. Neither implies the other:
+        ``deployed_services``, ``hooks.debug`` and ``claude_code.telemetry.enabled``
+        are present in all four with deliberately different values.
 
         Parity is a claim about the operator's document, so the framework
         template is deliberately not in the expected set: it renders the derived
@@ -922,23 +964,64 @@ class ConfigKeyGuard:
         would ask for the second home this branch removed. Conversely a derived
         key cannot be marked ``all-templates`` at all — no preset spells one.
 
-        ``deployed_services`` is present in all four with deliberately different
-        values; ``container_runtime`` is present in all four with the same one.
-        Presence and value-equality are separate properties and neither may be
-        inferred from the other, so only presence is asserted here.
+        A ``same-value`` mark must compare something: a leaf at least two
+        presets state. A derived key or a ``rendered: false`` key is stated by
+        none, and a mark on a block would compare whole subtrees and hide the
+        leaf that moved, so both are refused.
         """
         union = self.union()
         expected = {preset_id(rel) for rel in self.preset_rels}
         for key, spec in self.manifest["keys"].items():
-            if not (isinstance(spec, dict) and spec.get("all-templates")):
+            if not isinstance(spec, dict):
                 continue
-            present = union.get(key, set())
-            missing = expected - present
-            if missing:
-                self.fail(
-                    "parity",
-                    f"{key} is marked all-templates but is absent from {sorted(missing)}",
-                )
+            if spec.get("all-templates"):
+                present = union.get(key, set())
+                missing = expected - present
+                if missing:
+                    self.fail(
+                        "parity",
+                        f"{key} is marked all-templates but is absent from {sorted(missing)}",
+                    )
+            if spec.get("same-value"):
+                self._check_same_value(key)
+
+    def _check_same_value(self, key: str) -> None:
+        """Fail unless every preset that states *key* states one leaf value."""
+        stated = {
+            name: value
+            for name, cfg in self.stated_presets().items()
+            if (value := dotted_value(cfg, key)) is not _ABSENT
+        }
+        if len(stated) < 2:
+            self.fail(
+                "parity",
+                f"{key} is marked same-value but {sorted(stated) or 'no preset'} states it, "
+                "so the mark compares nothing",
+            )
+            return
+        names = list(stated)
+        if any(isinstance(value, dict) for value in stated.values()):
+            self.fail(
+                "parity",
+                f"{key} is marked same-value but is a block in {sorted(names)}; mark its leaves",
+            )
+            return
+        # A linear scan, because list values are unhashable; the type check
+        # keeps ``1`` from matching ``True``.
+        groups: list[tuple[Any, list[str]]] = []
+        for name, value in stated.items():
+            for seen, members in groups:
+                if type(seen) is type(value) and seen == value:
+                    members.append(name)
+                    break
+            else:
+                groups.append((value, [name]))
+        if len(groups) > 1:
+            self.fail(
+                "parity",
+                f"{key} is marked same-value but the presets state "
+                + "; ".join(f"{value!r} in {sorted(members)}" for value, members in groups),
+            )
 
     # ── failure mode 7: panel-port markers ──────────────────────────────
 

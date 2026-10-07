@@ -75,6 +75,9 @@ PARADIGMS = ("hierarchical", "middle_layer", "in_context", "graph")
 SLICE_SIZE = 10
 F1_THRESHOLD = 0.75
 PERFECT_THRESHOLD = 0.80
+# One judge model for every lane and every run, so a score moves with the
+# agent and never with the judge. It is an id the lane's provider serves.
+JUDGE_MODEL = "claude-sonnet-5"
 
 #: Channel bindings in the shipped demo corpus — what ``osprey knowledge
 #: seed-graph`` puts in the store and what the graph lane's census must find.
@@ -180,8 +183,8 @@ def _slice_indices(dataset_path: Path) -> list[int]:
 def _run_slice(render: Path, output_root: Path) -> BenchmarkRun:
     """Run the stratified slice against a built project; return the run.
 
-    Every lane uses the same runner settings, so a difference between two lanes
-    is a difference between two paradigms and nothing else.
+    Every lane uses the same runner settings, judge included, so a difference
+    between two lanes is a difference between two paradigms and nothing else.
     """
     indices = _slice_indices(_resolve_dataset_path(render))
     runner = BenchmarkRunner(
@@ -190,6 +193,7 @@ def _run_slice(render: Path, output_root: Path) -> BenchmarkRun:
         max_concurrent=3,
         max_budget_per_query=0.20,
         use_llm_judge=True,
+        judge_model=JUDGE_MODEL,
     )
     return asyncio.run(
         runner.run_queries(

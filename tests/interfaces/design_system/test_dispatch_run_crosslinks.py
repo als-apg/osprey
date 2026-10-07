@@ -73,6 +73,10 @@ DESIGN_SYSTEM_STATIC_DIR = (
 #: cannot pass against a hardcoded fallback.
 TELEMETRY_BASE = "http://localhost:5099"
 
+#: Telemetry store organization the dashboard is configured with. Deliberately
+#: not ``default``, so an assertion on it cannot pass against a hardcoded org.
+TELEMETRY_ORG = "ops-records"
+
 SESSION_ID = "3f8a1c02-0000-4000-8000-abcdefabcdef"
 RUN_ID = "run-with-everything"
 TRIGGER_NAME = "hello-dispatch"
@@ -152,7 +156,7 @@ STATE = {
 }
 
 
-def _create_dispatch_dashboard_app(telemetry_url: str) -> FastAPI:
+def _create_dispatch_dashboard_app(telemetry_url: str, telemetry_org: str) -> FastAPI:
     """Serve the real ``render_dashboard_html()`` output beside the real design system."""
     from osprey.dispatch.dashboard import render_dashboard_html
 
@@ -168,6 +172,7 @@ def _create_dispatch_dashboard_app(telemetry_url: str) -> FastAPI:
                 facility_name="Test Facility",
                 channel_strip_prefix="SR:",
                 telemetry_url=telemetry_url,
+                telemetry_org=telemetry_org,
             )
         )
 
@@ -177,14 +182,21 @@ def _create_dispatch_dashboard_app(telemetry_url: str) -> FastAPI:
 @pytest.fixture
 def dashboard_url() -> Iterator[str]:
     """A dashboard configured WITH a telemetry store."""
-    with _run_app_server(_create_dispatch_dashboard_app(TELEMETRY_BASE)) as base_url:
+    with _run_app_server(_create_dispatch_dashboard_app(TELEMETRY_BASE, TELEMETRY_ORG)) as base_url:
         yield base_url
 
 
 @pytest.fixture
 def dashboard_url_no_telemetry() -> Iterator[str]:
     """A dashboard deployed without a telemetry store (the env var is unset)."""
-    with _run_app_server(_create_dispatch_dashboard_app("")) as base_url:
+    with _run_app_server(_create_dispatch_dashboard_app("", "")) as base_url:
+        yield base_url
+
+
+@pytest.fixture
+def dashboard_url_no_org() -> Iterator[str]:
+    """A dashboard given a telemetry store URL but no organization."""
+    with _run_app_server(_create_dispatch_dashboard_app(TELEMETRY_BASE, "")) as base_url:
         yield base_url
 
 
@@ -312,6 +324,23 @@ def test_telemetry_link_absent_when_no_store_is_deployed(
     page.close()
 
 
+def test_telemetry_link_absent_without_an_org(
+    chromium_browser: Browser, dashboard_url_no_org: str
+) -> None:
+    """A store URL without an organization is not enough to build a link."""
+    page = chromium_browser.new_page(viewport=VIEWPORT)
+    _open_run(page, dashboard_url_no_org, RUN_ID)
+
+    assert _telemetry_href(page) is None, (
+        "with no telemetry org configured the dashboard must not offer a link"
+    )
+    labels = _action_labels(page)
+    assert any("View trigger" in label for label in labels), (
+        f"the trigger link must not depend on telemetry config, got {labels!r}"
+    )
+    page.close()
+
+
 def test_telemetry_link_actually_selects_this_run(
     chromium_browser: Browser, dashboard_url: str
 ) -> None:
@@ -333,6 +362,9 @@ def test_telemetry_link_actually_selects_this_run(
     )
 
     params = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+    assert params.get("org_identifier") == [TELEMETRY_ORG], (
+        f"the link must open the configured org, got {params.get('org_identifier')!r}"
+    )
     assert params.get("sql_mode") == ["true"], (
         f"the query is only applied in SQL mode, got {params.get('sql_mode')!r}"
     )

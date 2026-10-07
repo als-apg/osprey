@@ -55,7 +55,8 @@ class _HierarchicalBase(BaseDatabase):
             return [pattern.format(i) for i in range(start, end + 1)]
 
         elif expansion_type == "list":
-            return expansion_def.get("_instances", [])
+            instances: list[str] = expansion_def.get("_instances", [])
+            return instances
 
         return []
 
@@ -84,7 +85,8 @@ class _HierarchicalBase(BaseDatabase):
         """Return the number of instances defined by an ``_expansion`` descriptor."""
         r = expansion.get("_range") or expansion.get("range", [1, 1])
         if isinstance(r, list) and len(r) >= 2:
-            return max(0, r[1] - r[0] + 1)
+            count: int = max(0, r[1] - r[0] + 1)
+            return count
         return 1
 
     @classmethod

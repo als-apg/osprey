@@ -39,7 +39,7 @@ import logging
 import os
 import stat
 from importlib import resources
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
@@ -531,16 +531,19 @@ def test_the_bluesky_web_sidecar_binds_its_own_subdir_and_nothing_wider():
 
 
 def test_the_bluesky_web_mount_target_is_where_its_writer_actually_resolves():
-    """NOT ``/app/<project>/var/audit``. This image runs no OSPREY project, so
-    ``writer.audit_dir`` falls through to the working directory (WORKDIR /app) —
-    and a mount at the project-rooted path would bind a directory nothing ever
-    writes to while every record piled up in the container's writable layer,
-    discarded at the next ``osprey up``."""
+    """Under the project ``OSPREY_CONFIG`` names, ``/app/project``. The writer
+    anchors the zone on the project its config names, so a bind at the image
+    WORKDIR's ``/app/var/audit`` or at a project image's ``/app/<project>`` would
+    be a directory nothing writes to while every record piled up in the
+    container's writable layer. ``test_bluesky_container_config`` stands the
+    container up and resolves the writer's path for real."""
     service = _service_fragment("bluesky_web")["bluesky-web"]
 
     _, target = _audit_mounts(service)[0].split(":")
-    assert target == f"/app/{AUDIT_DIR_RELPATH}/bluesky-web"
-    assert not target.startswith("/app/demo/")
+    assert target == f"/app/project/{AUDIT_DIR_RELPATH}/bluesky-web"
+    assert PurePosixPath(target).is_relative_to(
+        PurePosixPath(service["environment"]["OSPREY_CONFIG"]).parent / AUDIT_DIR_RELPATH
+    )
 
 
 def test_the_bluesky_web_sidecar_names_no_audit_dir_variable():
@@ -678,28 +681,20 @@ def test_the_build_path_provisions_every_queueserver_subdir(tmp_path):
         assert audit_identity_dir(tmp_path, identity).is_dir()
 
 
-def test_the_lane_audit_target_is_where_the_writer_resolves(tmp_path, monkeypatch):
-    """The queueserver runs from the project dir with ``CONFIG_FILE`` naming the
-    config there, so its writer resolves ``<project>/var/audit`` — the shape the
-    template mounts at ``/app/project/var/audit``."""
-    from osprey.utils.workspace import load_osprey_config, resolve_project_root
-
-    project = tmp_path / "project"
-    project.mkdir()
-    (project / "config.yml").write_text("project_name: demo\n")
-    monkeypatch.chdir(project)
-    for name in ("OSPREY_CONFIG", "CONFIG_FILE", "OSPREY_PROJECT_ROOT"):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("CONFIG_FILE", str(project / "config.yml"))
-
-    # `writer.audit_dir`'s own derivation. The function itself is redirected
-    # suite-wide so no test writes into a real zone; its body is what is asked.
-    resolved = resolve_project_root(load_osprey_config()) / AUDIT_DIR_RELPATH
-
-    assert resolved.resolve() == (project / AUDIT_DIR_RELPATH).resolve()
-    service = _queueservers(_lane_services(_lane_config()))["queueserver"]
-    _, target = _audit_mounts(service)[0].split(":")
-    assert target.startswith("/app/project/" + AUDIT_DIR_RELPATH + "/")
+def test_every_queueserver_audit_target_sits_under_the_project_its_config_names():
+    """The queueserver runs from the image WORKDIR (``/app``) and is handed
+    ``OSPREY_CONFIG`` naming the config mounted under ``/app/project``, so its
+    writer resolves ``/app/project/var/audit`` — the shape every queueserver's
+    bind targets. ``test_bluesky_container_config`` stands the container up and
+    resolves the writer's path for real."""
+    for key, service in _queueservers(_lane_services(_lane_config())).items():
+        _, target = _audit_mounts(service)[0].split(":")
+        assert (
+            PurePosixPath(target)
+            == PurePosixPath(service["environment"]["OSPREY_CONFIG"]).parent
+            / AUDIT_DIR_RELPATH
+            / key
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -42,6 +42,7 @@ from fastapi.testclient import TestClient
 
 from osprey.audit import writer
 from osprey.audit.envelope import POSTURE_SOURCE_APP
+from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import (
     STATE_COOKIE_NAME,
@@ -63,6 +64,7 @@ from osprey.services.auth_sidecar.routes.oidc import (
     REASON_UNSAFE_ROLE,
     RoleBinding,
 )
+from osprey.services.auth_sidecar.routes.recheck import RosterRoles
 from osprey.services.auth_sidecar.throttle import AttemptThrottle
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
@@ -480,6 +482,59 @@ class TestASharedCardInTheLedger:
         assert "detail" not in record
 
 
+BROKEN_HASH = "scrypt.16384.8.1.c2FsdA"
+"""A stored hash cut to five fields: provisioned, and impossible to evaluate."""
+
+BROKEN_ALICE_ENV = {**PASSWORD_ENV, "OSPREY_AUTH_PW_HASH_ALICE": BROKEN_HASH}
+
+
+class TestAnUnevaluableCredential:
+    """A provisioned credential the service cannot read is a configuration fault,
+    recorded under its own category and never quoted."""
+
+    def test_it_is_recorded_under_its_own_category(self, zone: Path) -> None:
+        with TestClient(create_app(BROKEN_ALICE_ENV), base_url="https://testserver") as client:
+            assert _login(client, user="alice", password=ALICE_PASSWORD).status_code == 401
+        records = _records(zone)
+        assert len(records) == 1
+        assert records[0]["decision"] == "refused"
+        assert records[0]["reason"] == audit.REASON_CREDENTIAL_UNEVALUABLE
+        assert records[0]["subject"] == "alice"
+
+    def test_the_stored_value_never_reaches_the_ledger(self, zone: Path) -> None:
+        with TestClient(create_app(BROKEN_ALICE_ENV), base_url="https://testserver") as client:
+            _login(client, user="alice", password=ALICE_PASSWORD)
+        text = _ledger(zone).read_text("utf-8")
+        assert "c2FsdA" not in text
+        assert "scrypt.16384" not in text
+
+    def test_a_well_formed_neighbour_keeps_the_ordinary_category(self, zone: Path) -> None:
+        with TestClient(create_app(BROKEN_ALICE_ENV), base_url="https://testserver") as client:
+            assert _login(client, user="bob", password="wrong").status_code == 401
+            assert _login(client, user="carol", password="wrong").status_code == 401
+        assert [record["reason"] for record in _records(zone)] == [
+            audit.REASON_BAD_CREDENTIAL,
+            audit.REASON_BAD_CREDENTIAL,
+        ]
+
+    @pytest.mark.usefixtures("zone")
+    def test_the_log_names_the_fix(self, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.ERROR, logger="osprey.services.auth_sidecar.routes.login")
+        with TestClient(create_app(BROKEN_ALICE_ENV), base_url="https://testserver") as client:
+            _login(client, user="alice", password=ALICE_PASSWORD)
+        assert "osprey users passwd alice" in caplog.text
+        assert "c2FsdA" not in caplog.text
+
+    def test_a_shared_card_names_its_opener(self, zone: Path) -> None:
+        env = {**SHARED_ENV, "OSPREY_AUTH_PW_HASH_ALICE": BROKEN_HASH}
+        with TestClient(create_app(env), base_url="https://testserver") as client:
+            assert _shared_login(client, "alice").status_code == 401
+        record = _records(zone)[0]
+        assert record["reason"] == audit.REASON_CREDENTIAL_UNEVALUABLE
+        assert record["subject"] == "bob"
+        assert record["detail"] == "opener=alice"
+
+
 class TestARefusedOidcLogin:
     """Every category the OIDC path refuses under reaches the same ledger."""
 
@@ -538,6 +593,31 @@ class TestARefusedOidcLogin:
         refused login never also files the success record."""
         assert _callback(_oidc_app(userinfo={"sub": BOB_SUBJECT})).status_code == 403
         assert len(_records(zone)) == 1
+
+
+class TestAnOidcLoginResolvedFromSeveralRoles:
+    """A login whose token mapped to several roles says which ones in its record."""
+
+    @staticmethod
+    def _app(groups: list[str]) -> FastAPI:
+        app = _oidc_app(
+            userinfo={"sub": ALICE_SUBJECT, GROUP_CLAIM: groups},
+            binding=RoleBinding(claim=GROUP_CLAIM, claim_map=CLAIM_MAP),
+        )
+        app.state.roster_roles = RosterRoles({"alice": "observer"})
+        return app
+
+    def test_the_success_record_names_the_mapped_roles(self, zone: Path) -> None:
+        assert _callback(self._app([OPERATOR_GROUP, OBSERVER_GROUP])).status_code == 303
+        records = _records(zone)
+        assert len(records) == 1
+        assert records[0]["decision"] == "allowed"
+        assert records[0]["role"] == "observer"
+        assert records[0]["detail"] == "mapped_roles=observer,operator"
+
+    def test_one_mapped_role_records_no_detail(self, zone: Path) -> None:
+        assert _callback(self._app([OBSERVER_GROUP])).status_code == 303
+        assert "detail" not in _records(zone)[0]
 
 
 # --- the emitter never costs the decision -----------------------------------
@@ -735,6 +815,29 @@ class TestThePathTheVariableNames:
         monkeypatch.chdir(tmp_path)
         assert audit.ledger_path() is None
 
+    def test_audit_directory_reads_the_mapping_it_is_given(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An explicit mapping is the whole source: the process environment is
+        read only when no mapping is given."""
+        monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(tmp_path / "process"))
+        given = tmp_path / "given"
+        assert audit.audit_directory({audit.AUDIT_DIR_ENV: f"  {given}  "}) == given
+        assert audit.audit_directory({}) is None
+        assert audit.audit_directory({audit.AUDIT_DIR_ENV: "   "}) is None
+        assert audit.audit_directory() == tmp_path / "process"
+
+    def test_audit_directory_refuses_a_relative_value(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger=audit.logger.name):
+            assert audit.audit_directory({audit.AUDIT_DIR_ENV: "relative/audit"}) is None
+        assert [
+            record.getMessage()
+            for record in caplog.records
+            if audit.AUDIT_DIR_ENV in record.getMessage()
+        ]
+
     def test_the_writer_marker_cannot_rename_this_ledger(
         self, zone: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -785,6 +888,11 @@ class TestTheCategorySetIsClosed:
             if name.startswith("REASON_") and isinstance(getattr(audit, name), str)
         }
         assert exported == defined
+
+    def test_the_sign_in_subject_can_never_be_a_roster_name(self) -> None:
+        """The card-less subject sits outside the roster charset, so a record
+        filed under it can never be read as one about a roster user."""
+        assert not USERNAME_CHARSET_RE.match(audit.SIGN_IN_SUBJECT)
 
     def test_the_oidc_routes_name_the_same_categories(self) -> None:
         """The route module keeps its own spellings for readability at the point

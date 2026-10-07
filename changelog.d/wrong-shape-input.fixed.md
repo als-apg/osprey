@@ -1,0 +1,1 @@
+The Claude Code status line no longer crashes when its input is JSON but not an object; it renders the placeholder line, as it does for unreadable input. A config section of the wrong shape (an `ariel:` that is not a mapping, a non-string `control_system.type`) is now read as absent instead of failing later on a missing attribute.

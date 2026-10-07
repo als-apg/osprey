@@ -91,6 +91,11 @@ class ArchiverConnector(ABC):
             precision_ms: Bin width in milliseconds; ``<= 0`` means full
                 resolution. A backend that cannot express the requested width
                 must raise ``ValueError`` rather than serve a different one.
+                Bins are anchored on ``start_date``: the same window and width
+                cut the same lattice for every channel in the request and for
+                every processing mode. A backend that bins on a grid of its own
+                is the documented exception — the EPICS Archiver Appliance's
+                operators are epoch-anchored, and the window merely clips them.
             timeout: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Anything

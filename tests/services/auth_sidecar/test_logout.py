@@ -17,6 +17,7 @@ so a variable left in the real process environment cannot make one pass.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import httpx
 import pytest
@@ -261,6 +262,28 @@ class TestRevocation:
 
             assert len(app.state.revocation_store) == 0
             assert _verify(client, "alice", cookie) == 200
+
+    def test_the_surrendered_cookie_stays_refused_by_a_restarted_service(
+        self, tmp_path: Path
+    ) -> None:
+        """A new app on the same audit directory is what a recreated container
+        is; the control on an empty directory shows the refusal came from the
+        file and not from anything else the cookie carries."""
+        zone = tmp_path / "zone"
+        zone.mkdir()
+        env = {**PASSWORD_ENV, "OSPREY_AUTH_AUDIT_DIR": str(zone)}
+        cookie = _mint(_unlocked("alice"))
+        with TestClient(_app(env)) as client:
+            _logout(client, "alice", cookie)
+
+        with TestClient(_app(env)) as restarted:
+            assert _verify(restarted, "alice", cookie) == 401
+
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        control_env = {**PASSWORD_ENV, "OSPREY_AUTH_AUDIT_DIR": str(elsewhere)}
+        with TestClient(_app(control_env)) as control:
+            assert _verify(control, "alice", cookie) == 200
 
 
 class TestBenignPaths:

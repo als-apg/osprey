@@ -54,7 +54,7 @@ from osprey.connectors.factory import (
 # (facility-specific, nothing shipped set), so a scaffolded block carries the
 # timeout and nothing else — a stock deployment's live target reads "not
 # configured" until the go-live edit authors it.
-SCAFFOLDED_EPICS_BLOCK = {"timeout": 5.0}
+SCAFFOLDED_EPICS_BLOCK = {"timeout_s": 5.0}
 
 
 @pytest.fixture

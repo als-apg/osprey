@@ -26,7 +26,12 @@
  * operator-facing sentence is `detail.detail`. A panel reading a TOP-LEVEL
  * `code` finds nothing and silently mis-classifies every refusal — see
  * `classifyQueueRefusal`.
+ *
+ * `recordTime` reads the facility zone stamped on the page, the one input this
+ * module takes from outside its arguments.
  */
+
+import { facilityDayKey, formatFacilityTime } from '/design-system/js/facility-time.js';
 
 /**
  * Manager states in which the queue is draining (or about to). Mirrors
@@ -191,28 +196,18 @@ export function historyChanged(prev, next) {
 }
 
 /**
- * Two digits, for a clock or calendar field built by hand.
+ * When a record was written, on the facility clock.
  *
- * @param {number} value
- * @returns {string}
- */
-function pad2(value) {
-  return String(value).padStart(2, '0');
-}
-
-/**
- * When a record was written, in the reader's own zone.
- *
- * The record's ``at`` is UTC with an explicit offset; a panel reads it where it
- * is opened, so it is rendered local. Anything unparseable yields an empty
- * string rather than ``Invalid Date`` — the sentence beside it still says what
- * happened, and a wrong time is worse than none.
+ * The record's ``at`` is UTC with an explicit offset. Anything unparseable
+ * yields an empty string rather than ``Invalid Date`` — the sentence beside it
+ * still says what happened, and a wrong time is worse than none.
  *
  * The log keeps hundreds of records and outlives the day it started, so a bare
  * ``HH:MM`` would report last week's withdrawal as this afternoon's. Today's
- * records show the clock alone; every older one carries ``MM-DD`` in front of
- * it. Built from the date's own local fields rather than a locale formatter,
- * so what this returns is the same string on every machine that renders it.
+ * records show the clock alone; every older one carries its month and day in
+ * front of it. "Today" is the facility calendar's day, the locale is the
+ * viewer's (so ``09/18, 21:05`` in en-US and ``18.09., 21:05`` in de), and with
+ * no stamp the viewer's zone is used and named.
  *
  * @param {unknown} at
  * @param {Date} [now] The moment to read "today" from.
@@ -222,13 +217,17 @@ function recordTime(at, now = new Date()) {
   if (typeof at !== 'string' || at === '') return '';
   const when = new Date(at);
   if (Number.isNaN(when.getTime())) return '';
-  const clock = `${pad2(when.getHours())}:${pad2(when.getMinutes())}`;
-  const sameDay =
-    when.getFullYear() === now.getFullYear() &&
-    when.getMonth() === now.getMonth() &&
-    when.getDate() === now.getDate();
-  if (sameDay) return clock;
-  return `${pad2(when.getMonth() + 1)}-${pad2(when.getDate())} ${clock}`;
+  const sameDay = facilityDayKey(when) === facilityDayKey(now);
+  if (sameDay) {
+    return formatFacilityTime(when, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  }
+  return formatFacilityTime(when, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
 }
 
 /**

@@ -58,7 +58,8 @@ ones:
 half-finished stubs and finished documents can coexist. *Consuming* validation
 requires only a ``type`` (a tolerant reader check); *authoring* validation also
 requires ``title`` and ``description``. ``osprey knowledge validate`` checks
-your bundle at the authoring level.
+your bundle at the authoring level. It also fails when an ``index.md`` no longer
+matches its directory; ``osprey knowledge regen-index`` fixes that.
 
 
 Working with a Bundle
@@ -195,7 +196,9 @@ Working with a Bundle
       Each of the three read tools also names a ``url`` per concept — the link
       that opens it in the KNOWLEDGE panel. It is relative to the page the
       operator is on, so the agent can cite a concept as a markdown link on a
-      single-user deployment and behind a per-user mount alike.
+      single-user deployment and behind a per-user mount alike. In the web
+      terminal's Simple view, clicking such a link opens the KNOWLEDGE panel in
+      the workspace at that concept.
 
       **The facility-knowledge subagent.** When it is enabled in a project's
       config, the main OSPREY agent delegates facility knowledge questions to this
@@ -284,8 +287,10 @@ Working with a Bundle
 
       Concept documents are checked at the *authoring* level (``type``,
       ``title``, and ``description`` must be present and non-empty).  Index files
-      are checked for frontmatter compliance (OKF §6/§11).  The command exits 0
-      on a clean bundle, 1 if any file fails.
+      are checked for frontmatter compliance (OKF §6/§11) and must match what
+      ``regen-index`` writes, so a page added, removed or retitled without
+      regenerating fails validation.  The command exits 0 on a clean bundle, 1
+      if any file fails.
 
       **seed-from-ttl** — seeds one OKF stub document per device node in a
       NARAD/als-ontology Turtle file:

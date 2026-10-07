@@ -107,10 +107,13 @@ def clear_runtime_state():
 
     runtime._runtime_connector = None
     runtime._limits_validator = None
+    saved_observers = list(runtime._write_observers)
+    runtime._write_observers.clear()
     yield
     # Cleanup after test
     runtime._runtime_connector = None
     runtime._limits_validator = None
+    runtime._write_observers[:] = saved_observers
 
 
 @pytest.mark.usefixtures("clear_runtime_state")
@@ -570,3 +573,250 @@ class TestRuntimeStepCheckReader:
 
             assert len(mock_connector.write_calls) == 1
             assert mock_connector.write_calls[0][1] == 50.0
+
+
+# ========================================================
+# Write observer (private three-phase hook)
+# ========================================================
+
+
+class PerChannelConnector(MockConnector):
+    """MockConnector whose outcome is chosen per channel address."""
+
+    def __init__(self, outcomes: dict[str, WriteOutcome]):
+        super().__init__()
+        self.outcomes = outcomes
+
+    async def write_channel(self, channel_address: str, value, **kwargs):
+        self.write_calls.append((channel_address, value, kwargs))
+        outcome = self.outcomes.get(channel_address, WriteOutcome.CONFIRMED)
+        return ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            outcome=outcome,
+            observed_value=value if outcome is WriteOutcome.CONFIRMED else None,
+            refusal_reason="WRITES_DISABLED" if outcome is WriteOutcome.REFUSED else None,
+        )
+
+
+def _record_observer():
+    """Register a recording observer; return the list it appends (address, phase) to."""
+    import osprey.runtime as runtime
+
+    events: list[tuple[str, str]] = []
+
+    def observer(address: str, phase: str) -> None:
+        events.append((address, phase))
+
+    runtime._register_write_observer(observer)
+    return events
+
+
+def _patched_factory(connector):
+    return patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        return_value=connector,
+    )
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_attempt_then_landed_on_confirmed():
+    events = _record_observer()
+    with _patched_factory(MockConnector()):
+        write_channel("TEST:PV", 1.0)
+    assert events == [("TEST:PV", "attempt"), ("TEST:PV", "landed")]
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [WriteOutcome.MISMATCH, WriteOutcome.UNCONFIRMED, WriteOutcome.FAILED],
+)
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_sent_on_unverified_outcome_and_still_raises(outcome):
+    """Every outcome where the value was sent but not verified is 'sent'.
+
+    FAILED is classified 'sent' too: the value went out and the control system
+    did not take it, so what the channel holds is not known to be unchanged.
+    """
+    events = _record_observer()
+    with _patched_factory(PerChannelConnector({"TEST:PV": outcome})):
+        with pytest.raises(ChannelWriteFailedError):
+            write_channel("TEST:PV", 1.0)
+    assert events == [("TEST:PV", "attempt"), ("TEST:PV", "sent")]
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_sent_on_unrequested():
+    """confirm=False returns normally but nothing was verified: 'sent', not 'landed'."""
+    events = _record_observer()
+    with _patched_factory(PerChannelConnector({"TEST:PV": WriteOutcome.UNREQUESTED})):
+        write_channel("TEST:PV", 1.0)
+    assert events == [("TEST:PV", "attempt"), ("TEST:PV", "sent")]
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_refused_gets_attempt_only():
+    events = _record_observer()
+    with _patched_factory(PerChannelConnector({"TEST:PV": WriteOutcome.REFUSED})):
+        with pytest.raises(ChannelWriteBlockedError):
+            write_channel("TEST:PV", 1.0)
+    assert events == [("TEST:PV", "attempt")]
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_not_called_when_limits_net_refuses():
+    """'attempt' fires after the local limits net, so a net refusal notifies nothing."""
+    import osprey.runtime as runtime
+
+    runtime._limits_validator = LimitsValidator(
+        {
+            "TEST:PV": ChannelLimitsConfig(
+                channel_address="TEST:PV", min_value=0.0, max_value=10.0, writable=True
+            )
+        },
+        {"allow_unlisted_pvs": False},
+    )
+    events = _record_observer()
+    connector = MockConnector()
+    with _patched_factory(connector):
+        with pytest.raises(ChannelLimitsViolationError):
+            write_channel("TEST:PV", 99.0)
+        with pytest.raises(ChannelLimitsViolationError):
+            write_channels({"TEST:PV": 1.0, "OTHER:PV": 2.0})
+    assert events == []
+    assert connector.write_calls == []
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_not_called_when_target_pin_refuses():
+    import osprey.runtime as runtime
+
+    events = _record_observer()
+    with patch.object(
+        runtime, "_assert_target_pin", side_effect=runtime.ControlTargetChangedError("moved")
+    ):
+        with pytest.raises(runtime.ControlTargetChangedError):
+            write_channel("TEST:PV", 1.0)
+        with pytest.raises(runtime.ControlTargetChangedError):
+            write_channels({"A:PV": 1.0, "B:PV": 2.0})
+    assert events == []
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_attempt_fires_before_the_connector_write():
+    seen_writes_at_attempt: list[int] = []
+    connector = MockConnector()
+    import osprey.runtime as runtime
+
+    def observer(_address: str, phase: str) -> None:
+        if phase == "attempt":
+            seen_writes_at_attempt.append(len(connector.write_calls))
+
+    runtime._register_write_observer(observer)
+    with _patched_factory(connector):
+        write_channel("TEST:PV", 1.0)
+    assert seen_writes_at_attempt == [0]
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_multi_channel_notifies_every_result_before_raising():
+    """Three channels, the second mismatches: all three are notified, then it raises."""
+    events = _record_observer()
+    connector = PerChannelConnector(
+        {
+            "A:PV": WriteOutcome.CONFIRMED,
+            "B:PV": WriteOutcome.MISMATCH,
+            "C:PV": WriteOutcome.CONFIRMED,
+        }
+    )
+    with _patched_factory(connector):
+        with pytest.raises(ChannelWriteFailedError) as excinfo:
+            write_channels({"A:PV": 1.0, "B:PV": 2.0, "C:PV": 3.0})
+    assert excinfo.value.channel_address == "B:PV"
+    assert events == [
+        ("A:PV", "attempt"),
+        ("B:PV", "attempt"),
+        ("C:PV", "attempt"),
+        ("A:PV", "landed"),
+        ("B:PV", "sent"),
+        ("C:PV", "landed"),
+    ]
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_multi_channel_raises_first_failure():
+    events = _record_observer()
+    connector = PerChannelConnector(
+        {"A:PV": WriteOutcome.UNCONFIRMED, "B:PV": WriteOutcome.REFUSED}
+    )
+    with _patched_factory(connector):
+        with pytest.raises(ChannelWriteFailedError) as excinfo:
+            write_channels({"A:PV": 1.0, "B:PV": 2.0})
+    assert excinfo.value.channel_address == "A:PV"
+    # A refused channel reached no wire: it gets no outcome notification.
+    assert events == [("A:PV", "attempt"), ("B:PV", "attempt"), ("A:PV", "sent")]
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_single_item_write_channels_notifies_once():
+    """The one-item path delegates to the single-channel path: no double notify."""
+    events = _record_observer()
+    with _patched_factory(MockConnector()):
+        write_channels({"TEST:PV": 1.0})
+    assert events == [("TEST:PV", "attempt"), ("TEST:PV", "landed")]
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_registration_is_idempotent():
+    import osprey.runtime as runtime
+
+    events: list[tuple[str, str]] = []
+
+    def observer(address: str, phase: str) -> None:
+        events.append((address, phase))
+
+    runtime._register_write_observer(observer)
+    runtime._register_write_observer(observer)
+    with _patched_factory(MockConnector()):
+        write_channel("TEST:PV", 1.0)
+    assert events == [("TEST:PV", "attempt"), ("TEST:PV", "landed")]
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_raising_observer_logs_warning_and_never_blocks():
+    import osprey.runtime as runtime
+
+    def broken(_address: str, _phase: str) -> None:
+        raise RuntimeError("observer exploded")
+
+    runtime._register_write_observer(broken)
+    events = _record_observer()
+    connector = MockConnector()
+    with patch.object(runtime.logger, "warning") as warn:
+        with _patched_factory(connector):
+            write_channel("TEST:PV", 1.0)
+    assert len(connector.write_calls) == 1
+    # Later observers still run.
+    assert events == [("TEST:PV", "attempt"), ("TEST:PV", "landed")]
+    # One WARNING per failed notification (attempt + landed).
+    assert warn.call_count == 2
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_observer_raising_observer_does_not_mask_write_failure():
+    import osprey.runtime as runtime
+
+    def broken(_address: str, _phase: str) -> None:
+        raise ValueError("boom")
+
+    runtime._register_write_observer(broken)
+    with _patched_factory(PerChannelConnector({"TEST:PV": WriteOutcome.MISMATCH})):
+        with pytest.raises(ChannelWriteFailedError):
+            write_channel("TEST:PV", 1.0)
+
+
+def test_write_observer_api_is_private():
+    import osprey.runtime as runtime
+
+    assert "_register_write_observer" not in runtime.__all__
+    assert not any("observer" in name for name in runtime.__all__)

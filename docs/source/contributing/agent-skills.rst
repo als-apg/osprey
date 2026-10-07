@@ -4,13 +4,13 @@
 Agent Skills
 ============
 
-Osprey ships nine **agent skills** --- packaged, step-by-step instructions that a
+Osprey ships ten **agent skills** --- packaged, step-by-step instructions that a
 coding agent picks up automatically when a task matches their description.
 Instead of re-explaining the contribution workflow or the release process in
 every session, you install them once and the agent follows the project's own
 playbooks.
 
-All nine travel together in one plugin, ``osprey``, published from the root of
+All ten travel together in one plugin, ``osprey``, published from the root of
 the ``als-apg/osprey`` repository. Claude Code and Codex install it from there
 with two commands each.
 
@@ -95,7 +95,7 @@ skills themselves are the same files the Claude Code plugin serves.
    <https://learn.chatgpt.com/docs/developer-commands>`_, retrieved 2026-09-01,
    and verified against codex-cli 0.149 on 2026-09-02.
 
-The nine skills
+The ten skills
 ----------------
 
 .. list-table::
@@ -137,10 +137,16 @@ The nine skills
      - Proves the pages under ``docs/source`` against the code, from reading
        source and from running what a page documents, reports the drift,
        and applies the doc-side fixes the maintainer accepts.
+   * - ``/osprey:test-audit``
+     - Gates every new or changed test on what regression it catches and
+       why existing coverage misses it, and audits existing tests for ones
+       that re-assert source, duplicate stronger proof, or keep test-only
+       production seams alive. A campaign mode prunes one subsystem's whole
+       test surface.
 
-In Codex the same nine are ``$design-philosophy``, ``$contribute``,
+In Codex the same ten are ``$design-philosophy``, ``$contribute``,
 ``$pre-commit``, ``$release``, ``$install``, ``$upstream-scout``, ``$panel``,
-``$housekeeping``, and ``$doc-sync``.
+``$housekeeping``, ``$doc-sync``, and ``$test-audit``.
 
 The skills route to each other: ``/osprey:contribute`` hands a standalone
 validation run to ``/osprey:pre-commit`` and a release to ``/osprey:release``;
@@ -148,7 +154,8 @@ validation run to ``/osprey:pre-commit`` and a release to ``/osprey:release``;
 advisory steps before the release-notes PR, ``/osprey:housekeeping`` hands
 doc-page items to ``/osprey:doc-sync``, ``/osprey:install`` launches
 ``/osprey:upstream-scout`` in the background, and the scout's branch path hands
-the implementation to ``/osprey:contribute``.
+the implementation to ``/osprey:contribute``, as ``/osprey:test-audit`` does
+with a finished audit.
 
 The workflow behind each one is documented on its own page:
 

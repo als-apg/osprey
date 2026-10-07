@@ -103,7 +103,8 @@ class PendingReviewStore:
     def get_item(self, item_id: str) -> dict | None:
         """Return a single item by ID, or None if not found."""
         self._load()
-        return self._data["items"].get(item_id)
+        items: dict[str, dict] = self._data["items"]
+        return items.get(item_id)
 
     def delete(self, item_id: str) -> bool:
         """Delete a single item by ID.

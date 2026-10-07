@@ -6,6 +6,8 @@ contract here and gets first billing.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -48,14 +50,31 @@ class TestFileContentTraversal:
         assert resp.status_code == 403
         assert resp.json()["detail"] == "Path traversal blocked"
 
-    def test_in_workspace_file_is_served(self, client, workspace):
-        (workspace / "notes.md").write_text("# hello")
-        resp = client.get("/api/files/content/notes.md")
+    @pytest.mark.parametrize("rel", ["notes.md", "scripts/analysis.py"])
+    def test_in_workspace_file_is_served(self, client, workspace, rel):
+        target = workspace / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# hello")
+        resp = client.get(f"/api/files/content/{rel}")
         assert resp.status_code == 200
         data = resp.json()
+        assert data["path"] == rel
         assert data["content"] == "# hello"
-        assert data["extension"] == ".md"
+        assert data["extension"] == Path(rel).suffix
         assert data["size"] == len("# hello")
+
+    @pytest.mark.parametrize("escape", ["..%2Fsecret.txt", "%2E%2E%2Fsecret.txt"])
+    def test_encoded_dotdot_is_blocked_with_403(self, client, tmp_path, escape):
+        """An encoded ``../`` reaches the route decoded; the file it names exists
+        outside the workspace, so only the containment check stands between the
+        request and its bytes. (A literal ``../`` is normalized by the client and
+        never reaches the route.)"""
+        (tmp_path / "secret.txt").write_text("top secret")
+
+        resp = client.get(f"/api/files/content/{escape}")
+
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Path traversal blocked"
 
 
 class TestFileContentErrors:
@@ -92,6 +111,7 @@ class TestFileTree:
         resp = client.get("/api/files/tree")
         assert resp.status_code == 200
         tree = resp.json()
+        assert tree["type"] == "directory"
         children = {c["name"]: c for c in tree["children"]}
 
         assert ".hidden" not in children
@@ -110,6 +130,57 @@ class TestFileTree:
         resp = client.get("/api/files/tree?session_id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
         assert resp.status_code == 200
         assert resp.json()["children"] == []
+
+    def test_a_valid_session_id_scopes_the_tree(self, client, workspace):
+        session_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        session_dir = workspace / "sessions" / session_id
+        session_dir.mkdir(parents=True)
+        (session_dir / "test.txt").write_text("scoped content")
+        (workspace / "base_file.txt").write_text("base content")
+
+        resp = client.get(f"/api/files/tree?session_id={session_id}")
+
+        assert resp.status_code == 200
+        names = [c["name"] for c in resp.json()["children"]]
+        assert names == ["test.txt"]
+
+    @pytest.mark.parametrize("route", ["/api/files/tree", "/api/files/content/base_file.txt"])
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "../../../etc",
+            "-" * 36,
+            "0" * 36,
+            "AAAAAAAA-1111-2222-3333-444444444444",
+            "operator-deadbeef",
+        ],
+        ids=["traversal", "dashes-36", "zeros-36", "uppercase", "operator-key"],
+    )
+    def test_a_session_id_outside_the_key_grammar_is_400(self, client, workspace, route, bad):
+        (workspace / "base_file.txt").write_text("safe")
+
+        resp = client.get(route, params={"session_id": bad})
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["error"] == "invalid_session_id"
+
+    def test_a_loose_shaped_session_directory_is_never_served(self, client, workspace):
+        loose = "0" * 36
+        session_dir = workspace / "sessions" / loose
+        session_dir.mkdir(parents=True)
+        (session_dir / "secret.txt").write_text("not a session's")
+
+        resp = client.get("/api/files/content/secret.txt", params={"session_id": loose})
+
+        assert resp.status_code == 400
+
+    def test_an_empty_session_id_serves_the_base(self, client, workspace):
+        (workspace / "base_file.txt").write_text("base content")
+
+        resp = client.get("/api/files/tree?session_id=")
+
+        assert resp.status_code == 200
+        assert "base_file.txt" in [c["name"] for c in resp.json()["children"]]
 
     def test_directories_sort_before_files(self, client, workspace):
         (workspace / "zebra_dir").mkdir()

@@ -727,11 +727,15 @@ _VA_STAMPED = (
     Path("machine_state_channels.json"),
 )
 
-#: The scenario bundles, under ``data/``. Each names channels in its overrides
-#: and its archiver events, and the simulation refuses to boot on one naming a
-#: channel the served machine does not carry; emit answers that channel set
-#: afresh, so every bundle is held against the one this run writes.
+#: The scenario bundles, under ``data/``. Each names channels in its
+#: overrides, its archiver events, its driver couplings and its noise
+#: overrides, and the simulation refuses to boot on one naming a channel the
+#: served machine does not carry; emit answers that channel set afresh, so
+#: every bundle is held against the one this run writes.
 _VA_SCENARIOS = Path("simulation") / "scenarios"
+
+#: The scenario keys, besides ``overrides``, whose mapping is keyed by channel.
+_SCENARIO_CHANNEL_MAPPINGS = ("couple", "noise")
 
 #: The write-safety bands, under ``data/``. The file is shared with the
 #: facility, so the lane states only the addresses its own bindings name.
@@ -1377,9 +1381,10 @@ def _scenario_document(bundle: Path) -> tuple[dict, str | None]:
 def _scenario_channels(bundle: Path) -> list[str]:
     """Every channel one scenario bundle names, in the order it names them.
 
-    A scenario reaches the machine through two keys: the overrides it starts a
-    channel at and the archiver events it seeds one with. Both are addresses,
-    and both are what the simulation resolves against the machine it serves.
+    A scenario reaches the machine through four keys: the overrides it starts a
+    channel at, the archiver events it seeds one with, the shared drivers it
+    couples one to and the noise it re-declares for one. All are addresses, and
+    all are what the simulation resolves against the machine it serves.
     """
     document, _defect = _scenario_document(bundle)
     overrides = document.get("overrides")
@@ -1389,6 +1394,10 @@ def _scenario_channels(bundle: Path) -> list[str]:
         address = entry.get("channel") if isinstance(entry, dict) else None
         if isinstance(address, str) and address:
             named.append(address)
+    for key in _SCENARIO_CHANNEL_MAPPINGS:
+        block = document.get(key)
+        if isinstance(block, dict):
+            named.extend(block)
     return named
 
 

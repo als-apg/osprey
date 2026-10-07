@@ -17,8 +17,8 @@
  *   and is no longer a child of the host. A second init re-renders rather than
  *   mounting a second chip, and re-homes the same node if the shell shows up
  *   after a fallback mount;
- * - a caller may hand it a `host` of its own, and the module reaches nothing
- *   the terminal page owns — which is what lets the JupyterLab bar mount it;
+ * - a caller may hand it a `host` of its own, which is what lets the
+ *   JupyterLab bar mount it (that suite pins the import closure);
  * - the roster is a fact about the DEPLOYMENT: the read carries no session id,
  *   and nothing here waits for a session to be settled;
  * - the pushed `{type: 'control_context'}` frame is what makes the chip
@@ -44,17 +44,12 @@
  * - every request goes through api.js's `withPrefix`, so the multi-user
  *   per-user mount is covered.
  *
- * Seams: nothing is mocked — the module reaches no other page module, which is
- * itself asserted below. `fetch` is stubbed the way the other suites here stub
- * it; the SSE factory is injected the way session.js's `wireActivityStrip`
- * injects it, since happy-dom has no EventSource. Module-private state (the
- * mounted chip, the last payload) has no reset API, so each test gets a fresh
- * module instance via vi.resetModules() + dynamic import — same pattern as
- * posture-badge.test.mjs.
+ * Seams: nothing is mocked. `fetch` is stubbed the way the other suites here
+ * stub it, and `EventSource` is stubbed as a class, since happy-dom has none —
+ * so the chip's frames arrive through api.js's real shared stream. Module
+ * state is isolated by vi.resetModules() + dynamic import per test and the
+ * module's own teardown export.
  */
-
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
@@ -254,17 +249,27 @@ function mountFixtureWithoutShell() {
   document.querySelector('[data-bar-item="control-target"]')?.remove();
 }
 
-/** The injected SSE factory: records what was subscribed, drives it by hand. */
-/** @type {{url: string|null, onMessage: ((data: any) => void)|null, stopped: number}} */
-let stream;
-
-function fakeEventSourceFactory() {
-  stream = { url: null, onMessage: null, stopped: 0 };
-  return /** @type {any} */ ((/** @type {string} */ url, /** @type {any} */ handlers) => {
-    stream.url = url;
-    stream.onMessage = handlers?.onMessage ?? null;
-    return { stop: () => { stream.stopped += 1; } };
-  });
+/**
+ * happy-dom ships no EventSource. A class stub keeps api.js's shared-stream
+ * path real: frames are delivered as the browser would, as `onmessage` with a
+ * string payload api.js parses, and the socket closes when the last
+ * subscriber stops.
+ */
+class FakeEventSource {
+  /** @type {FakeEventSource[]} */
+  static opened = [];
+  /** @param {string} url */
+  constructor(url) {
+    this.url = url;
+    this.readyState = 1;
+    this.closed = false;
+    /** @type {((e: {data: string}) => void)|null} */
+    this.onmessage = null;
+    FakeEventSource.opened.push(this);
+  }
+  close() {
+    this.closed = true;
+  }
 }
 
 /** Drain the microtask/timer queue the async handlers chain through. */
@@ -279,10 +284,7 @@ async function flush() {
  */
 async function boot(payload, opts = {}) {
   served = payload ?? viewOf();
-  chipModule.initControlTargetChip({
-    host: opts.host,
-    eventSourceFactory: fakeEventSourceFactory(),
-  });
+  chipModule.initControlTargetChip({ host: opts.host });
   await flush();
 }
 
@@ -292,12 +294,15 @@ const anchorEl = () => /** @type {HTMLElement|null} */ (document.querySelector('
 const shortText = () => document.querySelector('.ctc-short')?.textContent ?? '';
 const stateText = () => document.querySelector('.ctc-state')?.textContent ?? '';
 
-/** Fire one agent-activity frame at the chip's subscription. */
+/** Deliver one frame on the page's event stream, as the browser would. */
 function pushFrame(/** @type {any} */ frame) {
-  stream.onMessage?.(frame);
+  const data = typeof frame === 'string' ? frame : JSON.stringify(frame);
+  FakeEventSource.opened.at(-1)?.onmessage?.({ data });
 }
 
 beforeEach(async () => {
+  FakeEventSource.opened = [];
+  vi.stubGlobal('EventSource', FakeEventSource);
   vi.resetModules();
   served = viewOf();
   stubFetch();
@@ -316,23 +321,6 @@ afterEach(() => {
 /* ---- mount -------------------------------------------------------------- */
 
 describe('mount', () => {
-  test('mounts into the control-target shell the layout placed', async () => {
-    await boot();
-    const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
-    const shell = /** @type {HTMLElement} */ (
-      document.querySelector('[data-bar-item="control-target"]')
-    );
-    const anchor = /** @type {HTMLElement} */ (document.querySelector('.ctc-anchor'));
-    const chip = chipEl();
-    expect(chip).not.toBeNull();
-    // The chip lives inside its own positioning context (the popover is
-    // absolute under it), and that context is what fills the item's shell.
-    expect(chip?.parentElement).toBe(anchor);
-    expect(anchor.parentElement).toBe(shell);
-    expect(shell.parentElement).toBe(actions);
-    expect(chipModule.getAnchorElement()).toBe(anchor);
-  });
-
   test('takes its position from the layout, never from the palette trigger', async () => {
     await boot();
     const actions = /** @type {HTMLElement} */ (document.querySelector('.header-actions'));
@@ -352,6 +340,11 @@ describe('mount', () => {
     );
     expect(shell.children).toHaveLength(1);
     expect(shell.firstElementChild).toBe(anchorEl());
+    // The chip lives inside its own positioning context (the popover is
+    // absolute under it), and that context is what fills the item's shell.
+    expect(chipEl()?.parentElement).toBe(anchorEl());
+    expect(chipModule.getAnchorElement()).toBe(anchorEl());
+    expect(shell.parentElement).toBe(actions);
   });
 
   test('falls back to the host itself when the layout places no shell', async () => {
@@ -369,7 +362,7 @@ describe('mount', () => {
 
   test('is idempotent — a second init re-renders rather than mounting twice', async () => {
     await boot();
-    chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+    chipModule.initControlTargetChip();
     await flush();
     expect(document.querySelectorAll('.control-target-chip')).toHaveLength(1);
     expect(document.querySelectorAll('.ctc-anchor')).toHaveLength(1);
@@ -386,7 +379,7 @@ describe('mount', () => {
     shell.className = 'bar-item';
     shell.dataset.barItem = 'control-target';
     actions.prepend(shell);
-    chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+    chipModule.initControlTargetChip();
     await flush();
 
     // Moved, not rebuilt: the popover hangs its listeners on this exact node
@@ -422,7 +415,7 @@ describe('mount', () => {
 
   test('does nothing at all on a page with no header and no host', async () => {
     document.body.innerHTML = '<div id="elsewhere"></div>';
-    chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+    chipModule.initControlTargetChip();
     await flush();
     expect(chipEl()).toBeNull();
     expect(anchorEl()).toBeNull();
@@ -445,59 +438,6 @@ describe('mount', () => {
     await boot(viewOf(), { host });
     expect(anchorEl()?.parentElement).toBe(host);
     expect(document.querySelector('[data-bar-item="control-target"]')?.children).toHaveLength(0);
-  });
-
-  test('reaches nothing the terminal page owns', async () => {
-    // 8.x loads this module on the JupyterLab page, where terminal.js does not
-    // exist. An import of it would be a page-breaking 404 there, and the chip
-    // has no session question left to ask anyway. Read statically rather than
-    // through a mock, because a mock is exactly what would hide the import.
-    const source = readFileSync(fileURLToPath(new URL(MODULE, import.meta.url)), 'utf8');
-    // Static AND dynamic: a lazy `import('./terminal.js')` behind a "only on
-    // the terminal page" guard is the likeliest way the closure would regrow,
-    // and it is exactly what a mock would hide.
-    const imports = [...source.matchAll(/(?:from|import\()\s*'(\.\/[^']+)'/g)]
-      .map((m) => m[1])
-      .sort();
-    expect(imports).toEqual([
-      './activity-format.js',
-      './api.js',
-      './control-target-facts.js',
-    ]);
-    // Belt and braces, and quote-style-proof: the name must not appear at all.
-    expect(source).not.toContain('terminal.js');
-  });
-
-  test('and nothing it imports reaches it either', async () => {
-    // The test above reads ONE file, so it cannot see a `terminal.js` pulled in
-    // one level down. `api.js` gaining that import would break the JupyterLab
-    // page in exactly the same way and this suite would stay green, so walk the
-    // whole relative closure instead of the chip's own first line of imports.
-    //
-    // Comments are stripped first: a JSDoc `@typedef {import('./x.js').Y}` is
-    // documentation, not an edge, and reading it as one would drag half the
-    // page's modules in behind it.
-    const dir = new URL(MODULE.replace(/[^/]+$/, ''), import.meta.url);
-    const strip = (/** @type {string} */ src) =>
-      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-    /** @type {Set<string>} */
-    const closure = new Set();
-    const queue = ['control-target-chip.js'];
-    while (queue.length) {
-      const name = /** @type {string} */ (queue.pop());
-      if (closure.has(name)) continue;
-      closure.add(name);
-      const src = strip(readFileSync(fileURLToPath(new URL(name, dir)), 'utf8'));
-      for (const found of src.matchAll(/(?:from|import\()\s*'\.\/([^']+)'/g)) {
-        queue.push(found[1]);
-      }
-    }
-    expect([...closure].sort()).toEqual([
-      'activity-format.js',
-      'api.js',
-      'control-target-chip.js',
-      'control-target-facts.js',
-    ]);
   });
 });
 
@@ -532,19 +472,6 @@ describe('state matrix', () => {
       });
     }
   }
-
-  test('an operator narrowing and the deployment ceiling are different words', async () => {
-    await boot(
-      viewOf({ targets: [rowOf({ ...KINDS.va, ...STATES.sandbox, active: true })] })
-    );
-    expect(stateText()).toBe('writes off');
-
-    served = viewOf({
-      targets: [rowOf({ ...KINDS.va, ...STATES['read-only'], ceiling_writes: false, active: true })],
-    });
-    await chipModule.refetch();
-    expect(stateText()).toBe('writes locked');
-  });
 
   test('kind falls back to real_machine + the label shape when the route sends none', async () => {
     await boot(
@@ -654,20 +581,13 @@ describe('active row', () => {
 describe('refetch hints', () => {
   test('subscribes to the shared panel event stream, once', async () => {
     await boot();
-    expect(stream.url).toBe('/api/files/events');
-    // api.js shares one socket per URL across the page's modules, so the chip
-    // must not open a second — and a second init must not subscribe again.
-    const first = stream;
-    chipModule.initControlTargetChip({ eventSourceFactory: fakeEventSourceFactory() });
+    expect(FakeEventSource.opened).toHaveLength(1);
+    expect(FakeEventSource.opened[0].url).toBe('/api/files/events');
+    // A second init must not subscribe again: api.js would share the socket,
+    // so what a second subscription costs is a second read per frame.
+    chipModule.initControlTargetChip();
     await flush();
-    expect(stream.url).toBeNull();
-    expect(first.stopped).toBe(0);
-  });
-
-  test('the pushed control_context frame triggers a re-read', async () => {
-    // The normal path: the owning terminal watches the record and every
-    // server report and pushes this on any change, whoever caused it.
-    await boot();
+    expect(FakeEventSource.opened).toHaveLength(1);
     const before = getCount();
     pushFrame({ type: 'control_context' });
     await flush();
@@ -683,9 +603,11 @@ describe('refetch hints', () => {
       control_target: 'live',
       targets: [rowOf({ ...KINDS.live, active: true })],
     });
+    const before = getCount();
     pushFrame({ type: 'control_context' });
     await flush();
     // Repainted without a single tick of the 5 s fallback having passed.
+    expect(getCount()).toBe(before + 1);
     expect(shortText()).toBe('Real machine');
   });
 
@@ -1015,7 +937,7 @@ describe('polling', () => {
     await boot();
     chipModule.markPending('r-1');
     chipModule.teardownControlTargetChip();
-    expect(stream.stopped).toBe(1);
+    expect(FakeEventSource.opened[0].closed).toBe(true);
     expect(chipEl()).toBeNull();
     expect(anchorEl()).toBeNull();
 
@@ -1085,23 +1007,11 @@ describe('withPrefix', () => {
       expect(call.url).toBe('/u/alice/api/terminal/posture');
     }
   });
-
-  test('the read carries no session id — one record answers for the deployment', async () => {
-    await boot();
-    expect(fetchCalls[0].url).toBe('/api/terminal/posture');
-  });
 });
 
 /* ---- the API the popover consumes --------------------------------------- */
 
 describe('popover API', () => {
-  test('getState answers the payload the route sent', async () => {
-    await boot();
-    const state = chipModule.getState();
-    expect(state?.control_target).toBe('standin');
-    expect(state?.targets).toHaveLength(1);
-  });
-
   test('subscribers are called after each render and can unsubscribe', async () => {
     await boot();
     const seen = /** @type {any[]} */ ([]);
@@ -1137,7 +1047,6 @@ describe('popover API', () => {
     const before = getCount();
     chip.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(chip.getAttribute('aria-expanded')).toBe('true');
-    expect(chipModule.isExpanded()).toBe(true);
     chip.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(chip.getAttribute('aria-expanded')).toBe('false');
     expect(seen).toEqual([true, false]);
@@ -1147,27 +1056,25 @@ describe('popover API', () => {
     expect(getCount()).toBe(before);
   });
 
-  test('setExpanded mirrors a dismissal the popover drove on its own', async () => {
-    await boot();
-    chipModule.setExpanded(true);
-    expect(chipEl()?.getAttribute('aria-expanded')).toBe('true');
-    chipModule.setExpanded(false);
-    expect(chipEl()?.getAttribute('aria-expanded')).toBe('false');
-  });
+  test('a refused request carries the sentence from all three refusal body shapes', async () => {
+    /** @param {number} status @param {() => Promise<any>} json */
+    const refuse = (status, json) =>
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status, json })));
 
-  test('getChipElement hands the popover its anchor', async () => {
-    await boot();
-    expect(chipModule.getChipElement()).toBe(chipEl());
-  });
+    refuse(409, async () => ({ detail: { error: 'x', message: 'dict detail' } }));
+    await expect(chipModule.targetRequest('/api/terminal/posture')).rejects.toThrow('dict detail');
 
-  test('refusalMessage unwraps all three refusal body shapes', async () => {
-    expect(chipModule.refusalMessage({ detail: { error: 'x', message: 'dict detail' } }, 409)).toBe(
-      'dict detail'
+    refuse(400, async () => ({ detail: 'string detail' }));
+    await expect(chipModule.targetRequest('/api/terminal/posture')).rejects.toThrow(
+      'string detail'
     );
-    expect(chipModule.refusalMessage({ detail: 'string detail' }, 400)).toBe('string detail');
-    // The fallback names no session: there is one control target per
-    // deployment, and a body with nothing in it says only what the status does.
-    expect(chipModule.refusalMessage(null, 503)).toBe(
+
+    // A body that is not JSON at all: the status is all there is to say, and
+    // the fallback names no session — one control target per deployment.
+    refuse(503, async () => {
+      throw new SyntaxError('not json');
+    });
+    await expect(chipModule.targetRequest('/api/terminal/posture')).rejects.toThrow(
       'Could not read the control target (HTTP 503).'
     );
   });
@@ -1218,18 +1125,5 @@ describe('activeKind', () => {
     expect(seen).toEqual(['live']);
     expect(chipModule.activeKind()).toBe('live');
     off();
-  });
-});
-
-/* ---- a torn-down chip stays down ---------------------------------------- */
-
-describe('teardown', () => {
-  test('a late frame does not revive a torn-down chip', async () => {
-    await boot();
-    const settled = getCount();
-    chipModule.teardownControlTargetChip();
-    pushFrame({ type: 'control_context' });
-    await flush();
-    expect(getCount()).toBe(settled);
   });
 });

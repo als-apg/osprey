@@ -334,6 +334,52 @@ def test_a_container_that_is_not_ospreys_appears_nowhere(lifecycle_repo, runtime
     assert "some-postgres" not in text
 
 
+def test_a_container_with_only_the_compose_project_label_is_this_deployments(
+    lifecycle_repo, runtime
+):
+    render_build(lifecycle_repo)
+    row = container("als-exemplar-event-dispatcher", project=None)
+    row["Labels"] = {"com.docker.compose.project": PROJECT}
+    runtime["containers"] = [row]
+
+    text = report(lifecycle_repo)
+
+    assert "als-exemplar-event-dispatcher" in text
+    assert "Nothing is running for this deployment" not in text
+    assert f"carry no {REPO_ID_LABEL} label" in text
+
+
+def test_an_unlabelled_container_is_claimed_by_a_deployed_service_name(lifecycle_repo, runtime):
+    render_build(lifecycle_repo)
+    runtime["containers"] = [container("als-exemplar-event-dispatcher", project=None)]
+
+    text = report(lifecycle_repo)
+
+    assert "als-exemplar-event-dispatcher" in text
+    assert "matched by container name only" in text
+    assert "Nothing is running for this deployment" not in text
+
+
+def test_a_container_of_another_compose_project_appears_nowhere(lifecycle_repo, runtime):
+    render_build(lifecycle_repo)
+    row = container("stack-event-dispatcher", project=None)
+    row["Labels"] = {"com.docker.compose.project": "stack"}
+    runtime["containers"] = [row]
+
+    text = report(lifecycle_repo)
+
+    assert "stack-event-dispatcher" not in text
+
+
+def test_a_repo_with_no_build_claims_nothing_by_name(lifecycle_repo, runtime):
+    runtime["containers"] = [container("event-dispatcher", project=None)]
+
+    text = report(lifecycle_repo)
+
+    assert "event-dispatcher" not in text
+    assert "Nothing is running for this deployment" in text
+
+
 def test_a_failed_runtime_query_is_not_reported_as_an_empty_deployment(lifecycle_repo, runtime):
     """The one wrong answer that looks right: a stopped daemon rendering as "nothing deployed"."""
     render_build(lifecycle_repo)
@@ -588,6 +634,34 @@ def test_the_observability_authorization_header_is_never_printed(lifecycle_repo,
     assert token not in text
     assert "not-a-real-password" not in text
     assert "Basic " not in text
+
+
+@pytest.mark.usefixtures("runtime")
+def test_the_collector_bearer_token_is_never_printed(lifecycle_repo, monkeypatch):
+    """A collector's bearer token is read from the repo ``.env`` and never shown."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
+    monkeypatch.delenv("OTLP_COLLECTOR_TOKEN", raising=False)
+    env_file = lifecycle_repo / ".env"
+    existing = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
+    env_file.write_text(existing + "OTLP_COLLECTOR_TOKEN=not-a-real-bearer-token\n")
+    render_build(
+        lifecycle_repo,
+        config=_config_with_telemetry(
+            "  telemetry:\n"
+            "    enabled: true\n"
+            "    backend: generic\n"
+            "    endpoint: https://collector.example.org:4318\n"
+            "    auth:\n"
+            "      token_env: OTLP_COLLECTOR_TOKEN\n"
+        ),
+    )
+
+    text = report(lifecycle_repo)
+
+    assert "OTEL_EXPORTER_OTLP_HEADERS" in text
+    assert "not-a-real-bearer-token" not in text
+    assert "Bearer " not in text
 
 
 @pytest.mark.usefixtures("runtime")

@@ -1,10 +1,14 @@
-"""What the Teams adapter does with a run's PNG artifacts.
+"""What the Teams adapter does with a run's artifacts.
 
-Teams has no file-upload leg in this bridge — the delivery *is* the post, a
-message activity carrying the image inline as a ``data:`` URL — so this suite
-asserts the activity bodies the adapter handed the connector and the bytes
-inside them. The worker is replaced by a fetcher stub, which keeps both the
-byte route and the run engine out of the test path entirely.
+Every artifact meets one of three outcomes. A PNG that fits the inline budget is
+posted as a message activity carrying the image inline as a ``data:`` URL. Every
+other artifact — a document, or an image too large or too broken to inline — is
+uploaded into the file library the deployment names, shared with the
+conversation's members, and announced by one card per file. Whatever reaches
+neither is named in one closing note. This suite asserts the activity bodies the
+adapter handed the connector, the bytes inside them, and the calls it made on a
+recording file library. The worker is replaced by a fetcher stub, which keeps
+both the byte route and the run engine out of the test path entirely.
 
 Two properties are pinned harder than the rest because a live bridge breaks
 them quietly. The first is the downscale: an image that reaches Teams over the
@@ -23,27 +27,35 @@ the adapter survives its absence blocks the import itself, through the
 from __future__ import annotations
 
 import base64
+import dataclasses
 import io
 import os
+from collections.abc import Sequence
 from typing import Any
 
 import pytest
 from PIL import Image
 
 from osprey.bridges.core import FetchedArtifact
+from osprey.bridges.teams.client import TokenError
 from osprey.bridges.teams.events import MS_SERVICE_URL
+from osprey.bridges.teams.graph import GraphError, UploadedFile
 from osprey.bridges.teams.ops import (
     ATTACHMENT_CONTENT_TYPE,
     DATA_URL_PREFIX,
+    FILE_BUTTON_TEXT,
+    FILE_CARD_CONTENT_TYPE,
     IMAGE_BOX_PX,
     MAX_ATTACHMENT_BYTES,
     TeamsOps,
-    skipped_images_note,
+    skipped_files_note,
 )
 from tests.bridges.teams.test_posting import (
     ACTIVITY_ID,
+    APP_ID,
     CHANNEL_CONVERSATION_ID,
     SERVICE_URL,
+    TENANT,
     make_config,
 )
 from tests.bridges.teams.test_posting import (
@@ -93,17 +105,88 @@ class RecordingFetcher:
         return self.byte_map.get(artifact_id)
 
 
+DRIVE_ID = "b!library"
+FOLDER = "osprey/answers"
+WEB_ROOT = "https://tenant.sharepoint.com/sites/osprey/answers"
+
+MEMBERS = [
+    {"id": "29:alice", "name": "Alice", "aadObjectId": "oid-alice", "tenantId": TENANT},
+    {"id": "29:bob", "name": "Bob", "aadObjectId": "oid-bob"},
+    {"id": f"28:{APP_ID}", "name": "OSPREY", "aadObjectId": "oid-bot"},
+]
+"""A channel's listing: two people with directory ids, and the bot itself."""
+
+AUDIENCE = ("oid-alice", "oid-bob")
+
+
+class RecordingFiles:
+    """A stand-in for :class:`~osprey.bridges.teams.graph.GraphFiles`.
+
+    Records every upload and share. ``fail_upload`` names files whose upload
+    raises (or holds an exception every upload raises); ``fail_share`` is raised
+    by every share. Every upload of one folder answers the same folder id.
+    """
+
+    def __init__(
+        self,
+        *,
+        fail_upload: set[str] | BaseException = frozenset(),  # type: ignore[assignment]
+        fail_share: BaseException | None = None,
+    ) -> None:
+        self.fail_upload = fail_upload
+        self.fail_share = fail_share
+        self.uploads: list[tuple[tuple[str, ...], str, bytes, str | None]] = []
+        self.shares: list[tuple[str, tuple[str, ...]]] = []
+
+    def upload(
+        self, folder: Sequence[str], name: str, data: bytes, content_type: str | None
+    ) -> UploadedFile:
+        self.uploads.append((tuple(folder), name, data, content_type))
+        if isinstance(self.fail_upload, BaseException):
+            raise self.fail_upload
+        if name in self.fail_upload:
+            raise GraphError(f"upload of {name} refused")
+        path = "/".join(folder)
+        return UploadedFile(
+            name=name,
+            item_id=f"item-{len(self.uploads)}",
+            folder_id=f"folder:{path}",
+            web_url=f"{WEB_ROOT}/{path}/{name}",
+        )
+
+    def share(self, item_id: str, object_ids: Sequence[str]) -> None:
+        self.shares.append((item_id, tuple(object_ids)))
+        if self.fail_share is not None:
+            raise self.fail_share
+
+    @property
+    def names(self) -> list[str]:
+        return [name for _, name, _, _ in self.uploads]
+
+
 def make_ops(
     byte_map: dict[str, FetchedArtifact | None] | None = None,
     *,
     connector: RecordingConnector | None = None,
     fetcher: Any = None,
+    files: RecordingFiles | None = None,
+    members: list[dict[str, Any]] | BaseException | None = None,
 ) -> tuple[TeamsOps, RecordingConnector, Any]:
-    """A ``TeamsOps`` over a recording connector and a canned artifact fetcher."""
-    connector = connector if connector is not None else RecordingConnector()
+    """A ``TeamsOps`` over a recording connector and a canned artifact fetcher.
+
+    With ``files`` the config names a library and the adapter uploads through that
+    double; ``members`` is what the connector's member listing answers (the
+    two-person :data:`MEMBERS` by default).
+    """
+    if connector is None:
+        connector = RecordingConnector(members=MEMBERS if members is None else members)
     if fetcher is None:
         fetcher = RecordingFetcher(byte_map if byte_map is not None else {})
-    return TeamsOps(make_config(), connector, artifact_fetcher=fetcher), connector, fetcher
+    cfg = make_config()
+    if files is not None:
+        cfg = dataclasses.replace(cfg, files_drive_id=DRIVE_ID, files_folder=FOLDER)
+    ops = TeamsOps(cfg, connector, artifact_fetcher=fetcher, files=files)  # type: ignore[arg-type]
+    return ops, connector, fetcher
 
 
 def png_bytes(size: tuple[int, int], *, noise: bool = False) -> bytes:
@@ -152,6 +235,25 @@ def completed(artifacts: list[Any] | None = None, run_id: str | None = RUN_ID) -
         "error": None,
         "artifacts": artifacts if artifacts is not None else [],
     }
+
+
+def cards(connector: RecordingConnector) -> list[tuple[str, str]]:
+    """``(name, url)`` of every file card posted, in order."""
+    found = []
+    for attachment in connector.attachments:
+        if attachment["contentType"] != FILE_CARD_CONTENT_TYPE:
+            continue
+        content = attachment["content"]
+        (block,) = content["body"]
+        (action,) = content["actions"]
+        assert action["type"] == "Action.OpenUrl"
+        assert action["title"] == FILE_BUTTON_TEXT
+        found.append((block["text"], action["url"]))
+    return found
+
+
+def run_folder_of(run_id: str = RUN_ID) -> tuple[str, ...]:
+    return (*FOLDER.split("/"), run_id)
 
 
 def posted_image(attachment: dict[str, Any]) -> Image.Image:
@@ -266,7 +368,7 @@ def test_an_image_still_over_the_budget_is_skipped_and_named() -> None:
 
     assert delivered == {}
     assert connector.attachments == []
-    assert connector.texts == [skipped_images_note(["huge.png"])]
+    assert connector.texts == [skipped_files_note(["huge.png"])]
 
 
 def test_the_note_names_every_skipped_image_on_one_line() -> None:
@@ -277,7 +379,7 @@ def test_the_note_names_every_skipped_image_on_one_line() -> None:
         make_entry(), completed([descriptor("a1", "one.png"), descriptor("a2", "two.png")])
     )
 
-    assert connector.texts == [skipped_images_note(["one.png", "two.png"])]
+    assert connector.texts == [skipped_files_note(["one.png", "two.png"])]
     assert "\n" not in connector.texts[0]
 
 
@@ -303,7 +405,7 @@ def test_the_surviving_images_are_posted_even_when_a_sibling_is_skipped() -> Non
 
     assert len(connector.attachments) == 1
     assert connector.attachments[0]["name"] == "small.png"
-    assert connector.texts[-1] == skipped_images_note(["huge.png"])
+    assert connector.texts[-1] == skipped_files_note(["huge.png"])
 
 
 def test_a_corrupt_png_is_skipped_and_named_rather_than_raising() -> None:
@@ -313,7 +415,7 @@ def test_a_corrupt_png_is_skipped_and_named_rather_than_raising() -> None:
 
     assert delivered == {}
     assert connector.attachments == []
-    assert connector.texts == [skipped_images_note(["broken.png"])]
+    assert connector.texts == [skipped_files_note(["broken.png"])]
 
 
 # --- artifacts this member is not for ----------------------------------------
@@ -327,29 +429,31 @@ def test_a_corrupt_png_is_skipped_and_named_rather_than_raising() -> None:
         (b"time\tstate\n10:00\tOPEN\n", "text/tab-separated-values", "transitions.tsv"),
     ],
 )
-def test_a_document_artifact_is_ignored_without_a_note(
+def test_a_document_is_named_when_no_library_is_configured(
     data: bytes, content_type: str, name: str
 ) -> None:
-    # Documents are out of scope for v1: naming a PDF or a table in an "I couldn't
-    # attach this image" note would report a delivery the bridge never promised.
+    # Without a library the bridge cannot deliver a document, and says so: an
+    # answer that discusses a table nobody received reads as a broken bridge.
     ops, connector, _ = make_ops({"a1": fetched(data, content_type)})
 
     assert ops.deliver_files(make_entry(), completed([descriptor("a1", name)])) == {}
-    assert connector.calls == []
+    assert connector.texts == [skipped_files_note([name])]
 
 
-def test_bytes_that_only_claim_to_be_png_are_ignored() -> None:
+def test_bytes_that_only_claim_to_be_png_take_the_file_path() -> None:
     # delivered_mime is a prediction made before anything was rendered; the
-    # magic bytes are what the delivery routes on.
-    ops, connector, _ = make_ops({"a1": fetched(b"GIF89a not a png", "image/png")})
+    # magic bytes are what the delivery routes on, so these are not inlined.
+    files = RecordingFiles()
+    ops, connector, _ = make_ops({"a1": fetched(b"GIF89a not a png", "image/png")}, files=files)
 
     assert ops.deliver_files(make_entry(), completed([descriptor("a1")])) == {}
-    assert connector.calls == []
+    assert files.uploads == [(run_folder_of(), "a1.bin", b"GIF89a not a png", "image/png")]
+    assert [att["contentType"] for att in connector.attachments] == [FILE_CARD_CONTENT_TYPE]
 
 
 def test_an_artifact_that_could_not_be_fetched_costs_only_itself() -> None:
-    # A failed fetch says nothing about what the bytes were, so it is logged
-    # rather than named as an image: the note must not invent a PNG.
+    # A failed fetch costs its own artifact: the sibling is still posted, and the
+    # missing one is named under the name its descriptor predicted.
     ops, connector, _ = make_ops(
         {"a1": None, "a2": fetched(png_bytes((100, 100)))},
     )
@@ -357,7 +461,7 @@ def test_an_artifact_that_could_not_be_fetched_costs_only_itself() -> None:
     ops.deliver_files(make_entry(), completed([descriptor("a1"), descriptor("a2")]))
 
     assert len(connector.attachments) == 1
-    assert connector.texts == [""]
+    assert connector.texts == ["", skipped_files_note(["a1.png"])]
 
 
 # --- degenerate inputs -------------------------------------------------------
@@ -428,7 +532,7 @@ def test_a_fetcher_that_raises_does_not_raise_out_of_the_member() -> None:
     ops, connector, _ = make_ops(fetcher=raising_fetcher)
 
     assert ops.deliver_files(make_entry(), completed([descriptor("a1")])) == {}
-    assert connector.calls == []
+    assert connector.texts == [skipped_files_note(["a1.png"])]
 
 
 # --- no public URLs ----------------------------------------------------------
@@ -458,12 +562,250 @@ def test_every_image_is_skipped_with_the_note_when_pillow_is_missing() -> None:
 
     assert delivered == {}
     assert connector.attachments == []
-    assert connector.texts == [skipped_images_note(["plot.png"])]
+    assert connector.texts == [skipped_files_note(["plot.png"])]
 
 
 @pytest.mark.usefixtures("no_pillow")
-def test_a_document_is_still_ignored_without_pillow() -> None:
-    ops, connector, _ = make_ops({"a1": fetched(b"%PDF-1.7 ...", "application/pdf")})
+def test_a_document_is_uploaded_without_pillow() -> None:
+    files = RecordingFiles()
+    ops, connector, _ = make_ops({"a1": fetched(b"%PDF-1.7 ...", "application/pdf")}, files=files)
 
-    assert ops.deliver_files(make_entry(), completed([descriptor("a1")])) == {}
-    assert connector.calls == []
+    assert ops.deliver_files(make_entry(), completed([descriptor("a1", "report.pdf")])) == {}
+    assert files.names == ["report.pdf"]
+    assert cards(connector) == [("report.pdf", f"{WEB_ROOT}/osprey/answers/{RUN_ID}/report.pdf")]
+
+
+@pytest.mark.usefixtures("no_pillow")
+def test_every_image_goes_to_the_library_when_pillow_is_missing() -> None:
+    files = RecordingFiles()
+    ops, connector, _ = make_ops({"a1": fetched(PNG_STUB)}, files=files)
+
+    assert ops.deliver_files(make_entry(), completed([descriptor("a1", "plot.png")])) == {}
+    assert files.uploads == [(run_folder_of(), "plot.png", PNG_STUB, "image/png")]
+    assert [name for name, _ in cards(connector)] == ["plot.png"]
+    assert connector.texts == [""]
+
+
+# --- files shared from the library -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "data,content_type,name",
+    [
+        (b"%PDF-1.7 ...", "application/pdf", "report.pdf"),
+        (b"time,state\n10:00,OPEN\n", "text/csv", "transitions.csv"),
+        (b"time\tstate\n10:00\tOPEN\n", "text/tab-separated-values", "transitions.tsv"),
+    ],
+)
+def test_a_document_is_uploaded_shared_and_carded(
+    data: bytes, content_type: str, name: str
+) -> None:
+    files = RecordingFiles()
+    ops, connector, _ = make_ops({"a1": fetched(data, content_type)}, files=files)
+
+    assert ops.deliver_files(make_entry(), completed([descriptor("a1", name)])) == {}
+
+    assert files.uploads == [(run_folder_of(), name, data, content_type)]
+    assert files.shares == [(f"folder:osprey/answers/{RUN_ID}", AUDIENCE)]
+    assert cards(connector) == [(name, f"{WEB_ROOT}/osprey/answers/{RUN_ID}/{name}")]
+    assert connector.texts == [""]  # the card alone, no note
+
+
+def test_an_image_over_the_inline_budget_goes_to_the_library_at_full_size() -> None:
+    big = png_bytes((IMAGE_BOX_PX * 2, IMAGE_BOX_PX), noise=True)
+    files = RecordingFiles()
+    ops, connector, _ = make_ops({"a1": fetched(big)}, files=files)
+
+    ops.deliver_files(make_entry(), completed([descriptor("a1", "huge.png")]))
+
+    assert files.uploads == [(run_folder_of(), "huge.png", big, "image/png")]
+    assert [name for name, _ in cards(connector)] == ["huge.png"]
+    assert connector.texts == [""]
+
+
+def test_an_image_within_budget_stays_inline_when_a_library_is_configured() -> None:
+    files = RecordingFiles()
+    ops, connector, _ = make_ops({"a1": fetched(png_bytes((100, 100)))}, files=files)
+
+    ops.deliver_files(make_entry(), completed([descriptor("a1", "small.png")]))
+
+    assert files.uploads == []
+    assert files.shares == []
+    assert [att["contentType"] for att in connector.attachments] == [ATTACHMENT_CONTENT_TYPE]
+    assert connector.member_calls == []
+
+
+def test_two_files_with_one_name_land_on_two_paths() -> None:
+    files = RecordingFiles()
+    ops, connector, _ = make_ops(
+        {"a1": fetched(b"a\n1\n", "text/csv"), "a2": fetched(b"a\n2\n", "text/csv")},
+        files=files,
+    )
+
+    ops.deliver_files(
+        make_entry(), completed([descriptor("a1", "table.csv"), descriptor("a2", "table.csv")])
+    )
+
+    assert files.names == ["table.csv", "table-a2.csv"]
+    assert len(cards(connector)) == 2
+
+
+def test_the_share_names_the_listed_directory_ids_and_no_one_else() -> None:
+    members = [
+        *MEMBERS,
+        {"id": "29:guest", "aadObjectId": "oid-guest", "tenantId": "another-tenant"},
+        {"id": "29:nobody"},
+        {"id": "28:other-bot", "aadObjectId": "oid-other-bot"},
+    ]
+    files = RecordingFiles()
+    ops, _, _ = make_ops({"a1": fetched(b"%PDF", "application/pdf")}, files=files, members=members)
+
+    ops.deliver_files(make_entry(), completed([descriptor("a1", "r.pdf")]))
+
+    assert [ids for _, ids in files.shares] == [AUDIENCE]
+
+
+def test_the_listing_is_read_to_its_end_and_not_from_the_roster_cache() -> None:
+    files = RecordingFiles()
+    ops, connector, _ = make_ops({"a1": fetched(b"%PDF", "application/pdf")}, files=files)
+    entry = make_entry()
+    ops.room_people(entry)  # fills the roster cache with a capped listing
+    capped = list(connector.member_calls)
+
+    ops.deliver_files(entry, completed([descriptor("a1", "r.pdf")]))
+    ops.deliver_files(entry, completed([descriptor("a1", "r.pdf")]))
+
+    assert [limit for _, _, limit in capped] == [200]
+    assert [limit for _, _, limit in connector.member_calls[len(capped) :]] == [None, None]
+
+
+def test_a_failed_member_listing_uploads_nothing_and_names_the_files() -> None:
+    files = RecordingFiles()
+    ops, connector, _ = make_ops(
+        {"a1": fetched(b"%PDF", "application/pdf")},
+        files=files,
+        members=RuntimeError("connector 500"),
+    )
+
+    ops.deliver_files(make_entry(), completed([descriptor("a1", "r.pdf")]))
+
+    assert files.uploads == []
+    assert connector.texts == [skipped_files_note(["r.pdf"])]
+
+
+def test_a_conversation_with_no_directory_ids_uploads_nothing_and_names_the_files() -> None:
+    files = RecordingFiles()
+    ops, connector, _ = make_ops(
+        {"a1": fetched(b"%PDF", "application/pdf")},
+        files=files,
+        members=[{"id": "29:alice", "name": "Alice"}, {"id": f"28:{APP_ID}"}],
+    )
+
+    ops.deliver_files(make_entry(), completed([descriptor("a1", "r.pdf")]))
+
+    assert files.uploads == []
+    assert files.shares == []
+    assert connector.texts == [skipped_files_note(["r.pdf"])]
+
+
+def test_a_failed_upload_costs_only_that_file() -> None:
+    files = RecordingFiles(fail_upload={"one.pdf"})
+    ops, connector, _ = make_ops(
+        {"a1": fetched(b"%PDF 1", "application/pdf"), "a2": fetched(b"%PDF 2", "application/pdf")},
+        files=files,
+    )
+
+    ops.deliver_files(
+        make_entry(), completed([descriptor("a1", "one.pdf"), descriptor("a2", "two.pdf")])
+    )
+
+    assert len(files.shares) == 1
+    assert [name for name, _ in cards(connector)] == ["two.pdf"]
+    assert connector.texts[-1] == skipped_files_note(["one.pdf"])
+
+
+def test_a_failed_share_posts_no_card_and_names_every_uploaded_file() -> None:
+    files = RecordingFiles(fail_share=GraphError("graph invite refused a recipient"))
+    ops, connector, _ = make_ops(
+        {"a1": fetched(b"%PDF 1", "application/pdf"), "a2": fetched(b"a\n", "text/csv")},
+        files=files,
+    )
+
+    ops.deliver_files(
+        make_entry(), completed([descriptor("a1", "one.pdf"), descriptor("a2", "two.csv")])
+    )
+
+    assert files.names == ["one.pdf", "two.csv"]
+    assert cards(connector) == []
+    assert connector.texts == [skipped_files_note(["one.pdf", "two.csv"])]
+
+
+def test_a_run_id_that_is_not_one_segment_uploads_nothing_and_names_the_files() -> None:
+    files = RecordingFiles()
+    ops, connector, _ = make_ops({"a1": fetched(b"%PDF", "application/pdf")}, files=files)
+
+    ops.deliver_files(make_entry(), completed([descriptor("a1", "r.pdf")], run_id="../elsewhere"))
+
+    assert files.uploads == []
+    assert connector.member_calls == []
+    assert connector.texts == [skipped_files_note(["r.pdf"])]
+
+
+def test_a_graph_token_failure_names_the_files_and_keeps_the_inline_images() -> None:
+    files = RecordingFiles(fail_upload=TokenError("token endpoint answered HTTP 401"))
+    ops, connector, _ = make_ops(
+        {"a1": fetched(png_bytes((100, 100))), "a2": fetched(b"%PDF", "application/pdf")},
+        files=files,
+    )
+
+    ops.deliver_files(
+        make_entry(), completed([descriptor("a1", "small.png"), descriptor("a2", "r.pdf")])
+    )
+
+    assert [att["contentType"] for att in connector.attachments] == [ATTACHMENT_CONTENT_TYPE]
+    assert files.shares == []
+    assert connector.texts[-1] == skipped_files_note(["r.pdf"])
+
+
+def test_the_run_folder_is_shared_once_per_delivery() -> None:
+    files = RecordingFiles()
+    ops, connector, _ = make_ops(
+        {
+            "a1": fetched(b"%PDF 1", "application/pdf"),
+            "a2": fetched(b"a\n", "text/csv"),
+            "a3": fetched(b"{}", "application/json"),
+        },
+        files=files,
+    )
+
+    ops.deliver_files(
+        make_entry(),
+        completed(
+            [descriptor("a1", "a.pdf"), descriptor("a2", "b.csv"), descriptor("a3", "c.json")]
+        ),
+    )
+
+    assert files.shares == [(f"folder:osprey/answers/{RUN_ID}", AUDIENCE)]
+    assert len(cards(connector)) == 3
+
+
+def test_a_failed_card_is_logged_not_noted() -> None:
+    files = RecordingFiles()
+    connector = RecordingConnector(RuntimeError("connector 500"), members=MEMBERS)
+    ops, _, _ = make_ops(
+        {"a1": fetched(b"%PDF", "application/pdf")}, files=files, connector=connector
+    )
+
+    assert ops.deliver_files(make_entry(), completed([descriptor("a1", "r.pdf")])) == {}
+    assert len(files.shares) == 1
+    assert len(connector.calls) == 1  # the card; no note follows it
+
+
+def test_a_file_delivery_still_returns_an_empty_map() -> None:
+    # A SharePoint webUrl needs a signed-in member, so the engine's unauthenticated
+    # re-fetch would fail on it exactly as on an inline data: URL.
+    files = RecordingFiles()
+    ops, connector, _ = make_ops({"a1": fetched(b"%PDF", "application/pdf")}, files=files)
+
+    assert ops.deliver_files(make_entry(), completed([descriptor("a1", "r.pdf")])) == {}
+    assert len(cards(connector)) == 1

@@ -41,8 +41,9 @@ def get_model_config(model_name: str, config_path: str | None = None) -> dict[st
     from osprey_connectors.config import _get_configurable
 
     configurable = _get_configurable(config_path)
-    model_configs = configurable.get("model_configs", {})
-    return model_configs.get(model_name, {})
+    section = configurable.get("model_configs")
+    entry = section.get(model_name) if isinstance(section, dict) else None
+    return entry if isinstance(entry, dict) else {}
 
 
 def get_provider_config(provider_name: str, config_path: str | None = None) -> dict[str, Any]:
@@ -58,8 +59,9 @@ def get_provider_config(provider_name: str, config_path: str | None = None) -> d
     from osprey_connectors.config import _get_configurable
 
     configurable = _get_configurable(config_path)
-    provider_configs = configurable.get("provider_configs", {})
-    return provider_configs.get(provider_name, {})
+    section = configurable.get("provider_configs")
+    entry = section.get(provider_name) if isinstance(section, dict) else None
+    return entry if isinstance(entry, dict) else {}
 
 
 def main_model_id(config: Mapping[str, Any], provider: str) -> str:
@@ -93,3 +95,35 @@ def main_model_id(config: Mapping[str, Any], provider: str) -> str:
         f"No model named for provider '{provider}': set claude_code.default_model, "
         f"or api.providers.{provider}.default_model in config.yml."
     )
+
+
+def provider_requests_per_minute(config: Mapping[str, Any], provider: str) -> int | None:
+    """The most model calls a minute the deployment sends *provider*.
+
+    The cap is ``api.providers.<provider>.requests_per_minute`` in the rendered
+    ``config.yml`` — the provider's catalog entry as the build wrote it. An
+    entry without the key, or a provider without an entry, is not paced.
+
+    Args:
+        config: The loaded ``config.yml`` mapping.
+        provider: The provider the calls go to.
+
+    Returns:
+        The cap in calls per minute, or ``None`` when the provider is not paced.
+
+    Raises:
+        ValueError: If the key is present but not a positive whole number.
+    """
+    from osprey.profiles.providers import is_request_cap
+
+    entry = ((config.get("api") or {}).get("providers") or {}).get(provider)
+    if not isinstance(entry, Mapping) or "requests_per_minute" not in entry:
+        return None
+    value = entry["requests_per_minute"]
+    if not is_request_cap(value):
+        raise ValueError(
+            f"api.providers.{provider}.requests_per_minute in config.yml must be a "
+            f"positive whole number of calls per minute, got {value!r}. "
+            "Delete the key for no cap."
+        )
+    return value

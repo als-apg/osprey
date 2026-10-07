@@ -50,6 +50,7 @@ __all__ = [
     "harness_session_id",
     "note",
     "valid_tool_use_id",
+    "write_stamps",
 ]
 
 #: The ``_meta`` key the agent harness sends the tool-use id under on every
@@ -61,9 +62,11 @@ TOOL_USE_ID_META_KEY = "claudecode/toolUseId"
 _TOOL_USE_ID = re.compile(r"\A[A-Za-z0-9_-]{1,128}\Z")
 
 #: The noted facts a value-free default record may carry in its ``detail``.
-#: Target names are identifiers, so they qualify; every other fact is a value
-#: and rides only the full ``tool_call`` record.
-DETAIL_FACTS: tuple[str, ...] = ("from_target", "to_target")
+#: Target names and the write's attribution stamps (the OS account and host the
+#: write went out from, and the dispatch owner) are identifiers, so they
+#: qualify; every other fact is a value and rides only the full ``tool_call``
+#: record.
+DETAIL_FACTS: tuple[str, ...] = ("from_target", "to_target", "ca_user", "ca_host", "owner")
 
 #: The conversation id Osprey forces at launch (web terminal, dispatch worker).
 _OSPREY_CONVERSATION_ENV = "OSPREY_TELEMETRY_SESSION_ID"
@@ -156,3 +159,29 @@ def note(**facts: Any) -> None:
             call.facts.update(facts)
     except Exception:  # pragma: no cover - defensive: noting must not cost the call
         return
+
+
+def write_stamps() -> dict[str, str]:
+    """The account and host a write from this process goes out as. Never raises.
+
+    ``ca_user`` is the name this process's uid resolves to and ``ca_host`` its
+    host name: what the control system sees on a write made by this process,
+    or by a child running under the same account on the same host. A stamp
+    that cannot be read is left out rather than guessed.
+    """
+    stamps: dict[str, str] = {}
+    try:
+        import pwd  # POSIX-only; imported where used so the module loads anywhere.
+
+        stamps["ca_user"] = pwd.getpwuid(os.getuid()).pw_name
+    except Exception:
+        pass
+    try:
+        import socket
+
+        host = socket.gethostname()
+        if host:
+            stamps["ca_host"] = host
+    except Exception:
+        pass
+    return stamps

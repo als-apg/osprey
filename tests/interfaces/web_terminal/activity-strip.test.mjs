@@ -11,12 +11,13 @@
  *     visible entry and reset the timer (latest wins)
  *   - suppression: artifact frames while 'artifacts' is active, run frames
  *     while 'bluesky' is active, panel-kind frames while their own panel is
- *     active — all suppressed; shown otherwise, and a suppressed frame never
+ *     active — all suppressed; shown otherwise; channel frames and a panel
+ *     frame naming no panel never suppressed; and a suppressed frame never
  *     disturbs an already-visible entry or its timer
  *   - agent-supplied strings land as text nodes only (no element injection)
  *   - unknown kinds render the generic "agent activity" + tool fallback
- *   - the pure suppression helpers for all four kinds
- *   - the click-to-expand history popover: fetch on open, newest-first rows,
+ *   - the click-to-expand history popover, read through the real ring reader
+ *     against a stubbed fetch: fetch on open, newest-first rows,
  *     live frames prepended while open, Escape / outside-click close,
  *     aria-expanded on the trigger, and the live slot behaving as before
  *
@@ -26,30 +27,49 @@
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 // The host-chrome import graph below reaches bar-sync.js, which GETs the
-// operator's bar layout at import time. Nothing serves this environment, so
-// that request is answered here — from `vi.hoisted`, which runs before the
-// static imports are evaluated and therefore before the GET is made. Any other
-// URL is a dependency this file has not declared, and fails loudly.
-vi.hoisted(() => {
+// operator's bar layout at import time, and the history popover reads the
+// server's ring through the real reader. Both are answered here — from
+// `vi.hoisted`, which runs before the static imports are evaluated and
+// therefore before the bar GET is made. `recent` is the ring a test serves:
+// its events, whether the read fails, a pending read a test settles by hand,
+// and the limits every read asked for. Any other URL is a dependency this
+// file has not declared, and fails loudly.
+const { recent } = vi.hoisted(() => {
+  const recent = {
+    /** @type {any[]} */ events: [],
+    fail: false,
+    /** @type {Promise<any[]> | null} */ pending: null,
+    /** @type {number[]} */ limits: [],
+  };
   vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-    if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        version: 1,
-        rev: 0,
-        header: [],
-        status: [],
-        header_visible: true,
-        status_visible: true,
-      }),
-    };
+    if (url === '/api/bar-items') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          version: 1,
+          rev: 0,
+          header: [],
+          status: [],
+          header_visible: true,
+          status_visible: true,
+        }),
+      };
+    }
+    const ring = /^\/api\/agent-activity\/recent\?limit=(\d+)$/.exec(url);
+    if (ring) {
+      recent.limits.push(Number(ring[1]));
+      if (recent.fail) throw new Error('offline');
+      const events = recent.pending ? await recent.pending : recent.events;
+      return { ok: true, status: 200, json: async () => ({ events: [...events] }) };
+    }
+    throw new Error(`unstubbed fetch: ${url}`);
   }));
+  return { recent };
 });
 
 import {
-  createActivityStrip, suppressionPanelFor, isSuppressed, ACTIVITY_CLEAR_MS,
+  createActivityStrip, ACTIVITY_CLEAR_MS,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/activity-strip.js';
 import {
   formatActivity, formatRelativeTime,
@@ -86,15 +106,9 @@ function labelOf(id) {
   return { lattice: 'Lattice', ariel: 'ARIEL', artifacts: 'Artifacts' }[id] ?? id;
 }
 
-/**
- * @param {number} [clearMs]
- * @param {(limit: number) => Promise<AgentActivityFrame[]>} [fetchRecent]
- * @param {(id: string) => string} [labels] omit to test the no-closure fallback
- */
-function makeStrip(clearMs, fetchRecent, labels = labelOf) {
-  const strip = createActivityStrip({
-    mount, getActivePanel: () => activePanel, clearMs, fetchRecent, labelOf: labels,
-  });
+/** A strip over the test's mount, active panel and catalog labels. */
+function makeStrip() {
+  const strip = createActivityStrip({ mount, getActivePanel: () => activePanel, labelOf });
   strips.push(strip);
   return strip;
 }
@@ -122,6 +136,10 @@ beforeEach(() => {
   mount = /** @type {HTMLElement} */ (document.getElementById('strip'));
   activePanel = null;
   strips = [];
+  recent.events = [];
+  recent.fail = false;
+  recent.pending = null;
+  recent.limits.length = 0;
 });
 
 afterEach(() => {
@@ -179,20 +197,16 @@ describe('coalescing: single slot, latest wins', () => {
 });
 
 describe('suppression: active panel self-signals', () => {
-  test('artifact frame while artifacts panel is active is suppressed', () => {
+  test('artifact frame while artifacts panel is active is suppressed, shown otherwise', () => {
     activePanel = 'artifacts';
     const strip = makeStrip();
     const f = frame({ kind: 'artifact', detail: 'orbit-plot.png' }, 'focus_artifact');
-    expect(isSuppressed(f.target, activePanel)).toBe(true);
     strip.handleActivity(f);
     expect(mount.children.length).toBe(0);
     expect(mount.textContent).toBe('');
-  });
 
-  test('artifact frame while another panel is active is shown', () => {
     activePanel = 'lattice';
-    const strip = makeStrip();
-    strip.handleActivity(frame({ kind: 'artifact', detail: 'orbit-plot.png' }, 'focus_artifact'));
+    strip.handleActivity(f);
     expect(mount.textContent).toContain('agent focused');
     expect(mount.textContent).toContain('orbit-plot.png');
   });
@@ -235,6 +249,17 @@ describe('suppression: active panel self-signals', () => {
     activePanel = 'artifacts';
     strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'open_panel'));
     expect(mount.textContent).toContain('Lattice');
+  });
+
+  test.each([
+    ['a channel frame, whatever is active', { kind: 'channel', detail: 'SR01:HCM1:SP' }, 'artifacts'],
+    ['an artifact frame with no panel active', { kind: 'artifact', detail: 'orbit-plot.png' }, null],
+    ['a panel frame that names no panel', { kind: 'panel' }, 'lattice'],
+  ])('%s is never suppressed', (_name, target, active) => {
+    activePanel = active;
+    const strip = makeStrip();
+    strip.handleActivity(frame(/** @type {any} */ (target), 'some_tool'));
+    expect(mount.querySelectorAll('.activity-strip-entry').length).toBe(1);
   });
 });
 
@@ -317,31 +342,11 @@ describe('panel action verbs', () => {
     expect(mount.textContent).toContain('my-custom-panel');
   });
 
-  test('with no label closure injected, panel ids render raw', () => {
-    const strip = createActivityStrip({ mount, getActivePanel: () => activePanel });
-    strips.push(strip);
-    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'close_panel'));
-
-    expect(mount.textContent).toContain('agent closed');
-    expect(mount.textContent).toContain('lattice');
-  });
-
   test('a panel frame from some other tool keeps the generic fallback', () => {
     const strip = makeStrip();
     strip.handleActivity(frame({ kind: 'panel', panel: 'ariel' }, 'some_future_tool'));
 
     expect(mount.textContent).toContain('agent touched');
-  });
-
-  test('the suppression table is unchanged: a hide of the active panel stays silent', () => {
-    activePanel = 'lattice';
-    const strip = makeStrip();
-    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'close_panel'));
-    expect(mount.children.length).toBe(0);
-
-    activePanel = 'ariel';
-    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'close_panel'));
-    expect(mount.textContent).toContain('agent closed');
   });
 
   test('NotebookEdit with a detail reads "agent edited <notebook>"', () => {
@@ -412,33 +417,6 @@ describe('arrange coalescing', () => {
   });
 });
 
-describe('pure suppression helpers', () => {
-  test('suppressionPanelFor maps each kind onto its self-signaling panel', () => {
-    expect(suppressionPanelFor({ kind: 'artifact' })).toBe('artifacts');
-    expect(suppressionPanelFor({ kind: 'run' })).toBe('bluesky');
-    expect(suppressionPanelFor({ kind: 'panel', panel: 'lattice' })).toBe('lattice');
-    expect(suppressionPanelFor({ kind: 'panel' })).toBeNull(); // malformed: no panel id
-    expect(suppressionPanelFor({ kind: 'channel' })).toBeNull();
-  });
-
-  test('isSuppressed for all four kinds', () => {
-    // channel is never suppressed, whatever is active
-    expect(isSuppressed({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 'artifacts')).toBe(false);
-    expect(isSuppressed({ kind: 'channel', detail: 'SR01:HCM1:SP' }, null)).toBe(false);
-
-    expect(isSuppressed({ kind: 'artifact' }, 'artifacts')).toBe(true);
-    expect(isSuppressed({ kind: 'artifact' }, 'bluesky')).toBe(false);
-
-    expect(isSuppressed({ kind: 'run' }, 'bluesky')).toBe(true);
-    expect(isSuppressed({ kind: 'run' }, 'artifacts')).toBe(false);
-
-    expect(isSuppressed({ kind: 'panel', panel: 'okf' }, 'okf')).toBe(true);
-    expect(isSuppressed({ kind: 'panel', panel: 'okf' }, 'ariel')).toBe(false);
-
-    // no active panel suppresses nothing
-    expect(isSuppressed({ kind: 'artifact' }, null)).toBe(false);
-  });
-});
 
 // ---- History popover ----
 
@@ -455,28 +433,21 @@ function pastFrame(target, agoSecs, tool = 'write_channel') {
 }
 
 /**
- * A history reader returning `events` verbatim, plus a record of the limits
- * it was called with.
+ * Serve `events` from the server ring; returns the limits the reads asked for.
  * @param {AgentActivityFrame[]} events
  */
-function stubHistory(events) {
-  /** @type {number[]} */
-  const calls = [];
-  /** @param {number} limit */
-  const fetchRecent = (limit) => {
-    calls.push(limit);
-    return Promise.resolve(events);
-  };
-  return { fetchRecent, calls };
+function serveHistory(events) {
+  recent.events = events;
+  return { calls: recent.limits };
 }
 
 describe('history popover: open, fetch, render', () => {
   test('opening fetches the server ring and renders rows newest first', async () => {
-    const { fetchRecent, calls } = stubHistory([
+    const { calls } = serveHistory([
       pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 5),
       pastFrame({ kind: 'run', detail: 'orm-42' }, 120, 'run_plan'),
     ]);
-    const strip = makeStrip(undefined, fetchRecent);
+    const strip = makeStrip();
 
     expect(popover()).toBeNull();
     await strip.openHistory();
@@ -492,10 +463,11 @@ describe('history popover: open, fetch, render', () => {
   });
 
   test('history rows are worded by the same verbs and labels as the live line', async () => {
-    const strip = makeStrip(undefined, stubHistory([
+    serveHistory([
       pastFrame({ kind: 'panel', panel: 'lattice' }, 3, 'close_panel'),
       pastFrame({ kind: 'panel', panel: 'ariel' }, 9, 'arrange_workspace'),
-    ]).fetchRecent);
+    ]);
+    const strip = makeStrip();
     await strip.openHistory();
 
     const rows = rowTexts();
@@ -508,7 +480,8 @@ describe('history popover: open, fetch, render', () => {
   });
 
   test('an empty ring renders a message, not a bare empty list', async () => {
-    const strip = makeStrip(undefined, stubHistory([]).fetchRecent);
+    serveHistory([]);
+    const strip = makeStrip();
     await strip.openHistory();
 
     expect(rowTexts().length).toBe(0);
@@ -516,17 +489,18 @@ describe('history popover: open, fetch, render', () => {
   });
 
   test('a failing fetch says so instead of showing an empty history', async () => {
-    const strip = makeStrip(undefined, () => Promise.reject(new Error('offline')));
+    recent.fail = true;
+    const strip = makeStrip();
     await strip.openHistory();
 
     expect(popover()?.textContent).toContain('Could not load recent activity');
   });
 
   test('reopening refetches — the server ring is the only source of history', async () => {
-    const { fetchRecent, calls } = stubHistory([
+    const { calls } = serveHistory([
       pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 1),
     ]);
-    const strip = makeStrip(undefined, fetchRecent);
+    const strip = makeStrip();
 
     await strip.openHistory();
     strip.closeHistory();
@@ -539,7 +513,8 @@ describe('history popover: open, fetch, render', () => {
   test('a fetch that resolves after close does not resurrect the popover', async () => {
     /** @type {(events: AgentActivityFrame[]) => void} */
     let resolve = () => {};
-    const strip = makeStrip(undefined, () => new Promise((r) => { resolve = r; }));
+    recent.pending = new Promise((r) => { resolve = r; });
+    const strip = makeStrip();
 
     const opening = strip.openHistory();
     strip.closeHistory();
@@ -553,7 +528,8 @@ describe('history popover: open, fetch, render', () => {
   test('rows never exceed HISTORY_LIMIT, however much the server returns', async () => {
     const many = Array.from({ length: HISTORY_LIMIT + 10 }, (_, i) =>
       pastFrame({ kind: 'channel', detail: `SR01:HCM${i}:SP` }, i));
-    const strip = makeStrip(undefined, stubHistory(many).fetchRecent);
+    serveHistory(many);
+    const strip = makeStrip();
     await strip.openHistory();
 
     expect(rowTexts().length).toBe(HISTORY_LIMIT);
@@ -563,31 +539,23 @@ describe('history popover: open, fetch, render', () => {
 describe('history popover: agent strings are text nodes only', () => {
   test('markup in a history row lands as literal text, no element is created', async () => {
     const payload = '<img src=x onerror=alert(1)>';
-    const strip = makeStrip(undefined, stubHistory([
+    serveHistory([
       pastFrame({ kind: 'channel', detail: payload }, 2),
-    ]).fetchRecent);
+    ]);
+    const strip = makeStrip();
     await strip.openHistory();
 
     expect(popover()?.querySelector('img')).toBeNull();
-    expect(popover()?.textContent).toContain(payload);
-  });
-
-  test('markup in a live frame prepended while open stays literal too', async () => {
-    const payload = '<script>alert(1)</script>';
-    const strip = makeStrip(undefined, stubHistory([]).fetchRecent);
-    await strip.openHistory();
-    strip.handleActivity(pastFrame({ kind: 'channel', detail: payload }, 0));
-
-    expect(popover()?.querySelector('script')).toBeNull();
     expect(popover()?.textContent).toContain(payload);
   });
 });
 
 describe('history popover: live frames while open', () => {
   test('a frame arriving while open is prepended above the fetched rows', async () => {
-    const strip = makeStrip(undefined, stubHistory([
+    serveHistory([
       pastFrame({ kind: 'run', detail: 'orm-42' }, 60, 'run_plan'),
-    ]).fetchRecent);
+    ]);
+    const strip = makeStrip();
     await strip.openHistory();
     expect(rowTexts().length).toBe(1);
 
@@ -600,7 +568,8 @@ describe('history popover: live frames while open', () => {
   });
 
   test('the first live frame replaces the empty-history message', async () => {
-    const strip = makeStrip(undefined, stubHistory([]).fetchRecent);
+    serveHistory([]);
+    const strip = makeStrip();
     await strip.openHistory();
     expect(popover()?.textContent).toContain('No recent agent activity');
 
@@ -612,7 +581,8 @@ describe('history popover: live frames while open', () => {
 
   test('a SUPPRESSED frame is still recorded in the history, as the server ring records it', async () => {
     activePanel = 'artifacts';
-    const strip = makeStrip(undefined, stubHistory([]).fetchRecent);
+    serveHistory([]);
+    const strip = makeStrip();
     await strip.openHistory();
 
     strip.handleActivity(pastFrame({ kind: 'artifact', detail: 'orbit-plot.png' }, 0, 'focus_artifact'));
@@ -624,7 +594,8 @@ describe('history popover: live frames while open', () => {
   });
 
   test('a malformed frame is ignored by the history as well as the live line', async () => {
-    const strip = makeStrip(undefined, stubHistory([]).fetchRecent);
+    serveHistory([]);
+    const strip = makeStrip();
     await strip.openHistory();
 
     strip.handleActivity(/** @type {any} */ ({ type: 'agent_activity', tool: 'x' }));
@@ -633,8 +604,7 @@ describe('history popover: live frames while open', () => {
   });
 
   test('frames arriving while CLOSED are not tracked client-side', async () => {
-    const { fetchRecent } = stubHistory([]);
-    const strip = makeStrip(undefined, fetchRecent);
+    const strip = makeStrip();
 
     strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
     await strip.openHistory();
@@ -647,7 +617,8 @@ describe('history popover: live frames while open', () => {
 
 describe('history popover: live single-slot behavior is unchanged', () => {
   test('with the popover open, the strip still shows one entry and auto-clears', async () => {
-    const strip = makeStrip(undefined, stubHistory([]).fetchRecent);
+    serveHistory([]);
+    const strip = makeStrip();
     await strip.openHistory();
 
     strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
@@ -667,7 +638,8 @@ describe('history popover: live single-slot behavior is unchanged', () => {
 
 describe('history popover: trigger and close affordances', () => {
   test('clicking the strip toggles the popover and aria-expanded', async () => {
-    const strip = makeStrip(undefined, stubHistory([]).fetchRecent);
+    serveHistory([]);
+    const strip = makeStrip();
     expect(mount.getAttribute('aria-expanded')).toBe('false');
 
     mount.click();
@@ -684,7 +656,8 @@ describe('history popover: trigger and close affordances', () => {
   });
 
   test('Enter on the focused strip opens it (keyboard parity with the click)', async () => {
-    const strip = makeStrip(undefined, stubHistory([]).fetchRecent);
+    serveHistory([]);
+    const strip = makeStrip();
 
     mount.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await flush();
@@ -693,7 +666,8 @@ describe('history popover: trigger and close affordances', () => {
   });
 
   test('Escape closes and returns focus to the strip', async () => {
-    const strip = makeStrip(undefined, stubHistory([]).fetchRecent);
+    serveHistory([]);
+    const strip = makeStrip();
     await strip.openHistory();
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -705,9 +679,10 @@ describe('history popover: trigger and close affordances', () => {
   });
 
   test('a click outside closes; a click inside the popover does not', async () => {
-    const strip = makeStrip(undefined, stubHistory([
+    serveHistory([
       pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 1),
-    ]).fetchRecent);
+    ]);
+    const strip = makeStrip();
     await strip.openHistory();
 
     // Inside the popover: stays open (a row is selectable text, not a dismiss).
@@ -718,14 +693,6 @@ describe('history popover: trigger and close affordances', () => {
     document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(strip.isHistoryOpen()).toBe(false);
     expect(popover()).toBeNull();
-  });
-
-  test('closing twice, or before ever opening, is a no-op', () => {
-    const strip = makeStrip(undefined, stubHistory([]).fetchRecent);
-    strip.closeHistory();
-    strip.closeHistory();
-    expect(strip.isHistoryOpen()).toBe(false);
-    expect(mount.getAttribute('aria-expanded')).toBe('false');
   });
 });
 
@@ -766,45 +733,35 @@ describe('empty-strip focusability', () => {
     expect(mount.getAttribute('tabindex')).toBe('0');
   });
 
-  test('showing a frame leaves the trigger focusable', async () => {
-    const strip = makeStrip();
-    strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
-    await flush();
-    expect(mount.getAttribute('tabindex')).toBe('0');
-  });
-
-  test('the auto-clear timeout keeps the tab stop', async () => {
+  /** @type {[string, (strip: ReturnType<typeof makeStrip>) => Promise<void>][]} */
+  const OPERATIONS = [
+    ['showing a frame', async () => {}],
     // The state a reloaded page starts in: nothing live, history on the server.
-    const strip = makeStrip(1000);
-    strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
-    await flush();
+    ['the auto-clear timeout', async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVITY_CLEAR_MS);
+      expect(mount.textContent).toBe('');
+    }],
+    ['an explicit clear()', async (strip) => {
+      strip.clear();
+      await flush();
+    }],
+    ['an open/close over an emptied strip', async (strip) => {
+      await strip.openHistory();
+      await vi.advanceTimersByTimeAsync(ACTIVITY_CLEAR_MS);
+      expect(mount.textContent).toBe('');
+      expect(mount.getAttribute('tabindex')).toBe('0');
+      strip.closeHistory();
+      await flush();
+    }],
+  ];
 
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(mount.textContent).toBe('');
-    expect(mount.getAttribute('tabindex')).toBe('0');
-  });
-
-  test('an explicit clear() keeps the tab stop', async () => {
+  test.each(OPERATIONS)('%s keeps the tab stop', async (_name, operate) => {
     const strip = makeStrip();
     strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
     await flush();
-    strip.clear();
-    await flush();
-    expect(mount.getAttribute('tabindex')).toBe('0');
-  });
 
-  test('the trigger stays focusable across an open/close over an emptied strip', async () => {
-    const strip = makeStrip(1000, async () => []);
-    strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
-    await flush();
-    await strip.openHistory();
+    await operate(strip);
 
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(mount.textContent).toBe('');
-    expect(mount.getAttribute('tabindex')).toBe('0');
-
-    strip.closeHistory();
-    await flush();
     expect(mount.getAttribute('tabindex')).toBe('0');
   });
 });

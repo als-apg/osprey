@@ -46,7 +46,9 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   applyConfigTabGate,
+  applyConfigUnreadableNotice,
   CONFIG_TAB_ID,
+  CONFIG_UNREADABLE_NOTICE_ID,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/config-tab.js';
 
 const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
@@ -62,8 +64,9 @@ const jsonOk = (body) => ({ ok: true, status: 200, statusText: 'OK', json: async
  * answering it with an empty body would hide that as effectively as the
  * environment's old synthetic 503 did.
  * @param {boolean} configPanelEnabled
+ * @param {string|null} [unreadablePath] - `config_unreadable_path` in the payload.
  */
-function stubPanelsFetch(configPanelEnabled) {
+function stubPanelsFetch(configPanelEnabled, unreadablePath = null) {
   vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
     if (url === '/api/panels') {
       return jsonOk({
@@ -74,6 +77,7 @@ function stubPanelsFetch(configPanelEnabled) {
         active: null,
         labels: {},
         config_panel_enabled: configPanelEnabled,
+        config_unreadable_path: unreadablePath,
       });
     }
     if (url === '/api/bar-items') {
@@ -104,11 +108,13 @@ function stubPanelsFetch(configPanelEnabled) {
 function renderDrawer() {
   document.body.innerHTML = `
     <osprey-drawer id="settings-drawer">
-      <div class="drawer-tabs">
-        <button class="drawer-tab active" data-tab="tab-behavior">Behavior</button>
-        <button class="drawer-tab" data-tab="tab-safety">Safety</button>
-        <button class="drawer-tab" data-tab="tab-memory">Memory</button>
-        <button class="drawer-tab" data-tab="tab-config">Config</button>
+      <div class="drawer-header">
+        <div class="drawer-tabs">
+          <button class="drawer-tab active" data-tab="tab-behavior">Behavior</button>
+          <button class="drawer-tab" data-tab="tab-safety">Safety</button>
+          <button class="drawer-tab" data-tab="tab-memory">Memory</button>
+          <button class="drawer-tab" data-tab="tab-config">Config</button>
+        </div>
       </div>
       <div class="drawer-tab-panel active" id="tab-behavior">
         <div id="behavior-gallery-section"></div>
@@ -163,28 +169,19 @@ describe('applyConfigTabGate', () => {
     expect(document.getElementById('behavior-gallery-section')).not.toBeNull();
   });
 
-  test('config_panel_enabled true keeps the tab', () => {
-    expect(applyConfigTabGate({ config_panel_enabled: true })).toBe(false);
+  test.each([
+    ['config_panel_enabled true', { config_panel_enabled: true }],
+    // A payload without the key is not an /api/panels response, which always sends the flag.
+    ['a payload without the key', { enabled: ['artifacts'], visible: [] }],
+    // A failed or hung /api/panels is not a statement about the posture.
+    ['a null payload', null],
+    // Only an explicit `false` withdraws: a string "false" would mean the
+    // payload contract changed under us — fix that at the source, not here.
+    ['a truthy non-boolean flag', { config_panel_enabled: 'false' }],
+  ])('%s keeps the tab', (_name, payload) => {
+    expect(applyConfigTabGate(payload)).toBe(false);
     expect(tabButtonPresent()).toBe(true);
     expect(tabPanelPresent()).toBe(true);
-  });
-
-  test('a payload without the key keeps the tab (absent means enabled)', () => {
-    expect(applyConfigTabGate({ enabled: ['artifacts'], visible: [] })).toBe(false);
-    expect(tabButtonPresent()).toBe(true);
-  });
-
-  test('a null payload — a failed or hung /api/panels — keeps the tab', () => {
-    expect(applyConfigTabGate(null)).toBe(false);
-    expect(tabButtonPresent()).toBe(true);
-  });
-
-  test('a truthy non-boolean flag is not a withdrawal', () => {
-    // Only an explicit `false` withdraws: the server sends a real bool, and a
-    // string "false" arriving here would mean the payload contract changed
-    // under us — something to fix at the source, not to guess at.
-    expect(applyConfigTabGate({ config_panel_enabled: 'false' })).toBe(false);
-    expect(tabButtonPresent()).toBe(true);
   });
 
   test('a second application is a no-op once the tab is gone', () => {
@@ -208,15 +205,49 @@ describe('applyConfigTabGate', () => {
     expect(document.getElementById('tab-behavior')?.classList.contains('active')).toBe(true);
   });
 
-  test('a root option scopes the lookup to one subtree', () => {
-    const other = document.createElement('div');
-    other.innerHTML = '<button class="drawer-tab" data-tab="tab-config">Config</button>';
-    document.body.appendChild(other);
+});
 
-    expect(applyConfigTabGate({ config_panel_enabled: false }, { root: other })).toBe(true);
-    expect(other.querySelector('.drawer-tab')).toBeNull();
-    // The drawer's own tab is untouched — the gate acted only inside `root`.
-    expect(tabPanelPresent()).toBe(true);
+describe('applyConfigUnreadableNotice', () => {
+  beforeEach(renderDrawer);
+
+  const PATH = '/app/project/config.yml';
+
+  /** @returns {HTMLElement|null} */
+  const notice = () => document.getElementById(CONFIG_UNREADABLE_NOTICE_ID);
+
+  test('the notice names the path and sits after the drawer header', () => {
+    expect(applyConfigUnreadableNotice({ config_unreadable_path: PATH })).toBe(true);
+
+    const el = notice();
+    expect(el?.textContent).toBe(
+      `Config editing is off: ${PATH} could not be read. Fix the file and restart the web terminal.`,
+    );
+    expect(el?.getAttribute('role')).toBe('status');
+    expect(el?.previousElementSibling?.classList.contains('drawer-header')).toBe(true);
+  });
+
+  test('applying twice keeps one notice', () => {
+    applyConfigUnreadableNotice({ config_unreadable_path: PATH });
+    applyConfigUnreadableNotice({ config_unreadable_path: PATH });
+
+    expect(document.querySelectorAll('.drawer-notice')).toHaveLength(1);
+  });
+
+  test('null, a missing key and an empty path add nothing', () => {
+    expect(applyConfigUnreadableNotice(null)).toBe(false);
+    expect(applyConfigUnreadableNotice({ config_panel_enabled: false })).toBe(false);
+    expect(applyConfigUnreadableNotice({ config_unreadable_path: '' })).toBe(false);
+
+    expect(notice()).toBeNull();
+  });
+
+  test('a path carrying markup renders as text', () => {
+    applyConfigUnreadableNotice({ config_unreadable_path: '/srv/<b>x</b>/config.yml' });
+
+    const el = notice();
+    expect(el?.textContent).toContain('/srv/<b>x</b>/config.yml');
+    expect(el?.querySelector('b')).toBeNull();
+    expect(el?.children).toHaveLength(0);
   });
 });
 
@@ -259,9 +290,12 @@ describe('boot wiring: initPanelManager applies the gate', () => {
     vi.resetModules();
   });
 
-  /** @param {boolean} configPanelEnabled */
-  async function boot(configPanelEnabled) {
-    stubPanelsFetch(configPanelEnabled);
+  /**
+   * @param {boolean} configPanelEnabled
+   * @param {string|null} [unreadablePath]
+   */
+  async function boot(configPanelEnabled, unreadablePath = null) {
+    stubPanelsFetch(configPanelEnabled, unreadablePath);
     vi.resetModules();
     mockDock();
     const { initPanelManager } = await import(
@@ -270,24 +304,32 @@ describe('boot wiring: initPanelManager applies the gate', () => {
     await initPanelManager('panel-manager');
   }
 
-  test('a disabled deployment loses the Config tab at boot', async () => {
-    await boot(false);
+  test.each([
+    ['a disabled deployment loses the Config tab at boot', false],
+    ['an enabled deployment keeps it', true],
+  ])('%s', async (_name, enabled) => {
+    await boot(enabled);
+
+    expect(tabButtonPresent()).toBe(enabled);
+    expect(tabPanelPresent()).toBe(enabled);
+  });
+
+  test('an unreadable config shows the notice and still removes the tab', async () => {
+    await boot(false, '/app/project/config.yml');
 
     expect(tabButtonPresent()).toBe(false);
     expect(tabPanelPresent()).toBe(false);
-  });
-
-  test('an enabled deployment keeps it', async () => {
-    await boot(true);
-
-    expect(tabButtonPresent()).toBe(true);
-    expect(tabPanelPresent()).toBe(true);
+    expect(document.getElementById(CONFIG_UNREADABLE_NOTICE_ID)?.textContent).toContain(
+      '/app/project/config.yml',
+    );
   });
 });
 
 describe('command palette guards on the tab being gone', () => {
   /** Captures what `initCommandPalette`'s entry points hand `openPalette`. */
   const opens = /** @type {any[]} */ ([]);
+  /** The dock's reset verb, as the palette must reach it. */
+  const resetDockLayout = vi.fn();
 
   // palette-boot.js is pure wiring: every collaborator it imports is stubbed
   // at the module boundary, so what this suite reads is exactly the dep bundle
@@ -327,6 +369,7 @@ describe('command palette guards on the tab being gone', () => {
     'sessions.js': () => ({ startNewSession: () => {} }),
     'rail-position.js': () => ({ setRailPosition: () => {} }),
     'feedback-modal.js': () => ({ isFeedbackModalOpen: () => false }),
+    'dock-workspace.js': () => ({ resetDockLayout }),
   };
 
   afterEach(() => {
@@ -368,6 +411,13 @@ describe('command palette guards on the tab being gone', () => {
     expect(typeof deps.revealSetting).toBe('function');
   });
 
+  test('the Reset layout row is bound to the dock\'s resetDockLayout', async () => {
+    const deps = await openThroughTrigger();
+
+    deps.resetLayout();
+    expect(resetDockLayout).toHaveBeenCalledTimes(1);
+  });
+
   test('with the tab gone: no Open Settings row, no revealSetting dep, no throw', async () => {
     applyConfigTabGate({ config_panel_enabled: false });
 
@@ -397,33 +447,20 @@ describe('palette.js skips its /api/config read without revealSetting', () => {
 
   afterEach(() => {
     paletteMod?.closePalette();
+    vi.unstubAllGlobals();
   });
 
   test('no fetch, and no "Settings unavailable" row, when the dep is withheld', async () => {
-    const fetchConfig = vi.fn(async () => ({ sections: {} }));
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sections: {} }) }));
+    vi.stubGlobal('fetch', fetchMock);
 
-    paletteMod.openPalette({ getHiddenPanels: () => [], getVisiblePanels: () => [], fetchConfig });
+    paletteMod.openPalette({ getHiddenPanels: () => [], getVisiblePanels: () => [] });
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(fetchConfig).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toContain('Settings unavailable');
     expect(document.body.textContent).not.toContain('Loading settings');
-  });
-
-  test('the read still fires for a deployment that kept the tab', async () => {
-    const fetchConfig = vi.fn(async () => ({ sections: { web: { theme: 'dark' } } }));
-
-    paletteMod.openPalette({
-      getHiddenPanels: () => [],
-      getVisiblePanels: () => [],
-      revealSetting: () => {},
-      fetchConfig,
-    });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(fetchConfig).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -455,6 +492,9 @@ describe('scaffold gallery survives the Config sections being gone', () => {
   test('Behavior and Safety still wire up after the gate removed the Config tab', async () => {
     const drawer = drawerWithGuard();
     applyConfigTabGate({ config_panel_enabled: false });
+    // No vendored `marked` global here, so init also walks configureMarked's
+    // absent-library path.
+    expect(Reflect.get(globalThis, 'marked')).toBeUndefined();
 
     vi.resetModules();
     const { initScaffoldGallery } = await import(

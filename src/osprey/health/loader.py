@@ -118,7 +118,7 @@ class HealthConfigLoader:
         """
         self._config_path_override = config_path
         self._config_sig: tuple[int, int] | None = None
-        self._env_sig: tuple[tuple[int, int], ...] | None = None
+        self._env_sig: tuple[tuple[int, int] | None, ...] | None = None
         self._cached: LoadedHealthConfig | None = None
 
     def load(self) -> LoadedHealthConfig:

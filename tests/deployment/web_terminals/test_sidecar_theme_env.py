@@ -22,7 +22,8 @@ from osprey.services.auth_sidecar.app import ENV_WEB_APP_NAME, ENV_WEB_THEME, Au
 def _config(*, facility_name: str | None = "Demo Light Source", theme: str | None = None) -> dict:
     """A sidecar-bearing render config, optionally naming a facility and a theme."""
     config: dict = {
-        "facility": {"prefix": "dls", "timezone": "America/Los_Angeles"},
+        "facility": {"prefix": "dls"},
+        "system": {"timezone": "America/Los_Angeles"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
         "modules": {

@@ -299,6 +299,28 @@ def test_project_containers_match_the_normalized_project_name(runtime_calls, ren
     assert "Other Osprey Containers" not in output
 
 
+def test_a_container_labelled_for_another_project_is_never_this_ones(runtime_calls, rendered):
+    """A deployed service's name inside another project's container claims nothing."""
+    config = _base_config(enabled=False)
+    config["deployed_services"] = ["service"]
+    _register_config("cfg.yml", config)
+
+    runtime_calls["ps_stdout"] = _ps_stdout(
+        _ps_container("other-service", "running", labels={"osprey.project.name": "other"}),
+        _ps_container(
+            "demo-project-service", "running", labels={"osprey.project.name": "demo-project"}
+        ),
+    )
+
+    status_display.show_status("cfg.yml")
+    output = rendered.export_text()
+
+    other_section = output.index("Other Osprey Containers")
+    assert "demo-project-service" in output[:other_section]
+    assert "other-service" not in output[:other_section]
+    assert "other-service" in output[other_section:]
+
+
 # ---------------------------------------------------------------------------
 # Agent section: the provider spec is read from the render, resolved from .env
 # ---------------------------------------------------------------------------

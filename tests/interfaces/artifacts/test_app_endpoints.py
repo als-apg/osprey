@@ -11,11 +11,13 @@ Covers:
 """
 
 import asyncio
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.artifacts.app import (
+    _agent_artifact_dir,
     _inject_html_snippet,
     _SSEBroadcaster,
     create_app,
@@ -98,6 +100,78 @@ class TestArtifactEntryAPI:
         assert resp.json() == {"status": "ok", "artifact_id": entry.id}
         assert client.get(f"/api/artifacts/{entry.id}").status_code == 404
         assert client.delete(f"/api/artifacts/{entry.id}").status_code == 404
+
+
+class TestBulkDelete:
+    """POST /api/artifacts/delete."""
+
+    def test_bulk_delete_removes_the_listed_ids_and_reports_missing(self, app_client):
+        client, _ = app_client
+        store = client.app.state.artifact_store
+        a = _save_text_artifact(store, title="A")
+        b = _save_text_artifact(store, title="B")
+        keep = _save_text_artifact(store, title="Keep")
+
+        resp = client.post("/api/artifacts/delete", json={"ids": [a.id, b.id, "nope"]})
+        assert resp.status_code == 200
+        assert resp.json() == {"deleted": [a.id, b.id], "missing": ["nope"]}
+        assert client.get(f"/api/artifacts/{a.id}").status_code == 404
+        assert client.get(f"/api/artifacts/{b.id}").status_code == 404
+        assert client.get(f"/api/artifacts/{keep.id}").status_code == 200
+
+    def test_bulk_delete_reports_a_repeated_missing_id_once(self, app_client):
+        client, _ = app_client
+        resp = client.post("/api/artifacts/delete", json={"ids": ["x", "y", "x"]})
+        assert resp.status_code == 200
+        assert resp.json() == {"deleted": [], "missing": ["x", "y"]}
+
+    def test_bulk_delete_runs_under_the_human_actor(self, app_client):
+        from osprey.stores.artifact_store import (
+            current_artifact_mutation_actor,
+            register_artifact_delete_listener,
+            unregister_artifact_delete_listener,
+        )
+
+        client, _ = app_client
+        store = client.app.state.artifact_store
+        a = _save_text_artifact(store)
+        b = _save_text_artifact(store)
+
+        actors = []
+
+        def record_actor(_entry):
+            actors.append(current_artifact_mutation_actor())
+
+        register_artifact_delete_listener(record_actor)
+        try:
+            resp = client.post("/api/artifacts/delete", json={"ids": [a.id, b.id]})
+            assert resp.status_code == 200
+        finally:
+            unregister_artifact_delete_listener(record_actor)
+
+        assert actors == ["human", "human"]
+
+    def test_bulk_delete_clears_focus_on_a_deleted_artifact(self, tmp_path):
+        with TestClient(create_app(workspace_root=tmp_path)) as client:
+            store = client.app.state.artifact_store
+            focused = _save_text_artifact(store, title="Focused")
+            other = _save_text_artifact(store, title="Other")
+            client.post("/api/focus", json={"artifact_id": focused.id})
+
+            resp = client.post("/api/artifacts/delete", json={"ids": [focused.id, other.id]})
+            assert resp.status_code == 200
+            assert client.app.state.focused_artifact_id is None
+            assert client.get("/api/focus").json() == {"focused": False, "artifact": None}
+            assert (tmp_path / "focus_state.txt").read_text() == ""
+
+    def test_bulk_delete_refuses_an_empty_list(self, app_client):
+        client, _ = app_client
+        assert client.post("/api/artifacts/delete", json={"ids": []}).status_code == 422
+
+    def test_bulk_delete_refuses_more_than_the_cap(self, app_client):
+        client, _ = app_client
+        ids = [f"id{i}" for i in range(1001)]
+        assert client.post("/api/artifacts/delete", json={"ids": ids}).status_code == 422
 
 
 class TestFocus:
@@ -401,6 +475,46 @@ class TestServedPlotThemeBridge:
         assert "data-theme=" not in body
 
 
+class TestGalleryFacilityTimezone:
+    """The gallery shell carries the facility zone on ``<html>``."""
+
+    @staticmethod
+    def _html_tag(body: str) -> str:
+        return body.split("<head>", 1)[0]
+
+    def test_gallery_shell_stamps_the_facility_zone(self, tmp_path):
+        from unittest.mock import patch
+        from zoneinfo import ZoneInfo
+
+        with patch(
+            "osprey.interfaces.artifacts.app.get_facility_timezone",
+            return_value=ZoneInfo("Asia/Tokyo"),
+        ):
+            client = TestClient(create_app(workspace_root=tmp_path))
+        body = client.get("/").text
+        assert 'data-facility-timezone="Asia/Tokyo"' in self._html_tag(body)
+
+    def test_zone_comes_from_the_primed_config(self, tmp_path, monkeypatch):
+        """The zone is resolved after config priming points the resolver at
+        this deployment's config."""
+        import osprey.utils.config as config_module
+
+        for name in ("_default_config", "_default_configurable", "_tz_drift_warned"):
+            monkeypatch.setattr(config_module, name, getattr(config_module, name))
+
+        cfg = tmp_path / "cfg"
+        cfg.mkdir()
+        config_file = cfg / "config.yml"
+        config_file.write_text("project_name: tz-test\nsystem:\n  timezone: Asia/Tokyo\n")
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        client = TestClient(create_app(workspace_root=ws))
+        body = client.get("/").text
+        assert 'data-facility-timezone="Asia/Tokyo"' in self._html_tag(body)
+
+
 def test_inject_snippet_without_head_or_body_prepends():
     result = _inject_html_snippet(b"<div>fragment</div>", "<style>s</style>")
     assert result == b"<style>s</style><div>fragment</div>"
@@ -449,6 +563,20 @@ class TestAppLifecycle:
         (bad / "config.yml").write_text(":\n  - not valid yaml: [unclosed\n")
         assert TestClient(create_app(workspace_root=bad)).get("/health").status_code == 200
 
+    def test_create_app_without_a_root_serves_the_shared_data_root(self, tmp_path, monkeypatch):
+        """With no root passed, the gallery, its store and the focus file all use
+        the deployment's shared agent-data root."""
+        import osprey_connectors.workspace as workspace_module
+
+        shared = tmp_path / "shared"
+        monkeypatch.setattr(workspace_module, "resolve_shared_data_root", lambda: shared)
+
+        client = TestClient(create_app())
+        entry = _save_text_artifact(client.app.state.artifact_store)
+
+        assert client.post("/api/focus", json={"artifact_id": entry.id}).status_code == 200
+        assert (shared / "focus_state.txt").is_file()
+
     def test_run_server_builds_app_and_hands_it_to_uvicorn(self, tmp_path, monkeypatch):
         import uvicorn
 
@@ -489,3 +617,61 @@ class TestIndexPlotlyVendorMeta:
         client, _ = app_client
         html = client.get("/").text
         assert 'name="osprey-vendor-plotly" content="/static/js/vendor/plotly-3.3.1.min.js"' in html
+
+
+class TestIndexArtifactDirMeta:
+    """GET / carries the store's artifact directory for types.js's ``artifactPath``.
+
+    The path chip, the copy-path button and the drag-to-terminal text all name
+    an artifact by this directory, so it has to be the one the deployment's
+    store writes to: repo-relative when an honest repo-relative spelling
+    exists, absolute otherwise.
+    """
+
+    @staticmethod
+    def _client(tmp_path, monkeypatch, root: Path, base_dir: str | None) -> TestClient:
+        repo_root = tmp_path / "repo"
+        (repo_root / "build").mkdir(parents=True)
+        config = f"project_root: {repo_root}\n"
+        if base_dir is not None:
+            config += f"agent_data:\n  base_dir: {base_dir}\n"
+        config_path = repo_root / "build" / "config.yml"
+        config_path.write_text(config)
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+        monkeypatch.chdir(repo_root)
+        return TestClient(create_app(workspace_root=root))
+
+    def test_default_layout_is_stamped_repo_relative(self, tmp_path, monkeypatch):
+        root = tmp_path / "repo" / "var" / "agent_data"
+        html = self._client(tmp_path, monkeypatch, root, None).get("/").text
+        assert 'name="osprey-artifact-dir" content="var/agent_data/artifacts"' in html
+
+    def test_relocated_base_dir_is_stamped_repo_relative(self, tmp_path, monkeypatch):
+        root = tmp_path / "repo" / "state" / "agent"
+        html = self._client(tmp_path, monkeypatch, root, "state/agent").get("/").text
+        assert 'name="osprey-artifact-dir" content="state/agent/artifacts"' in html
+
+    def test_absolute_base_dir_is_stamped_absolute(self, tmp_path, monkeypatch):
+        root = tmp_path / "abs" / "agent"
+        html = self._client(tmp_path, monkeypatch, root, str(root)).get("/").text
+        assert f'name="osprey-artifact-dir" content="{root}/artifacts"' in html
+        assert 'content="agent/artifacts"' not in html
+
+    @pytest.mark.parametrize(
+        ("root", "base_dir", "expected"),
+        [
+            ("/r/var/agent_data", "var/agent_data", "var/agent_data/artifacts"),
+            ("/r/state/agent", "state/agent", "state/agent/artifacts"),
+            ("/r/data", "data", "data/artifacts"),
+            ("/abs/agent", "/abs/agent", "/abs/agent/artifacts"),
+            ("/home/u/osprey-data", "~/osprey-data", "/home/u/osprey-data/artifacts"),
+            ("/r/tests/root", "var/agent_data", "/r/tests/root/artifacts"),
+        ],
+        ids=["default", "two-segment", "single-segment", "absolute", "home", "mismatched"],
+    )
+    def test_agent_artifact_dir_spells_each_layout(self, root, base_dir, expected):
+        from osprey.utils.workspace import repo_root_for_agent_data
+
+        root_path = Path(root)
+        repo_root = repo_root_for_agent_data(root_path, base_dir)
+        assert _agent_artifact_dir(root_path / "artifacts", repo_root, base_dir) == expected

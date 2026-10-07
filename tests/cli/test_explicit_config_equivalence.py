@@ -279,13 +279,39 @@ def _standalone_catalog_delta() -> tuple[Delta, ...]:
     The two standalone app templates carried a shorter ``api.providers`` list
     than the control-assistant one; the packaged ``providers.yml`` is one
     catalog for every preset, so their renders gain exactly the four entries
-    they lacked (Requirement 1).
+    they lacked (Requirement 1), plus the embeddings-only ``llama-cpp`` entry
+    every render gains (:func:`_llama_cpp_catalog_deltas`). One delta carries
+    both, because a second ``api.providers`` delta on the same document would
+    replace the first.
 
     Returns:
         The ``api.providers`` delta, the same for every standalone cell.
     """
     return (
-        Delta(document="root", path="api.providers", added=("amsc-i2", "argo", "ds4", "stanford")),
+        Delta(
+            document="root",
+            path="api.providers",
+            added=("amsc-i2", "argo", "ds4", "stanford", "llama-cpp"),
+        ),
+    )
+
+
+def _llama_cpp_catalog_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The ``llama-cpp`` entry every ``api.providers`` render gains.
+
+    The packaged catalog carries the embeddings-only llama-server entry that
+    an embedding module names as its provider; the fixtures predate it, so
+    each document that renders the catalog gains exactly that name.
+
+    Args:
+        *documents: The documents of the cell that render ``api.providers``.
+
+    Returns:
+        One ``api.providers`` delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="api.providers", added=("llama-cpp",))
+        for document in documents
     )
 
 
@@ -423,6 +449,130 @@ def _query_max_rows_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _fuzzy_threshold_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The keyword fuzzy-fallback similarity floor the presets now state.
+
+    The floor was a literal in the keyword module, so a facility could tune the
+    pattern envelope but not how loose a spelling the fallback accepts. The
+    floor is now ``ariel.search_modules.keyword.settings.fuzzy_threshold``,
+    stated at its previous value beside the two pattern knobs in the two
+    presets that carry a keyword block, so every document they render gains the
+    leaf. The fixtures were frozen before the key existed, which is why it
+    reads as a difference here rather than as a render that changed.
+
+    ``hello-world`` and ``channel-finder-standalone`` name no keyword block and
+    gain nothing, so their cells are absent below.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="ariel.search_modules.keyword.settings.fuzzy_threshold",
+            fixture=ABSENT,
+            live=0.3,
+        )
+        for document in documents
+    )
+
+
+def _embedding_input_limit_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The input window the presets now state for the embedding model they ship.
+
+    Each model under ``ariel.enhancement_modules.text_embedding.models`` states
+    the input window, in tokens, its embedding server applies, and a longer
+    entry is cut so its start is embedded. The two presets that carry a
+    text-embedding block now give ``nomic-embed-text`` its served 2048-token
+    window, so every document they render gains ``max_input_tokens`` on that
+    entry. The fixtures were frozen before the key existed. Lists are compared
+    whole, so the delta names the whole models list.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="ariel.enhancement_modules.text_embedding.models",
+            fixture=[{"dimension": 768, "name": "nomic-embed-text"}],
+            live=[{"dimension": 768, "max_input_tokens": 2048, "name": "nomic-embed-text"}],
+        )
+        for document in documents
+    )
+
+
+#: The leaves the ARIEL picture modules add to a preset's render, and their
+#: shipped values.
+_PICTURE_MODULE_LEAVES: tuple[tuple[str, Any], ...] = (
+    ("ariel.attachments.copy_on_ingest", "images"),
+    ("ariel.attachments.view.enabled", True),
+    ("ariel.enhancement_modules.image_caption.enabled", True),
+    ("ariel.enhancement_modules.image_caption.provider", "ollama"),
+    ("ariel.enhancement_modules.image_caption.model.model_id", "qwen3-vl:4b"),
+    ("ariel.enhancement_modules.image_embedding.enabled", True),
+    ("ariel.enhancement_modules.image_embedding.provider", "llama-cpp"),
+    ("ariel.enhancement_modules.image_embedding.model", "qwen3-vl-embedding-2b"),
+    ("ariel.enhancement_modules.image_embedding.dimensions", 1024),
+)
+
+
+def _picture_module_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The picture captions, picture search and view switch the presets turn on.
+
+    The two presets that carry an ``ariel:`` block state what ingest copies, the
+    agents' attachment view, and the caption and picture-embedding modules with
+    their own provider and model, so every document they render gains those
+    leaves. The fixtures were frozen before any of the keys existed.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per leaf per document.
+    """
+    return tuple(
+        Delta(document=document, path=path, fixture=ABSENT, live=value)
+        for document in documents
+        for path, value in _PICTURE_MODULE_LEAVES
+    )
+
+
+def _mcp_health_address_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The MCP probe address a render that serves web terminals carries.
+
+    A web terminal runs on the host network, so the health check reaches each
+    MCP server at its host address. The build states that address by writing
+    ``health.auto.mcp.url_key: host_url`` into every document of a render that
+    serves web terminals. The fixtures were frozen before the key existed.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="health.auto.mcp.url_key",
+            fixture=ABSENT,
+            live="host_url",
+        )
+        for document in documents
+    )
+
+
 def _dispatch_max_turns_deltas() -> tuple[Delta, ...]:
     """The dispatch worker's turn ceiling, now written into its service block.
 
@@ -464,12 +614,27 @@ def _dispatch_host_network_deltas() -> tuple[Delta, ...]:
     Only ``control-assistant`` deploys a dispatch pair; the other presets gain
     nothing and are absent below.
 
+    On the host network each half also declares the variable its compose file
+    renders the bind address into, which the off-host bind check reads.
+
     Returns:
-        The three root-document deltas.
+        The five root-document deltas.
     """
     return (
         Delta(
             document="root", path="services.event_dispatcher.network", fixture=ABSENT, live="host"
+        ),
+        Delta(
+            document="root",
+            path="services.event_dispatcher.bind_env",
+            fixture=ABSENT,
+            live="FASTMCP_HOST",
+        ),
+        Delta(
+            document="root",
+            path="services.dispatch_worker.bind_env",
+            fixture=ABSENT,
+            live="DISPATCH_WORKER_BIND",
         ),
         Delta(
             document="root", path="services.dispatch_worker.network", fixture=ABSENT, live="host"
@@ -759,6 +924,83 @@ def _tool_content_deltas() -> tuple[Delta, ...]:
     )
 
 
+def _probe_timeout_deltas() -> tuple[Delta, ...]:
+    """The readiness-probe bound every control-assistant document gains.
+
+    The root preset states ``control_system.target_switch.probe_timeout_s``
+    beside the drain timeout and every persona inherits it; the fixtures were
+    frozen before the key existed.
+
+    Returns:
+        One delta per control-assistant document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="control_system.target_switch.probe_timeout_s",
+            fixture=ABSENT,
+            live=5,
+        )
+        for document in _CONTROL_ASSISTANT_DOCUMENTS
+    )
+
+
+def _standalone_persona_reach_deltas() -> tuple[Delta, ...]:
+    """The two standalone personas, now with nothing that reaches the machine.
+
+    ``logbook`` and ``knowledge`` drop the JUPYTER panel, whose kernels read and
+    write through the control target, and state
+    ``web.control_target_picker: false``; the logbook persona also pins the
+    epics and virtual_accelerator write keys off by name, as the knowledge
+    persona already did. The fixtures were frozen with the panel on, before the
+    picker key existed, and with the logbook persona stating the flat key alone.
+
+    Returns:
+        Two deltas per standalone persona, and two more for the logbook one.
+    """
+    return (
+        *(
+            delta
+            for document in ("knowledge", "logbook")
+            for delta in (
+                Delta(
+                    document=document,
+                    path="web.panels.jupyter.enabled",
+                    fixture=True,
+                    live=ABSENT,
+                ),
+                Delta(
+                    document=document,
+                    path="web.control_target_picker",
+                    fixture=ABSENT,
+                    live=False,
+                ),
+            )
+        ),
+        Delta(
+            document="logbook",
+            path="control_system.connector.epics.writes_enabled",
+            fixture=ABSENT,
+            live=False,
+        ),
+        Delta(
+            document="logbook",
+            path="control_system.connector.virtual_accelerator.writes_enabled",
+            fixture=ABSENT,
+            live=False,
+        ),
+    )
+
+
+def _standalone_picker_deltas() -> tuple[Delta, ...]:
+    """The picker setting a standalone preset that reaches no machine states.
+
+    Returns:
+        One delta for the root document.
+    """
+    return (Delta(document="root", path="web.control_target_picker", fixture=ABSENT, live=False),)
+
+
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # The posture floor makes `hooks.debug` unconditional, and hello-world is the
     # one preset whose app template never carried it (Requirement 1). The other
@@ -772,21 +1014,30 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
         # all, so no delta declares it here.
         Delta(document="root", path="approval.tools.entry_create", fixture="always", live=ABSENT),
         *_rail_tool_deltas("root"),
+        *_llama_cpp_catalog_deltas("root"),
     ),
     "ariel-standalone/unset": _standalone_catalog_delta()
     + _entry_publish_deltas("root")
     + _rail_tool_deltas("root")
-    + _retired_upstream_link_deltas("root"),
+    + _retired_upstream_link_deltas("root")
+    + _fuzzy_threshold_deltas("root")
+    + _embedding_input_limit_deltas("root")
+    + _picture_module_deltas("root")
+    + _standalone_picker_deltas(),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
     + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root"),
+    + _query_max_rows_deltas("root")
+    + _standalone_picker_deltas(),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
     + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root"),
+    + _query_max_rows_deltas("root")
+    + _standalone_picker_deltas(),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
     + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root"),
+    + _query_max_rows_deltas("root")
+    + _standalone_picker_deltas(),
     "control-assistant/in_context": _control_assistant_persona_deltas()
+    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -799,8 +1050,15 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
     + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
+    + _probe_timeout_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
+    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -813,8 +1071,15 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
     + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
+    + _probe_timeout_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
+    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -827,8 +1092,15 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
     + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
+    + _probe_timeout_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
+    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -841,7 +1113,13 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
     + _tool_content_deltas()
-    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
+    + _probe_timeout_deltas(),
 }
 
 

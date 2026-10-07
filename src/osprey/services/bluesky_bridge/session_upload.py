@@ -55,7 +55,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Iterable, Iterator, MutableMapping
+from collections.abc import Callable, Generator, Iterable, MutableMapping
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -174,7 +174,7 @@ def build_upload_script(name: str, source: str) -> str:
 
 def install_session_plan(
     namespace: MutableMapping[str, Any], name: str, source: str
-) -> Callable[..., Iterator[Any]]:
+) -> Callable[..., Generator[Any, Any, Any]]:
     """Define one session plan in the worker namespace. Runs in the RE worker.
 
     Executes ``source`` in a private dict rather than in ``namespace``: a plan
@@ -266,7 +266,7 @@ def install_session_plan(
 
     devices = collect_devices(namespace)
 
-    def plan_function(**kwargs: Any) -> Iterator[Any]:
+    def plan_function(**kwargs: Any) -> Generator[Any, Any, Any]:
         with bind_owner(kwargs) as clean:
             params = params_model.model_validate(clean)
             declared = _declared_devices(params_model, params, devices)
@@ -316,7 +316,7 @@ def install_session_plan(
     # identical reason. These are the only two places a `**kwargs`-only plan
     # wrapper is handed to the manager, and
     # `test_no_plan_wrapper_ships_pep563_string_annotations` enumerates both.
-    plan_function.__annotations__ = {"kwargs": Any, "return": Iterator[Any]}
+    plan_function.__annotations__ = {"kwargs": Any, "return": Generator[Any, Any, Any]}
 
     namespace[name] = plan_function
     return plan_function

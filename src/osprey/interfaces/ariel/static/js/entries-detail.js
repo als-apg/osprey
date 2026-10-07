@@ -5,7 +5,7 @@
  * Entry detail view: loading, rendering, and the image lightbox.
  */
 
-import { entriesApi } from './api.js';
+import { entriesApi, apiUrl } from './api.js';
 import {
   formatTimestamp,
   renderLoading,
@@ -13,7 +13,72 @@ import {
   renderErrorState,
   escapeHtml,
 } from './components.js';
-import { isImageAttachment, parseEntryText } from './entries-helpers.js';
+import { parseEntryText } from './entries-helpers.js';
+
+/**
+ * One of this API's attachment routes, relative to the API base: the original
+ * (`/attachments/<id>`) or its rendition (`/attachments/<id>/rendition`). The
+ * id is one plain path segment, never `.` or `..`.
+ */
+const ATTACHMENT_ROUTE = /^\/attachments\/(?!\.\.?(?:\/|$))[A-Za-z0-9._~-]+(?:\/rendition)?$/;
+
+/**
+ * Turn an attachment's `display_url` into a URL safe to place in an href or
+ * src, else null. An absolute http(s) URL is kept unchanged; an attachment
+ * route relative to the API base is joined to the page's API base, so it
+ * resolves under whatever prefix the page is served from. Every other value
+ * (javascript:, data:, vbscript:, protocol-relative //host, any other path)
+ * is refused.
+ * @param {unknown} u - Candidate URL
+ * @returns {string|null} The URL to use, or null when it is not safe
+ */
+export function safeHref(u) {
+  if (typeof u !== 'string') return null;
+  if (/^https?:\/\//i.test(u)) return u;
+  if (ATTACHMENT_ROUTE.test(u)) return apiUrl(u);
+  return null;
+}
+
+/**
+ * Render one attachment as a thumbnail card or a file card. A thumbnail is
+ * drawn only when the server marks the attachment `viewable: true` and its
+ * `display_url` is safe; everything else is a file card, linked to the
+ * download when `display_url` is safe and link-less otherwise.
+ * @param {any} att - Attachment from the entry response
+ * @returns {string} HTML string
+ */
+function renderAttachmentCard(att) {
+  const href = safeHref(att.display_url);
+  const escapedName = escapeHtml(att.filename || 'attachment');
+  if (att.viewable === true && href) {
+    const escapedUrl = escapeHtml(href);
+    return `
+    <div class="card" style="width: 150px; cursor: pointer;"
+         data-lightbox-url="${escapeHtml(att.display_url)}" data-lightbox-name="${escapedName}">
+      <div class="card-body" style="padding: 12px; text-align: center;">
+        <img src="${escapedUrl}" alt="${escapedName}"
+             style="width: 126px; height: 100px; object-fit: cover; border-radius: var(--radius-md); margin-bottom: 8px;">
+        <div class="truncate text-sm">${escapedName}</div>
+        <div class="text-xs text-muted">${escapeHtml(att.mime_type || 'image')}</div>
+      </div>
+    </div>`;
+  }
+  const body = `
+    <div class="card-body" style="padding: 12px; text-align: center;">
+      <div style="font-size: var(--text-4xl); margin-bottom: 8px;">\u{1F4CE}</div>
+      <div class="truncate text-sm">${escapedName}</div>
+      <div class="text-xs text-muted">${escapeHtml(att.mime_type || 'file')}</div>
+    </div>`;
+  if (!href) {
+    return `
+  <div class="card" style="width: 150px; color: inherit;">${body}
+  </div>`;
+  }
+  return `
+  <a href="${escapeHtml(href)}" target="_blank" rel="noopener"
+     class="card" style="width: 150px; text-decoration: none; color: inherit; cursor: pointer;">${body}
+  </a>`;
+}
 
 // Current entry detail
 /** @type {any} */
@@ -32,7 +97,7 @@ export function initEntryDetail() {
   modalBody?.addEventListener('click', (e) => {
     const thumb = /** @type {HTMLElement} */ (e.target).closest('[data-lightbox-url]');
     if (!thumb) return;
-    const url = /** @type {HTMLElement} */ (thumb).dataset.lightboxUrl;
+    const url = safeHref(/** @type {HTMLElement} */ (thumb).dataset.lightboxUrl);
     const name = /** @type {HTMLElement} */ (thumb).dataset.lightboxName;
     if (url) showImageLightbox(url, name || '');
   });
@@ -41,12 +106,13 @@ export function initEntryDetail() {
 /**
  * Show entry detail view.
  * @param {string} entryId - Entry ID
+ * @returns {Promise<any>} The entry shown, or null when it could not be loaded
  */
 export async function showEntry(entryId) {
   const modal = document.getElementById('entry-modal');
   const modalBody = document.getElementById('entry-modal-body');
 
-  if (!modal || !modalBody) return;
+  if (!modal || !modalBody) return null;
 
   // Show modal with loading state
   modal.classList.remove('hidden');
@@ -56,10 +122,33 @@ export async function showEntry(entryId) {
     const entry = await entriesApi.get(entryId);
     currentEntry = entry;
     renderEntryDetail(modalBody, entry);
+    return entry;
   } catch (error) {
     console.error('Failed to load entry:', error);
     modalBody.innerHTML = renderErrorState('Failed to Load Entry', error);
+    return null;
   }
+}
+
+/**
+ * Open an entry's detail card and, when `attachmentId` names one of that
+ * entry's viewable pictures, that picture enlarged in the lightbox. An
+ * attachment that is not the entry's, not viewable, or has no safe URL leaves
+ * the detail card open on its own.
+ * @param {string} entryId - Entry ID
+ * @param {string|null} [attachmentId] - Attachment to enlarge
+ * @returns {Promise<boolean>} Whether a picture was enlarged
+ */
+export async function openEntry(entryId, attachmentId = null) {
+  const entry = await showEntry(entryId);
+  if (!entry || !attachmentId) return false;
+  const att = (entry.attachments || []).find(
+    (/** @type {any} */ a) => a && a.attachment_id === attachmentId,
+  );
+  const href = att && att.viewable === true ? safeHref(att.display_url) : null;
+  if (!href) return false;
+  showImageLightbox(href, att.filename || 'attachment');
+  return true;
 }
 
 /**
@@ -98,33 +187,7 @@ function renderEntryDetail(container, entry) {
             <div class="entry-detail-content" style="margin-top: 24px;">
               <h3>Attachments (${attachments.length})</h3>
               <div style="display: flex; flex-wrap: wrap; gap: 16px;">
-                ${attachments.map((/** @type {any} */ att) => {
-                  const image = isImageAttachment(att);
-                  const url = att.url || '#';
-                  const escapedUrl = escapeHtml(url);
-                  const escapedName = escapeHtml(att.filename || 'attachment');
-                  if (image) {
-                    return `
-                    <div class="card" style="width: 150px; cursor: pointer;"
-                         data-lightbox-url="${escapedUrl}" data-lightbox-name="${escapedName}">
-                      <div class="card-body" style="padding: 12px; text-align: center;">
-                        <img src="${escapedUrl}" alt="${escapedName}"
-                             style="width: 126px; height: 100px; object-fit: cover; border-radius: var(--radius-md); margin-bottom: 8px;">
-                        <div class="truncate text-sm">${escapedName}</div>
-                        <div class="text-xs text-muted">${escapeHtml(att.type || 'image')}</div>
-                      </div>
-                    </div>`;
-                  }
-                  return `
-                  <a href="${escapedUrl}" target="_blank" rel="noopener"
-                     class="card" style="width: 150px; text-decoration: none; color: inherit; cursor: pointer;">
-                    <div class="card-body" style="padding: 12px; text-align: center;">
-                      <div style="font-size: var(--text-4xl); margin-bottom: 8px;">\u{1F4CE}</div>
-                      <div class="truncate text-sm">${escapedName}</div>
-                      <div class="text-xs text-muted">${escapeHtml(att.type || 'file')}</div>
-                    </div>
-                  </a>`;
-                }).join('')}
+                ${attachments.map(renderAttachmentCard).join('')}
               </div>
             </div>
           ` : ''}
@@ -299,6 +362,7 @@ export function getCurrentEntry() {
 export default {
   initEntryDetail,
   showEntry,
+  openEntry,
   closeEntryModal,
   showImageLightbox,
   getCurrentEntry,

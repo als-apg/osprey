@@ -4,14 +4,15 @@
  *
  * The session page runs no panel-manager, so the strip's registration on
  * panel-manager's seam never fires there; `wireActivityStrip` is the page's
- * own subscription to `GET /api/files/events`. These tests drive it with a
- * fake EventSource factory and a fake strip — no network, no timers:
+ * own subscription to `GET /api/files/events`. These tests drive it through the
+ * real api.js stream with a stubbed global EventSource and a fake strip — no
+ * network, no timers:
  *
  *   - an agent_activity frame reaches the strip's handleActivity verbatim
  *   - the shared stream's other frame types (file/panel events) are ignored
- *   - a frame that failed to parse (createEventSource hands the raw string
- *     through) is ignored without throwing, as are null/array/targetless ones
- *   - the wiring subscribes to the right path and returns the source handle
+ *   - a frame that failed to parse (api.js hands the raw string through) is
+ *     ignored without throwing, as are null/array/targetless ones
+ *   - the wiring subscribes to the right path, and its handle closes the source
  *
  *   npx vitest run tests/interfaces/web_terminal/session-strip.test.mjs
  */
@@ -24,27 +25,39 @@ const STRIP_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/activi
 /** @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js').AgentActivityEvent} AgentActivityFrame */
 
 /**
- * A stand-in for createEventSource: records the url/handlers it was called
- * with and exposes `emit` to push a payload through onMessage the way
- * api.js's real wrapper does (parsed JSON, or the raw string on a parse
- * failure).
+ * A stubbed global EventSource: records every source api.js opens, and exposes
+ * `emit` to deliver a server frame through the source's own onmessage — JSON
+ * text, as the wire carries it, so api.js's parse (and its raw-string fallback
+ * for text that is not JSON) runs for real.
  */
-function fakeEventSourceFactory() {
-  /** @type {{url: string, handlers: any}[]} */
-  const calls = [];
-  const stop = vi.fn();
-  /** @param {string} url @param {any} [handlers] */
-  const factory = (url, handlers = {}) => {
-    calls.push({ url, handlers });
-    return { stop };
-  };
-  /** @param {any} payload */
+function stubEventSource() {
+  /** @type {{url: string, closed: boolean, onmessage: ((e: {data: string}) => void) | null}[]} */
+  const sources = [];
+  class FakeEventSource {
+    /** @param {string} url */
+    constructor(url) {
+      this.url = url;
+      this.closed = false;
+      /** @type {((e: {data: string}) => void) | null} */
+      this.onmessage = null;
+      /** @type {(() => void) | null} */
+      this.onopen = null;
+      /** @type {(() => void) | null} */
+      this.onerror = null;
+      this.readyState = 0;
+      sources.push(this);
+    }
+    close() {
+      this.closed = true;
+    }
+  }
+  vi.stubGlobal('EventSource', FakeEventSource);
+  /** @param {unknown} payload - a frame, or raw text sent as-is */
   const emit = (payload) => {
-    const last = calls.at(-1);
-    if (!last) throw new Error('nothing subscribed');
-    last.handlers.onMessage?.(payload);
+    const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    for (const src of sources) src.onmessage?.({ data });
   };
-  return { factory, calls, emit, stop };
+  return { sources, emit };
 }
 
 /** A strip that only records the frames handed to it. */
@@ -92,47 +105,38 @@ afterEach(() => {
 
 describe('wireActivityStrip: subscription', () => {
   test('subscribes to the shared file-events stream and returns the handle', () => {
-    const es = fakeEventSourceFactory();
+    const es = stubEventSource();
     const strip = fakeStrip();
 
-    const handle = Session.wireActivityStrip(strip, es.factory);
+    const handle = Session.wireActivityStrip(strip);
 
-    expect(es.calls.length).toBe(1);
-    // Root-absolute: createEventSource applies the per-user prefix itself.
-    expect(es.calls[0].url).toBe('/api/files/events');
+    expect(es.sources.map((src) => src.url)).toEqual(['/api/files/events']);
     handle.stop();
-    expect(es.stop).toHaveBeenCalled();
+    expect(es.sources[0].closed).toBe(true);
   });
 });
 
 describe('wireActivityStrip: frame routing', () => {
-  test('an agent_activity frame reaches handleActivity verbatim', () => {
-    const es = fakeEventSourceFactory();
+  test.each([
+    ['channel', frame({ kind: 'channel', detail: 'SR01:HCM1:SP' })],
+    // Suppression is the strip's call, not the page's: every kind is forwarded.
+    ['panel', frame({ kind: 'panel', panel: 'lattice' }, 'open_panel')],
+    ['run', frame({ kind: 'run', detail: 'orm-42' }, 'run_plan')],
+    ['artifact', frame({ kind: 'artifact', detail: 'orbit-plot.png' }, 'focus_artifact')],
+  ])('a %s agent_activity frame reaches handleActivity verbatim', (_kind, f) => {
+    const es = stubEventSource();
     const strip = fakeStrip();
-    Session.wireActivityStrip(strip, es.factory);
+    Session.wireActivityStrip(strip);
 
-    const f = frame({ kind: 'channel', detail: 'SR01:HCM1:SP' });
     es.emit(f);
 
     expect(strip.seen).toEqual([f]);
   });
 
-  test('every agent_activity kind is forwarded — suppression is the strip\'s call, not ours', () => {
-    const es = fakeEventSourceFactory();
-    const strip = fakeStrip();
-    Session.wireActivityStrip(strip, es.factory);
-
-    es.emit(frame({ kind: 'panel', panel: 'lattice' }, 'open_panel'));
-    es.emit(frame({ kind: 'run', detail: 'orm-42' }, 'run_plan'));
-    es.emit(frame({ kind: 'artifact', detail: 'orbit-plot.png' }, 'focus_artifact'));
-
-    expect(strip.seen.map((f) => f.target.kind)).toEqual(['panel', 'run', 'artifact']);
-  });
-
   test('the shared stream\'s other frame types are ignored', () => {
-    const es = fakeEventSourceFactory();
+    const es = stubEventSource();
     const strip = fakeStrip();
-    Session.wireActivityStrip(strip, es.factory);
+    Session.wireActivityStrip(strip);
 
     es.emit({ type: 'file_changed', path: '/tmp/x.py' });
     es.emit({ type: 'panel_focus', panel: 'lattice', source: 'agent' });
@@ -176,9 +180,9 @@ describe('page boot: one strip on the shared mount', () => {
 
 describe('wireActivityStrip: malformed payloads', () => {
   test('an unparseable frame arrives as a raw string and is ignored without throwing', () => {
-    const es = fakeEventSourceFactory();
+    const es = stubEventSource();
     const strip = fakeStrip();
-    Session.wireActivityStrip(strip, es.factory);
+    Session.wireActivityStrip(strip);
 
     // api.js's onMessage fallback: JSON.parse failed, so the raw text comes through.
     expect(() => es.emit('{"type": "agent_activity", trunca')).not.toThrow();
@@ -187,12 +191,12 @@ describe('wireActivityStrip: malformed payloads', () => {
   });
 
   test('null, arrays and an agent_activity frame with no target are ignored', () => {
-    const es = fakeEventSourceFactory();
+    const es = stubEventSource();
     const strip = fakeStrip();
-    Session.wireActivityStrip(strip, es.factory);
+    Session.wireActivityStrip(strip);
 
     es.emit(null);
-    es.emit(undefined);
+    es.emit('undefined'); // not JSON: arrives as the raw string
     es.emit([{ type: 'agent_activity', tool: 'write_channel' }]);
     es.emit({ type: 'agent_activity', tool: 'write_channel' });
 

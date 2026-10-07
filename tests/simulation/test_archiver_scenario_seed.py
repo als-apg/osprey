@@ -39,6 +39,7 @@ from osprey.simulation.apply import (
     DENSIFIED_FIELD,
     active_archiver_events,
     apply_scenarios,
+    archiver_collection,
     archiver_store_config,
     event_subwindows,
     event_window,
@@ -215,10 +216,12 @@ def _write_project(root: Path, store: dict | None, *, password: str | None) -> P
                 "port": store["port"],
                 "name": store["database"],
                 "collection": store["collection"],
-                "auth": "admin",
-                "username": store["username"],
-                "password_env": "MONGO_ROOT_PASSWORD",
-                "timeout": 10,
+                "auth": {
+                    "source": "admin",
+                    "username": store["username"],
+                    "password_env": "MONGO_ROOT_PASSWORD",
+                },
+                "timeout_s": 10,
             },
         }
     (root / "config.yml").write_text(yaml.safe_dump(config))
@@ -369,6 +372,42 @@ class TestStoreResolution:
         assert store is not None
         assert store["password"] is None
 
+    def test_a_store_named_by_url_is_never_written(self, tmp_path):
+        """A store named by url is one this deployment reads, never one it writes."""
+        root = _write_project(
+            tmp_path / "proj",
+            {
+                "host": "127.0.0.1",
+                "port": 27017,
+                "database": "db",
+                "collection": "c",
+                "username": "u",
+            },
+            password="the-project-password",
+        )
+        config = yaml.safe_load((root / "config.yml").read_text())
+        config["archiver"]["mongodb_archiver"]["url"] = "mongodb://archive.example.org/"
+
+        assert archiver_store_config(config, root) is None
+
+    def test_archiver_collection_builds_its_client_from_the_shared_function(self, tmp_path):
+        """A bundled store gets the same six-keyword client the agent's connector builds."""
+        from unittest.mock import patch
+
+        from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
+
+        root = tmp_path / "proj"
+        root.mkdir()
+        (root / ".env").write_text("MONGO_ROOT_PASSWORD=pw\n")
+        config = {"archiver": {"type": "mongodb_archiver", "mongodb_archiver": bundled_block()}}
+        store = archiver_store_config(config, root)
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            with archiver_collection(store):
+                pass
+
+        assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
+
 
 # ---------------------------------------------------------------------------
 # Which stretch of history an event reaches
@@ -417,6 +456,29 @@ class TestEventWindow:
         plausible would be inventing history."""
         with pytest.raises(ValueError, match="at_offset"):
             event_window([{"shape": "step", "at": 0.5, "to": 5.0}], self.ANCHOR, self.HORIZON)
+
+    def test_a_calendar_event_sits_on_its_day_in_the_facility_zone(self):
+        """``at_when`` counts calendar days in the zone it is given, like a logbook entry."""
+        zone = ZoneInfo("America/Los_Angeles")
+        start, end = event_window(
+            [
+                {
+                    "shape": "spike",
+                    "at_when": {"days_ago": 1, "time": "03:05:00"},
+                    "amplitude": 1.0,
+                    "width": 60.0,
+                }
+            ],
+            self.ANCHOR,
+            self.ANCHOR - 86400 * 3,
+            tz=zone,
+        )
+
+        local = T0.astimezone(zone)
+        expected = datetime(local.year, local.month, local.day, 3, 5, tzinfo=zone) - timedelta(
+            days=1
+        )
+        assert (start + end) / 2 == pytest.approx(expected.timestamp())
 
     def test_several_events_span_from_the_earliest_to_the_latest(self):
         start, end = event_window(
@@ -548,6 +610,17 @@ class TestPersistedAnchor:
 
         assert persisted_scenario_anchor(config, root) == later
 
+    def test_a_single_name_state_file_is_not_read(self, tmp_path):
+        from osprey.simulation.engine import resolve_state_dir
+
+        root = _write_project(tmp_path / "proj", None, password=None)
+        config = yaml.safe_load((root / "config.yml").read_text())
+        state_dir = resolve_state_dir(config, root)
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "active_scenario").write_text("anchor=2026-01-01T00:00:00+00:00\nburst\n")
+
+        assert persisted_scenario_anchor(config, root) is None
+
 
 class TestComposedEvents:
     def test_the_active_set_s_scripts_are_composed(self, tmp_path):
@@ -562,6 +635,14 @@ class TestComposedEvents:
 
         with pytest.raises(ValueError, match="Unknown scenario"):
             active_archiver_events(root / "data" / "simulation" / "machine.json", ["nope"])
+
+    def test_a_machine_file_that_is_not_json_is_refused_by_name(self, tmp_path):
+        root = _write_project(tmp_path / "proj", None, password=None)
+        machine = root / "data" / "simulation" / "machine.json"
+        machine.write_text("{")
+
+        with pytest.raises(ValueError, match="Machine file .* is not valid JSON"):
+            active_archiver_events(machine, ["nominal"])
 
 
 # ---------------------------------------------------------------------------

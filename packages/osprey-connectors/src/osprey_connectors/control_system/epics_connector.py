@@ -16,6 +16,7 @@ protocol served it.
 
 import asyncio
 import concurrent.futures
+import contextvars
 import fnmatch
 import os
 import queue
@@ -28,7 +29,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, TypeVar
 
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import config_flag, get_facility_timezone
 from osprey_connectors.control_system.base import (
     ChannelMetadata,
     ChannelValue,
@@ -38,6 +39,7 @@ from osprey_connectors.control_system.base import (
     is_readonly_run,
     values_match,
 )
+from osprey_connectors.control_system.call_timeout import call_timeout_s
 from osprey_connectors.control_system.limits_validator import (
     DEFAULT_STEP_READ_TIMEOUT_SECONDS,
     step_read_timeout_seconds,
@@ -708,12 +710,22 @@ class _EpicsWorkers:
     that never exit are worth sharing — and grows on demand up to
     ``max_workers``, the same ceiling the default executor uses. A confirming
     put abandoned at its deadline keeps its worker until the IOC answers.
+
+    Each call runs in a copy of the submitting context, as under
+    ``asyncio.to_thread``: the write door a connector opens around its put
+    (``write_door``) is a context variable, and an armed run's raw-put block
+    refuses a Channel Access put made outside it.
     """
 
     def __init__(self, max_workers: int) -> None:
         self._max_workers = max_workers
         self._queue: queue.SimpleQueue[
-            tuple[concurrent.futures.Future[Any], Callable[..., Any], tuple[Any, ...]]
+            tuple[
+                concurrent.futures.Future[Any],
+                contextvars.Context,
+                Callable[..., Any],
+                tuple[Any, ...],
+            ]
         ] = queue.SimpleQueue()
         self._idle = threading.Semaphore(0)
         self._lock = threading.Lock()
@@ -722,7 +734,7 @@ class _EpicsWorkers:
     def submit(self, fn: Callable[..., Any], *args: Any) -> "concurrent.futures.Future[Any]":
         """Run ``fn(*args)`` on a worker; the returned future carries its outcome."""
         future: concurrent.futures.Future[Any] = concurrent.futures.Future()
-        self._queue.put((future, fn, args))
+        self._queue.put((future, contextvars.copy_context(), fn, args))
         if not self._idle.acquire(blocking=False):
             with self._lock:
                 if self._threads < self._max_workers:
@@ -735,13 +747,13 @@ class _EpicsWorkers:
     def _work(self) -> None:
         _worker_local.active = True
         while True:
-            future, fn, args = self._queue.get()
+            future, context, fn, args = self._queue.get()
             if future.set_running_or_notify_cancel():
                 try:
-                    future.set_result(fn(*args))
+                    future.set_result(context.run(fn, *args))
                 except BaseException as exc:  # handed to the awaiting caller
                     future.set_exception(exc)
-            del future, fn, args  # drop references while idle
+            del future, context, fn, args  # drop references while idle
             self._idle.release()
 
 
@@ -953,10 +965,10 @@ class EPICSConnector(ControlSystemConnector):
     Example:
         Direct gateway connection:
         >>> config = {
-        >>>     'timeout': 5.0,
+        >>>     'timeout_s': 5.0,
         >>>     'gateways': {
         >>>         'read_only': {
-        >>>             'address': 'cagw-alsdmz.als.lbl.gov',
+        >>>             'address': 'gw.example.org',
         >>>             'port': 5064
         >>>         }
         >>>     }
@@ -968,7 +980,7 @@ class EPICSConnector(ControlSystemConnector):
 
         SSH tunnel connection:
         >>> config = {
-        >>>     'timeout': 5.0,
+        >>>     'timeout_s': 5.0,
         >>>     'gateways': {
         >>>         'read_only': {
         >>>             'address': 'localhost',
@@ -1025,7 +1037,7 @@ class EPICSConnector(ControlSystemConnector):
 
         Args:
             config: Configuration with keys:
-                - timeout: Default timeout in seconds (default: 5.0)
+                - timeout_s: Default timeout in seconds (default: 5.0)
                 - gateways: Gateway configuration dict with:
                     - read_only: {address, port, use_name_server} for read operations
                     - write_access: {address, port, use_name_server} for write operations
@@ -1071,6 +1083,8 @@ class EPICSConnector(ControlSystemConnector):
                 already bound to a different Channel Access (or, with
                 ``pva_channels``, PVAccess) endpoint. The environment is left
                 untouched and the connector stays unconnected.
+            ValueError: If the block still carries ``timeout``, or if
+                ``timeout_s`` is not a positive, finite number
         """
         # Import pvapy here (never at module scope) to give a clear error if it
         # is not installed, and to keep this module importable without it.
@@ -1080,6 +1094,11 @@ class EPICSConnector(ControlSystemConnector):
             raise ImportError(
                 "pvapy is required for the EPICS connector. Install with: pip install pvapy"
             ) from None
+
+        # Refused before the gateway selection below works out the endpoint
+        # and rewrites the process-wide EPICS_* environment, so an unusable
+        # bound never repoints the client.
+        self._timeout = call_timeout_s(config, self._connector_type)
 
         # Select the CA gateway. EPICS uses one process-wide context, so the
         # connector points at a single gateway. A read-only gateway rejects
@@ -1103,7 +1122,9 @@ class EPICSConnector(ControlSystemConnector):
         # rejected by the gateway rather than trusted.
         readonly_run = is_readonly_run()
         write_gateway = gateways.get("write_access") or {}
+        gateway_role = "read_only"
         if writes_enabled and write_gateway:
+            gateway_role = "write_access"
             gateway_config = write_gateway
             logger.debug("EPICS connector: routing through write_access gateway (writes enabled)")
         else:
@@ -1125,9 +1146,11 @@ class EPICSConnector(ControlSystemConnector):
         if gateway_config:
             address = gateway_config.get("address", "")
             port = gateway_config.get("port", 5064)
-            # Explicit configuration for connection method
-            # Config system automatically converts "true"/"false" strings to booleans
-            use_name_server = gateway_config.get("use_name_server", False)
+            use_name_server = config_flag(
+                gateway_config.get("use_name_server"),
+                key=f"control_system.connector.{self._connector_type}.gateways."
+                f"{gateway_role}.use_name_server",
+            )
 
             # Configure EPICS environment variables
             # Clear conflicting variables first — having both CA_ADDR_LIST and
@@ -1163,8 +1186,11 @@ class EPICSConnector(ControlSystemConnector):
             if pva_gateway:
                 pva_address = str(pva_gateway.get("address", ""))
                 pva_port = pva_gateway.get("port")
-                # Config system automatically converts "true"/"false" to booleans
-                pva_use_name_server = pva_gateway.get("use_name_server", False)
+                pva_use_name_server = config_flag(
+                    pva_gateway.get("use_name_server"),
+                    key=f"control_system.connector.{self._connector_type}.pva_gateway."
+                    "use_name_server",
+                )
                 # PVA carries the port inside the address entry itself — there is
                 # no client-side "server port" variable to set, unlike CA.
                 if pva_use_name_server:
@@ -1227,9 +1253,8 @@ class EPICSConnector(ControlSystemConnector):
         if ca_updates:
             self._epics_configured = True
 
-        self._timeout = config.get("timeout", 5.0)
         # The ceiling on the fresh read a `max_step` check makes before a
-        # write. A facility-network fact like `timeout` above, and read from
+        # write. A facility-network fact like `timeout_s`, and read from
         # the same block: a gateway two hops away answers slower than a soft
         # IOC on this host. Running out of budget answers None, which refuses
         # the write — raising it buys a slow channel more room, never a
@@ -1985,14 +2010,7 @@ class EPICSConnector(ControlSystemConnector):
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        tasks = [self.read_channel(ch_addr, timeout) for ch_addr in channel_addresses]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        return {
-            ch_addr: result
-            for ch_addr, result in zip(channel_addresses, results, strict=False)
-            if not isinstance(result, Exception)
-        }
+        return await self._read_concurrently(channel_addresses, timeout)
 
     # ------------------------------------------------------------------
     # Subscriptions

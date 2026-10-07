@@ -13,8 +13,9 @@ from datetime import time as dtime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from osprey.services.ariel_search.attachments import fetchable_url
 from osprey.services.ariel_search.exceptions import IngestionError
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
@@ -68,6 +69,12 @@ class GenericJSONAdapter(FacilityAdapter):
         """Write is supported only for local file sources, not HTTP."""
         return not self.source_url.startswith(("http://", "https://"))
 
+    def attachment_file_base(self) -> Path | None:
+        """Return the directory of a file source, or ``None`` for an HTTP source."""
+        if self.source_url.startswith(("http://", "https://")):
+            return None
+        return Path(self.source_url).parent
+
     @property
     def requires_write_auth(self) -> bool:
         """No-auth logbook: a local JSON file publishes without credentials."""
@@ -89,6 +96,7 @@ class GenericJSONAdapter(FacilityAdapter):
         Yields:
             EnhancedLogbookEntry objects
         """
+        self.unreadable_entries = 0
         data = await self._load_data()
         entries = data.get("entries", [])
 
@@ -109,6 +117,7 @@ class GenericJSONAdapter(FacilityAdapter):
                     break
 
             except Exception as e:
+                self.unreadable_entries += 1
                 logger.warning(f"Failed to convert entry: {e}")
                 continue
 
@@ -246,11 +255,18 @@ class GenericJSONAdapter(FacilityAdapter):
             raw_text = title or text
 
         attachments: list[AttachmentInfo] = []
+        file_source = self.attachment_file_base() is not None
         for att in data.get("attachments", []):
             if isinstance(att, dict) and "url" in att:
+                url = att["url"]
+                if not isinstance(url, str) or (
+                    url and not fetchable_url(url, file_source=file_source)
+                ):
+                    logger.debug(f"Dropping attachment with unfetchable url: {url!r}")
+                    continue
                 attachments.append(
                     {
-                        "url": att["url"],
+                        "url": url,
                         "type": att.get("type"),
                         "filename": att.get("filename"),
                         "thumbnail_url": att.get("thumbnail_url"),
@@ -316,7 +332,8 @@ class GenericJSONAdapter(FacilityAdapter):
         A ``when`` of ``{"days_ago": N, "time": "HH:MM:SS"}`` (used by demo/seed
         data) resolves against ``now`` at ingest time, so the data always lands
         at a recent, deterministic position without mutating the source file.
-        Real facility exports omit ``when`` and carry an absolute ``timestamp``.
+        Real facility exports omit ``when`` and carry an absolute ``timestamp``,
+        which :func:`parse_entry_time` reads.
         """
         when = data.get("when")
         if isinstance(when, dict):
@@ -334,25 +351,4 @@ class GenericJSONAdapter(FacilityAdapter):
                 ) from err
             spec = RelativeTimestamp(days_ago=days_ago, time=time_of_day)
             return resolve_relative_timestamp(spec, now)
-        return self._parse_timestamp(data.get("timestamp", ""))
-
-    def _parse_timestamp(self, value: str | int | float) -> datetime:
-        """Parse timestamp from various formats."""
-        if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(value, tz=UTC)
-
-        if isinstance(value, str):
-            try:
-                # Handle with or without Z suffix
-                if value.endswith("Z"):
-                    value = value[:-1] + "+00:00"
-                return datetime.fromisoformat(value)
-            except ValueError:
-                pass  # Not ISO 8601; try next format
-
-            try:
-                return datetime.fromtimestamp(float(value), tz=UTC)
-            except ValueError:
-                pass  # Not a Unix epoch string; fall through to raise below
-
-        raise ValueError(f"Cannot parse timestamp: {value}")
+        return parse_entry_time(data.get("timestamp"))

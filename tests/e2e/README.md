@@ -290,15 +290,30 @@ export OSPREY_E2E_PROVIDER="my-gateway"
 ```
 
 Nothing stands behind it. A run under `tests/e2e/` that sets neither it nor the
-benchmark override `OSPREY_E2E_FORCE_PROVIDER` stops before it runs a test, with
-a message naming both variables and the providers OSPREY registers — a gateway
-belongs to whoever runs it, so an unnamed run is refused rather than sent to
-whichever one a default happened to point at. CI names it once, at workflow
-level in `ci.yml`.
+benchmark override `OSPREY_E2E_FORCE_PROVIDER` stops before its first test when
+it selected any test not marked `model_free`, with a message naming both
+variables, the providers OSPREY registers and those tests — a gateway belongs
+to whoever runs it, so an unnamed run is refused rather than sent to whichever
+one a default happened to point at. CI names it once, at workflow level in
+`ci.yml`.
 
 Each of these lanes then skips only when the provider it was told to build with
 has no credential, and the skip reason names that provider and the environment
 variable holding its key.
+
+### Model-free tests
+
+A test marked `model_free` reaches no model, so it runs in a session that names
+no provider. `-m model_free` selects exactly those:
+
+```bash
+uv run pytest tests/e2e/ -m model_free -v
+```
+
+The marked set equals the selection of the `e2e-no-model` CI lane, and a wiring
+test in `tests/deployment/test_ci_workflow_wiring.py` holds the two equal.
+Adding a model-free module therefore means marking it and naming it in that
+lane in one change.
 
 ### Which model the lanes run
 
@@ -393,7 +408,8 @@ async def test_my_workflow(e2e_project_factory):
    Which credential marker depends on what the test builds with: `requires_e2e_provider`
    when it builds with `e2e_provider()` and therefore follows the run, the
    gateway-specific marker (`requires_als_apg`, `requires_cborg`, …) when the test
-   pins a provider itself.
+   pins a provider itself. A test that reaches no model carries `model_free`, and
+   its module is named in the `e2e-no-model` lane in the same change.
 4. **Clean validation** - verify actual outputs (files, code content) not just LLM responses
 
 ## CI/CD Integration

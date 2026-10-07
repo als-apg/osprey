@@ -31,11 +31,16 @@ def _base_ctx(**overrides):
     guarantees it to every Claude Code template; a context without it renders
     the permission globs against an empty string, which is valid JSON naming
     nothing.
+
+    ``phoebus_agent_access`` is ``read_write`` because the clone, ask-guard and
+    rendering tests describe the drive-offering shape; the withheld shape is
+    tested in ``TestPhoebusAgentAccess``.
     """
     ctx = {
         "project_root": "/tmp/test-project",
         "current_python_env": "/usr/bin/python3",
         "agent_data_root": DEFAULT_AGENT_DATA_BASE_DIR,
+        "phoebus_agent_access": "read_write",
     }
     ctx.update(overrides)
     return ctx
@@ -60,6 +65,26 @@ class TestResolveServers:
         assert {"controls", "osprey_workspace", "ariel"} <= enabled
         # Conditional servers off (conditions not in ctx); opt-in servers off by default
         assert {"channel-finder", "health", "graph"} <= disabled
+
+    def test_a_custom_server_in_a_foreign_namespace_is_refused(self):
+        with pytest.raises(ValueError) as excinfo:
+            resolve_servers({"servers": {"plugin_tools": {"command": "x"}}}, _base_ctx())
+
+        assert "'plugin_tools'" in str(excinfo.value)
+        assert "'mcp__plugin_*'" in str(excinfo.value)
+
+    def test_a_disabled_server_in_a_foreign_namespace_is_not_refused(self):
+        servers = resolve_servers(
+            {"servers": {"plugin_tools": {"command": "x", "enabled": False}}}, _base_ctx()
+        )
+
+        assert "plugin_tools" not in {s["name"] for s in servers if s["enabled"]}
+
+    def test_no_framework_server_is_in_a_foreign_namespace(self):
+        from osprey.agent_runner.tool_names import foreign_mcp_namespace
+
+        resolve_servers({}, _base_ctx())
+        assert [name for name in FRAMEWORK_SERVERS if foreign_mcp_namespace(name)] == []
 
     def test_resolve_disable_framework_server(self):
         """New format: servers: {ariel: {enabled: false}}."""
@@ -967,6 +992,181 @@ class TestPhoebusBridgeFallback:
         p2 = _resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2", ctx)
         assert p2["env"]["PHOEBUS_BRIDGE_URL"] == ("${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}")
 
+    def test_server_env_leaves_require_handle_to_the_deployment(self):
+        """Neither the framework server nor a clone materializes PHOEBUS_REQUIRE_HANDLE:
+        an entry would win outright over phoebus.require_handle on every launch."""
+        phoebus = _resolve_one({"servers": {"phoebus": {"enabled": True}}}, "phoebus")
+        p2 = _resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2")
+        assert "PHOEBUS_REQUIRE_HANDLE" not in phoebus["env"]
+        assert "PHOEBUS_REQUIRE_HANDLE" not in p2["env"]
+
+
+class TestPhoebusAgentAccess:
+    """``phoebus.agent_access`` decides whether the agent is offered phoebus_drive.
+
+    Under ``read`` the drive is in neither permission list of the phoebus
+    server or any clone; its gate rule stays, because a matcher offers nothing.
+    """
+
+    _CFG = {"servers": {"phoebus": {"enabled": True}, "phoebus2": {"extends": "phoebus"}}}
+
+    @staticmethod
+    def _by_name(cfg, access):
+        ctx = _base_ctx(phoebus_agent_access=access)
+        return {s["name"]: s for s in resolve_servers(cfg, ctx)}
+
+    def test_read_withholds_drive_from_the_server_and_every_clone(self):
+        servers = self._by_name(self._CFG, "read")
+        for name in ("phoebus", "phoebus2"):
+            assert "phoebus_drive" not in servers[name]["permissions_ask"]
+            assert "phoebus_drive" not in servers[name]["permissions_allow"]
+            for tool in _PHOEBUS_ALLOW:
+                assert tool in servers[name]["permissions_allow"]
+
+    def test_context_without_the_key_resolves_as_read(self):
+        ctx = _base_ctx()
+        ctx.pop("phoebus_agent_access")
+        servers = {s["name"]: s for s in resolve_servers(self._CFG, ctx)}
+        for name in ("phoebus", "phoebus2"):
+            assert "phoebus_drive" not in servers[name]["permissions_ask"]
+
+    def test_read_keeps_the_drive_gate_rule(self):
+        from osprey.registry.mcp import _APPROVAL
+
+        phoebus = self._by_name(self._CFG, "read")["phoebus"]
+        rules = [r for r in phoebus["hooks_pre"] if r["matcher"] == "mcp__phoebus__phoebus_drive"]
+        assert len(rules) == 1
+        commands = [h["command"] for h in rules[0]["hooks"]]
+        assert commands == [_WRITES_CHECK.command, _APPROVAL.command]
+
+    def test_read_write_offers_drive_as_ask_only(self):
+        servers = self._by_name(self._CFG, "read_write")
+        for name in ("phoebus", "phoebus2"):
+            assert servers[name]["permissions_ask"] == ["phoebus_drive"]
+            assert "phoebus_drive" not in servers[name]["permissions_allow"]
+
+    def test_clone_spec_cannot_offer_drive_under_read(self):
+        cfg = {
+            "servers": {
+                "phoebus2": {
+                    "extends": "phoebus",
+                    "permissions": {"ask": ["phoebus_drive"], "allow": ["phoebus_drive"]},
+                }
+            }
+        }
+        p2 = self._by_name(cfg, "read")["phoebus2"]
+        assert "phoebus_drive" not in p2["permissions_ask"]
+        assert "phoebus_drive" not in p2["permissions_allow"]
+
+    def test_withholding_leaves_the_framework_template_untouched(self):
+        self._by_name(self._CFG, "read")
+        assert FRAMEWORK_SERVERS["phoebus"].permissions_ask == ["phoebus_drive"]
+
+    def _render(self, template_path, access, cfg=None):
+        from osprey.cli.templates.manager import TemplateManager
+
+        rendering = TestTemplateRendering()
+        ctx = rendering._full_ctx(
+            phoebus_agent_access=access,
+            _claude_code_config=cfg if cfg is not None else TestTemplateRendering._EXTENDS_CFG,
+        )
+        return rendering._render(TemplateManager(), template_path, ctx)
+
+    def test_render_settings_json_without_drive_under_read(self):
+        data = json.loads(self._render("claude_code/claude/settings.json.j2", "read"))
+        offered = data["permissions"]["allow"] + data["permissions"]["ask"]
+        assert not [p for p in offered if p.endswith("__phoebus_drive")]
+        pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
+        assert "mcp__phoebus__phoebus_drive" in pre_matchers
+
+    def test_render_settings_json_with_drive_under_read_write(self):
+        data = json.loads(self._render("claude_code/claude/settings.json.j2", "read_write"))
+        assert {"mcp__phoebus__phoebus_drive", "mcp__phoebus2__phoebus_drive"} <= set(
+            data["permissions"]["ask"]
+        )
+
+    def test_setup_skill_names_drive_only_under_read_write(self):
+        path = "claude_code/claude/skills/setup-mode/SKILL.md.j2"
+
+        def phoebus_row(access):
+            rendered = self._render(path, access)
+            rows = [line for line in rendered.splitlines() if line.startswith("| `phoebus` |")]
+            assert len(rows) == 1
+            return rows[0]
+
+        assert "Phoebus display bridge: open, perceive |" in phoebus_row("read")
+        assert "Phoebus display bridge: open, perceive, drive |" in phoebus_row("read_write")
+
+
+# The ariel allow list before logbook pictures: the shape a deployment with
+# ``ariel.attachments.view.enabled: false`` renders.
+_ARIEL_ALLOW_WITHOUT_VIEW = [
+    "keyword_search",
+    "semantic_search",
+    "hybrid_search",
+    "sql_query",
+    "entries_by_ids",
+    "browse",
+    "entry_get",
+    "entry_open",
+    "capabilities",
+    "status",
+    "filter_options",
+]
+
+
+class TestArielAttachmentView:
+    """``ariel_attachment_view`` decides whether the agent is offered attachment_view."""
+
+    _CFG = {"servers": {"ariel": {"enabled": True}, "ariel2": {"extends": "ariel"}}}
+
+    @staticmethod
+    def _by_name(cfg, view):
+        ctx = _base_ctx(ariel_attachment_view=view)
+        return {s["name"]: s for s in resolve_servers(cfg, ctx)}
+
+    def test_off_withholds_view_from_the_server_and_every_clone(self):
+        servers = self._by_name(self._CFG, False)
+        for name in ("ariel", "ariel2"):
+            assert servers[name]["permissions_allow"] == _ARIEL_ALLOW_WITHOUT_VIEW
+            assert "attachment_view" not in servers[name]["permissions_ask"]
+
+    def test_on_offers_view(self):
+        servers = self._by_name(self._CFG, True)
+        for name in ("ariel", "ariel2"):
+            assert "attachment_view" in servers[name]["permissions_allow"]
+            assert "attachment_to_artifact" in servers[name]["permissions_allow"]
+
+    def test_context_without_the_key_offers_view(self):
+        servers = {s["name"]: s for s in resolve_servers(self._CFG, _base_ctx())}
+        assert "attachment_view" in servers["ariel"]["permissions_allow"]
+
+    def test_withholding_leaves_the_framework_template_untouched(self):
+        self._by_name(self._CFG, False)
+        assert "attachment_view" in FRAMEWORK_SERVERS["ariel"].permissions_allow
+
+    def _settings_allow(self, view):
+        from osprey.cli.templates.manager import TemplateManager
+
+        rendering = TestTemplateRendering()
+        ctx = rendering._full_ctx(ariel_attachment_view=view, _claude_code_config=self._CFG)
+        rendered = rendering._render(TemplateManager(), "claude_code/claude/settings.json.j2", ctx)
+        return json.loads(rendered)["permissions"]["allow"]
+
+    def test_render_settings_json_off_equals_the_allow_list_without_view(self):
+        allow = self._settings_allow(False)
+        ariel = [p.removeprefix("mcp__ariel__") for p in allow if p.startswith("mcp__ariel__")]
+        assert ariel == _ARIEL_ALLOW_WITHOUT_VIEW
+        assert not [p for p in allow if p.endswith("__attachment_view")]
+
+    def test_render_settings_json_on_offers_view(self):
+        allow = self._settings_allow(True)
+        assert {"mcp__ariel__attachment_view", "mcp__ariel2__attachment_view"} <= set(allow)
+        assert {
+            "mcp__ariel__attachment_to_artifact",
+            "mcp__ariel2__attachment_to_artifact",
+        } <= set(allow)
+
 
 # ---------------------------------------------------------------------------
 # Agent resolution tests
@@ -1298,7 +1498,7 @@ class TestTemplateRendering:
         pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
         # One matcher covering every write tool: the memory guard's frontmatter
         # is copied verbatim into the rule, so this string is the guard's reach.
-        assert "Write|MultiEdit|NotebookEdit" in pre_matchers
+        assert "Write|NotebookEdit" in pre_matchers
         assert "mcp__controls__channel_write" in pre_matchers
         post_matchers = [r["matcher"] for r in data["hooks"]["PostToolUse"]]
         assert "NotebookEdit" in post_matchers  # Framework standalone hook (notebook-update)

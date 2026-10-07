@@ -14,6 +14,7 @@ messages the module raises did not change with the way it prints them.
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
 import threading
@@ -87,6 +88,29 @@ def verbose_reporter() -> Iterator[None]:
 def _echo_step(name: str, text: str = "all good", *, timeout: int = 30) -> LifecycleStep:
     """A quiet step that prints ``text`` and succeeds."""
     return LifecycleStep(name=name, run=f"echo {text}", timeout=timeout)
+
+
+_TABLE_TITLE = "Integration Test Results"
+
+_Y2K_NS = 946_684_800 * 10**9
+"""A modification time, in nanoseconds, that no file written during a test run carries."""
+
+
+def _results_step(
+    tmp_path: Path, name: str, *, then: str = "", stream: bool = False
+) -> LifecycleStep:
+    """A step that copies the same JUnit results to the project root, then runs ``then``.
+
+    Every step built this way writes byte-identical results; ``then`` is a shell
+    tail run after the copy.
+    """
+    source = tmp_path / "junit-source.xml"
+    if not source.exists():
+        source.write_text(_JUNIT_XML)
+    target = f"{{project_root}}/{build_lifecycle.JUNIT_RESULTS_FILENAME}"
+    return LifecycleStep(
+        name=name, run=f"sh -c 'cp {source} {target}{then}'", timeout=30, stream=stream
+    )
 
 
 def test_the_phase_header_is_phase_record(tmp_path: Path, recorder: _RecordingReporter) -> None:
@@ -244,9 +268,9 @@ def test_the_test_results_table_prints_through_the_renderer(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A step that left JUnit results gets them summarised under its pass line."""
-    (tmp_path / "check_results.xml").write_text(_JUNIT_XML)
-
-    build_lifecycle._run_lifecycle_phase("post_build", [_echo_step("checks")], tmp_path, tmp_path)
+    build_lifecycle._run_lifecycle_phase(
+        "post_build", [_results_step(tmp_path, "checks")], tmp_path, tmp_path
+    )
 
     printed = capsys.readouterr().out
     assert "Integration Test Results" in printed
@@ -262,9 +286,9 @@ def test_the_test_results_table_survives_the_verbose_reporter(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The table is the step's report, so ``--verbose`` does not swallow it."""
-    (tmp_path / "check_results.xml").write_text(_JUNIT_XML)
-
-    build_lifecycle._run_lifecycle_phase("post_build", [_echo_step("checks")], tmp_path, tmp_path)
+    build_lifecycle._run_lifecycle_phase(
+        "post_build", [_results_step(tmp_path, "checks")], tmp_path, tmp_path
+    )
 
     assert "Integration Test Results" in capsys.readouterr().out
 
@@ -273,11 +297,62 @@ def test_results_that_are_absent_or_unreadable_print_nothing(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Most steps leave no test results, and a half-written file is not an error."""
-    build_lifecycle._format_junit_summary(tmp_path / "check_results.xml")
-    (tmp_path / "check_results.xml").write_text("<testsuites>")
-    build_lifecycle._format_junit_summary(tmp_path / "check_results.xml")
+    build_lifecycle._format_junit_summary(tmp_path / build_lifecycle.JUNIT_RESULTS_FILENAME)
+    (tmp_path / build_lifecycle.JUNIT_RESULTS_FILENAME).write_text("<testsuites>")
+    build_lifecycle._format_junit_summary(tmp_path / build_lifecycle.JUNIT_RESULTS_FILENAME)
 
     assert capsys.readouterr().out == ""
+
+
+def test_the_results_file_is_named_once() -> None:
+    """The results file name is spelled in one place, the constant's assignment."""
+    source = Path(build_lifecycle.__file__).read_text(encoding="utf-8")
+
+    assert source.count(f'"{build_lifecycle.JUNIT_RESULTS_FILENAME}"') == 1
+
+
+def test_a_step_that_writes_results_at_the_project_root_gets_the_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The results file is read from the project root whatever the step's cwd."""
+    default_cwd = tmp_path / "cwd"
+    project_path = tmp_path / "project"
+    default_cwd.mkdir()
+    project_path.mkdir()
+    (tmp_path / "junit.xml").write_text(_JUNIT_XML)
+    step = LifecycleStep(
+        name="tests",
+        run=(
+            f"cp {tmp_path / 'junit.xml'} {{project_root}}/{build_lifecycle.JUNIT_RESULTS_FILENAME}"
+        ),
+        timeout=30,
+    )
+
+    build_lifecycle._run_lifecycle_phase(
+        "validate", [step], default_cwd, project_path, abort_on_failure=False
+    )
+
+    printed = capsys.readouterr().out
+    assert "Integration Test Results" in printed
+    assert "reads_config" in printed
+    assert not (default_cwd / build_lifecycle.JUNIT_RESULTS_FILENAME).exists()
+
+
+def test_the_profile_reference_names_the_results_file() -> None:
+    """The build profile reference states the file name the module reads."""
+    reference = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "source"
+        / "reference"
+        / "configuration"
+        / "profile.rst"
+    )
+    recipe = f"--junitxml={{project_root}}/{build_lifecycle.JUNIT_RESULTS_FILENAME}"
+
+    assert recipe in reference.read_text(encoding="utf-8"), (
+        "renaming JUNIT_RESULTS_FILENAME means updating the profile reference"
+    )
 
 
 def test_the_module_owns_no_console_of_its_own() -> None:
@@ -295,3 +370,158 @@ def test_the_module_owns_no_console_of_its_own() -> None:
 
     assert direct == []
     assert "click.echo" not in source
+
+
+_MODES = pytest.mark.parametrize("stream", [False, True], ids=["quiet", "stream"])
+
+
+@_MODES
+def test_a_step_that_writes_no_results_prints_no_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], stream: bool
+) -> None:
+    """A step after the one that wrote the results does not repeat their table."""
+    steps = [
+        _results_step(tmp_path, "tests", stream=stream),
+        LifecycleStep(name="lint", run="echo done", timeout=30, stream=stream),
+    ]
+
+    build_lifecycle._run_lifecycle_phase(
+        "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+    )
+
+    assert capsys.readouterr().out.count(_TABLE_TITLE) == 1
+
+
+@_MODES
+def test_an_aborting_step_that_writes_no_results_prints_no_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], stream: bool
+) -> None:
+    """A step that fails without writing results shows no earlier step's table."""
+    steps = [
+        _results_step(tmp_path, "tests", stream=stream),
+        LifecycleStep(name="bad step", run="sh -c 'exit 3'", timeout=30, stream=stream),
+    ]
+
+    with pytest.raises(BuildProfileError):
+        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+
+    assert capsys.readouterr().out.count(_TABLE_TITLE) == 1
+
+
+@_MODES
+def test_every_step_that_writes_results_gets_its_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], stream: bool
+) -> None:
+    """A second write of identical results still ran its tests, so it gets a table."""
+    retouch = f" && touch -t 200001010000 {{project_root}}/{build_lifecycle.JUNIT_RESULTS_FILENAME}"
+    steps = [
+        _results_step(tmp_path, "first", stream=stream),
+        _results_step(tmp_path, "second", then=retouch, stream=stream),
+    ]
+
+    build_lifecycle._run_lifecycle_phase(
+        "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+    )
+
+    assert capsys.readouterr().out.count(_TABLE_TITLE) == 2
+
+
+def test_results_replaced_by_rename_get_their_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A step that writes a new file and renames it over the old one gets a table."""
+    target = f"{{project_root}}/{build_lifecycle.JUNIT_RESULTS_FILENAME}"
+    fresh = "{project_root}/fresh.xml"
+    steps = [
+        _results_step(tmp_path, "first"),
+        LifecycleStep(
+            name="second", run=f"sh -c 'cp {target} {fresh} && mv {fresh} {target}'", timeout=30
+        ),
+    ]
+
+    build_lifecycle._run_lifecycle_phase(
+        "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+    )
+
+    assert capsys.readouterr().out.count(_TABLE_TITLE) == 2
+
+
+@_MODES
+def test_a_tolerated_failure_that_wrote_results_gets_its_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], stream: bool
+) -> None:
+    """A step that writes results and then fails under ``validate`` keeps its table."""
+    steps = [_results_step(tmp_path, "tests", then="; exit 1", stream=stream)]
+
+    build_lifecycle._run_lifecycle_phase(
+        "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+    )
+
+    captured = capsys.readouterr()
+    assert "⚠ Lifecycle validate step 'tests' failed" in captured.err
+    assert captured.out.count(_TABLE_TITLE) == 1
+
+
+@_MODES
+def test_an_aborting_step_that_wrote_results_gets_its_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], stream: bool
+) -> None:
+    """A step that writes results and then fails the build keeps its table."""
+    steps = [_results_step(tmp_path, "tests", then="; exit 2", stream=stream)]
+
+    with pytest.raises(BuildProfileError):
+        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+
+    assert capsys.readouterr().out.count(_TABLE_TITLE) == 1
+
+
+def test_results_left_before_the_phase_print_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A results file no step touched is not reported, and is left where it is."""
+    results = tmp_path / build_lifecycle.JUNIT_RESULTS_FILENAME
+    results.write_text(_JUNIT_XML)
+
+    build_lifecycle._run_lifecycle_phase("post_build", [_echo_step("checks")], tmp_path, tmp_path)
+
+    assert _TABLE_TITLE not in capsys.readouterr().out
+    assert results.read_text() == _JUNIT_XML
+
+
+@pytest.mark.parametrize("abort_on_failure", [True, False], ids=["abort", "tolerated"])
+def test_a_timed_out_step_prints_only_results_it_wrote(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], abort_on_failure: bool
+) -> None:
+    """A step that times out gets a table only for results it wrote itself.
+
+    The runner is stood in for, so the first step's write and the timeouts are
+    deterministic rather than a race between a live child and a wall clock.
+    """
+    results = tmp_path / build_lifecycle.JUNIT_RESULTS_FILENAME
+    results.write_text(_JUNIT_XML)
+    calls: list[str] = []
+
+    def timed_out_run(cmd: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if not calls:
+            results.write_text(_JUNIT_XML)
+            os.utime(results, ns=(_Y2K_NS, _Y2K_NS))
+        calls.append(str(cmd))
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    steps = [
+        LifecycleStep(name="first", run="sleep 30", timeout=1),
+        LifecycleStep(name="second", run="sleep 30", timeout=1),
+    ]
+
+    with patch_subprocess("osprey.cli.build_lifecycle", side_effect=timed_out_run):
+        if abort_on_failure:
+            with pytest.raises(BuildProfileError):
+                build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+            assert len(calls) == 1
+        else:
+            build_lifecycle._run_lifecycle_phase(
+                "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+            )
+            assert len(calls) == 2
+
+    assert capsys.readouterr().out.count(_TABLE_TITLE) == 1

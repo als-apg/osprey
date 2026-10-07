@@ -76,7 +76,7 @@ from tests.e2e.web_terminals.test_terminal_auth_e2e import (
     _read_login_url,
 )
 
-pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke]
+pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 _HOST = "127.0.0.1"
 #: How long the ``--detach`` launcher itself may take to return. It is not a

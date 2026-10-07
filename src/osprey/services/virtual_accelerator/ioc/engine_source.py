@@ -222,7 +222,7 @@ class EngineSource:
             return self._coerce(address, self._engine.read(address).value)
         return self._legacy_value(address)
 
-    def _coerce(self, address: str, value: Any) -> float | bool | str:
+    def _coerce(self, address: str, value: float | str) -> float | bool | str:
         """Coerce an engine-served value to the record's actual type.
 
         ``SimulationEngine`` stores every channel's value as a plain float

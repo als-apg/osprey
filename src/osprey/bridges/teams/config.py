@@ -30,11 +30,15 @@ Two values carry a default here and two deliberately do not:
    one of them names a specific tenant's resources, so a shipped literal would be
    one facility's secret compiled into every deployment.
 *  ``TEAMS_MENTIONS`` is optional and defaults on.
+*  ``TEAMS_FILES_DRIVE_ID`` and ``TEAMS_FILES_FOLDER`` are optional and default
+   empty: without a file library, a file the bridge cannot post inline is named in
+   the closing note rather than shared.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from importlib import metadata
@@ -49,7 +53,7 @@ tests cannot disagree about which package is being asked."""
 
 @dataclass(frozen=True)
 class CloudEndpoints:
-    """The two hosts that differ between the Azure clouds a bot can live in.
+    """The hosts and scopes that differ between the Azure clouds a bot can live in.
 
     Nothing else about the bridge is cloud-dependent: replies always go to the
     ``serviceUrl`` the activity itself carried, so the outbound host is never
@@ -62,15 +66,25 @@ class CloudEndpoints:
     token_scope: str
     """Scope requested for that token — the Bot Connector audience in this cloud."""
 
+    graph_host: str
+    """Host of Microsoft Graph in this cloud, where the file library is reached."""
+
+    graph_scope: str
+    """Scope requested for a Graph token — the Graph audience in this cloud."""
+
 
 CLOUDS: Mapping[str, CloudEndpoints] = {
     "commercial": CloudEndpoints(
         login_host="login.microsoftonline.com",
         token_scope="https://api.botframework.com/.default",
+        graph_host="graph.microsoft.com",
+        graph_scope="https://graph.microsoft.com/.default",
     ),
     "gcchigh": CloudEndpoints(
         login_host="login.microsoftonline.us",
         token_scope="https://api.botframework.us/.default",
+        graph_host="graph.microsoft.us",
+        graph_scope="https://graph.microsoft.us/.default",
     ),
 }
 """Every cloud the bridge supports, keyed by the value an operator sets as
@@ -81,6 +95,13 @@ an operator can guess at."""
 DEFAULT_CLOUD = "commercial"
 """Cloud assumed when ``TEAMS_CLOUD`` is unset — or renders empty under compose,
 where the variable is optional and therefore bare."""
+
+_DRIVE_ID_REFUSED = re.compile(r"[/?#\s]")
+"""Characters a Graph drive id never holds and that would change the URL it is
+placed in — a path separator, a query or fragment start, whitespace."""
+
+_FOLDER_SEGMENT_ALLOWED = re.compile(r"[A-Za-z0-9 ._-]+")
+"""Characters a folder segment of ``TEAMS_FILES_FOLDER`` may hold, as a full match."""
 
 CORE_URL_ENV = {"dispatcher_url": "DISPATCHER_URL", "worker_url": "WORKER_URL"}
 """The two :class:`CoreConfig` URL fields :meth:`TeamsBridgeConfig.require_startup`
@@ -137,6 +158,17 @@ class TeamsBridgeConfig:
     agent is told to name people instead. Set from the build profile's
     ``teams_bridge.mentions``, rendered as ``TEAMS_MENTIONS``."""
 
+    files_drive_id: str = ""
+    """OPTIONAL Graph drive id of the document library the Microsoft 365
+    administrator set aside for the bot. Every file the bridge cannot post inline
+    is uploaded there and shared with the conversation's members. Empty means no
+    library: such files are named in the closing note."""
+
+    files_folder: str = ""
+    """OPTIONAL folder path inside that library, ``/``-separated, with no leading
+    or trailing ``/``. Empty means the library root. Each run's files go into their
+    own folder beneath it."""
+
     core: CoreConfig = field(default_factory=CoreConfig)
     """The channel-neutral half, handed to the engine's collaborators as-is."""
 
@@ -151,6 +183,21 @@ class TeamsBridgeConfig:
             raise ValueError(
                 f"TEAMS_CLOUD must be one of {', '.join(sorted(CLOUDS))}; got {self.cloud!r}"
             )
+        # The file library is refused here for the same reason: a bad drive id or
+        # folder would otherwise surface only as a Graph 400 inside a worker thread.
+        if self.files_folder and not self.files_drive_id:
+            raise ValueError("TEAMS_FILES_FOLDER is set but TEAMS_FILES_DRIVE_ID is not")
+        if _DRIVE_ID_REFUSED.search(self.files_drive_id):
+            raise ValueError(
+                "TEAMS_FILES_DRIVE_ID must be one path segment with no whitespace; "
+                f"got {self.files_drive_id!r}"
+            )
+        for segment in self.files_folder_segments:
+            if segment in (".", "..") or not _FOLDER_SEGMENT_ALLOWED.fullmatch(segment):
+                raise ValueError(
+                    "TEAMS_FILES_FOLDER segments may hold only letters, digits, space, "
+                    f"'.', '_' and '-', and may not be '.' or '..'; got {segment!r}"
+                )
 
     @property
     def login_host(self) -> str:
@@ -161,6 +208,21 @@ class TeamsBridgeConfig:
     def token_scope(self) -> str:
         """Bot Connector scope requested for :attr:`cloud`."""
         return CLOUDS[self.cloud].token_scope
+
+    @property
+    def graph_host(self) -> str:
+        """Microsoft Graph host for :attr:`cloud`."""
+        return CLOUDS[self.cloud].graph_host
+
+    @property
+    def graph_scope(self) -> str:
+        """Microsoft Graph scope requested for :attr:`cloud`."""
+        return CLOUDS[self.cloud].graph_scope
+
+    @property
+    def files_folder_segments(self) -> tuple[str, ...]:
+        """:attr:`files_folder` split on ``/``, empty segments dropped."""
+        return tuple(segment for segment in self.files_folder.split("/") if segment)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> TeamsBridgeConfig:
@@ -192,7 +254,8 @@ class TeamsBridgeConfig:
             thread.
 
         Raises:
-            ValueError: If ``TEAMS_CLOUD`` names a cloud outside :data:`CLOUDS`.
+            ValueError: If ``TEAMS_CLOUD`` names a cloud outside :data:`CLOUDS`, or
+                the file library pair is malformed (see :meth:`__post_init__`).
         """
         e = os.environ if env is None else env
         return cls(
@@ -204,6 +267,8 @@ class TeamsBridgeConfig:
             servicebus_queue=e.get("TEAMS_SERVICEBUS_QUEUE", ""),
             version_tag=e.get("APP_VERSION_DISPLAY", "") or _installed_version(),
             mentions=env_flag(e.get("TEAMS_MENTIONS"), True),
+            files_drive_id=e.get("TEAMS_FILES_DRIVE_ID", ""),
+            files_folder=e.get("TEAMS_FILES_FOLDER", "").strip("/"),
             core=CoreConfig.from_env(e),
         )
 
@@ -211,9 +276,10 @@ class TeamsBridgeConfig:
         """Raise unless everything the bridge cannot run without is set.
 
         Covers the app registration, the queue coordinates, and the neutral
-        trigger plus both dispatch tokens. ``cloud`` and ``version_tag`` are
-        deliberately excluded: the cloud has a checked default, and without a
-        version tag the ack simply omits it.
+        trigger plus both dispatch tokens. ``cloud``, ``version_tag`` and the file
+        library are deliberately excluded: the cloud has a checked default, without
+        a version tag the ack simply omits it, and without a library files are named
+        rather than shared.
 
         The error names the missing **environment variables** (not field names),
         since that is what a deployment sets, and names all of them in one raise

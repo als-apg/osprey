@@ -13,7 +13,7 @@ import logging
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger("osprey.lattice_dashboard.state")
 
@@ -155,7 +155,7 @@ class LatticeState:
 
     def _load_unlocked(self) -> dict[str, Any]:
         if self._state_path.exists():
-            return json.loads(self._state_path.read_text())
+            return cast(dict[str, Any], json.loads(self._state_path.read_text()))
         return self._empty_state()
 
     def save(self, state: dict[str, Any]) -> None:
@@ -369,7 +369,7 @@ class LatticeState:
         """Deep-merge setting updates, validate, and mark affected figures stale."""
         with self._lock:
             state = self._load_unlocked()
-            settings = state.get("settings", copy.deepcopy(DEFAULT_SETTINGS))
+            settings: dict[str, Any] = state.get("settings", copy.deepcopy(DEFAULT_SETTINGS))
 
             affected_figures: set[str] = set()
             for group, values in new_settings.items():
@@ -404,13 +404,14 @@ class LatticeState:
         """Reset all settings to defaults."""
         with self._lock:
             state = self._load_unlocked()
-            state["settings"] = copy.deepcopy(DEFAULT_SETTINGS)
+            settings: dict[str, Any] = copy.deepcopy(DEFAULT_SETTINGS)
+            state["settings"] = settings
             # Mark all figures stale
             for fig_name in ALL_FIGURES:
                 if state["figures"].get(fig_name, {}).get("status") == "ready":
                     state["figures"][fig_name]["status"] = "stale"
             self._save_unlocked(state)
-            return state["settings"]
+            return settings
 
     # ── Baseline ──────────────────────────────────────────────
 
@@ -431,7 +432,7 @@ class LatticeState:
 
     def get_baseline(self) -> dict[str, Any] | None:
         if self._baseline_path.exists():
-            return json.loads(self._baseline_path.read_text())
+            return cast(dict[str, Any], json.loads(self._baseline_path.read_text()))
         return None
 
     def clear_baseline(self) -> None:

@@ -62,8 +62,10 @@ export function startHealthPolling(panel, state, onSettled) {
 
   let delay = 500;
   function scheduleNext() {
-    state.pollTimer = setTimeout(() => {
+    const timer = setTimeout(() => {
       pollHealth(panel, state, onSettled).then(() => {
+        // Stopped (or restarted) while this probe was in flight: end this loop.
+        if (state.pollTimer !== timer) return;
         if (state.healthy) {
           // Switch to slow maintenance polling
           state.pollTimer = setInterval(() => pollHealth(panel, state, onSettled), 10000);
@@ -73,6 +75,20 @@ export function startHealthPolling(panel, state, onSettled) {
         }
       });
     }, delay);
+    state.pollTimer = timer;
   }
   scheduleNext();
+}
+
+/**
+ * Stop a panel's polling loop, whichever phase it is in: `state.pollTimer`
+ * holds the startup timeout or the maintenance interval, and both are cleared.
+ * @param {PanelState} state
+ */
+export function stopHealthPolling(state) {
+  if (state.pollTimer !== null) {
+    clearTimeout(state.pollTimer);
+    clearInterval(state.pollTimer);
+  }
+  state.pollTimer = null;
 }

@@ -19,14 +19,13 @@ proxy-transparency half.
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.interfaces._serving import run_app_server
 from osprey.interfaces.bluesky_web.app import app as bluesky_app
-from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
+
+from ._proxy_fakes import panel_app
 
 _CATALOG = ["BR:DIAG:BPM:01:POSITION:X", "BR:DIAG:BPM:02:POSITION:X"]
 
@@ -34,24 +33,6 @@ _CATALOG = ["BR:DIAG:BPM:01:POSITION:X", "BR:DIAG:BPM:02:POSITION:X"]
 # Cache-Control. Appearing on /channels would mean setdefault clobbered the
 # route's decision.
 _HUB_DEFAULT = "no-cache, no-store, must-revalidate"
-
-
-def _make_client(workspace_dir, custom_panels):
-    """Create a TestClient with custom panels configured."""
-    enabled = set(UNIVERSAL_PANELS)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(enabled, custom_panels, None),
-        ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield app, c
 
 
 @pytest.fixture
@@ -80,7 +61,7 @@ def bluesky_url(monkeypatch, tmp_path):
 
 
 @pytest.fixture
-def hub_client(tmp_path, bluesky_url):
+def hub_client(tmp_path, bluesky_url, monkeypatch):
     """Hub app whose ``bluesky`` custom panel points at the live sidecar."""
     ws = tmp_path / "_agent_data"
     ws.mkdir()
@@ -88,12 +69,16 @@ def hub_client(tmp_path, bluesky_url):
     # the operator secret toward (see test_proxy.py's trusted panel); without the
     # marker the proxy strips the credential and the now-gated sidecar refuses it.
     custom = [{"id": "bluesky", "label": "Bluesky", "url": bluesky_url, "configDefined": True}]
-    for _app, client in _make_client(ws, custom):
+    for _app, client in panel_app(ws, custom):
         # Hub and sidecar are one deployment sharing one process credential. The
         # sidecar app is imported at module scope, so it was seeded from a
         # different holder than this per-test hub; pin them together so the
         # secret the proxy forwards authenticates on the upstream hop.
-        bluesky_app.state.web_credentials = _app.state.web_credentials
+        # Through monkeypatch: the sidecar app is module-global, and a
+        # credential left on it would authenticate the next test that imports it.
+        monkeypatch.setattr(
+            bluesky_app.state, "web_credentials", _app.state.web_credentials, raising=False
+        )
         yield client
 
 

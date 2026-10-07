@@ -7,9 +7,11 @@ evaluation makes parallel guessing throughput-bounded rather than merely
 latency-delayed, because a hundred concurrent requests cost the sidecar a dict
 lookup each instead of a hundred scrypt derivations.
 
-The window grows on each failed attempt (1s, 2s, 4s, … capped at 30s) and is
-dropped entirely on success, so an operator who mistypes once pays a second and
-an operator who types correctly pays nothing.
+The window grows on each failed attempt and is dropped entirely on success. By
+default it opens at 1 s and doubles up to a 30 s ceiling, forgotten after 300 s
+of quiet, so an operator who mistypes once pays a second and an operator who
+types correctly pays nothing. A deployment sets all four through
+``modules.web_terminals.auth.throttle``.
 
 **No lockout, ever.** A control-room operator must never be shut out of the
 terminals, so there is no failure count that latches. The window only ever
@@ -49,16 +51,90 @@ could then delay a named operator's real login just by asking for it.
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-__all__ = ["AttemptThrottle"]
+__all__ = [
+    "DEFAULT_FORGET_AFTER",
+    "DEFAULT_INITIAL_DELAY",
+    "DEFAULT_MAX_DELAY",
+    "DEFAULT_MULTIPLIER",
+    "THROTTLE_DEFAULTS",
+    "AttemptThrottle",
+    "throttle_problems",
+]
 
-_DEFAULT_INITIAL_DELAY = 1.0
-_DEFAULT_MULTIPLIER = 2.0
-_DEFAULT_MAX_DELAY = 30.0
-_DEFAULT_FORGET_AFTER = 300.0
+DEFAULT_INITIAL_DELAY = 1.0
+DEFAULT_MULTIPLIER = 2.0
+DEFAULT_MAX_DELAY = 30.0
+DEFAULT_FORGET_AFTER = 300.0
+
+#: Each default, keyed by its ``AttemptThrottle`` keyword.
+THROTTLE_DEFAULTS: dict[str, float] = {
+    "initial_delay": DEFAULT_INITIAL_DELAY,
+    "multiplier": DEFAULT_MULTIPLIER,
+    "max_delay": DEFAULT_MAX_DELAY,
+    "forget_after": DEFAULT_FORGET_AFTER,
+}
+
+
+def _usable_number(value: object) -> bool:
+    """A finite real number, and not a bool (which Python counts as an int)."""
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def throttle_problems(
+    *, initial_delay: object, multiplier: object, max_delay: object, forget_after: object
+) -> dict[str, str]:
+    """Name every parameter the throttle cannot be built with.
+
+    The one predicate for the throttle's parameters: the constructor, the
+    sidecar's requirements check, the render refusal and the lint rule all call
+    it, so no two surfaces can disagree on what a usable throttle is. A
+    non-finite value is refused because NaN would disable the throttle and an
+    infinite ceiling would eventually lock a user out.
+
+    Args:
+        initial_delay: Window after the first failed attempt, in seconds.
+        multiplier: Factor the window grows by on each further failure.
+        max_delay: Ceiling on the window, in seconds.
+        forget_after: Seconds of quiet after which escalation is discarded.
+
+    Returns:
+        ``{parameter name: reason}``, empty when all four are usable. Each reason
+        is plain words carrying the offending bound, so a caller prefixes the
+        name its own surface uses.
+    """
+    values = {
+        "initial_delay": initial_delay,
+        "multiplier": multiplier,
+        "max_delay": max_delay,
+        "forget_after": forget_after,
+    }
+    numbers: dict[str, float] = {
+        name: float(value)  # type: ignore[arg-type]  # _usable_number proved it real
+        for name, value in values.items()
+        if _usable_number(value)
+    }
+    problems = {
+        name: "is not a finite number"
+        if name == "multiplier"
+        else "is not a finite number of seconds"
+        for name in values
+        if name not in numbers
+    }
+    if numbers.get("initial_delay", 1.0) <= 0:
+        problems["initial_delay"] = "must be greater than zero"
+    if numbers.get("multiplier", 1.0) < 1:
+        problems["multiplier"] = "must be at least 1"
+    if "max_delay" in numbers and "initial_delay" in numbers:
+        if numbers["max_delay"] < numbers["initial_delay"]:
+            problems["max_delay"] = f"must be at least the initial delay ({initial_delay} s)"
+    if numbers.get("forget_after", 0.0) < 0:
+        problems["forget_after"] = "must not be negative"
+    return problems
 
 
 @dataclass(slots=True)
@@ -82,10 +158,10 @@ class AttemptThrottle:
     def __init__(
         self,
         *,
-        initial_delay: float = _DEFAULT_INITIAL_DELAY,
-        multiplier: float = _DEFAULT_MULTIPLIER,
-        max_delay: float = _DEFAULT_MAX_DELAY,
-        forget_after: float = _DEFAULT_FORGET_AFTER,
+        initial_delay: float = DEFAULT_INITIAL_DELAY,
+        multiplier: float = DEFAULT_MULTIPLIER,
+        max_delay: float = DEFAULT_MAX_DELAY,
+        forget_after: float = DEFAULT_FORGET_AFTER,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         """Create an empty throttle.
@@ -94,7 +170,7 @@ class AttemptThrottle:
             initial_delay: Window after the first failed attempt, in seconds.
             multiplier: Factor the window grows by on each further failure.
             max_delay: Ceiling on the window, in seconds. The cap is what bounds
-                guessing throughput; it is deliberately low enough that a locked-out
+                guessing throughput; it is deliberately low enough that a throttled
                 operator is never more than this many seconds from retrying.
             forget_after: Seconds of quiet, measured past the moment the window
                 lifted, after which the user's escalation is discarded.
@@ -103,19 +179,19 @@ class AttemptThrottle:
 
         Raises:
             ValueError: If the parameters could not produce a growing, capped
-                window (non-positive delays, a multiplier below 1, or a cap below
-                the initial delay).
+                window (non-positive delays, a multiplier below 1, a cap below
+                the initial delay, a negative ``forget_after``), or if any is
+                not a finite number or is a bool. The message names every
+                parameter at fault.
         """
-        if initial_delay <= 0:
-            raise ValueError(f"initial_delay must be positive, got {initial_delay}")
-        if multiplier < 1:
-            raise ValueError(f"multiplier must be at least 1, got {multiplier}")
-        if max_delay < initial_delay:
-            raise ValueError(
-                f"max_delay ({max_delay}) must be at least initial_delay ({initial_delay})"
-            )
-        if forget_after < 0:
-            raise ValueError(f"forget_after must not be negative, got {forget_after}")
+        problems = throttle_problems(
+            initial_delay=initial_delay,
+            multiplier=multiplier,
+            max_delay=max_delay,
+            forget_after=forget_after,
+        )
+        if problems:
+            raise ValueError("; ".join(f"{name} {reason}" for name, reason in problems.items()))
 
         self._initial_delay = initial_delay
         self._multiplier = multiplier

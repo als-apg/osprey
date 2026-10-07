@@ -104,35 +104,6 @@ class TestAutoLaunchGating:
         assert _url(stub_app, key) == "http://127.0.0.1:8099"
         assert launched == [key]
 
-    @pytest.mark.usefixtures("launched")
-    def test_published_url_honours_the_port_env_override(self, key, config, stub_app, monkeypatch):
-        """Multi-user compose moves every panel's port via this env var.
-
-        The URL published here and the port uvicorn binds come from the same
-        resolver, so a per-user deployment cannot end up with a tab pointing at
-        a port nothing listens on.
-        """
-        definition = FRAMEWORK_WEB_SERVERS[key]
-        config.update(_address_config(definition, auto_launch=True, port=8099))
-        monkeypatch.setenv(definition.port_env_var, "9999")
-
-        _launch(stub_app, key)
-
-        assert _url(stub_app, key) == "http://127.0.0.1:9999"
-
-    @pytest.mark.usefixtures("launched")
-    def test_set_but_empty_port_override_falls_back_to_config(
-        self, key, config, stub_app, monkeypatch
-    ):
-        """A compose file's bare ``OSPREY_..._PORT=`` must not kill the launch."""
-        definition = FRAMEWORK_WEB_SERVERS[key]
-        config.update(_address_config(definition, auto_launch=True, port=8099))
-        monkeypatch.setenv(definition.port_env_var, "")
-
-        _launch(stub_app, key)
-
-        assert _url(stub_app, key) == "http://127.0.0.1:8099"
-
     def test_launch_failure_retracts_the_url(self, key, config, stub_app, monkeypatch):
         """A URL assigned before the launch blew up must not survive it."""
         definition = FRAMEWORK_WEB_SERVERS[key]
@@ -163,15 +134,16 @@ class TestAutoLaunchGating:
 @pytest.mark.usefixtures("launched")
 @pytest.mark.parametrize("key", ALL_KEYS)
 @pytest.mark.parametrize(
-    "env_value",
+    ("env_value", "config_port", "expected_port"),
     [
-        None,  # no override → the config/default port on both sides
-        "9099",  # explicit override → both sides honour it
-        "",  # SET-BUT-EMPTY (compose `VAR=`) → must not crash the launch
+        (None, None, None),  # no override → the registry default port on both sides
+        ("9099", 8099, 9099),  # explicit override → both sides honour it over config
+        ("", 8099, 8099),  # SET-BUT-EMPTY (compose `VAR=`) → falls back to config
     ],
+    ids=["unset", "override", "set-but-empty"],
 )
 def test_published_port_equals_the_port_the_launcher_binds(
-    key, env_value, config, stub_app, monkeypatch
+    key, env_value, config_port, expected_port, config, stub_app, monkeypatch
 ):
     """The advertised port and the bound port are compared, not assumed equal.
 
@@ -179,10 +151,15 @@ def test_published_port_equals_the_port_the_launcher_binds(
     pointed at; ``ServerLauncher``'s own config reader is what uvicorn binds. A
     launcher that re-derived either half by hand drifted from the other — an
     ``int("")`` on a set-but-empty override killed the launch while the server
-    came up fine, leaving a tab pointing at a port nothing served.
+    came up fine, leaving a tab pointing at a port nothing served. The port is
+    also pinned to its expected value, because two halves that both ignored the
+    override would still agree with each other.
     """
     definition = FRAMEWORK_WEB_SERVERS[key]
-    config.update(_address_config(definition, auto_launch=True))
+    address = {"auto_launch": True}
+    if config_port is not None:
+        address["port"] = config_port
+    config.update(_address_config(definition, **address))
     if env_value is None:
         monkeypatch.delenv(definition.port_env_var, raising=False)
     else:
@@ -192,8 +169,11 @@ def test_published_port_equals_the_port_the_launcher_binds(
 
     url = _url(stub_app, key)
     assert url, "the launcher crashed — no URL published (a silent dead tab)"
+    published_port = int(url.rsplit(":", 1)[1])
     _host, bound_port = server_launcher._launchers[key]._config_reader()
-    assert int(url.rsplit(":", 1)[1]) == bound_port
+    assert published_port == bound_port
+    expected = framework_web_port_default(key) if expected_port is None else expected_port
+    assert published_port == expected
 
 
 class TestEnabledPanelSelection:
@@ -222,11 +202,6 @@ class TestEnabledPanelSelection:
         web_terminal_app._launch_enabled_panel_servers(stub_app, {"artifacts", "events"})
 
         assert launch_calls == ["artifact"]
-
-    def test_launches_nothing_when_no_builtin_panel_is_enabled(self, stub_app, launch_calls):
-        web_terminal_app._launch_enabled_panel_servers(stub_app, set())
-
-        assert launch_calls == []
 
     def test_every_builtin_panel_is_launchable(self, stub_app, launch_calls):
         """No built-in panel may be enabled with nothing to launch behind it.

@@ -10,16 +10,39 @@ from osprey.services.auth_sidecar.passwords import (
     FIELD_SEP,
     GENERATION_TAG_CHARS,
     SCHEME,
+    SCRYPT_MAXMEM,
     SCRYPT_N,
     SCRYPT_P,
     SCRYPT_R,
+    PasswordCheck,
+    check_password,
     generation_tag,
     hash_password,
+    stored_hash_problem,
     verify_generation_tag,
     verify_password,
 )
 
 PASSWORD = "correct horse battery staple"
+
+MALFORMED = [
+    "",
+    "not-a-hash",
+    "scrypt.16384.8.1.c2FsdA",  # too few fields
+    "scrypt.16384.8.1.c2FsdA.aGFzaA.extra",  # too many fields
+    "bcrypt.16384.8.1.c2FsdA.aGFzaA",  # unknown scheme
+    "scrypt.many.8.1.c2FsdA.aGFzaA",  # non-integer cost
+    "scrypt.0.8.1.c2FsdA.aGFzaA",  # out-of-range cost
+    "scrypt.16384.8.1.!!!.aGFzaA",  # undecodable salt
+    "scrypt.16384.8.1..aGFzaA",  # empty salt
+    "scrypt.16384.8.1.c2FsdA.",  # empty hash
+    "scrypt.3.8.1.c2FsdA.aGFzaA",  # cost is not a power of two
+    "scrypt.65536.1.1.c2FsdA.aGFzaA",  # cost at or above 2**(16*r)
+    "scrypt.65536.8.1.c2FsdA.aGFzaA",  # over the memory ceiling
+    "scrypt.16384.8.1.c2Fsd.aGFzaA",  # base64 of an impossible length
+    "scrypt$16384$8$1",  # a $-separated hash after compose interpolation
+]
+"""Stored strings the service cannot evaluate, one per refusal the parse makes."""
 
 
 @pytest.fixture(scope="module")
@@ -81,23 +104,94 @@ class TestVerify:
         assert verify_password(PASSWORD, legacy) is True
         assert verify_password("nope", legacy) is False
 
-    @pytest.mark.parametrize(
-        "bad",
-        [
-            "",
-            "not-a-hash",
-            "scrypt.16384.8.1.c2FsdA",  # too few fields
-            "scrypt.16384.8.1.c2FsdA.aGFzaA.extra",  # too many fields
-            "bcrypt.16384.8.1.c2FsdA.aGFzaA",  # unknown scheme
-            "scrypt.many.8.1.c2FsdA.aGFzaA",  # non-integer cost
-            "scrypt.0.8.1.c2FsdA.aGFzaA",  # out-of-range cost
-            "scrypt.16384.8.1.!!!.aGFzaA",  # undecodable salt
-            "scrypt.16384.8.1..aGFzaA",  # empty salt
-            "scrypt.16384.8.1.c2FsdA.",  # empty hash
-        ],
-    )
+    @pytest.mark.parametrize("bad", MALFORMED)
     def test_malformed_stored_hash_fails_closed(self, bad: str) -> None:
         assert verify_password(PASSWORD, bad) is False
+
+
+class TestCheck:
+    """A check has three outcomes: match, mismatch, or a stored hash it cannot evaluate."""
+
+    def test_a_matching_password_is_a_match(self, stored: str) -> None:
+        assert check_password(PASSWORD, stored) is PasswordCheck.MATCH
+
+    def test_a_wrong_password_is_a_mismatch(self, stored: str) -> None:
+        assert check_password("wrong horse battery staple", stored) is PasswordCheck.MISMATCH
+
+    def test_an_empty_password_is_a_mismatch(self, stored: str) -> None:
+        assert check_password("", stored) is PasswordCheck.MISMATCH
+
+    @pytest.mark.parametrize("bad", MALFORMED)
+    def test_a_malformed_stored_hash_is_unevaluable(self, bad: str) -> None:
+        assert check_password(PASSWORD, bad) is PasswordCheck.UNEVALUABLE
+
+    def test_an_empty_password_against_a_malformed_hash_is_unevaluable(self) -> None:
+        assert check_password("", "scrypt.16384.8.1.c2FsdA") is PasswordCheck.UNEVALUABLE
+
+    def test_a_kdf_refusal_is_unevaluable(
+        self, stored: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from osprey.services.auth_sidecar import passwords
+
+        def refuse(*_args: object, **_kwargs: object) -> bytes:
+            raise MemoryError
+
+        monkeypatch.setattr(passwords.hashlib, "scrypt", refuse)
+        assert check_password(PASSWORD, stored) is PasswordCheck.UNEVALUABLE
+
+    def test_verify_password_is_the_match_projection(self, stored: str) -> None:
+        cases = [(PASSWORD, stored), ("wrong", stored), ("", stored), (PASSWORD, MALFORMED[2])]
+        for password, value in cases:
+            expected = check_password(password, value) is PasswordCheck.MATCH
+            assert verify_password(password, value) is expected
+
+
+class TestStoredHashProblem:
+    """One shape test, shared by every surface that judges a stored hash before login."""
+
+    def test_a_minted_hash_has_no_problem(self, stored: str) -> None:
+        assert stored_hash_problem(stored) is None
+        assert stored_hash_problem(hash_password(PASSWORD, n=2**4, r=1, p=1)) is None
+
+    @pytest.mark.parametrize("bad", MALFORMED)
+    def test_every_malformed_hash_names_a_problem(self, bad: str) -> None:
+        problem = stored_hash_problem(bad)
+        assert isinstance(problem, str) and problem
+
+    @pytest.mark.parametrize("bad", MALFORMED)
+    def test_the_problem_never_quotes_the_stored_value(self, bad: str) -> None:
+        problem = stored_hash_problem(bad)
+        assert problem is not None
+        fields = [f for part in bad.split(FIELD_SEP) for f in part.split("$")]
+        # The scheme's own name is the module's constant, not part of the operator's value.
+        for field in fields:
+            if len(field) >= 3 and field != SCHEME:
+                assert field not in problem
+
+    @pytest.mark.parametrize(
+        ("n", "r", "p"),
+        [
+            (2, 1, 1),
+            (3, 1, 1),
+            (2**15, 1, 1),
+            (2**16, 1, 1),
+            (2**4, 2, 1),
+            (2**15, 8, 1),
+            (2**16, 8, 1),
+            (2**16, 7, 1),
+            (2**14, 64, 1),
+            (2**4, 1, 200),
+        ],
+    )
+    def test_the_shape_check_agrees_with_the_kdf(self, n: int, r: int, p: int) -> None:
+        value = FIELD_SEP.join((SCHEME, str(n), str(r), str(p), "c2FsdA", "aGFzaA"))
+        try:
+            hashlib.scrypt(b"x", salt=b"salt", n=n, r=r, p=p, maxmem=SCRYPT_MAXMEM, dklen=32)
+        except ValueError:
+            kdf_accepts = False
+        else:
+            kdf_accepts = True
+        assert (stored_hash_problem(value) is None) is kdf_accepts
 
 
 class TestGenerationTag:

@@ -5,12 +5,15 @@ from datetime import UTC, datetime
 import pytest
 
 from osprey.services.ariel_search.models import (
+    DEFAULT_LISTING_TEXT_CHARS,
     ARIELSearchRequest,
     ARIELSearchResult,
     ARIELStatusResult,
     EmbeddingTableInfo,
     MetadataSchema,
+    _format_entry_base,
     enhanced_entry_from_row,
+    entry_text_fields,
     resolve_time_range,
 )
 
@@ -26,7 +29,6 @@ class TestARIELSearchRequest:
         assert request.time_range is None
         assert request.facility is None
         assert request.max_results == 10
-        assert request.include_images is False
 
     def test_with_all_fields(self) -> None:
         """Test request with all fields."""
@@ -38,13 +40,11 @@ class TestARIELSearchRequest:
             time_range=time_range,
             facility="ERF",
             max_results=50,
-            include_images=True,
         )
         assert request.modes == ["keyword", "semantic"]
         assert request.time_range == time_range
         assert request.facility == "ERF"
         assert request.max_results == 50
-        assert request.include_images is True
 
     def test_empty_query_raises(self) -> None:
         """Test that empty query raises ValueError."""
@@ -172,6 +172,27 @@ class TestEnhancedEntryFromRow:
         assert entry["keywords"] == ["test", "entry"]
         assert entry["enhancement_status"] == {"text_embedding": {"status": "complete"}}
 
+    def test_copies_attachment_text_and_captions(self, sample_row: dict) -> None:
+        """The two attachment-derived columns are carried when the row has them."""
+        captions = {"a1": {"vis-a": {"caption": "a plot", "visible_text": ""}}}
+        sample_row["attachment_text"] = "[picture a1] a plot"
+        sample_row["attachment_captions"] = captions
+
+        entry = enhanced_entry_from_row(sample_row)
+
+        assert entry["attachment_text"] == "[picture a1] a plot"
+        assert entry["attachment_captions"] == captions
+
+    def test_null_attachment_columns_are_omitted(self, sample_row: dict) -> None:
+        """NULL attachment columns leave the optional keys out, like the other fields."""
+        sample_row["attachment_text"] = None
+        sample_row["attachment_captions"] = None
+
+        entry = enhanced_entry_from_row(sample_row)
+
+        assert "attachment_text" not in entry
+        assert "attachment_captions" not in entry
+
     def test_missing_optional_fields(self, sample_row: dict) -> None:
         """Test conversion with missing optional fields."""
         del sample_row["author"]
@@ -262,3 +283,37 @@ class TestMetadataSchema:
             "facility_section": "SNS",
         }
         assert metadata["event_time"] == "2024-01-15T10:30:00Z"
+
+
+class TestEntryTextFields:
+    """Tests for the shared entry-text cut and its marker."""
+
+    def test_text_at_the_limit_is_whole_and_unmarked(self) -> None:
+        text = "x" * 10
+        fields = entry_text_fields(text, 10, field="raw_text")
+        assert fields == {"raw_text": text}
+        assert len(fields) == 1
+
+    def test_text_over_the_limit_is_cut_and_marked(self) -> None:
+        fields = entry_text_fields("abcdefghijk", 5, field="raw_text")
+        assert fields == {
+            "raw_text": "abcde",
+            "raw_text_truncated": True,
+            "raw_text_length": 11,
+        }
+
+    def test_the_marker_is_named_after_the_field(self) -> None:
+        fields = entry_text_fields("abcdefghijk", 5, field="text")
+        assert set(fields) == {"text", "text_truncated", "text_length"}
+
+    def test_format_entry_base_marks_a_cut_at_the_listing_default(self) -> None:
+        long_entry = {"entry_id": "e1", "raw_text": "y" * (DEFAULT_LISTING_TEXT_CHARS + 1)}
+        out = _format_entry_base(long_entry)  # type: ignore[arg-type]
+        assert len(out["text"]) == DEFAULT_LISTING_TEXT_CHARS
+        assert out["text_truncated"] is True
+        assert out["text_length"] == DEFAULT_LISTING_TEXT_CHARS + 1
+
+        exact_entry = {"entry_id": "e2", "raw_text": "y" * DEFAULT_LISTING_TEXT_CHARS}
+        exact = _format_entry_base(exact_entry)  # type: ignore[arg-type]
+        assert "text_truncated" not in exact
+        assert "text_length" not in exact

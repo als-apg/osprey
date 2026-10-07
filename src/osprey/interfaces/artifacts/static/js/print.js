@@ -24,6 +24,7 @@
 import { escapeHtml as esc } from "/design-system/js/dom.js";
 import { getSelectedArtifact, fileUrl } from "./state.js";
 import { openUrl, isTimeseries, isoToDate } from "./types.js";
+import { formatFacilityTime } from "/design-system/js/facility-time.js";
 
 export { esc };
 
@@ -61,16 +62,22 @@ const MSG_POPUP_BLOCKED = "Print blocked \u2014 please allow pop-ups for this si
 // ---- Helpers ----
 
 /**
- * Full locale timestamp for the print header. Deliberately keeps the
- * with-seconds `toLocaleString()` form (a print/PDF header wants precision,
- * unlike the gallery's compact `formatFullTime`), but shares types.js's
- * `isoToDate` guard so a malformed/non-ISO timestamp renders "" rather than
- * a fabricated year-2000/epoch date.
+ * Full timestamp for the print header, on the facility clock. It always names
+ * its zone, because a printed page leaves the screen that could say which
+ * clock it is. It keeps seconds (a print/PDF header wants precision, unlike
+ * the gallery's compact `formatFullTime`), and shares types.js's `isoToDate`
+ * guard so a malformed/non-ISO timestamp renders "" rather than a fabricated
+ * year-2000/epoch date.
  * @param {any} ts
  */
 export function fmtTime(ts) {
   const d = isoToDate(ts);
-  return d ? d.toLocaleString() : "";
+  if (!d) return "";
+  return formatFacilityTime(d, {
+    year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "2-digit", second: "2-digit",
+    timeZoneName: "short",
+  });
 }
 
 /** @param {any} a */

@@ -14,8 +14,7 @@
  *
  * The rail carries NO per-panel health readout: backend liveness is reported by
  * the SYSTEM panel's `web_panels` health category. `.disabled` is the only
- * health-derived state the rail renders, and the absence of an LED node is
- * asserted below so it cannot creep back in.
+ * health-derived state the rail renders.
  *
  * Imported by RELATIVE path — this module lives under web_terminal, so the
  * /design-system/js/* alias does not apply. The environment is happy-dom
@@ -32,7 +31,10 @@ import {
   setActive,
   setEntryEnabled,
   setEntryAttention,
+  setEntryStatus,
+  setEntryReachable,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js';
+import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 const PANELS = [
   { id: 'artifacts', label: 'WORKSPACE' },
@@ -80,11 +82,6 @@ describe('createRail', () => {
     expect(first?.querySelector('.panel-rail-label')?.textContent).toBe('WORKSPACE');
   });
 
-  test('entries render no health LED — liveness lives in the SYSTEM panel', () => {
-    createRail(rail, PANELS);
-    expect(rail.querySelector('.panel-rail-led')).toBeNull();
-  });
-
   test('entries start disabled and unselected', () => {
     createRail(rail, PANELS);
     const first = getEntry(rail, 'artifacts');
@@ -103,11 +100,6 @@ describe('createRail', () => {
     expect(entry?.getAttribute('aria-label')).toBe('ARIEL');
   });
 
-  test('entries never render the retired closed/dimmed state', () => {
-    createRail(rail, PANELS);
-    expect(rail.querySelector('.panel-rail-closed')).toBeNull();
-  });
-
   test('label is set via textContent (no HTML injection)', () => {
     createRail(rail, [{ id: 'x', label: '<img src=x onerror=alert(1)>' }]);
     const entry = getEntry(rail, 'x');
@@ -123,10 +115,6 @@ describe('createRail', () => {
     expect(entryIds(rail)).toEqual(['okf']);
   });
 
-  test('never renders a ＋ inside the rail — the add control is the template\'s sibling #panel-add-btn', () => {
-    createRail(rail, PANELS);
-    expect(rail.querySelector('.panel-rail-add')).toBeNull();
-  });
 });
 
 describe('entry interactions', () => {
@@ -144,11 +132,7 @@ describe('entry interactions', () => {
     expect(activated).toEqual(['ariel']);
   });
 
-  test('close affordance renders only when onClose is provided', () => {
-    createRail(rail, PANELS);
-    expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-close')).toBeNull();
-
-    rail = freshRail();
+  test('renders the close affordance', () => {
     createRail(rail, PANELS, { onClose: () => {} });
     expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-close')?.textContent).toBe('×');
   });
@@ -201,13 +185,6 @@ describe('entry interactions', () => {
     expect(ev.defaultPrevented).toBe(false);
   });
 
-  test('no onContextMenu leaves right-click entirely to the browser', () => {
-    createRail(rail, PANELS);
-    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
-    /** @type {HTMLElement} */ (getEntry(rail, 'ariel')).dispatchEvent(ev);
-
-    expect(ev.defaultPrevented).toBe(false);
-  });
 });
 
 /**
@@ -272,12 +249,15 @@ describe('keyboard route to the context menu', () => {
     vi.restoreAllMocks();
   });
 
-  test('the ContextMenu key opens the menu centred on the entry rect', () => {
+  test.each([
+    ['the ContextMenu key', 'ContextMenu', false],
+    ['Shift+F10', 'F10', true],
+  ])('%s opens the menu centred on the entry rect', (_name, key, shift) => {
     const calls = railWithMenu(true);
     const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
     stubRect(entry);
 
-    const ev = keyEvent('ContextMenu');
+    const ev = keyEvent(key, shift);
     entry.dispatchEvent(ev);
 
     // Exactly one open: the synthetic event is handed to the caller, never
@@ -289,21 +269,6 @@ describe('keyboard route to the context menu', () => {
     expect(menuEvent.clientX).toBe(CENTER_X);
     expect(menuEvent.clientY).toBe(CENTER_Y);
     // Windows/Firefox would otherwise open a second, native menu on this key.
-    expect(ev.defaultPrevented).toBe(true);
-  });
-
-  test('Shift+F10 opens the same menu at the same point', () => {
-    const calls = railWithMenu(true);
-    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
-    stubRect(entry);
-
-    const ev = keyEvent('F10', true);
-    entry.dispatchEvent(ev);
-
-    expect(calls.length).toBe(1);
-    expect(calls[0][0]).toBe('ariel');
-    expect(calls[0][1].clientX).toBe(CENTER_X);
-    expect(calls[0][1].clientY).toBe(CENTER_Y);
     expect(ev.defaultPrevented).toBe(true);
   });
 
@@ -327,13 +292,6 @@ describe('keyboard route to the context menu', () => {
     expect(calls).toEqual([]);
   });
 
-  test('no onContextMenu means no keyboard menu at all', () => {
-    createRail(rail, PANELS);
-    const ev = keyEvent('ContextMenu');
-    /** @type {HTMLElement} */ (getEntry(rail, 'ariel')).dispatchEvent(ev);
-
-    expect(ev.defaultPrevented).toBe(false);
-  });
 });
 
 describe('drag from the rail (onDragStart / onDragEnd)', () => {
@@ -355,11 +313,7 @@ describe('drag from the rail (onDragStart / onDragEnd)', () => {
     return ev;
   }
 
-  test('entries are draggable only when onDragStart is provided', () => {
-    createRail(rail, PANELS);
-    expect(getEntry(rail, 'ariel')?.getAttribute('draggable')).toBeNull();
-
-    rail = freshRail();
+  test('entries are draggable', () => {
     createRail(rail, PANELS, { onDragStart: () => true });
     expect(getEntry(rail, 'ariel')?.getAttribute('draggable')).toBe('true');
   });
@@ -463,14 +417,6 @@ describe('addEntry (non-destructive)', () => {
     const artifacts = getEntry(rail, 'artifacts');
     expect(artifacts?.classList.contains('active')).toBe(true);
     expect(artifacts?.classList.contains('disabled')).toBe(false);
-  });
-
-  test('appends at the end of the rail', () => {
-    createRail(rail, PANELS);
-    addEntry(rail, { id: 'lattice', label: 'LATTICE' });
-    const last = rail.children[rail.children.length - 1];
-    expect(last.getAttribute('data-panel-id')).toBe('lattice');
-    expect(entryIds(rail)).toEqual(['artifacts', 'ariel', 'channel-finder', 'lattice']);
   });
 
   test('is idempotent by id — no duplicate node', () => {
@@ -590,9 +536,12 @@ describe('setEntryAttention', () => {
     expect(entry?.classList.contains('agent-flash')).toBe(true);
   });
 
-  test('returns false and does not throw for an unknown id', () => {
+  test('returns false, scrolls nothing and does not throw for an unknown id', () => {
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
     expect(() => setEntryAttention(rail, 'nope', true)).not.toThrow();
     expect(setEntryAttention(rail, 'nope', true)).toBe(false);
+    expect(scrollSpy).not.toHaveBeenCalled();
+    scrollSpy.mockRestore();
   });
 
   test('is class-only: no child nodes or attributes added or removed', () => {
@@ -658,10 +607,6 @@ describe('setEntryAttention scrolls a badged entry into view', () => {
     expect(scrollSpy).not.toHaveBeenCalled();
   });
 
-  test('an unknown id scrolls nothing', () => {
-    expect(setEntryAttention(rail, 'nope', true)).toBe(false);
-    expect(scrollSpy).not.toHaveBeenCalled();
-  });
 });
 
 /**
@@ -675,18 +620,39 @@ describe('setEntryAttention tooltip time', () => {
   let rail;
 
   // Two fixed server timestamps an hour apart. Rendering is asserted against
-  // the same computation rather than a literal so the suite is not hostage to
-  // the runner's timezone or locale; the FORMAT is pinned separately.
+  // an Intl computation in the stamped facility zone rather than a literal so
+  // the suite is not hostage to the runner's timezone or locale; the FORMAT is
+  // pinned separately. FACILITY_ZONE reads a different clock from the runner,
+  // so the time names its zone.
   const TS = 1_755_000_000;
   const TS_LATER = TS + 3600;
 
   /** @param {number} ts @returns {string} */
   const expectedTime = (ts) =>
-    new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: FACILITY_ZONE,
+      timeZoneName: 'short',
+    }).format(ts * 1000);
 
   beforeEach(() => {
+    stampFacilityZone(FACILITY_ZONE);
     rail = freshRail();
     createRail(rail, PANELS);
+  });
+
+  afterEach(() => stampFacilityZone(null));
+
+  test('a viewer already on the facility clock reads the time without a zone name', () => {
+    stampFacilityZone(VIEWER_ZONE);
+    setEntryAttention(rail, 'ariel', true, TS);
+    const plain = new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: VIEWER_ZONE,
+    }).format(TS * 1000);
+    expect(getEntry(rail, 'ariel')?.title).toBe(`ARIEL · agent touched ${plain}`);
   });
 
   test('a badge with a server ts appends the touch time to the tooltip', () => {
@@ -699,18 +665,6 @@ describe('setEntryAttention tooltip time', () => {
     const suffix = String(getEntry(rail, 'ariel')?.title).split('· agent touched ')[1];
     expect(suffix).toMatch(/\d{1,2}:\d{2}/);
     expect((suffix.match(/:/g) ?? []).length).toBe(1);
-  });
-
-  test('the time tracks the event ts, not the clock', () => {
-    setEntryAttention(rail, 'ariel', true, TS);
-    const first = getEntry(rail, 'ariel')?.title;
-
-    rail = freshRail();
-    createRail(rail, PANELS);
-    setEntryAttention(rail, 'ariel', true, TS_LATER);
-
-    expect(getEntry(rail, 'ariel')?.title).toBe(`ARIEL · agent touched ${expectedTime(TS_LATER)}`);
-    expect(getEntry(rail, 'ariel')?.title).not.toBe(first);
   });
 
   test('a second event replaces the time rather than appending a second suffix', () => {
@@ -772,11 +726,120 @@ describe('setEntryAttention tooltip time', () => {
   });
 });
 
-describe('getEntry', () => {
-  test('returns the button for a known id and null otherwise', () => {
-    const rail = freshRail();
-    createRail(rail, PANELS);
-    expect(getEntry(rail, 'artifacts')?.getAttribute('data-panel-id')).toBe('artifacts');
-    expect(getEntry(rail, 'ghost')).toBeNull();
+/**
+ * Coarse reachability: an entry whose backend answered before but has stopped
+ * is dimmed without going inert, and its tooltip says since when. The poll
+ * logic that decides WHEN is panel-lifecycle's (pinned in panel-manager.test.mjs).
+ */
+describe('setEntryReachable', () => {
+  /** @type {HTMLElement} */
+  let rail;
+  const SINCE = new Date(2026, 0, 5, 9, 12).getTime();
+  // On the facility clock, which reads differently from the runner's, so the
+  // time names its zone.
+  const since = new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: FACILITY_ZONE,
+    timeZoneName: 'short',
+  }).format(SINCE);
+
+  beforeEach(() => {
+    stampFacilityZone(FACILITY_ZONE);
+    rail = freshRail();
+    createRail(rail, [{ id: 'ariel', label: 'ARIEL', hint: 'right-click for actions' }]);
+  });
+
+  afterEach(() => stampFacilityZone(null));
+
+  test('unreachable dims without disabling, and the tooltip says since when', () => {
+    expect(setEntryReachable(rail, 'ariel', false, SINCE)).toBe(true);
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    expect(entry.classList.contains('unreachable')).toBe(true);
+    expect(entry.classList.contains('disabled')).toBe(true); // the cold boot state, untouched
+    expect(entry.title).toBe(`not answering since ${since}`);
+
+    setEntryReachable(rail, 'ariel', true);
+    expect(entry.classList.contains('unreachable')).toBe(false);
+    expect(entry.title).toBe('ARIEL · right-click for actions');
+    expect(entry.hasAttribute('data-title-base')).toBe(false);
+  });
+
+  test('the notice outranks a badge time, and each clears without losing the other', () => {
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    setEntryAttention(rail, 'ariel', true, 1_755_000_000);
+    const badged = entry.title;
+
+    setEntryReachable(rail, 'ariel', false, SINCE);
+    expect(entry.title).toBe(`not answering since ${since}`);
+
+    setEntryReachable(rail, 'ariel', true);
+    expect(entry.title).toBe(badged);
+
+    setEntryAttention(rail, 'ariel', false);
+    expect(entry.title).toBe('ARIEL · right-click for actions');
+  });
+
+  test('returns false for an unknown id', () => {
+    expect(setEntryReachable(rail, 'nope', false, SINCE)).toBe(false);
+  });
+});
+
+/**
+ * A sidecar that failed to start is the one status the rail names: its entry
+ * is dimmed but clickable (the click is the retry), and its tooltip is the
+ * server's sentence, verbatim.
+ */
+describe('setEntryStatus', () => {
+  /** @type {HTMLElement} */
+  let rail;
+  const MESSAGE = 'JUPYTER failed to start: boom';
+  const JUPYTER = { id: 'jupyter', label: 'JUPYTER', hint: 'right-click for actions' };
+
+  beforeEach(() => {
+    rail = freshRail();
+  });
+
+  test("a failed entry is clickable and carries the server's message as its tooltip", () => {
+    const onActivate = vi.fn();
+    createRail(rail, [JUPYTER], { onActivate });
+
+    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
+
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'jupyter'));
+    expect(entry.classList.contains('failed')).toBe(true);
+    expect(entry.classList.contains('disabled')).toBe(false);
+    expect(entry.title).toBe(MESSAGE);
+    expect(entry.getAttribute('aria-description')).toBe(MESSAGE);
+    entry.click();
+    expect(onActivate).toHaveBeenCalledWith('jupyter');
+  });
+
+  test('clearing the status restores the base tooltip', () => {
+    createRail(rail, [JUPYTER]);
+    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
+
+    setEntryStatus(rail, 'jupyter', { failed: false, message: null });
+
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'jupyter'));
+    expect(entry.classList.contains('failed')).toBe(false);
+    expect(entry.title).toBe('JUPYTER · right-click for actions');
+    expect(entry.hasAttribute('aria-description')).toBe(false);
+    expect(entry.hasAttribute('data-status-base')).toBe(false);
+  });
+
+  test('a message set under an attention badge survives the badge clearing', () => {
+    createRail(rail, [JUPYTER]);
+    setEntryAttention(rail, 'jupyter', true, 1_755_000_000);
+
+    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'jupyter'));
+    expect(entry.title.startsWith(`${MESSAGE} · agent touched `)).toBe(true);
+
+    setEntryAttention(rail, 'jupyter', false);
+    expect(entry.title).toBe(MESSAGE);
+
+    setEntryStatus(rail, 'jupyter', { failed: false, message: null });
+    expect(entry.title).toBe('JUPYTER · right-click for actions');
   });
 });

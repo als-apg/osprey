@@ -11,7 +11,7 @@
  * happy-dom can host.
  */
 
-import { test, expect, describe, beforeEach } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach } from 'vitest';
 
 import {
   normalizeOrient,
@@ -210,5 +210,55 @@ describe('keyboard resize (ARIA separator pattern)', () => {
     pressArrow('ArrowRight');
     expect(byId('browse-sidebar').style.flexBasis).toBe('');
     expect(localStorage.getItem(WIDTH_KEY)).toBe('300');
+  });
+});
+
+describe('on a multi-user mount (storage scope)', () => {
+  const SCOPE_ATTR = 'data-osprey-storage-scope';
+
+  beforeEach(() => {
+    document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
+  });
+
+  afterEach(() => {
+    document.documentElement.removeAttribute(SCOPE_ATTR);
+  });
+
+  test('a scoped page ignores the shared slot', () => {
+    localStorage.setItem(ORIENT_KEY, 'column');
+    localStorage.setItem(WIDTH_KEY, '340');
+    initAll();
+    expect(getOrient()).toBe('row');
+    expect(byId('browse-sidebar').style.flexBasis).toBe('');
+  });
+
+  test('a scoped page restores its own orientation and width', () => {
+    localStorage.setItem(ORIENT_KEY + '--bob', 'column');
+    localStorage.setItem(WIDTH_KEY + '--bob', '340');
+    initAll();
+    expect(getOrient()).toBe('column');
+
+    // The stacked band carries no width; flipping back applies bob's.
+    byId('orient-toggle-btn').click();
+    expect(getOrient()).toBe('row');
+    expect(byId('browse-sidebar').style.flexBasis).toBe('340px');
+  });
+
+  test('a scoped toggle writes the scoped key and leaves the shared slot alone', () => {
+    initAll();
+    byId('orient-toggle-btn').click();
+    expect(localStorage.getItem(ORIENT_KEY + '--bob')).toBe('column');
+    expect(localStorage.getItem(ORIENT_KEY)).toBeNull();
+  });
+
+  test('a scoped keyboard nudge persists the width under the scope', () => {
+    initAll();
+    byId('browse-sidebar').getBoundingClientRect = () =>
+      /** @type {DOMRect} */ (/** @type {unknown} */ ({ width: 300 }));
+    byId('resize-handle').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })
+    );
+    expect(JSON.parse(String(localStorage.getItem(WIDTH_KEY + '--bob'))).size).toBe(316);
+    expect(localStorage.getItem(WIDTH_KEY)).toBeNull();
   });
 });

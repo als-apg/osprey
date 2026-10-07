@@ -31,7 +31,6 @@ The notebook sidecar is the one caller of the two denylists alone
 PTY child's policy rather than an execution sandbox's.
 """
 
-import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -41,6 +40,7 @@ from osprey.utils.sensitive_env import (
     is_sensitive,
     strip_sensitive,
 )
+from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
 
 __all__ = [
@@ -201,8 +201,6 @@ SANDBOX_CHILD_ENV_ALLOW_PREFIXES: tuple[str, ...] = (
 #: agent-code execution child.
 CHILD_ENV_PASSTHROUGH_KEY = "python_executor.child_env_passthrough"
 
-_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
 
 def scrub_sensitive_env(env: Mapping[str, str]) -> dict[str, str]:
     """Return a copy of *env* with agent-forbidden credentials removed.
@@ -259,7 +257,7 @@ def configured_child_env_passthrough(config: Mapping[str, Any]) -> tuple[str, ..
         )
     names: list[str] = []
     for entry in raw:
-        if not isinstance(entry, str) or not _ENV_NAME_RE.fullmatch(entry):
+        if not isinstance(entry, str) or not ENV_NAME_RE.match(entry):
             raise ValueError(
                 f"{CHILD_ENV_PASSTHROUGH_KEY}: {entry!r} is not an environment variable name"
             )

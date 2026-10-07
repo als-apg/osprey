@@ -25,8 +25,8 @@ pinned with the number it has, not hidden.
 
 Skips are loud and only ever about the host: without a reachable Docker daemon
 the plugin resolver skips the whole module with its reason. A store that
-stops answering after it started is not a skip either: the read fails naming
-the store, and the next read asks it again.
+stops answering after it started is not a skip either: the read waits for the
+store to answer again, and fails naming the store only when it does not.
 """
 
 from __future__ import annotations
@@ -170,9 +170,10 @@ def ties_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
     count the module beside this one asserts.
 
     The seeding goes through the real seeder, which is the path ``osprey
-    knowledge seed-graph`` takes. It yields the store watched, so a seeding
-    step or a later read that gets no answer fails naming this store and the
-    state its container was in.
+    knowledge seed-graph`` takes. It yields the store watched: a seeding step
+    that gets no answer fails at once, and a later read that gets none waits
+    for the store to answer again, failing naming this store and the state its
+    container was in only when it does not.
     """
     from osprey.services.facility_knowledge.seeder import graph_seeder
 

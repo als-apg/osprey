@@ -263,7 +263,7 @@ def _resolve_control_system_type() -> str:
     except _CONFIG_READ_ERRORS:
         return "mock"
 
-    if not control_system_type or not isinstance(control_system_type, str):
+    if not isinstance(control_system_type, str) or not control_system_type:
         return "mock"
     return control_system_type
 

@@ -10,7 +10,7 @@ Ingestion Architecture
 .. raw:: html
    :file: ../../_diagrams/ariel-ingestion.html
 
-The ingestion pipeline follows a linear flow. A `facility adapter <Facility Adapters_>`_ connects to the source system --- whether that is a live HTTP API, a JSONL dump, or any other data source --- and yields entries one at a time as ``EnhancedLogbookEntry`` TypedDicts. Each entry carries a unique ID, timestamp, author, raw text, and a metadata dict for facility-specific fields. The ``ARIELRepository`` upserts these entries into the ``enhanced_entries`` table in PostgreSQL, deduplicating by entry ID so that re-running ingestion is safe and idempotent. Once the base entries are stored, optional `enhancement modules <Enhancement Pipeline_>`_ can be run as a separate step to compute additional derived fields --- embeddings, keywords, summaries, or any other enrichment --- and write them back to the :doc:`database </reference/contracts/ariel>`.
+The ingestion pipeline follows a linear flow. A `facility adapter <Facility Adapters_>`_ connects to the source system --- whether that is a live HTTP API, a JSONL dump, or any other data source --- and yields entries one at a time as ``EnhancedLogbookEntry`` TypedDicts. Each entry carries a unique ID, timestamp, author, raw text, and a metadata dict for facility-specific fields. The ``ARIELRepository`` upserts these entries into the ``enhanced_entries`` table in PostgreSQL, deduplicating by entry ID so that re-running ingestion is safe and idempotent. In the same step it copies each entry's pictures into the ``attachment_files`` table (``ariel.attachments.copy_on_ingest``, ``images`` by default), so the agent and the picture modules read them from the database rather than from the logbook. Once the base entries are stored, optional `enhancement modules <Enhancement Pipeline_>`_ can be run as a separate step to compute additional derived fields --- picture captions, keywords, summaries, text and picture embeddings, the search sidecar's mirror, or any other enrichment --- and write them back to the :doc:`database </reference/contracts/ariel>`.
 
 .. admonition:: Batch and Live Ingestion
    :class: note
@@ -48,6 +48,10 @@ Adapters are discovered through Osprey's central registry. The built-in ones bel
    * - **Generic JSON**
      - ``generic_json``
      - Reads entries from a JSON file. ``id``, ``title``, ``text``, ``author``, ``timestamp`` and ``attachments`` map onto the common schema; every other top-level field is kept as entry metadata, and an explicit ``metadata`` object merges last and wins. Useful for demos, testing, and facilities without a custom API.
+
+**Entry times.** A time with a UTC offset, a ``Z`` or a Unix epoch is stored as that instant. A time without an offset is read in the facility zone (``system.timezone``). An entry whose time is missing or cannot be read is skipped and named in the ingest log rather than stored with a made-up time; it counts as failed in the run's totals (``osprey ariel watch``, ``osprey ariel sync``), and ``osprey ariel ingest`` reports how many it skipped. Entries ingested earlier from a logbook that writes times without an offset keep their old time until the source is ingested again.
+
+**Entry text.** The ALS eLog adapter stores entry text as plain text. It decodes HTML entities, turns the logbook's markup into line breaks, paragraphs and list items, and writes a link as its text followed by its address in parentheses. It also undoes the backslash escaping the logbook adds: ``\'``, ``\"`` and an encoded ``\&quot;`` become plain quotes, and a doubled backslash becomes one. A single backslash before any other character is kept. Text without markup keeps its line breaks and indentation. Entries stored before this behaviour are rewritten once by ``osprey ariel migrate``, which ``osprey ariel sync`` runs as its first step. Their enhancements are cleared, so the next ``osprey ariel enhance``, or each later sync or watch pass, embeds and summarises the plain text again.
 
 **Using a custom adapter:**
 
@@ -91,6 +95,18 @@ Write it only as a deliberate choice. Nothing about the connection is authentica
 
 The same settings cover the sidecar-metadata fetch described below, so one ingest never reaches the logbook host two different ways.
 
+Links Back to the Logbook
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The agent cites entries by ID. Give it your logbook's address for one entry and it cites them as links instead:
+
+.. code-block:: yaml
+
+   ariel:
+     entry_url_template: "https://logbook.example.org/entry/{entry_id}"
+
+``{entry_id}`` is replaced with the entry's URL-encoded id, and the ARIEL tools return the result as ``entry_url`` beside each entry. The agent links that URL as given and never builds one of its own, so without the key it shows plain IDs. Entries created through ARIEL and not yet published to the logbook get no link. The key, the tools that carry the URL and what a malformed template does are in :ref:`config-ariel-entry-url`.
+
 Sidecar Metadata
 ~~~~~~~~~~~~~~~~
 
@@ -114,6 +130,55 @@ stored as rows in the same Postgres the logbook lives in, so this number is a
 storage decision in both directions --- raise it for a facility that attaches
 raw traces, lower it to keep the database small.
 
+Entry Fields
+~~~~~~~~~~~~
+
+A logbook that files entries by book, shift day or run can ask the author for those values when an entry is written. The adapter declares the fields with two optional hooks: ``get_entry_field_descriptors()`` returns one ``ParameterDescriptor`` per field, in form order, and ``get_entry_field_options(name, values)`` lists the choices of a ``dynamic_select`` field. The create form shows the declared fields as sections after its Metadata section, and every write path --- the web form, the agent's ``entry_create`` and ``entry_publish`` tools --- checks the submitted values against the same declarations.
+
+.. code-block:: python
+
+   from osprey.services.ariel_search.search.base import ParameterDescriptor
+
+   class MyLogbookAdapter(FacilityAdapter):
+       def get_entry_field_descriptors(self):
+           return [
+               ParameterDescriptor(
+                   name="book", label="Book", description="Which book the entry is filed in",
+                   param_type="select", default="ops", section="Entry", required=True,
+                   options=[{"value": "ops", "label": "Operations"},
+                            {"value": "physics", "label": "Physics"}],
+               ),
+               ParameterDescriptor(
+                   name="day", label="Day", description="The shift day the entry is about",
+                   param_type="date", default=None, section="Entry",
+               ),
+               ParameterDescriptor(
+                   name="scan", label="Scan", description="The scan taken on that day",
+                   param_type="dynamic_select", default=None, section="Entry",
+                   depends_on=("day",),
+               ),
+           ]
+
+       async def get_entry_field_options(self, name, values):
+           if name != "scan":
+               return []
+           scans = await self._scans_on(values.get("day"))   # your logbook's lookup
+           return [{"value": s.id, "label": s.title} for s in scans]
+
+**Declarations.** A field's type is one of ``text``, ``int``, ``float``, ``bool``, ``date``, ``select`` or ``dynamic_select``. A ``select`` carries its ``options``; a ``dynamic_select`` gets its choices from ``get_entry_field_options``, which receives only the values of the fields it ``depends_on``, already coerced to their types. ``depends_on`` names static fields only, never another ``dynamic_select``. The adapter looks the choices up with its own service-side credentials, never the author's, and a lookup that fails or takes longer than 10 seconds is reported as "options unavailable" without passing on the adapter's error text. The declarations are checked before anything renders or writes: a duplicate name, an unknown type, a ``select`` without options, a ``depends_on`` that names an undeclared or dynamic field, or a reserved name stops the form and the write paths with one error naming the adapter and the field.
+
+**Reserved names.** ``tags``, ``sync_status``, ``created_via``, ``session_metadata`` and ``title`` belong to ARIEL and cannot be declared.
+
+**Values.** Each submitted value is coerced to its declared type before it is stored: ``int``, ``float`` and ``bool`` become JSON numbers and booleans (``bool`` also reads ``true``/``1``/``yes``/``on`` and ``false``/``0``/``no``/``off``), ``date`` becomes ``YYYY-MM-DD`` (a date-time is refused), and the other types stay strings. Surrounding whitespace is stripped and an empty value counts as not given. A string longer than 200 characters, a number outside ``min_value``/``max_value``, and a ``select`` value that is not one of its options are refused, naming the field. The web form and ``entry_publish`` also ask the adapter for the current choices and refuse a ``dynamic_select`` value it does not list; ``entry_create`` checks such a value's type only. A missing ``required`` field is refused on a direct write and allowed on a draft. A declared ``default`` only pre-fills the form; it never fills a value the author left out.
+
+**Where values land.** A declared field's ``name`` is the key its value is stored under in the entry's ``metadata``. The adapter's ``create_entry`` receives the declared values only, in ``request.metadata``; metadata keys nobody declared stay in ARIEL's own copy of the entry and are not forwarded.
+
+**Logbook and shift.** A field named ``logbook`` or ``shift`` replaces the form's built-in input of that name, and its value fills the request field of the same name, so the adapter can restrict either one to its own choices. Supplying both the built-in value and a declared one with different values is refused.
+
+**Declaring nothing.** The hooks default to no fields and no options. An adapter that overrides neither keeps the built-in entry form, and its ``create_entry`` receives the same request it would without this feature: ``/api/publish-info`` reports an empty ``entry_fields`` list and ``request.metadata`` is empty.
+
+The checks are about shape: type, options, required, range, and the choices the adapter lists. Whether a value makes sense for the facility is the adapter's and the logbook's business. The HTTP endpoints, error codes and tool arguments are in :doc:`/reference/contracts/ariel`.
+
 
 .. _`Enhancement Pipeline`:
 
@@ -121,6 +186,12 @@ Enhancement Pipeline
 ====================
 
 Enhancement modules run after ingestion to add computed fields to stored entries. While the base ingestion captures the raw logbook text and metadata, enhancement modules derive additional structure from that text --- generating vector embeddings that enable semantic similarity search, using an LLM to extract keywords and summaries that improve search recall and the quality of the context the agent layer surfaces, or performing any other analysis that produces useful derived data. Each module inherits from ``BaseEnhancementModule`` and is discovered through the Osprey registry. Because enhancement is decoupled from ingestion, you can ingest a large dataset first and enhance it later, swap out models without re-ingesting, or run only the modules you need. Run them with ``osprey ariel enhance``.
+
+Each module runs only on the entries it has not finished. An entry whose
+enhancement by a module fails three times is left out of that module's later
+passes. Its status keeps the attempt count and the last error, a success clears
+the count, and ``osprey ariel enhance --force`` re-runs the entries it selects
+regardless.
 
 The built-in enhancement modules:
 
@@ -144,6 +215,15 @@ The built-in enhancement modules:
                models:
                  - name: nomic-embed-text
                    dimension: 768
+                   max_input_tokens: 2048
+
+      ``max_input_tokens`` is the input window, in tokens, that the embedding
+      server applies to the model. ``ollama show nomic-embed-text`` prints it as
+      ``context length 2048``; the ``num_ctx 8192`` it also prints is clamped to
+      that. A longer entry is cut so its start is embedded, and the cut is logged
+      with the entry's id. The cut counts UTF-8 bytes, one per token, so it fits
+      device names, numbers and non-Latin script, which tokenize far more densely
+      than prose. A model listed without the key is cut to 512 tokens.
 
       The vector index over those tables is an HNSW index. It takes no sizing
       parameter, so there is nothing about it to author per deployment.
@@ -204,6 +284,46 @@ The built-in enhancement modules:
                  Return ONLY valid JSON matching this schema:
                  {{"keywords": ["keyword1", ...], "summary": "..."}}
 
+   .. tab-item:: Image Caption
+
+      **Module:** ``enhancement/image_caption/`` (entry point: ``module.py``)
+
+      Asks a vision-capable chat model to describe each copied picture and to read out its visible text. The caption goes into the entry's searchable attachment text, so keyword and semantic search find an entry by what its pictures show. It runs first, so the modules after it see the captions.
+
+      **Configuration:** the provider and model are the module's own, never the deployment's main model. The shipped presets set Ollama with ``qwen3-vl:4b``; any vision-capable chat provider and model work.
+
+      .. code-block:: yaml
+
+         ariel:
+           enhancement_modules:
+             image_caption:
+               enabled: true
+               provider: ollama
+               model:
+                 model_id: qwen3-vl:4b
+
+      **Requirements:** the configured provider serving that model. Without it the module is skipped and ``osprey ariel status`` says why. See :doc:`picture-search`.
+
+   .. tab-item:: Image Embedding
+
+      **Module:** ``enhancement/image_embedding/`` (entry point: ``module.py``)
+
+      Embeds each copied picture into a per-model image vector table, so ``hybrid_search`` can rank pictures against the query and find an entry known only by its pictures.
+
+      **Configuration:**
+
+      .. code-block:: yaml
+
+         ariel:
+           enhancement_modules:
+             image_embedding:
+               enabled: true
+               provider: llama-cpp
+               model: qwen3-vl-embedding-2b
+               dimensions: 1024
+
+      **Requirements:** a site-run ``llama-server`` with a multimodal embedding model, and pgvector. Without them the module is skipped and search answers on text. See :doc:`picture-search`.
+
    .. tab-item:: qmd Export
 
       **Module:** ``enhancement/qmd_export/`` (entry point: ``exporter.py``)
@@ -227,7 +347,9 @@ The built-in enhancement modules:
 
 **Using a custom enhancement module:**
 
-A module of your own runs alongside the built-in ones once it is registered --- see :doc:`/contributing/extending-osprey`. Its registration carries an ``execution_order`` that decides where in the run it lands; the built-ins use 10 (semantic processor), 20 (text embedding) and 30 (qmd export), so a value above 30 runs last.
+A module of your own runs alongside the built-in ones once it is registered --- see :doc:`/contributing/extending-osprey`. Its registration carries an ``execution_order`` that decides where in the run it lands; the built-ins use 5 (image caption), 10 (semantic processor), 20 (text embedding), 25 (image embedding) and 30 (qmd export), so a value above 30 runs last.
+
+A module's ``health_check`` returns ``HealthResult(reachable, message, reason)``: ``reachable`` is ``True``, ``False`` or ``None`` (not checked), and ``reason`` names why it is not reachable (``unreachable``, ``model``, ``auth`` or ``config``). A plain ``(bool, str)`` pair is still accepted and read as ``HealthResult(bool, str, None)``. ``osprey ariel status`` shows each enabled module's verdict and names a skipped module with its reason. On a route without ``models_probe`` (a provider with no model listing to ask), ``osprey ariel status`` makes one billed health completion: the semantic processor's check sends a one-line completion there, which the provider bills like any other call. The caption module's check never calls the model; on such a route it reports the module as not checked.
 
 .. admonition:: Collaboration Welcome
    :class: outreach
@@ -300,11 +422,14 @@ Watch-mode settings live under the ``ingestion.watch`` key in your ARIEL config 
      - ``2.0``
      - Multiply the poll interval by this factor on each consecutive failure
    * - ``max_interval_seconds``
-     - ``int``
+     - ``number``
      - ``3600``
      - Maximum poll interval after backoff (seconds)
 
 The base poll interval is set by the parent ``poll_interval_seconds`` key (default ``3600``).
+Both intervals are positive, finite numbers of seconds; any other value stops ARIEL from loading
+its config, with an error naming the key, and ``osprey health`` reports it on the
+``ariel_last_ingestion`` row.
 
 Backoff Behavior
 ~~~~~~~~~~~~~~~~

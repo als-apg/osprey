@@ -61,10 +61,11 @@ The Virtual Accelerator is a **local physics simulator**, not a digital twin —
 it is not synced to any real machine. The OSPREY agent reads and writes it
 exactly as it does the mock or a real machine; only the backend changes.
 
-The physics itself is pluggable: the container serves whatever LUME model it is
-given — the shipped one is a pyAT ring model over the facility-agnostic
-``lume-pyat`` package — and serving your own facility's model is the LUME seam in
-:doc:`/contributing/extending-osprey`.
+The physics behind the ring channels is one of two things: the shipped pyAT
+ring model, built on the facility-agnostic ``lume-pyat`` package, over the
+lattice your data tree stages, which ``osprey build`` names in ``VA_LATTICE``;
+or none, with ``VA_LATTICE=none``. A backend other than pyAT is a replacement
+entrypoint, covered in :ref:`va-serving-your-own-model`.
 
 What channels it serves
 =======================
@@ -298,6 +299,44 @@ default applies. A variable exported in the deployment's own ``.env`` outranks
 the rendered default, so a single run can be made noisier or quieter without
 editing the configuration.
 
+.. _va-serving-your-own-model:
+
+Serving your facility's own model
+=================================
+
+A pyAT lattice
+--------------
+
+Stage the deck as ``data/simulation/lattice.json`` with the
+``va_bindings.json`` that ties your channels to it. ``osprey mml emit`` writes
+both from an export that carries a virtual accelerator (see
+:doc:`/how-to/use-channel-finder`). Then ``osprey build`` writes the file's
+name into ``VA_LATTICE`` in the project ``.env``. A tree without bindings gets
+``VA_LATTICE=none``. No code and no image are involved.
+
+Another backend
+---------------
+
+1. Write the entrypoint module to the contract in :ref:`extending-lume-model`.
+2. Build an image that carries OSPREY's virtual-accelerator install and your
+   module. The usual shape is a Dockerfile ``FROM`` the image OSPREY builds
+   for the project, adding your package.
+3. Name it as the service's image with ``services.virtual_accelerator.image``,
+   or ``OSPREY_VA_IMAGE`` for one shell (:ref:`deployment-image-overrides`).
+4. Set ``VA_ENTRYPOINT_MODULE=<your.module>`` in the project ``.env``. Empty
+   or unset runs the shipped entrypoint. ``osprey build`` never writes it.
+
+   .. code-block:: bash
+
+      # project .env
+      VA_ENTRYPOINT_MODULE=my_facility.va_entrypoint
+
+Naming the image in ``services.virtual_accelerator.image`` renders the service
+without a build, so no deploy rebuilds it from OSPREY's recipe.
+``OSPREY_VA_IMAGE`` keeps it out of every build a start makes. Either way the
+image has to be on the host or pullable where it is named;
+:ref:`deployment-image-builds` says when each start builds.
+
 Running from a source checkout
 ==============================
 
@@ -320,7 +359,7 @@ The image is defined under ``docker/virtual-accelerator/``; see its
    copy, **not** your project — so with no argument, ``osprey sim apply`` in
    your project writes a scenario file the running IOC never sees. Pass your
    project's directory explicitly to use its scenarios (the script then also
-   mounts the sibling ``_agent_data/simulation`` state directory, which is what
+   mounts the project's ``var/agent_data/simulation`` state directory, which is what
    makes scenario switches reach the IOC):
 
    .. code-block:: bash
@@ -332,7 +371,7 @@ Scenarios
 
 ``osprey sim apply <scenario>`` works in Virtual Accelerator mode exactly as it
 does for the mock. Applying a scenario writes the project's
-``_agent_data/simulation/active_scenarios`` file; the in-container engine polls
+``var/agent_data/simulation/active_scenarios`` file; the in-container engine polls
 it and, within about a second, composed channel values reflect the new scenario.
 One behavioral difference from the mock: in VA mode a scenario switch only
 refreshes the engine-composed channels — setpoints you wrote during the session
@@ -341,9 +380,12 @@ values are reset.)
 
 The container mounts two of the project's directories: ``data/simulation`` for
 the machine model (rebuilt from your profile on every build) and
-``_agent_data/simulation`` for that scenario state (written while the system
+``var/agent_data/simulation`` for that scenario state (written while the system
 runs). Both are automatic for the deployed service; if you launched the
 container by hand, see the warning under `Running from a source checkout`_.
+
+What a scenario bundle may contain, how bundles compose, and what ``osprey sim
+apply`` refuses is the :doc:`/reference/contracts/simulation-bundle`.
 
 Write limits
 ============

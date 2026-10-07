@@ -6,30 +6,43 @@
  */
 
 import { escapeHtml } from '/design-system/js/dom.js';
+import { formatFacilityTime } from '/design-system/js/facility-time.js';
 import { parseEntryText } from './entries-helpers.js';
 import { messageOf } from './utils.js';
 
 /**
+ * Stamp the zone the capabilities name on `<html>`, where the shared
+ * facility-time formatter reads it. ARIEL's page is a static file, so this is
+ * how the zone reaches it. A payload without a zone (a failed fetch) leaves
+ * the page unstamped, and times then read in the viewer's own zone, named.
+ * @param {{ facility_timezone?: string }|null} [capabilities]
+ */
+export function applyFacilityTimezone(capabilities) {
+  const zone = capabilities?.facility_timezone;
+  if (typeof zone === 'string' && zone) {
+    document.documentElement.setAttribute('data-facility-timezone', zone);
+  }
+}
+
+/**
  * Format a timestamp as a friendly, full-sentence date for Simple mode
- * (frame 1b), e.g. "Tuesday, July 15 at 8:30 AM". Falls back to the raw
- * string if the timestamp can't be parsed.
+ * (frame 1b), in the facility zone and the viewer's date convention, e.g.
+ * "Tuesday, July 15 at 8:30 AM" in US English. Falls back to the raw string
+ * if the timestamp can't be parsed.
  * @param {string} [timestamp] - ISO timestamp
  * @returns {string} Humanized date/time
  */
 export function formatHumanTimestamp(timestamp) {
   if (!timestamp) return '';
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return timestamp;
-  const day = date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  });
-  const time = date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-  return `${day} at ${time}`;
+  return (
+    formatFacilityTime(timestamp, {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }) || timestamp
+  );
 }
 
 /**
@@ -43,6 +56,7 @@ export function formatHumanTimestamp(timestamp) {
  * @property {Array<*>} [attachments]
  * @property {string[]} [keywords]
  * @property {string[]} [highlights]
+ * @property {string[]|null} [matched_via]
  */
 
 /**
@@ -62,20 +76,22 @@ export function formatHumanTimestamp(timestamp) {
  */
 
 /**
- * Format a timestamp for display.
+ * Format a timestamp for display, in the facility zone and the viewer's date
+ * convention. Falls back to the raw string if the timestamp can't be parsed.
  * @param {string} [timestamp] - ISO timestamp
  * @returns {string} Formatted date/time
  */
 export function formatTimestamp(timestamp) {
   if (!timestamp) return '';
-  const date = new Date(timestamp);
-  return date.toLocaleString('en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return (
+    formatFacilityTime(timestamp, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }) || timestamp
+  );
 }
 
 /**
@@ -184,6 +200,7 @@ export function renderEntryCard(entry, isCited = false) {
   const attachmentCount = entry.attachments?.length || 0;
   const keywords = entry.keywords?.slice(0, 5) || [];
   const citedClass = isCited ? ' entry-card-cited' : '';
+  const pictureMatch = Array.isArray(entry.matched_via) && entry.matched_via.includes('image');
 
   // Extract preview from raw_text
   const { details: preview } = parseEntryText(entry.raw_text);
@@ -213,6 +230,7 @@ export function renderEntryCard(entry, isCited = false) {
       </div>
       <div class="entry-card-footer">
         ${attachmentCount > 0 ? `<span class="text-muted">📎 ${attachmentCount}</span>` : ''}
+        ${pictureMatch ? '<span class="text-muted" data-match-marker="image" title="Matched through a picture in this entry">🖼️ picture match</span>' : ''}
         ${keywords.length > 0 ? `<span class="keyword-list">🏷️ ${keywords.map(kw =>
           `<span class="keyword-tag">${escapeHtml(kw)}</span>`
         ).join('')}</span>` : ''}

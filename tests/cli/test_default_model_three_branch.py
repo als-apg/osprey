@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
 from osprey.profiles.providers import load_provider_catalog
 
 PRESET_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"
@@ -55,7 +55,7 @@ class TestBranchTwoModelId:
         assert spec.default_model_id == "claude-opus-5"
 
     def test_id_from_the_api_providers_list_is_accepted(self, caplog):
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "lbl-aws", "default_model": "custom-opus-id"},
                 api_providers=CUSTOM_PROVIDERS,
@@ -65,7 +65,7 @@ class TestBranchTwoModelId:
 
     @pytest.mark.parametrize("model_id", ["claude-opus-4-8-preview", "gpt-4", "vendor/some-model"])
     def test_an_unserved_id_is_trusted_and_logged(self, model_id, caplog):
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": model_id})
         assert spec.env_block["ANTHROPIC_MODEL"] == model_id
         assert spec.default_model_id == model_id

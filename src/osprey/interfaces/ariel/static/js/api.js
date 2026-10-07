@@ -8,6 +8,17 @@
 const API_BASE = '/api';
 
 /**
+ * Join a path relative to the API base onto the API base, the same base every
+ * call in this module uses. A proxy that mounts this page under a prefix
+ * rewrites that base, so the result points under the prefix too.
+ * @param {string} path - Path relative to the API base, starting with '/'
+ * @returns {string} The URL path the browser should request
+ */
+export function apiUrl(path) {
+  return API_BASE + path;
+}
+
+/**
  * Structured API error carrying the HTTP status code and an optional
  * machine-readable `code` discriminator from the response body.
  */
@@ -16,13 +27,16 @@ export class ApiError extends Error {
    * @param {number} status - HTTP status code.
    * @param {string} message - Error detail message.
    * @param {string} [code] - Machine-readable discriminator (e.g. "auth_required").
+   * @param {string} [field] - Name of the entry field the error is about, if any.
    */
-  constructor(status, message, code) {
+  constructor(status, message, code, field) {
     super(message);
     /** @type {number} */
     this.status = status;
     /** @type {string|undefined} */
     this.code = code;
+    /** @type {string|undefined} */
+    this.field = field;
     this.name = 'ApiError';
   }
 }
@@ -30,15 +44,21 @@ export class ApiError extends Error {
 /**
  * Build an ApiError from a non-OK response.
  *
- * Preserves the HTTP `status` and any machine-readable `code` discriminator from
- * the JSON body (e.g. "auth_required") so callers can branch on them — for
- * example, to prompt for logbook credentials instead of showing a generic error.
+ * Preserves the HTTP `status`, any machine-readable `code` discriminator from
+ * the JSON body (e.g. "auth_required") and the entry `field` it names, so
+ * callers can branch on them — for example, to prompt for logbook credentials
+ * or mark the offending input instead of showing a generic error.
  * @param {Response} response - The failed fetch response
- * @returns {Promise<ApiError>} An ApiError with `.status` and optional `.code`
+ * @returns {Promise<ApiError>} An ApiError with `.status`, optional `.code` and `.field`
  */
 async function errorFromResponse(response) {
   const body = await response.json().catch(() => ({}));
-  return new ApiError(response.status, body.detail || `HTTP ${response.status}`, body.code);
+  return new ApiError(
+    response.status,
+    body.detail || `HTTP ${response.status}`,
+    body.code,
+    body.field,
+  );
 }
 
 /**
@@ -150,11 +170,31 @@ export const searchApi = {
 export const entriesApi = {
   /**
    * Describe the configured logbook's write capability, so the create form can
-   * adapt its credential prompt.
-   * @returns {Promise<{supports_write: boolean, requires_auth: boolean, source_system: ?string}>}
+   * adapt its credential prompt, and list the entry fields the facility
+   * declares, in form order.
+   * @returns {Promise<{supports_write: boolean, requires_auth: boolean, source_system: ?string, entry_fields: any[]}>}
    */
   async getPublishInfo() {
     return api.get('/publish-info');
+  },
+
+  /**
+   * List the choices of one dynamic-select entry field.
+   *
+   * Blank values are left out of the query, so the server never sees a parent
+   * the operator has not filled in.
+   * @param {string} endpoint - The field's `options_endpoint`, relative to the API base
+   * @param {Record<string, string|number|boolean|null|undefined>} [values] - Its `depends_on` values
+   * @returns {Promise<Array<{value: string, label: string}>>} The field's choices
+   */
+  async getEntryFieldOptions(endpoint, values = {}) {
+    /** @type {Record<string, string|number|boolean>} */
+    const params = {};
+    for (const [key, value] of Object.entries(values)) {
+      if (value !== null && value !== undefined && value !== '') params[key] = value;
+    }
+    const data = await api.get(endpoint, params);
+    return Array.isArray(data?.options) ? data.options : [];
   },
 
   /**

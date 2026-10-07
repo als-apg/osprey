@@ -107,7 +107,13 @@ class TestResolveWebShellCommand:
         """
         cmd = _resolve_web_shell_command({}, None, {})
 
-        assert cmd == ["/abs/claude", "--setting-sources", "project"]
+        assert cmd == [
+            "/abs/claude",
+            "--setting-sources",
+            "project",
+            "--strict-mcp-config",
+            "--mcp-config=.mcp.json",
+        ]
         mock_resolve.assert_called_once_with("claude")
 
     @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/claude")
@@ -121,6 +127,8 @@ class TestResolveWebShellCommand:
             "@anthropic-ai/claude-code@2.1.146",
             "--setting-sources",
             "project",
+            "--strict-mcp-config",
+            "--mcp-config=.mcp.json",
         ]
         mock_resolve.assert_not_called()
 
@@ -854,16 +862,16 @@ class TestWebCommandPreflightWiring:
 # -- pre-flight (Task 1.2: Probe 2 auth-secret, Probe 3 config/settings) ---
 #
 # Probe 2 resolves the provider spec and checks whether its auth secret is
-# resolvable (env or .env) before launch — a proxy provider without one is a
-# hard failure, direct Anthropic without a key is only a warning (subscription
-# / OAuth login still works). Probe 3 does a dedicated JSON/YAML parse of
+# resolvable (env or .env) before launch — a provider whose adapter declares
+# neither a keyless endpoint nor an interactive login cannot launch without its
+# secret, on either route. Probe 3 does a dedicated JSON/YAML parse of
 # .claude/settings.json and config.yml so a syntax error surfaces as a
 # pre-flight failure instead of load_osprey_config() silently degrading to {}.
 
 
 def _stub_spec(**overrides):
     """Build a minimal ClaudeCodeModelSpec for Probe 2 tests without a real config.yml."""
-    from osprey.build.claude_code_resolver import ClaudeCodeModelSpec
+    from osprey.agent_runner.provider_env import ClaudeCodeModelSpec
 
     defaults = {
         "provider": "als-apg",
@@ -891,7 +899,7 @@ class TestPreflightAuthSecret:
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
         monkeypatch.setattr(
-            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
         monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
         own_port = _free_port()
@@ -916,7 +924,7 @@ class TestPreflightAuthSecret:
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
         monkeypatch.setattr(
-            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
         monkeypatch.setenv("ALS_APG_API_KEY", "")
         own_port = _free_port()
@@ -940,7 +948,7 @@ class TestPreflightAuthSecret:
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
         monkeypatch.setattr(
-            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
         monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
         own_port = _free_port()
@@ -969,7 +977,7 @@ class TestPreflightAuthSecret:
             needs_proxy=False,
         )
         monkeypatch.setattr(
-            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: spec
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
         )
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         own_port = _free_port()
@@ -985,6 +993,158 @@ class TestPreflightAuthSecret:
         # renderer's warning mark rather than a hand-typed "WARNING:" prefix.
         assert "⚠" in result.stderr
         assert "ANTHROPIC_API_KEY" in result.stderr
+        assert "login" in result.stderr
+        assert "ANTHROPIC_API_KEY" not in result.stdout
+        # Failures print to stderr beside the warning, so their absence is
+        # pinned there by the refusal's own wording.
+        assert "requires it" not in result.stderr
+        assert "Pre-flight checks failed" not in result.output
+
+    @pytest.mark.parametrize(
+        ("provider", "secret_env"),
+        [("cborg", "CBORG_API_KEY"), ("als-apg", "ALS_APG_API_KEY")],
+    )
+    def test_native_gateway_missing_secret_aborts(
+        self, runner, monkeypatch, deployment, provider, secret_env
+    ):
+        """A gateway that speaks the Anthropic API natively offers no
+        interactive login, so a missing key stops the launch."""
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+        spec = _stub_spec(provider=provider, auth_secret_env=secret_env, needs_proxy=False)
+        monkeypatch.setattr(
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
+        )
+        monkeypatch.delenv(secret_env, raising=False)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 1
+        assert provider in result.output
+        assert secret_env in result.output
+        assert "OAuth" not in result.output
+
+    def test_unknown_native_provider_missing_secret_aborts(self, runner, monkeypatch, deployment):
+        """No adapter class describes the provider, so nothing declares a
+        login for it: a native route without its secret stops the launch."""
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+        spec = _stub_spec(
+            provider="my-anthropic-gateway",
+            auth_secret_env="MY_ANTHROPIC_GATEWAY_API_KEY",
+            needs_proxy=False,
+        )
+        monkeypatch.setattr(
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
+        )
+        monkeypatch.delenv("MY_ANTHROPIC_GATEWAY_API_KEY", raising=False)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 1
+        assert "MY_ANTHROPIC_GATEWAY_API_KEY" in result.output
+
+    def _stub_site_gateway(self, monkeypatch, *, needs_proxy, **declared):
+        """Serve a stand-in adapter for ``site-gateway`` with *declared* facts."""
+        from osprey.models.providers.base import BaseProvider
+
+        stand_in = type("SiteGatewayAdapter", (BaseProvider,), {"name": "site-gateway", **declared})
+        monkeypatch.setattr(
+            "osprey.models.provider_registry.ProviderRegistry.get_provider",
+            lambda _self, name: stand_in if name == "site-gateway" else None,
+        )
+        spec = _stub_spec(
+            provider="site-gateway",
+            auth_secret_env="SITE_GATEWAY_API_KEY",
+            needs_proxy=needs_proxy,
+        )
+        monkeypatch.setattr(
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
+        )
+        monkeypatch.delenv("SITE_GATEWAY_API_KEY", raising=False)
+
+    @pytest.mark.parametrize("needs_proxy", [True, False])
+    def test_declared_login_decides_not_the_route(
+        self, runner, monkeypatch, deployment, needs_proxy
+    ):
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+        self._stub_site_gateway(
+            monkeypatch,
+            needs_proxy=needs_proxy,
+            requires_api_key=True,
+            supports_interactive_login=True,
+        )
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "⚠" in result.stderr
+        assert "subscription/OAuth login" in result.stderr
+
+    @pytest.mark.parametrize("needs_proxy", [True, False])
+    def test_declared_keyless_decides_not_the_route(
+        self, runner, monkeypatch, deployment, needs_proxy
+    ):
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+        self._stub_site_gateway(
+            monkeypatch,
+            needs_proxy=needs_proxy,
+            requires_api_key=False,
+            api_key_note="local server",
+        )
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "does not require" in result.stderr
+        assert "local server" in result.stderr
+
+    @pytest.mark.parametrize("needs_proxy", [True, False])
+    def test_present_secret_resolves_no_adapter(self, runner, monkeypatch, deployment, needs_proxy):
+        """The healthy launch never resolves an adapter class."""
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+
+        def refuse(_self, _name):
+            raise AssertionError("the healthy launch must not resolve an adapter")
+
+        monkeypatch.setattr("osprey.models.provider_registry.ProviderRegistry.get_provider", refuse)
+        spec = _stub_spec(needs_proxy=needs_proxy)
+        monkeypatch.setattr(
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
+        )
+        monkeypatch.setenv("ALS_APG_API_KEY", "present")
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
 
     def test_keyless_proxy_provider_missing_secret_warns_no_abort(
         self, runner, monkeypatch, deployment
@@ -1001,7 +1161,7 @@ class TestPreflightAuthSecret:
             needs_proxy=True,
         )
         monkeypatch.setattr(
-            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: spec
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
         )
         monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
         own_port = _free_port()
@@ -1032,7 +1192,7 @@ class TestPreflightAuthSecret:
             needs_proxy=True,
         )
         monkeypatch.setattr(
-            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: spec
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: spec
         )
         monkeypatch.delenv("MY_PROXY_API_KEY", raising=False)
         own_port = _free_port()
@@ -1050,7 +1210,7 @@ class TestPreflightAuthSecret:
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
         monkeypatch.setattr(
-            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: None
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: None
         )
         own_port = _free_port()
 
@@ -1068,7 +1228,7 @@ class TestPreflightAuthSecret:
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
         monkeypatch.setattr(
-            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
         monkeypatch.setenv("ALS_APG_API_KEY", "present")
 
@@ -1104,7 +1264,7 @@ class TestPreflightAuthSecret:
                 "openobserve.user / openobserve.password are missing or blank"
             )
 
-        monkeypatch.setattr("osprey.build.claude_code_resolver.load_provider_spec", _raise)
+        monkeypatch.setattr("osprey.agent_runner.provider_env.load_provider_spec", _raise)
         own_port = _free_port()
 
         result = runner.invoke(
@@ -1130,7 +1290,7 @@ class TestPreflightAuthSecret:
         def _raise(*_a, **_kw):
             raise ValueError("unknown provider 'nowhere'")
 
-        monkeypatch.setattr("osprey.build.claude_code_resolver.load_provider_spec", _raise)
+        monkeypatch.setattr("osprey.agent_runner.provider_env.load_provider_spec", _raise)
         own_port = _free_port()
 
         result = runner.invoke(
@@ -1147,7 +1307,7 @@ class TestPreflightAuthSecret:
     def test_missing_gateway_endpoint_is_reported_by_name(self, runner, monkeypatch, deployment):
         """A provider with no endpoint is a server that exits during startup, so
         pre-flight names the variable instead of launching into the crash."""
-        from osprey.build.claude_code_resolver import ProviderEndpointError
+        from osprey.agent_runner.provider_env import ProviderEndpointError
 
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
@@ -1160,7 +1320,7 @@ class TestPreflightAuthSecret:
                 "api.providers.als-apg.base_url in config.yml."
             )
 
-        monkeypatch.setattr("osprey.build.claude_code_resolver.load_provider_spec", _raise)
+        monkeypatch.setattr("osprey.agent_runner.provider_env.load_provider_spec", _raise)
         own_port = _free_port()
 
         result = runner.invoke(
@@ -1182,7 +1342,7 @@ class TestPreflightConfigValidity:
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
         # No provider configured — keep Probe 2 out of these tests' way.
         monkeypatch.setattr(
-            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: None
+            "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: None
         )
 
     def _stub_clean_ports(self, monkeypatch):

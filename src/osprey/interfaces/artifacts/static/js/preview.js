@@ -11,7 +11,7 @@
  * meta strip, fullscreen. The viewport inside it — which markup an artifact of
  * a given type renders as, and what has to be mounted into it afterwards —
  * belongs to artifact-viewport.js, shared verbatim with Simple mode's result
- * card (gallery.js's `renderSimple`). The two surfaces differ in chrome and
+ * card (simple-view.js's `render`). The two surfaces differ in chrome and
  * never in the viewport, so there is exactly one dispatch and this module
  * calls it: `artifactViewportHtml(a)` for the markup, then
  * `mountArtifactViewport(...)` once it is live. That dispatch in turn owns the

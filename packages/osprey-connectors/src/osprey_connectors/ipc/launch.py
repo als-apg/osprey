@@ -121,7 +121,7 @@ class AttributedReader:
     :class:`ConnectionError` carries it.
     """
 
-    def __init__(self, stream: Any) -> None:
+    def __init__(self, stream: asyncio.StreamReader) -> None:
         self._stream = stream
         self._reason: str | None = None
 

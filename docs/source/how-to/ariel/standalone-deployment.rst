@@ -98,8 +98,10 @@ on their corpus before committing to the full deployment.
 
             osprey up -d
 
-         Once the container is running, run database migrations and
-         ingest the bundled demo logbook with embeddings:
+         ``osprey up`` seeds the demo logbook into the empty database:
+         the logbook narrative of every control-assistant demo scenario,
+         pictures included. Add embeddings (and picture captions, where a
+         vision model answers) with:
 
          .. code-block:: bash
 
@@ -172,15 +174,17 @@ directly:
    ``anthropic``. That file is the deployment's one secret store, and a build
    never rewrites it, so a value set there survives every rebuild.
 
-3. **Replace the demo logbook seed.** The bundled
-   ``data/logbook_seed/demo_logbook.json`` is 28 entries of fictional
-   accelerator events. Either:
+3. **Replace the demo logbook.** ``data/logbook_seed/`` holds the
+   logbook narrative of the control-assistant demo scenarios: 29 entries of
+   fictional accelerator events, three of them with a plot, one directory per
+   scenario in the scenario-bundle logbook format
+   (:ref:`simulation-bundle-logbook`). ``ariel.demo_narrative`` names that
+   directory, and it is seeded only into an empty logbook. Either:
 
-   - Replace the file with a dump from your real logbook (preserve the
-     ``generic_json`` schema), or
-   - Edit ``ariel.ingestion.adapter`` / ``source_url`` in ``config.yml``
-     to point at your facility's logbook system (see
-     :doc:`data-ingestion`).
+   - Point ``ariel.ingestion.adapter`` / ``source_url`` at your facility's
+     logbook system (see :doc:`data-ingestion`) and remove
+     ``ariel.demo_narrative``, or
+   - Replace the narratives with your own, in the same format.
 
 Durable customization (a profile you own)
 -----------------------------------------
@@ -221,7 +225,8 @@ connects as its own Postgres role — ``<username>_ro``, derived from
 ``public`` schema, and do nothing else. It is not the role ingestion writes
 with, and it is not a superuser, so a query naming a server-side function such
 as ``pg_read_file()`` is refused by Postgres rather than by a pattern match over
-the query text.
+the query text. Only the agent's ARIEL server opens that role; ingestion and the
+other ``osprey ariel`` commands connect as the owner role alone.
 
 The role is created by an init script the Postgres entrypoint runs **once,
 while it initializes a fresh data volume**, the same window

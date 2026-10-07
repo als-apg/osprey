@@ -150,7 +150,7 @@ const SLOW_POLL_UNTIL_ATTEMPT = 90;
  * @param {unknown} panelId
  * @returns {string | null}
  */
-export function serviceIdOf(panelId) {
+function serviceIdOf(panelId) {
   return typeof panelId === 'string' && panelId.startsWith(PLACEHOLDER_PREFIX)
     ? panelId.slice(PLACEHOLDER_PREFIX.length)
     : null;

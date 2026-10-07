@@ -18,9 +18,10 @@ from osprey.profiles.providers import (
     packaged_catalog_path,
 )
 
-# The ten providers the control-assistant app template shipped under
-# `api.providers`. Frozen here so a dropped entry is a test failure, not a
-# silently smaller catalog.
+# The eleven providers the packaged catalog ships: the ten chat providers the
+# control-assistant app template carried under `api.providers`, plus the
+# embeddings-only llama-cpp. Frozen here so a dropped entry is a test failure,
+# not a silently smaller catalog.
 EXPECTED_PROVIDERS = {
     "als-apg",
     "amsc-i2",
@@ -29,6 +30,7 @@ EXPECTED_PROVIDERS = {
     "cborg",
     "ds4",
     "google",
+    "llama-cpp",
     "ollama",
     "openai",
     "stanford",
@@ -57,7 +59,7 @@ class TestPackagedCatalog:
         assert path.is_file()
         assert path.parent.name == "profiles"
 
-    def test_packaged_catalog_holds_the_ten_providers(self):
+    def test_packaged_catalog_holds_the_eleven_providers(self):
         catalog = load_provider_catalog(None)
         assert set(catalog.entries) == EXPECTED_PROVIDERS
         assert catalog.source == "packaged"
@@ -79,6 +81,28 @@ class TestPackagedCatalog:
             for word in ("haiku", "sonnet", "opus"):
                 assert word not in entry["models"], name
                 assert entry["default_model"] != word, name
+
+    def test_only_the_cborg_entry_paces_its_calls(self):
+        catalog = load_provider_catalog(None)
+        paced = {n for n, e in catalog.entries.items() if "requests_per_minute" in e}
+        assert paced == {"cborg"}
+        assert catalog.entries["cborg"]["requests_per_minute"] == 18
+
+    def test_no_packaged_entry_declares_image_carriage(self):
+        # The adapters decide for the built-ins; the key is a site's own
+        # statement about the model it serves.
+        catalog = load_provider_catalog(None)
+        declared = {n for n, e in catalog.entries.items() if "supports_images" in e}
+        assert declared == set()
+
+    def test_the_llama_cpp_entry_is_keyless_and_names_the_adapter_default(self):
+        from osprey.models.providers.llama_cpp import LLAMA_CPP_DEFAULT_MODEL
+
+        entry = load_provider_catalog(None).entries["llama-cpp"]
+        assert entry["api_key"] == "llama-cpp"
+        assert entry["base_url"] == "${LLAMA_CPP_HOST:-http://localhost:8080}"
+        assert entry["default_model"] == LLAMA_CPP_DEFAULT_MODEL
+        assert entry["models"] == [LLAMA_CPP_DEFAULT_MODEL]
 
     def test_catalog_carries_no_jinja(self):
         text = packaged_catalog_path().read_text(encoding="utf-8")
@@ -127,12 +151,16 @@ class TestOptionalKeys:
                     "health_model": "claude-haiku-4-5",
                     "models": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
                     "claude_code_aliases": {"opus": "claude-opus-5"},
+                    "requests_per_minute": 30,
+                    "supports_images": True,
                 }
             },
         )
         entry = load_provider_catalog(tmp_path).entries["gw"]
         assert entry["api_protocol"] == "anthropic"
         assert entry["claude_code_aliases"] == {"opus": "claude-opus-5"}
+        assert entry["requests_per_minute"] == 30
+        assert entry["supports_images"] is True
 
     def test_unknown_entry_key_passes_through(self, tmp_path):
         _write_catalog(tmp_path, {"gw": _entry(timeout=30)})
@@ -223,6 +251,16 @@ class TestValidationRefusals:
     def test_alias_map_that_is_not_a_mapping_refused(self, tmp_path):
         message = self._refuses_entry(tmp_path, **_entry(claude_code_aliases=["m-1"]))
         assert "providers.gw.claude_code_aliases" in message
+
+    def test_request_cap_that_is_not_a_positive_whole_number_refused(self, tmp_path):
+        for value in (0, -5, 1.5, "18", True, None):
+            message = self._refuses_entry(tmp_path, **_entry(requests_per_minute=value))
+            assert "providers.gw.requests_per_minute" in message, value
+
+    def test_a_supports_images_that_is_not_true_or_false_refused(self, tmp_path):
+        for value in ("yes", 1, None, "true"):
+            message = self._refuses_entry(tmp_path, **_entry(supports_images=value))
+            assert "providers.gw.supports_images" in message, value
 
     def test_unparseable_yaml_refused_naming_the_file(self, tmp_path):
         assert "Cannot read" in self._refuses(tmp_path, "providers:\n  gw: [unclosed\n")

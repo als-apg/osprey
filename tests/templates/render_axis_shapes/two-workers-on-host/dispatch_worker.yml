@@ -31,18 +31,6 @@ services:
     container_name: golden-project-dispatch-worker-1
     command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]
     labels:
-      osprey.project.name: "golden-project"
-      com.osprey.repo-id: "0123456789ab"
-      osprey.project.root: "/deploy/golden-project"
-      # Content fingerprint of the rendered config this deploy built
-      # (runtime_helper's as_built_config_digest, carried in by
-      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
-      # the other file a container reads its settings from: this service mounts
-      # the rendered config.yml, so `osprey set` changes a file the compose
-      # document never mentions and compose would leave the container running on
-      # the settings it parsed at startup. Empty when the invocation did not set
-      # the variable (a hand-run `docker compose up`).
-      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
       # Content fingerprint of the env chain this deploy read (runtime_helper's
       # env_chain_digest, carried in by OSPREY_ENV_DIGEST). It is a label, not
       # documentation: compose recreates a container when the compose document
@@ -114,6 +102,15 @@ services:
       # finds nothing else to do — no special case needed for it.
       OSPREY_AUDIT_IDENTITY: dispatch-worker-1
       OSPREY_AUDIT_DIR: /app/golden-project/var/audit/dispatch-worker-1
+
+      # WHO this worker is to the control system. Per worker, from the same
+      # loop index as the audit identity above, so a write traced to
+      # `osprey-dispatch-<i>` names the one container that made it. The
+      # entrypoint's root phase renames the image's `osprey` account to this
+      # name, using the module mounted read-only below, before it drops
+      # privileges.
+      OSPREY_CONTROL_IDENTITY: osprey-dispatch-1
+      OSPREY_CONTROL_IDENTITY_MODULE: /opt/osprey/control_identity.py
 
       # WHERE this worker reads the control-context tree, mounted read-only
       # below. A dispatch run writes as the OWNER on its job — a person, whose
@@ -215,6 +212,11 @@ services:
       # compose_generator from the same `agent_data.base_dir` the writer
       # resolves its own record path against.
       - ./var/agent_data/control_target:/osprey/control_tree:ro
+
+      # The control-identity module, staged into this build context by
+      # compose_generator byte for byte from the packaged source. Read-only:
+      # the entrypoint runs it as root, so nothing inside may edit it.
+      - ./build/services/dispatch_worker/control_identity.py:/opt/osprey/control_identity.py:ro
     network_mode: host
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10011/health').status==200 else 1)\""]
@@ -244,18 +246,6 @@ services:
     container_name: golden-project-dispatch-worker-2
     command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]
     labels:
-      osprey.project.name: "golden-project"
-      com.osprey.repo-id: "0123456789ab"
-      osprey.project.root: "/deploy/golden-project"
-      # Content fingerprint of the rendered config this deploy built
-      # (runtime_helper's as_built_config_digest, carried in by
-      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
-      # the other file a container reads its settings from: this service mounts
-      # the rendered config.yml, so `osprey set` changes a file the compose
-      # document never mentions and compose would leave the container running on
-      # the settings it parsed at startup. Empty when the invocation did not set
-      # the variable (a hand-run `docker compose up`).
-      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
       # Content fingerprint of the env chain this deploy read (runtime_helper's
       # env_chain_digest, carried in by OSPREY_ENV_DIGEST). It is a label, not
       # documentation: compose recreates a container when the compose document
@@ -327,6 +317,15 @@ services:
       # finds nothing else to do — no special case needed for it.
       OSPREY_AUDIT_IDENTITY: dispatch-worker-2
       OSPREY_AUDIT_DIR: /app/golden-project/var/audit/dispatch-worker-2
+
+      # WHO this worker is to the control system. Per worker, from the same
+      # loop index as the audit identity above, so a write traced to
+      # `osprey-dispatch-<i>` names the one container that made it. The
+      # entrypoint's root phase renames the image's `osprey` account to this
+      # name, using the module mounted read-only below, before it drops
+      # privileges.
+      OSPREY_CONTROL_IDENTITY: osprey-dispatch-2
+      OSPREY_CONTROL_IDENTITY_MODULE: /opt/osprey/control_identity.py
 
       # WHERE this worker reads the control-context tree, mounted read-only
       # below. A dispatch run writes as the OWNER on its job — a person, whose
@@ -428,6 +427,11 @@ services:
       # compose_generator from the same `agent_data.base_dir` the writer
       # resolves its own record path against.
       - ./var/agent_data/control_target:/osprey/control_tree:ro
+
+      # The control-identity module, staged into this build context by
+      # compose_generator byte for byte from the packaged source. Read-only:
+      # the entrypoint runs it as root, so nothing inside may edit it.
+      - ./build/services/dispatch_worker/control_identity.py:/opt/osprey/control_identity.py:ro
     network_mode: host
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10012/health').status==200 else 1)\""]

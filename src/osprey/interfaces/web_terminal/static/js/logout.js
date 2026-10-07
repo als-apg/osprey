@@ -62,6 +62,8 @@ export async function logout(landingUrl, btn = null) {
  * The roster username this container serves, from the server-rendered URL
  * prefix (`window.__OSPREY_PREFIX__`, which `compute_url_prefix()` sets to
  * exactly `/u/<user>` for a multi-user container and to `""` otherwise).
+ * The user is that prefix's last path segment, so this script names no mount
+ * root of its own.
  *
  * Read from the prefix rather than from the display menu's identity line
  * because the prefix is the copy the app already routes every one of its own
@@ -72,7 +74,7 @@ export async function logout(landingUrl, btn = null) {
  */
 function terminalUserFromPrefix() {
   const prefix = (window.__OSPREY_PREFIX__ || '').replace(/\/+$/, '');
-  return prefix.startsWith('/u/') ? prefix.slice('/u/'.length) : '';
+  return prefix.slice(prefix.lastIndexOf('/') + 1);
 }
 
 /**

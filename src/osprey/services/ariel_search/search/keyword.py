@@ -7,13 +7,21 @@ text search capabilities with optional fuzzy matching fallback.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 
+from osprey.services.ariel_search.database.repository import warn_schema_behind_once
 from osprey.services.ariel_search.database.search_fts import (
+    ATTACHMENT_TEXT_DOCUMENT,
+    EMPTY_TSQUERY,
+    FTS_CONFIG,
+    PHRASE_TSQUERY_LEG,
+    PLAIN_TSQUERY_LEG,
     build_expanded_tsquery,
     keyword_fts_expression,
 )
@@ -46,10 +54,22 @@ if TYPE_CHECKING:
 
 logger = get_logger("ariel")
 
-ALLOWED_OPERATORS = {"AND", "OR", "NOT"}
-ALLOWED_FIELD_PREFIXES = {"author:", "date:"}
+#: The boolean operator words a keyword query recognizes, each with the
+#: ``tsquery`` symbol it stands for. Matched case-insensitively as whole words.
+_OPERATOR_SYMBOLS: Mapping[str, str] = MappingProxyType({"AND": "&", "OR": "|", "NOT": "!"})
 
-# Default fuzzy threshold (pg_trgm similarity)
+#: The boolean operator words a keyword query recognizes.
+ALLOWED_OPERATORS = frozenset(_OPERATOR_SYMBOLS)
+
+#: Field prefixes :func:`parse_query` lifts out of a query. Each is lower-case
+#: and colon-terminated; the filter key is the prefix without its colon, and
+#: :func:`keyword_search` applies each key as a parameterized predicate.
+ALLOWED_FIELD_PREFIXES = frozenset({"author:", "date:"})
+
+#: Longest first, so no prefix can shadow a longer one that starts with it.
+_FIELD_PREFIXES_LONGEST_FIRST = tuple(sorted(ALLOWED_FIELD_PREFIXES, key=lambda p: (-len(p), p)))
+
+#: Minimum ``pg_trgm`` similarity a row must reach to be a fuzzy-fallback hit.
 DEFAULT_FUZZY_THRESHOLD = 0.3
 
 MAX_QUERY_LENGTH = 1000
@@ -80,10 +100,14 @@ class KeywordSearchSettings:
         pattern_timeout_seconds: Statement-timeout envelope applied to a
             pattern-bearing search. Defaults to
             :data:`DEFAULT_PATTERN_TIMEOUT_SECONDS`.
+        fuzzy_threshold: Minimum ``pg_trgm`` similarity, in ``[0, 1]``, a row
+            must reach to be returned by the fuzzy fallback. Defaults to
+            :data:`DEFAULT_FUZZY_THRESHOLD`.
     """
 
     patterns_enabled: bool = DEFAULT_PATTERNS_ENABLED
     pattern_timeout_seconds: float = DEFAULT_PATTERN_TIMEOUT_SECONDS
+    fuzzy_threshold: float = DEFAULT_FUZZY_THRESHOLD
 
     @classmethod
     def from_ariel_config(cls, config: ARIELConfig | None) -> KeywordSearchSettings:
@@ -107,8 +131,9 @@ class KeywordSearchSettings:
 
         Raises:
             ValueError: If ``patterns_enabled`` is present but not a boolean,
-                or ``pattern_timeout_seconds`` is present but not a number
-                ``>= 0.001``.
+                ``pattern_timeout_seconds`` is present but not a number
+                ``>= 0.001``, or ``fuzzy_threshold`` is present but not a number
+                in ``[0, 1]``.
         """
         module = config.search_modules.get("keyword") if config is not None else None
         settings = module.settings if module is not None else None
@@ -130,7 +155,21 @@ class KeywordSearchSettings:
                 f"got {timeout!r}"
             )
 
-        return cls(patterns_enabled=patterns_enabled, pattern_timeout_seconds=float(timeout))
+        threshold = settings.get("fuzzy_threshold", cls.fuzzy_threshold)
+        if (
+            not isinstance(threshold, (int, float))
+            or isinstance(threshold, bool)
+            or not 0 <= threshold <= 1
+        ):
+            raise ValueError(
+                f"{_SETTINGS_PREFIX}.fuzzy_threshold must be a number in [0, 1], got {threshold!r}"
+            )
+
+        return cls(
+            patterns_enabled=patterns_enabled,
+            pattern_timeout_seconds=float(timeout),
+            fuzzy_threshold=float(threshold),
+        )
 
 
 def _balance_quotes(query: str) -> str:
@@ -175,7 +214,8 @@ def parse_query(query: str) -> tuple[str, dict[str, str], list[str]]:
     Returns:
         Tuple of (search_text, field_filters, phrases)
         - search_text: Query text for FTS
-        - field_filters: Dict of field:value filters
+        - field_filters: Dict of filter values keyed by field name (an
+          :data:`ALLOWED_FIELD_PREFIXES` entry without its colon)
         - phrases: List of quoted phrases
     """
     field_filters: dict[str, str] = {}
@@ -194,13 +234,11 @@ def parse_query(query: str) -> tuple[str, dict[str, str], list[str]]:
 
     for token in tokens:
         lower_token = token.lower()
-
-        if lower_token.startswith("author:"):
-            field_filters["author"] = token[7:]
-        elif lower_token.startswith("date:"):
-            field_filters["date"] = token[5:]
-        else:
+        prefix = next((p for p in _FIELD_PREFIXES_LONGEST_FIRST if lower_token.startswith(p)), None)
+        if prefix is None:
             search_tokens.append(token)
+        else:
+            field_filters[prefix[:-1]] = token[len(prefix) :]
 
     search_text = " ".join(search_tokens)
     return search_text, field_filters, phrases
@@ -313,6 +351,37 @@ def parse_keyword_query(query: str, *, patterns_enabled: bool = True) -> ParsedK
     )
 
 
+_BOOLEAN_OPERATOR_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(word) for word in _OPERATOR_SYMBOLS) + r")\b",
+    re.IGNORECASE,
+)
+
+#: Message of the INFO diagnostic reporting a boolean query searched without
+#: expansion. Shared with the service, which reports the same skip under its own
+#: source when it declines the expansion before dispatch.
+EXPANSION_SKIPPED_MESSAGE = "expansion skipped: boolean operators present"
+
+
+def has_boolean_operators(search_text: str) -> bool:
+    """Whether `search_text` would take the ``websearch_to_tsquery`` path.
+
+    A word in :data:`ALLOWED_OPERATORS` or its ``tsquery`` symbol routes the
+    query to ``websearch_to_tsquery``. :func:`build_tsquery` asks this function
+    for its path, and so does the search service one layer up when it decides
+    whether to resolve an expansion at all, so no two callers disagree about
+    which queries take that path.
+
+    Args:
+        search_text: The parsed keyword search text.
+
+    Returns:
+        True when the text carries an explicit boolean operator.
+    """
+    if _BOOLEAN_OPERATOR_RE.search(search_text):
+        return True
+    return any(symbol in search_text for symbol in _OPERATOR_SYMBOLS.values())
+
+
 def build_tsquery(search_text: str, phrases: list[str]) -> str:
     """Build PostgreSQL tsquery from parsed query components.
 
@@ -327,54 +396,19 @@ def build_tsquery(search_text: str, phrases: list[str]) -> str:
 
     # Process main search text
     if search_text.strip():
-        # Replace operators with PostgreSQL equivalents
-        ts_text = search_text
-        ts_text = re.sub(r"\bAND\b", "&", ts_text, flags=re.IGNORECASE)
-        ts_text = re.sub(r"\bOR\b", "|", ts_text, flags=re.IGNORECASE)
-        ts_text = re.sub(r"\bNOT\b", "!", ts_text, flags=re.IGNORECASE)
-
-        if any(op in ts_text for op in ("&", "|", "!")):
-            tsquery_parts.append("websearch_to_tsquery('english', %s)")
+        if has_boolean_operators(search_text):
+            tsquery_parts.append(f"websearch_to_tsquery({FTS_CONFIG}, %s)")
         else:
-            tsquery_parts.append("plainto_tsquery('english', %s)")
+            tsquery_parts.append(PLAIN_TSQUERY_LEG)
 
     # Add phrase matches
     for _phrase in phrases:
-        tsquery_parts.append("phraseto_tsquery('english', %s)")
+        tsquery_parts.append(PHRASE_TSQUERY_LEG)
 
     if not tsquery_parts:
-        return "plainto_tsquery('english', '')"
+        return EMPTY_TSQUERY
 
     return " && ".join(tsquery_parts)
-
-
-_BOOLEAN_OPERATOR_RE = re.compile(r"\b(?:AND|OR|NOT)\b", re.IGNORECASE)
-
-#: Message of the INFO diagnostic reporting a boolean query searched without
-#: expansion. Shared with the service, which reports the same skip under its own
-#: source when it declines the expansion before dispatch.
-EXPANSION_SKIPPED_MESSAGE = "expansion skipped: boolean operators present"
-
-
-def has_boolean_operators(search_text: str) -> bool:
-    """Whether `search_text` would take the ``websearch_to_tsquery`` path.
-
-    Mirrors :func:`build_tsquery`: the word operators are rewritten to ``&``,
-    ``|`` and ``!``, and any of those three characters routes the query to
-    ``websearch_to_tsquery``. Lives beside `build_tsquery` and is public because
-    the search service asks the same question one layer up, when it decides
-    whether to resolve an expansion at all -- the two must never disagree about
-    which queries take that path.
-
-    Args:
-        search_text: The parsed keyword search text.
-
-    Returns:
-        True when the text carries an explicit boolean operator.
-    """
-    if _BOOLEAN_OPERATOR_RE.search(search_text):
-        return True
-    return any(op in search_text for op in ("&", "|", "!"))
 
 
 def _expansion_skipped_diagnostic() -> SearchDiagnostic:
@@ -418,6 +452,46 @@ def _name_pattern(error: PatternError, spans: tuple[PatternSpan, ...]) -> Patter
     )
 
 
+async def _attach_caption_matches(
+    results: list[tuple[EnhancedLogbookEntry, float, list[str]]],
+    repository: ARIELRepository,
+    config: ARIELConfig,
+    *,
+    tsquery: tuple[str | None, list[Any]],
+    pattern_bodies: list[str],
+) -> None:
+    """Mark each hit with the ids of its attachments whose caption matched.
+
+    One ``caption_matches`` call over the hit ids, with the same tsquery and
+    pattern bodies the main statement used. A hit whose captions matched gets
+    ``_matched_attachment_ids``; any other hit is left untouched. The ids are
+    supplementary evidence: a timeout or database failure logs one WARNING and
+    marks nothing, so it never fails a search the main statement answered.
+    """
+    from osprey.services.ariel_search.attachments.compose import caption_model_id
+    from osprey.services.ariel_search.exceptions import (
+        DatabaseQueryError,
+        SearchTimeoutError,
+    )
+
+    tsquery_sql, tsquery_params = tsquery
+    try:
+        matched = await repository.caption_matches(
+            [entry["entry_id"] for entry, _score, _highlights in results],
+            caption_model_id(config),
+            tsquery_sql=tsquery_sql,
+            tsquery_params=tsquery_params,
+            pattern_bodies=pattern_bodies,
+        )
+    except (SearchTimeoutError, DatabaseQueryError) as e:
+        logger.warning(f"keyword_search: caption matching skipped: {e}")
+        return
+    for entry, _score, _highlights in results:
+        ids = matched.get(entry["entry_id"])
+        if ids:
+            cast("dict[str, Any]", entry)["_matched_attachment_ids"] = list(ids)
+
+
 async def keyword_search(
     query: str,
     repository: ARIELRepository,
@@ -453,7 +527,7 @@ async def keyword_search(
 
     Args:
         query: Search query with optional operators (AND, OR, NOT)
-            and field prefixes (author:, date:)
+            and field prefixes (:data:`ALLOWED_FIELD_PREFIXES`)
         repository: ARIEL database repository
         config: ARIEL configuration
         max_results: Maximum entries to return (default: 10)
@@ -512,8 +586,14 @@ async def keyword_search(
     params: list[Any] = []
     where_clauses: list[str] = []
 
+    # One read of the schema fact per query: the WHERE built here, the rank and
+    # headline the repository builds, and the fuzzy fallback all select from it.
+    v2 = (await repository.schema_facts()).has_v2_fts
+    if not v2:
+        warn_schema_behind_once()
+
     if search_text.strip() or phrases:
-        fts_expression = keyword_fts_expression(config)
+        fts_expression = keyword_fts_expression(config, v2=v2)
         expand = query_expansion is not None and bool(query_expansion.groups)
 
         if expand and has_boolean_operators(search_text):
@@ -535,8 +615,12 @@ async def keyword_search(
             where_clauses.append(f"{fts_expression} @@ ({build_tsquery(search_text, phrases)})")
 
     for span in parsed.pattern_spans:
-        where_clauses.append("raw_text ~* %s")
-        params.append(span.body)
+        if v2:
+            where_clauses.append(f"(raw_text ~* %s OR {ATTACHMENT_TEXT_DOCUMENT} ~* %s)")
+            params.extend([span.body, span.body])
+        else:
+            where_clauses.append("raw_text ~* %s")
+            params.append(span.body)
 
     if "author" in field_filters:
         where_clauses.append("author ILIKE %s")
@@ -590,10 +674,27 @@ async def keyword_search(
             search_text=probe_text,
             max_results=max_results,
             include_highlights=include_highlights,
+            v2=v2,
             **extra,
         )
     except PatternError as e:
         raise _name_pattern(e, parsed.pattern_spans) from e
+
+    if results:
+        if tsquery_sql is None and (search_text.strip() or phrases):
+            caption_tsquery: tuple[str | None, list[Any]] = (
+                build_tsquery(search_text, phrases),
+                [search_text, *phrases] if search_text.strip() else list(phrases),
+            )
+        else:
+            caption_tsquery = (tsquery_sql, list(tsquery_params or []))
+        await _attach_caption_matches(
+            results,
+            repository,
+            config,
+            tsquery=caption_tsquery,
+            pattern_bodies=[span.body for span in parsed.pattern_spans],
+        )
 
     # Fuzzy fallback probes the text the operator typed first, so expansion can
     # only ever add hits, never remove one. A pattern search never falls back: a
@@ -602,18 +703,20 @@ async def keyword_search(
     if not results and fuzzy_fallback and probe_text.strip() and not parsed.pattern_spans:
         results = await repository.fuzzy_search(
             search_text=probe_text,
-            threshold=DEFAULT_FUZZY_THRESHOLD,
+            threshold=settings.fuzzy_threshold,
             max_results=max_results,
             start_date=start_date,
             end_date=end_date,
+            v2=v2,
         )
         if not results and expansion_applied and query_expansion is not None:
             results = await repository.fuzzy_search(
                 search_text=query_expansion.flattened_text,
-                threshold=DEFAULT_FUZZY_THRESHOLD,
+                threshold=settings.fuzzy_threshold,
                 max_results=max_results,
                 start_date=start_date,
                 end_date=end_date,
+                v2=v2,
             )
 
     logger.info(f"keyword_search: returning {len(results)} results")

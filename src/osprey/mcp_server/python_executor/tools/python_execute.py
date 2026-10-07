@@ -51,9 +51,13 @@ async def execute(
          import (starting a process, ``ctypes``); the connectors refuse
          ``write_channel``, and the EPICS connector stays on the read_only
          gateway (``OSPREY_EXECUTION_MODE``)
-      6. ``ExecutionWrapper`` monkeypatch — writes through ``osprey.runtime``
-         are checked against the limits database, as are the direct client
-         writes this build knows how to intercept
+      6. Raw-put block — in readwrite runs a direct client-library put
+         (``epics.caput``, a caproto ``PV.write``, a Tango
+         ``write_attribute`` …) is refused with ``RAW_CLIENT_WRITE``; writes go
+         through ``osprey.runtime.write_channel`` / ``write_channels``, which
+         carry limits checking and the audit record. PVAccess puts are the
+         exception until the connector writes PVAccess: they pass the block
+         and are limits-checked instead
       7. Process isolation — code runs outside the MCP server process
       8. Execution timeout — kills execution after configured timeout
 
@@ -70,8 +74,11 @@ async def execute(
     Args:
         code: Python source code to execute.
         description: Human-readable description of what the code does.
-        execution_mode: "readonly" (default) blocks detected write patterns;
-                        "readwrite" allows them. Any other value is rejected.
+        execution_mode: "readonly" (default) refuses every control-system
+                        write; "readwrite" permits writes through
+                        ``osprey.runtime.write_channel`` / ``write_channels``
+                        after human approval, and still refuses raw client
+                        puts. Any other value is rejected.
         save_output: If True, save the code and output to a workspace data file.
 
     Returns:
@@ -151,7 +158,10 @@ async def execute(
                 suggestions=[
                     *import_issues,
                     "Use read_channel() from osprey.runtime for reads.",
-                    "Set execution_mode to 'readwrite' if writes are intentional.",
+                    (
+                        "Set execution_mode to 'readwrite' if writes are intentional, "
+                        "and write through osprey.runtime.write_channel(address, value)."
+                    ),
                 ],
             )
 
@@ -181,7 +191,10 @@ async def execute(
             description=description,
             message="Control-system write patterns detected in readonly mode.",
             suggestions=[
-                "Set execution_mode to 'readwrite' if writes are intentional.",
+                (
+                    "Set execution_mode to 'readwrite' if writes are intentional, "
+                    "and write through osprey.runtime.write_channel(address, value)."
+                ),
                 "Detected patterns: " + json.dumps(patterns.get("detected_patterns", {})),
             ],
         )

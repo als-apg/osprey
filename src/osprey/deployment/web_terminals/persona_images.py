@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 from typing import cast
 
-from osprey.build.claude_code_resolver import load_provider_spec
+from osprey.agent_runner.provider_env import load_provider_spec
 from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
@@ -34,6 +34,7 @@ from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.env_production import deploy_issued_credential_vars
 from osprey.deployment.web_terminals.personas import effective_image_source
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
+from osprey.docs_links import installer_remedy
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.dotenv import ENV_LOCAL_FILENAME
 from osprey.utils.log_filter import quiet_logger
@@ -394,26 +395,35 @@ def _canonical_delta_reference(persona_name: str) -> str:
     return f"{PERSONA_DIRNAME}/{persona_name}.yml"
 
 
+#: What an operator whose variant build predates the persona-delta layout does
+#: next. The deploy path's refusals and the lint gate's end with it, so a config
+#: rejected by either one is sent to the same fix.
+PREDATES_DELTA_REMEDY = (
+    "A variant build that predates the persona-delta layout has no delta yet. "
+    + installer_remedy(
+        "the installer converts an existing variant into a persona delta over the "
+        "profile this deployment is built from"
+    )
+)
+
+
 def _persona_delta_remedy(persona_name: str, profile_root: Path) -> str:
     """The one sentence every unusable-``build_profile`` error ends with.
 
     Names both spellings the operator needs — the catalog value to write and the
     file it has to resolve to — from one place, so the several ways an entry can
-    be wrong cannot end up recommending different fixes. Ends by naming
-    ``/osprey:install``, because the operator most likely to read this is
-    one whose project predates the persona-delta layout: they have a variant
-    build in some older shape and need it converted, which is a bigger job than
-    editing one catalog value.
+    be wrong cannot end up recommending different fixes. Ends with
+    :data:`PREDATES_DELTA_REMEDY`, which links the installer's page, because the
+    operator most likely to read this is one whose project predates the
+    persona-delta layout: they have a variant build in some older shape and
+    need it converted, which is a bigger job than editing one catalog value.
     """
     reference = _canonical_delta_reference(persona_name)
     delta = profile_root / reference
     return (
         f"Set modules.web_terminals.personas.{persona_name}.build_profile to "
         f"'{reference}' — the delta at {delta} — which is what "
-        "`osprey init` writes for every persona in the catalog. If this "
-        "deployment has no such delta because its variant build predates the layout, "
-        "run /osprey:install: it converts an existing variant into a persona "
-        "delta over the profile this project is built from."
+        "`osprey init` writes for every persona in the catalog. " + PREDATES_DELTA_REMEDY
     )
 
 
@@ -477,10 +487,7 @@ def _resolve_persona_profile(build_profile: str, persona_name: str, profile_root
                 "and the entry outlived it, or the entry was added and the delta never "
                 f"written. Restore {candidate}, or drop "
                 f"modules.web_terminals.personas.{persona_name} from the catalog and the "
-                "roster entries that reference it. If the delta was never written because "
-                "this deployment's variant build predates the layout, run "
-                "/osprey:install: it converts an existing variant into a persona "
-                "delta over the profile this repo is built from."
+                "roster entries that reference it. " + PREDATES_DELTA_REMEDY
             )
         raise ValueError(
             f"Persona {persona_name!r} names the build_profile {build_profile!r}, but no "

@@ -142,27 +142,79 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # The seventeenth move, and control-assistant's family alone: the root
     # preset turns on the full tool-call record (`audit.tool_call.*`), which
     # the five `extends` children inherit; the other three stand still.
-    "ariel-standalone": ("sha256:e430af35441251fbc5fb24ddd87175b18341919a5bae8ceb5788a96a86faeece"),
+    # The eighteenth move, and the two presets that carry a keyword block:
+    # ariel-standalone and control-assistant gained
+    # `ariel.search_modules.keyword.settings.fuzzy_threshold: 0.3`, the
+    # fuzzy-fallback similarity floor that was a literal in the keyword module.
+    # The value is the one the module already applied, so a rebuilt project
+    # behaves identically; the digest moves because the preset now states it.
+    # The five `extends` children inherit it; channel-finder-standalone and
+    # hello-world stand still.
+    # The nineteenth move, and control-assistant's family alone: the root
+    # preset states `control_system.target_switch.probe_timeout_s: 5` beside
+    # the drain timeout, and the five `extends` children inherit it; the other
+    # three stand still. 5 is the reader's default, so a rebuilt project
+    # behaves as before.
+    # The twentieth move, and the two presets that carry a text-embedding block:
+    # ariel-standalone and control-assistant gained `max_input_tokens: 2048` on
+    # the `nomic-embed-text` entry under
+    # `ariel.enhancement_modules.text_embedding.models`, the input window the
+    # embedding server applies. A rebuilt project cuts a longer entry to that
+    # window where it used the 512-token default before, so the staleness
+    # advisory firing on already-deployed projects is the correct signal. The
+    # five `extends` children inherit it; channel-finder-standalone and
+    # hello-world stand still.
+    # The twenty-first move, and control-assistant's family alone: the root
+    # preset spells the EPICS and virtual-accelerator call bound `timeout_s`,
+    # the one key every control-system connector reads, and the five `extends`
+    # children inherit it; the other three stand still. The value is unchanged.
+    # The twenty-second move, and the four presets that reach no machine:
+    # control-assistant-logbook and control-assistant-knowledge drop the
+    # JUPYTER panel, whose kernels reach the control target, and they,
+    # ariel-standalone and channel-finder-standalone state
+    # `web.control_target_picker: false`; the logbook persona also pins the
+    # epics and virtual_accelerator write keys off, as the knowledge persona
+    # already did. A rebuilt project of any of the four has no picker, so the
+    # advisory firing is correct. control-assistant and hello-world gained a
+    # comment only, which moves no digest; the other five stand still.
+    # The twenty-third move, and the two presets that carry an `ariel:` block:
+    # ariel-standalone and control-assistant turned the ARIEL picture modules
+    # on (`image_caption` and `image_embedding`, each with its own provider and
+    # model) and state `ariel.attachments.copy_on_ingest: images` and
+    # `ariel.attachments.view.enabled: true`. A rebuilt project captions and
+    # embeds pictures where it did not before, so the staleness advisory firing
+    # on already-deployed projects is the correct signal. The five `extends`
+    # children inherit them; channel-finder-standalone and hello-world stand
+    # still.
+    # The twenty-fourth move, and ariel-standalone alone: it states
+    # `ariel.demo_narrative: data/logbook_seed` in place of its demo ingestion
+    # block (`ariel.ingestion.adapter` / `source_url`, now commented examples),
+    # so its deploy seeds the control-assistant scenario narratives, pictures
+    # included, instead of ingesting a copied JSON file. A rebuilt project seeds
+    # a different demo logbook, so the staleness advisory firing on
+    # already-deployed projects is the correct signal. Every other preset
+    # stands still.
+    "ariel-standalone": ("sha256:2619aa34aef8aa2f1812f3f5fc321fb437aca6ca8809a9be99efce4d371e569c"),
     "channel-finder-standalone": (
-        "sha256:b96693984048dec0897c6bab4a3a16867b1e277037c0647930f40457965b1cdc"
+        "sha256:7bec034ab9e5ae0c11d79df9cf294075e9c38c66bc7251ab9246a684165c9ee5"
     ),
     "control-assistant": (
-        "sha256:f053c6de8fd9497d272a068a03f8174b9ed9c1d9c21c6fb800ef60b641a2f3ce"
+        "sha256:88136ad30a695cde18e90f192434944d0d4320319a1b63540549375339559f26"
     ),
     "control-assistant-admin": (
-        "sha256:b27fb8d6fe3d79ba8ff5febdb28ccb70cbc117e3d8717b825002daa608694c57"
+        "sha256:803f04a65375d434a1c14af754dbf5e77f2ea4eaaca1b3e67080a79608f57ee3"
     ),
     "control-assistant-knowledge": (
-        "sha256:53265269ecd689a2355c8c5bd892e68d022e0de03186ab4338104a805c54a6d0"
+        "sha256:726be2bfd607539a79173d48ad77463c5b77f50eeadfcc4557aae49d5487a721"
     ),
     "control-assistant-logbook": (
-        "sha256:cffa27c611273350222d9a3e064002435c36f670f7db8d383d94639002726437"
+        "sha256:6297a4053f9d7913e1433aa1730993488450aaa00a6b549c846f1da32fa5c035"
     ),
     "control-assistant-readonly": (
-        "sha256:251d61c019a064f0b5d3386d7744c2a68c35ca929f61caa9bd1cd1418b4f532a"
+        "sha256:2eb45925ec3d07e5381f0ca11250c6ad0a017deb77762c60993c8ff0fa2e2132"
     ),
     "control-assistant-readwrite": (
-        "sha256:88d62d2fdd672b4bf16d30ae9c72294e4b64f63a0819cdc0bc0e0be71a5746b6"
+        "sha256:843545f7bdb5fce1d654fe9513322572d2ed125f97ab1180952264206b134c2f"
     ),
     "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
 }

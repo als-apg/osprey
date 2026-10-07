@@ -37,7 +37,13 @@ import {
   isSimpleMode,
 } from "/design-system/js/header-contrib.js";
 import "/design-system/js/components/osprey-display-menu.js";
-import { el, isFallback, readPanelParams, STRUCTURE_MARKER } from "./helpers.js";
+import {
+  el,
+  hashChangeTarget,
+  isFallback,
+  readPanelParams,
+  STRUCTURE_MARKER,
+} from "./helpers.js";
 import { initTree, renderTree, highlightActive, highlightStructure, selectConcept } from "./tree.js";
 import {
   initSearchResults,
@@ -128,6 +134,8 @@ function requireEl(id) {
   const searchInput = /** @type {HTMLInputElement} */ (requireEl("search-input"));
   const searchResultsEl = requireEl("search-results");
   const structureLink = document.getElementById("structure-link");
+  /** @type {Set<string> | null} */
+  let knownConceptIds = null;
 
   initTree({ treeEl, structureLink, onSelect: loadConcept });
   initSearchResults({ containerEl: searchResultsEl, onSelect: selectConcept });
@@ -197,6 +205,16 @@ function requireEl(id) {
     }
   });
 
+  // The hub opens this panel on a concept by changing its fragment; an
+  // in-page anchor changes it too, and names no concept.
+  window.addEventListener("hashchange", function () {
+    const target = hashChangeTarget(readPanelParams(), history.state, knownConceptIds);
+    if (target === null) return;
+    history.replaceState({ id: target }, "");
+    if (target === STRUCTURE_MARKER) loadStructure({ push: false });
+    else loadConcept(target);
+  });
+
   // -- sidebar / tree --------------------------------------------------------
 
   async function loadTree() {
@@ -212,6 +230,15 @@ function requireEl(id) {
       );
       return;
     }
+    /** @type {{concepts?: {id: string}[]}[]} */
+    const groups = data.groups || [];
+    knownConceptIds = new Set(
+      groups.flatMap(function (g) {
+        return (g.concepts || []).map(function (c) {
+          return c.id;
+        });
+      })
+    );
     renderTree(data.groups || []);
   }
 

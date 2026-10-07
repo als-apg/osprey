@@ -17,10 +17,12 @@ import logging
 import pytest
 import yaml
 
-from osprey.build.claude_code_resolver import (
+from osprey.agent_runner.provider_env import (
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
 )
+from osprey.models.provider_registry import get_provider_registry
+from osprey.models.providers.llama_cpp import LLAMA_CPP_DEFAULT_MODEL
 from osprey.profiles.providers import packaged_catalog_path
 
 #: Catalog entries whose gateway fronts more than one vendor. Each lists a
@@ -62,7 +64,7 @@ class TestModelLessProviderIsRefused:
         With no served list, every Claude Code alias runs that model, and the
         resolver's record names the substitution.
         """
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "lbl-aws", "default_model": "gateway-model-id"},
                 api_providers=self._MODEL_LESS,
@@ -82,7 +84,7 @@ class TestAliasSubstitutionIsLoud:
     """An alias no source fills runs the main model, and the build says so."""
 
     def test_a_partial_family_is_recorded_and_falls_back(self, caplog):
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": "lbl-aws"},
                 api_providers={
@@ -99,7 +101,7 @@ class TestAliasSubstitutionIsLoud:
         assert "claude-opus" not in message  # no Anthropic ids borrowed or named
 
     def test_claude_code_aliases_can_complete_the_set(self, caplog):
-        with caplog.at_level(logging.INFO, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             spec = ClaudeCodeModelResolver.resolve(
                 {
                     "provider": "lbl-aws",
@@ -112,14 +114,17 @@ class TestAliasSubstitutionIsLoud:
         assert not caplog.records
 
     def test_a_key_that_is_not_an_alias_name_is_named(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             ClaudeCodeModelResolver.resolve({"provider": "cborg", "aliases": {"opusx": "some-id"}})
         message = "\n".join(record.getMessage() for record in caplog.records)
         assert "claude_code.aliases" in message
         assert "opusx" in message
+        assert all(
+            r.levelno == logging.INFO for r in caplog.records if "ignoring" in r.getMessage()
+        )
 
     def test_a_catalog_alias_key_that_is_not_an_alias_name_is_named(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.INFO, logger="osprey.agent_runner.provider_env"):
             ClaudeCodeModelResolver.resolve(
                 {"provider": "gw"},
                 api_providers={
@@ -134,9 +139,12 @@ class TestAliasSubstitutionIsLoud:
         message = "\n".join(record.getMessage() for record in caplog.records)
         assert "api.providers.gw.claude_code_aliases" in message
         assert "sonet" in message
+        assert all(
+            r.levelno == logging.INFO for r in caplog.records if "ignoring" in r.getMessage()
+        )
 
     def test_a_claude_gateway_warns_nothing(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="osprey.build.claude_code_resolver"):
+        with caplog.at_level(logging.WARNING, logger="osprey.agent_runner.provider_env"):
             ClaudeCodeModelResolver.resolve({"provider": "cborg"})
         assert not caplog.records
 
@@ -152,9 +160,12 @@ class TestTheShippedCatalogResolves:
             assert isinstance(models, list) and models, name
             assert entry.get("default_model") in models, name
 
-    def test_every_provider_resolves_to_its_own_default(self):
+    def test_every_chat_provider_resolves_to_its_own_default(self):
         providers = _shipped_providers()
+        registry = get_provider_registry()
         for name, entry in providers.items():
+            if not registry.is_chat(name):
+                continue
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": name}, providers, include_telemetry=False
             )
@@ -164,6 +175,17 @@ class TestTheShippedCatalogResolves:
             assert set(spec.alias_models) == set(TIER_MODEL_ENV_VARS)
             for model_id in spec.alias_models.values():
                 assert model_id in entry["models"], (name, model_id)
+
+    def test_the_embeddings_only_llama_cpp_entry_is_refused_as_the_agent_provider(self):
+        providers = _shipped_providers()
+        entry = providers["llama-cpp"]
+        assert entry["base_url"] == "${LLAMA_CPP_HOST:-http://localhost:8080}"
+        assert entry["api_key"] == "llama-cpp"
+        assert entry["models"] == [LLAMA_CPP_DEFAULT_MODEL]
+        with pytest.raises(ValueError, match="llama-cpp serves embeddings only, no chat"):
+            ClaudeCodeModelResolver.resolve(
+                {"provider": "llama-cpp"}, providers, include_telemetry=False
+            )
 
     def test_no_provider_borrows_another_providers_ids(self):
         """The list must be the provider's own naming, not Anthropic's.

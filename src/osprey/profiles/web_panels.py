@@ -102,7 +102,9 @@ BUILTIN_PANEL_LABELS: dict[str, str] = {
 #: default it serves when the panel is absent, and this is what lets the build
 #: say so first. ``identity`` is gated too, but on a runtime fact (a terminal
 #: user or a deployment name) a build cannot judge, so it is deliberately not
-#: here; ``tests/interfaces/web_terminal/test_bar_items_ssr.py`` pins the two
+#: here. ``control-target`` is gated by a config key the server reads
+#: (``web.control_target_picker``), not by a panel, so it is not here either;
+#: ``tests/interfaces/web_terminal/test_bar_items_ssr.py`` pins the two
 #: tables together.
 BAR_ITEM_PANEL_GATES: dict[str, str] = {
     "bluesky-queue": "bluesky",

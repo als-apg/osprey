@@ -203,6 +203,11 @@ async def list_devices(prefix: str = "", limit: int | None = None, offset: int =
     status, body = await anyio.to_thread.run_sync(_http_get_json, path)
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))
+    if not isinstance(body, dict):
+        return make_error(
+            "bluesky_bridge_error",
+            "The Bluesky bridge answered /devices with a body that is not a device page.",
+        )
     # The route clamps; this tool reports what came back rather than what was
     # asked for, so `offset`/`limit` below are the bridge's effective values.
     devices = body["devices"]

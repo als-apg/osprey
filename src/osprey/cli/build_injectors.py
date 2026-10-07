@@ -18,11 +18,17 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
+from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
+from osprey.deployment.host_binding import (
+    BIND_ENV_KEY,
+    BUNDLED_HOST_BINDINGS,
+    LISTENS_KEY,
+)
 from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import (
     anchored_append,
@@ -30,6 +36,7 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
+from osprey.utils.facility import resolve_facility_name
 from osprey.utils.logger import get_logger
 from osprey_connectors import types as connector_types
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
@@ -221,12 +228,14 @@ def _copy_shared_service_partials(dest_services_root: Path) -> int:
     return len(partials)
 
 
-#: The one key on a `services.<name>` block that belongs to the AUTHOR rather
-#: than to the injector that writes the block. Everything else an injector puts
-#: there it derives from its own profile block (a port, a trigger, a path), so
-#: replacing the block wholesale is right; `env:` is the exception, because it
-#: is written by hand and by nothing else.
-_AUTHORED_SERVICE_KEYS = ("env",)
+#: The keys on a `services.<name>` block that belong to the AUTHOR rather than
+#: to the injector that writes the block. No injector derives them: `env` is a
+#: name list, `network` is the attachment the service's template renders,
+#: `http` is what the deploy summary prints, and `listens` / `bind_env` say what
+#: the service binds on the host network. Everything else an injector puts there
+#: it derives from its own profile block (a port, a trigger, a path), so
+#: replacing the block wholesale is right for those and wrong for these.
+_AUTHORED_SERVICE_KEYS = ("env", "network", "http", LISTENS_KEY, BIND_ENV_KEY)
 
 #: Service key of the second virtual accelerator a deployment stands up as its
 #: ``live`` target. Derived from the dotted path every READER of the stand-in
@@ -259,26 +268,26 @@ def _carry_authored_keys(services: Any, name: str, block: dict[str, Any]) -> dic
     assignment: whatever stood at that key is gone. That is deliberate for the
     keys the injector derives (the block is regenerated from the profile on
     every build, and a stale port left behind would be worse than none), but the
-    env-passthrough axis is not derived from anything — ``services.<name>.env``
-    is a list of host variable NAMES the author wrote, in one of two spellings,
-    and both of them land in this same block *before* the injectors run:
+    author's per-service axes (:data:`_AUTHORED_SERVICE_KEYS`) are not derived
+    from anything — the author wrote them, in one of two spellings, and both of
+    them land in this same block *before* the injectors run:
 
-    * nested — ``services.<name>.config.env``, written by
+    * nested — ``services.<name>.config.<key>``, written by
       :func:`_inject_profile_services`;
-    * dotted — ``config: {"services.<name>.env": [...]}``, merged by
+    * dotted — ``config: {"services.<name>.<key>": ...}``, merged by
       ``build_cmd._apply_config_overrides``.
 
-    So without this the seven services that have a dedicated injector accept the
+    So without this the services that have a dedicated injector accept the
     declaration at validation, write it to ``config.yml``, and then silently drop
-    it a few steps later — the author sees no error and no passthrough, which is
-    the failure the dispatch-pair rejection exists to prevent, one layer wider.
-    The macro that renders the axis (``templates/services/_env_axis.j2``) reads
-    exactly this key, so carrying it forward is all that is needed for the seven
-    to behave like the services with no injector at all.
+    it a few steps later — the author sees no error and no effect, which is the
+    failure the dispatch-pair rejection exists to prevent, one layer wider. The
+    templates and readers consult exactly these keys on the block, so carrying
+    them forward is all that is needed for those services to behave like the
+    services with no injector at all.
 
     Copied by reference and only when present, so a service that declares
-    nothing renders byte-for-byte what it rendered before: no empty ``env: []``
-    appears in any config.yml that did not already carry one.
+    nothing gains nothing: no authored key appears in any config.yml that did
+    not already carry one.
 
     A key the new block already carries is left alone, which is what keeps this
     usable from :func:`_inject_profile_services` too. That injector builds its
@@ -495,6 +504,65 @@ def _inject_profile_services(
     return count
 
 
+def _declare_bundled_host_bindings(
+    project_path: Path, profile_dir: Path, services: Mapping[str, ServiceDef] | None
+) -> None:
+    """Write OSPREY's own host-binding declarations into the rendered service blocks.
+
+    Each bundled host-capable template holds one fact about what it binds
+    (:data:`~osprey.deployment.host_binding.BUNDLED_HOST_BINDINGS`). Writing it
+    into the ``services.<name>`` block means the readers at ``osprey up`` — the
+    host-port preflight, the off-host bind check — read one spelling whether
+    OSPREY or a facility wrote it. A service is declared here only when OSPREY
+    owns it (:func:`~osprey.cli.build_profile_schema.osprey_declares_binding`):
+    a claimed service, or a facility template reusing a bundled name, declares
+    its own. Claimed is read from the profile, by the same test profile
+    validation applies; the render's ``scaffold.user_owned`` is registered only
+    after the services are injected.
+
+    Written only off the default, as :func:`_inject_dispatch` writes
+    ``network``: only a block on the host network gains a key, and only a
+    non-default one (``listens: false`` or ``bind_env``). Readers consult the
+    declaration only under ``network: host``, so a bridge-mode render's
+    ``config.yml`` is left untouched, and the file is saved only when something
+    was written.
+
+    Args:
+        project_path: Root of the built project.
+        profile_dir: Directory holding the profile, where a claimed service
+            lives.
+        services: The profile's ``services:`` entries, whose templates decide
+            whether a bundled name is rendered from OSPREY's own template.
+    """
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        return
+    config = load_config_document(config_path)
+    rendered = config.get("services")
+    if not isinstance(rendered, Mapping):
+        return
+    services = services or {}
+
+    wrote = False
+    for name, entry in BUNDLED_HOST_BINDINGS.items():
+        block = rendered.get(name)
+        if not isinstance(block, MutableMapping):
+            continue
+        if ServiceDef(template="", config=dict(block)).network_mode() != "host":
+            continue
+        if not osprey_declares_binding(name, services, profile_dir):
+            continue
+        if not entry.binding.listens:
+            block[LISTENS_KEY] = False
+            wrote = True
+        if entry.binding.bind_env is not None:
+            block[BIND_ENV_KEY] = entry.binding.bind_env
+            wrote = True
+
+    if wrote:
+        save_config_document(config_path, config)
+
+
 def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: Path) -> None:
     """Wire the event-dispatch feature into a built project.
 
@@ -529,7 +597,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     """
     from ruamel.yaml import YAML
 
-    from osprey.cli.build_profile import _triggers_dir
+    from osprey.cli.build_profile_presets import resolve_triggers_path
     from osprey.cli.build_profile_schema import DEFAULT_NETWORK_MODE
 
     # The default is spelled twice on purpose (here and on ``DispatchConfig``):
@@ -540,12 +608,10 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     on_host_network = network == "host"
 
     # 1. Resolve + copy triggers file (profile-relative path or bundled triggers name).
-    if (profile_dir / dispatch.triggers).is_file():
-        triggers_src = profile_dir / dispatch.triggers
-    elif (_triggers_dir() / dispatch.triggers).is_file():
-        triggers_src = _triggers_dir() / dispatch.triggers
-    else:
+    source = resolve_triggers_path(profile_dir, dispatch.triggers)
+    if source is None:
         raise BuildProfileError(f"dispatch.triggers not found: {dispatch.triggers!r}")
+    triggers_src = source.path
     triggers_dest = project_path / "triggers.yml"
     shutil.copy2(triggers_src, triggers_dest)
 
@@ -631,7 +697,8 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     dispatcher_config: dict[str, Any] = {
         "path": "./services/event_dispatcher",
         "port": dispatch.dispatcher_port,
-        "facility_name": dispatch.facility_name,
+        # The override wins; otherwise the dispatcher shows the name every other surface shows.
+        "facility_name": dispatch.facility_name or resolve_facility_name(config, ""),
         "channel_strip_prefix": dispatch.channel_strip_prefix,
         # Copy the project's triggers.yml into the service build context so the
         # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
@@ -957,7 +1024,7 @@ def _refuse_unknown_lane_targets(config: Any) -> None:
     valid = ", ".join(repr(target) for target in connector_types.CONTROL_TARGETS)
     for lane_key in _LANE_SERVICE_KEYS:
         block = services.get(lane_key)
-        declared = block.get("target") if hasattr(block, "get") else None
+        declared = block.get("target") if isinstance(block, Mapping) else None
         if declared is None or declared in connector_types.CONTROL_TARGETS:
             continue
         raise BuildProfileError(

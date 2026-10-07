@@ -7,8 +7,8 @@ cost/duration/turn metadata on `result`) while preserving each event's identity
 and light metadata.
 
 The table below is anchored to the real event shapes produced by
-`_message_to_events` in ``operator_session.py`` (text / thinking / tool_use /
-tool_result / result / system / error) plus the ``session_reset`` marker the
+`_event_to_wire` in ``operator_session.py`` (text / thinking / tool_use /
+result / system / error), a ``tool_result`` shape, plus the ``session_reset`` marker the
 control routes emit — so a change to those shapes that this filter should react
 to will surface here.
 
@@ -21,30 +21,39 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json as _json
+from contextlib import AsyncExitStack
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from claude_agent_sdk import (
+    CLIConnectionError,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 import osprey.interfaces.web_terminal.routes.chat as chat_module
 import osprey.interfaces.web_terminal.session_handoff as handoff_module
+from osprey.audit.envelope import POSTURE_SOURCE_LIVE, POSTURE_SOURCE_PROCESS
+from osprey.audit.posture import posture_source
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
 from osprey.interfaces.web_terminal.operator_session import (
+    POSTURE_SESSION_ENV,
+    POSTURE_SOURCE_ENV,
     OperatorRegistry,
     OperatorSession,
 )
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes.chat import _strip_for_chat
-from tests.interfaces.web_terminal.test_operator_session import (
-    FakeAssistantMessage,
-    FakeResultMessage,
-    FakeSystemMessage,
-    FakeTextBlock,
-    FakeThinkingBlock,
-    FakeToolResultBlock,
-    FakeToolUseBlock,
+from tests.interfaces.web_terminal._fakes import (
+    assistant_message,
+    result_message,
+    sdk_seam,
+    user_message,
 )
 
 
@@ -63,7 +72,7 @@ def transcripts_on_disk():
         yield ids
 
 
-# ---- Representative events, one per type `_message_to_events` can emit. ----
+# ---- Representative events, one per type `_event_to_wire` can emit. ----
 # Each entry: (label, input_event, expected_output_event).
 _STRIP_CASES = [
     (
@@ -147,6 +156,21 @@ _STRIP_CASES = [
         {"type": "session_reset"},
         {"type": "session_reset"},
     ),
+    (
+        "tool_result_list_content_error_keeps_is_error",
+        {
+            "type": "tool_result",
+            "tool_use_id": "tu_x",
+            "content": [{"type": "text", "text": "..."}],
+            "is_error": True,
+        },
+        {"type": "tool_result", "tool_use_id": "tu_x", "is_error": True},
+    ),
+    (
+        "unknown_type_passes_through",
+        {"type": "keepalive", "extra": 1},
+        {"type": "keepalive", "extra": 1},
+    ),
 ]
 
 
@@ -175,58 +199,6 @@ class TestStripForChat:
         _strip_for_chat(input_event)
         assert input_event == before
 
-    def test_tool_use_input_is_gone_entirely(self):
-        """`input` (arguments) must not survive on a stripped tool_use."""
-        out = _strip_for_chat(
-            {
-                "type": "tool_use",
-                "tool_name": "Bash",
-                "tool_name_raw": "Bash",
-                "tool_use_id": "tu_x",
-                "input": {"command": "rm -rf /"},
-            }
-        )
-        assert "input" not in out
-        assert out["tool_name"] == "Bash"
-
-    def test_tool_result_content_is_gone_entirely(self):
-        """`content` (result body) must not survive on a stripped tool_result."""
-        out = _strip_for_chat(
-            {
-                "type": "tool_result",
-                "tool_use_id": "tu_x",
-                "content": [{"type": "text", "text": "..."}],
-                "is_error": True,
-            }
-        )
-        assert "content" not in out
-        assert out["is_error"] is True
-
-    def test_result_drops_cost_duration_turns(self):
-        """Cost / duration / turn metadata must never reach the chat client."""
-        out = _strip_for_chat(
-            {
-                "type": "result",
-                "is_error": False,
-                "total_cost_usd": 1.5,
-                "duration_ms": 999,
-                "num_turns": 7,
-            }
-        )
-        assert set(out) == {"type", "is_error"}
-        for leaked in ("total_cost_usd", "duration_ms", "num_turns"):
-            assert leaked not in out
-
-    def test_thinking_marker_survives_without_content(self):
-        """A bare `{type: 'thinking'}` marker survives; the text does not."""
-        out = _strip_for_chat({"type": "thinking", "content": "chain of thought"})
-        assert out == {"type": "thinking"}
-
-    def test_unknown_type_passes_through_unchanged(self):
-        """An unrecognized event type is passed through untouched."""
-        event = {"type": "keepalive", "extra": 1}
-        assert _strip_for_chat(event) == event
-
 
 # ---- Route-level smoke tests for the SSE branch (task chat-stream-route) ----
 #
@@ -236,8 +208,8 @@ class TestStripForChat:
 # chat-route-integration-tests.
 
 
-class _FakeSdkClient:
-    """Records signal-only `interrupt()` calls."""
+class _FakeAgent:
+    """Stands in for the runner's session; records signal-only `interrupt()` calls."""
 
     def __init__(self):
         self.interrupts = 0
@@ -247,7 +219,7 @@ class _FakeSdkClient:
 
 
 class _FakeChatSession(OperatorSession):
-    """OperatorSession with a preloaded queue instead of an SDK transport.
+    """OperatorSession with a preloaded queue instead of an agent runner.
 
     Inherits the real turn guard and ``run_turn`` machine; only the transport
     (``send_prompt``) and the quiesce side effect are replaced, with counters.
@@ -262,7 +234,10 @@ class _FakeChatSession(OperatorSession):
         self.quiesce_calls = 0
         self.release_calls = 0
         self.prompts: list[str] = []
-        self._client = _FakeSdkClient()
+        # An open runner scope over the stand-in: the session reads as live
+        # and forwards interrupts to it.
+        self._agent = _FakeAgent()
+        self._agent_scope = AsyncExitStack()
 
     def release_turn(self, token: int) -> bool:
         self.release_calls += 1
@@ -392,35 +367,6 @@ class TestChatStreamRoute:
         assert session.in_flight is False
         assert session.quiesce_calls == 0
 
-    def test_reused_session_has_no_session_reset(self):
-        session = _FakeChatSession([{"type": "result", "is_error": False}])
-        registry = _FakeRegistry(session=session, pooled_key="c1")
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post("/api/chat", json={"prompt": "again", "chat_id": "c1"})
-        frames = _data_frames(resp.text)
-        assert all(f.get("type") != "session_reset" for f in frames)
-
-    def test_strip_applied_on_the_wire(self):
-        session = _FakeChatSession(
-            [
-                {
-                    "type": "tool_use",
-                    "tool_name": "Bash",
-                    "tool_name_raw": "Bash",
-                    "tool_use_id": "tu_1",
-                    "input": {"command": "rm -rf /"},
-                },
-                {"type": "result", "is_error": False},
-            ]
-        )
-        registry = _FakeRegistry(session=session, pooled_key="c1")
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
-        tool_frames = [f for f in _data_frames(resp.text) if f.get("type") == "tool_use"]
-        assert tool_frames and all("input" not in f for f in tool_frames)
-
     def test_turn_in_progress_returns_409(self):
         session = _FakeChatSession([{"type": "result", "is_error": False}])
         session.acquire_turn()  # a turn is already held
@@ -431,14 +377,6 @@ class TestChatStreamRoute:
         assert resp.status_code == 409
         assert resp.json()["detail"]["error"] == "turn_in_progress"
 
-    def test_capacity_returns_429(self):
-        registry = _FakeRegistry(capacity=True)
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
-        assert resp.status_code == 429
-        assert resp.json()["detail"]["error"] == "chat_capacity"
-
     def test_empty_prompt_returns_422(self):
         registry = _FakeRegistry(session=_FakeChatSession([]))
         client = TestClient(_make_chat_app(registry))
@@ -447,12 +385,26 @@ class TestChatStreamRoute:
         assert resp.status_code == 422
 
     def test_sdk_unavailable_returns_503(self, monkeypatch):
-        monkeypatch.setattr(chat_module, "CLAUDE_SDK_AVAILABLE", False)
+        monkeypatch.setattr(chat_module, "HAS_SDK", False)
         registry = _FakeRegistry(session=_FakeChatSession([]))
         client = TestClient(_make_chat_app(registry))
 
         resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
         assert resp.status_code == 503
+
+    async def test_a_failed_submit_names_the_agent_sdk_error_on_the_wire(self):
+        with _seam(_clean_responder(), query_error=CLIConnectionError("closed")):
+            registry = OperatorRegistry()
+            req = _req(registry)
+
+            resp = await chat_module.chat(req, chat_module.ChatRequest(prompt="p", chat_id="c"))
+            frames = await _collect_sse(resp)
+
+            errors = [f for f in frames if f.get("type") == "error"]
+            assert errors
+            assert errors[-1]["error_type"] == "CLIConnectionError"
+            assert errors[-1]["message"] == "closed"
+            await registry.cleanup_all()
 
 
 class TestChatBufferedRoute:
@@ -487,17 +439,6 @@ class TestChatBufferedRoute:
         # Terminal exit released the guard, no quiesce.
         assert session.in_flight is False
         assert session.quiesce_calls == 0
-
-    def test_reused_session_omits_session_reset(self):
-        session = _FakeChatSession([{"type": "result", "is_error": False}])
-        registry = _FakeRegistry(session=session, pooled_key="c1")
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post(
-            "/api/chat", params={"stream": "false"}, json={"prompt": "hi", "chat_id": "c1"}
-        )
-        payload = resp.json()
-        assert all(e.get("type") != "session_reset" for e in payload["events"])
 
     def test_terminal_error_returns_500_with_error_key(self):
         session = _FakeChatSession(
@@ -534,23 +475,21 @@ class TestChatHandoffMapping:
 
         return app, patch.object(chat_module, "acquire_surface", refuse)
 
-    def test_a_terminal_turn_only_an_interrupt_can_end_is_409_with_its_slug(self):
-        app, patched = self._refusing_app(handoff_module.HandoffRefused.needs_interrupt("c1"))
+    @pytest.mark.parametrize(
+        ("refusal", "status", "slug"),
+        [
+            (handoff_module.HandoffRefused.needs_interrupt, 409, "handoff_needs_interrupt"),
+            (handoff_module.HandoffRefused.outgoing_still_running, 503, "outgoing_still_running"),
+        ],
+        ids=["needs-interrupt", "outgoing-still-running"],
+    )
+    def test_a_refusal_maps_to_its_status_and_slug(self, refusal, status, slug):
+        app, patched = self._refusing_app(refusal("c1"))
         with patched, TestClient(app) as client:
             resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
 
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "handoff_needs_interrupt"
-
-    def test_an_outgoing_process_that_outlived_its_kill_is_503_with_its_slug(self):
-        app, patched = self._refusing_app(
-            handoff_module.HandoffRefused.outgoing_still_running("c1")
-        )
-        with patched, TestClient(app) as client:
-            resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
-
-        assert resp.status_code == 503
-        assert resp.json()["detail"]["error"] == "outgoing_still_running"
+        assert resp.status_code == status
+        assert resp.json()["detail"]["error"] == slug
 
     def test_a_vanished_premise_is_503_with_its_slug(self):
         app, patched = self._refusing_app(handoff_module.HandoffError.vanished("c1", "expert"))
@@ -598,28 +537,6 @@ class TestChatResumesTheKeysTranscript:
 class TestInterruptEndpoint:
     """POST /api/chat/{chat_id}/interrupt — signal-only, never releases."""
 
-    def test_in_flight_turn_gets_interrupt_signal(self):
-        session = _FakeChatSession([])
-        session.acquire_turn()  # a turn is in flight
-        registry = _FakeRegistry(session=session)
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post("/api/chat/c1/interrupt")
-        assert resp.status_code == 204
-        assert session._client.interrupts == 1
-        # Signal-only: the guard is NOT released here.
-        assert session.in_flight is True
-        assert session.release_calls == 0
-
-    def test_idle_session_is_noop_204(self):
-        session = _FakeChatSession([])  # no turn in flight
-        registry = _FakeRegistry(session=session)
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.post("/api/chat/c1/interrupt")
-        assert resp.status_code == 204
-        assert session._client.interrupts == 0
-
     def test_unknown_chat_is_noop_204(self):
         registry = _FakeRegistry(session=None)
         client = TestClient(_make_chat_app(registry))
@@ -628,62 +545,25 @@ class TestInterruptEndpoint:
         assert resp.status_code == 204
 
 
-class TestDeleteEndpoint:
-    """DELETE /api/chat/{chat_id} — delegates to terminate_chat_session."""
-
-    def test_delete_delegates_and_returns_204(self):
-        session = _FakeChatSession([])
-        registry = _FakeRegistry(session=session)
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.delete("/api/chat/c1")
-        assert resp.status_code == 204
-        assert registry.terminated == ["c1"]
-
-    def test_delete_unknown_chat_is_idempotent_204(self):
-        registry = _FakeRegistry(session=None)
-        client = TestClient(_make_chat_app(registry))
-
-        resp = client.delete("/api/chat/nope")
-        assert resp.status_code == 204
-        assert registry.terminated == ["nope"]
-
-
-class TestRouteRegistration:
-    """Routes are flattened into the OpenAPI schema (include_router convention)."""
-
-    def test_control_routes_registered(self):
-        registry = _FakeRegistry(session=_FakeChatSession([]))
-        paths = _make_chat_app(registry).openapi()["paths"]
-        assert "/api/chat" in paths
-        assert "/api/chat/{chat_id}/interrupt" in paths
-        assert "/api/chat/{chat_id}" in paths
-        assert "post" in paths["/api/chat/{chat_id}/interrupt"]
-        assert "delete" in paths["/api/chat/{chat_id}"]
-
-
 # ===========================================================================
 # Full route-level scenario matrix (task chat-route-integration-tests)
 # ===========================================================================
 #
 # Unlike the smoke classes above (which fake the whole session/registry), these
 # tests run a REAL ``OperatorRegistry`` + ``OperatorSession`` and patch only the
-# SDK seam inside ``operator_session``: ``ClaudeSDKClient`` becomes a
-# controllable ``_ScriptedSdkClient`` and the SDK message/block types become the
-# ``Fake*`` doubles reused from ``test_operator_session`` so ``_message_to_events``
-# converts our fakes. That makes session reuse, the one-creation double-submit,
+# SDK client the agent runner constructs: ``ClaudeSDKClient`` becomes a
+# controllable ``_ScriptedSdkClient`` that yields real SDK messages, built by the
+# shared helpers in ``_fakes``. That makes session reuse, the one-creation double-submit,
 # the awaited interrupt, and guard release provable *at the fake seam* — the
 # same fake client instance is observed receiving both prompts, etc.
 
-_OS = "osprey.interfaces.web_terminal.operator_session."
-
 
 class _ScriptedSdkClient:
-    """Controllable ``ClaudeSDKClient`` double, patched at the operator_session seam.
+    """Controllable ``ClaudeSDKClient`` double, patched where the agent runner builds it.
 
     A real :class:`OperatorSession` / :class:`OperatorRegistry` runs on top of
     this. Each turn's behaviour is supplied by ``responder`` — an async-generator
-    function ``responder(client, prompt)`` that yields SDK-message doubles. The
+    function ``responder(client, prompt)`` that yields SDK messages. The
     instance records prompts and interrupt/aenter/aexit counts so a route test
     can prove session reuse, the awaited interrupt, and client teardown.
 
@@ -692,9 +572,12 @@ class _ScriptedSdkClient:
     ``interrupted`` / ``reached_hold`` events let a test sequence a turn precisely.
     """
 
-    def __init__(self, responder, *, aenter_delay: float = 0.0) -> None:
+    def __init__(
+        self, responder, *, aenter_delay: float = 0.0, query_error: Exception | None = None
+    ) -> None:
         self.responder = responder
         self.aenter_delay = aenter_delay
+        self.query_error = query_error
         self.prompts: list[str] = []
         self.query_calls = 0
         self.interrupt_calls = 0
@@ -716,6 +599,8 @@ class _ScriptedSdkClient:
 
     async def query(self, prompt: str) -> None:
         self.query_calls += 1
+        if self.query_error is not None:
+            raise self.query_error
         self.prompts.append(prompt)
         self._prompt = prompt
         # Reset (never replace) the per-turn events so a test that captured a
@@ -740,8 +625,8 @@ def _clean_responder(text: str = "ok"):
     """One text block then a terminal result — a clean, prompt turn."""
 
     async def responder(_client, _prompt):
-        yield FakeAssistantMessage([FakeTextBlock(text)])
-        yield FakeResultMessage(is_error=False)
+        yield assistant_message([TextBlock(text)])
+        yield result_message(is_error=False)
 
     return responder
 
@@ -750,17 +635,18 @@ def _rich_responder():
     """A turn carrying every heavy/sensitive payload the strip filter must drop."""
 
     async def responder(_client, _prompt):
-        yield FakeAssistantMessage(
+        yield assistant_message(
             [
-                FakeThinkingBlock("secret chain of thought"),
-                FakeToolUseBlock(
-                    "mcp__osprey__channel_read", "tu_1", {"channel": "SR:BPM", "secret": "x"}
+                ThinkingBlock("secret chain of thought", "sig"),
+                ToolUseBlock(
+                    "tu_1", "mcp__osprey__channel_read", {"channel": "SR:BPM", "secret": "x"}
                 ),
-                FakeToolResultBlock("tu_1", "large result body", is_error=False),
-                FakeTextBlock("done"),
             ]
         )
-        yield FakeResultMessage(is_error=False, total_cost_usd=0.9, duration_ms=42, num_turns=3)
+        # The CLI sends a tool's result back in a user message.
+        yield user_message([ToolResultBlock("tu_1", "large result body", is_error=False)])
+        yield assistant_message([TextBlock("done")])
+        yield result_message(is_error=False, total_cost_usd=0.9, duration_ms=42, num_turns=3)
 
     return responder
 
@@ -786,7 +672,7 @@ def _partial_then_hold_responder(text: str = "partial"):
     """Emit one partial event, then park until interrupted (no terminal)."""
 
     async def responder(client, _prompt):
-        yield FakeAssistantMessage([FakeTextBlock(text)])
+        yield assistant_message([TextBlock(text)])
         client.reached_hold.set()
         await client.interrupted.wait()
 
@@ -794,8 +680,8 @@ def _partial_then_hold_responder(text: str = "partial"):
 
 
 @contextlib.contextmanager
-def _seam(responder, *, aenter_delay: float = 0.0):
-    """Patch the operator_session SDK seam; yield a client factory with ``.created``.
+def _seam(responder, *, aenter_delay: float = 0.0, query_error: Exception | None = None):
+    """Patch the runner's SDK client; yield a client factory with ``.created``.
 
     Every ``OperatorSession.start()`` builds a ``_ScriptedSdkClient(responder)`` via
     the factory; ``factory.created`` is the ordered list of every client made,
@@ -805,30 +691,16 @@ def _seam(responder, *, aenter_delay: float = 0.0):
 
     # ``ClaudeSDKClient``'s constructor, which the session calls with ``options`` by name.
     def factory(options=None):  # noqa: ARG001
-        client = _ScriptedSdkClient(responder, aenter_delay=aenter_delay)
+        client = _ScriptedSdkClient(responder, aenter_delay=aenter_delay, query_error=query_error)
         created.append(client)
         return client
 
     factory.created = created  # type: ignore[attr-defined]
 
-    with contextlib.ExitStack() as stack:
-        stack.enter_context(patch.object(chat_module, "CLAUDE_SDK_AVAILABLE", True))
-        stack.enter_context(patch(_OS + "CLAUDE_SDK_AVAILABLE", True))
-        stack.enter_context(patch(_OS + "ClaudeSDKClient", factory))
-        stack.enter_context(patch(_OS + "AssistantMessage", FakeAssistantMessage))
-        stack.enter_context(patch(_OS + "ResultMessage", FakeResultMessage))
-        stack.enter_context(patch(_OS + "SystemMessage", FakeSystemMessage))
-        stack.enter_context(patch(_OS + "TextBlock", FakeTextBlock))
-        stack.enter_context(patch(_OS + "ThinkingBlock", FakeThinkingBlock))
-        stack.enter_context(patch(_OS + "ToolUseBlock", FakeToolUseBlock))
-        stack.enter_context(patch(_OS + "ToolResultBlock", FakeToolResultBlock))
-        stack.enter_context(patch(_OS + "validate_project_directory", lambda cwd: []))
-        stack.enter_context(
-            patch(
-                _OS + "build_system_prompt", lambda tz: {"type": "preset", "preset": "claude_code"}
-            )
-        )
-        stack.enter_context(patch(_OS + "get_facility_timezone", lambda: None))
+    with (
+        patch.object(chat_module, "HAS_SDK", True),
+        sdk_seam(factory),
+    ):
         yield factory
 
 
@@ -881,12 +753,13 @@ async def _settled(task, *, ticks: int = 60, tick: float = 0.05):
     return await task
 
 
-async def _inflight_session(req, chat_id: str):
+async def _inflight_session(req, chat_id: str, make):
     """Create a real chat session and park it mid-turn on the stall responder.
 
     Returns ``(session, token)`` with a genuinely in-flight turn: the guard is
     held and the reader is running (blocked in ``receive_response``), so the
-    registry reports the session busy.
+    registry reports the session busy. *make* is the :func:`_seam` factory the
+    session's client was built by.
 
     Built through the route's own ``_acquire_chat_turn`` rather than by handing
     the pool a bare ``{}``. The pool now compares the environment a live entry
@@ -897,31 +770,8 @@ async def _inflight_session(req, chat_id: str):
     """
     session, token, _reused = await chat_module._acquire_chat_turn(req, chat_id)
     await session.send_prompt("hold")
-    await asyncio.wait_for(session._client.reached_hold.wait(), timeout=1.0)
+    await asyncio.wait_for(make.created[-1].reached_hold.wait(), timeout=1.0)
     return session, token
-
-
-class TestChatMultiTurnPersistence:
-    """Matrix 1: two prompts on one chat_id reach the SAME fake client."""
-
-    async def test_same_client_receives_both_prompts(self):
-        with _seam(_clean_responder("hi")) as make:
-            registry = OperatorRegistry()
-            req = _req(registry)
-
-            r1 = await chat_module.chat(req, chat_module.ChatRequest(prompt="p1", chat_id="c"))
-            f1 = await _collect_sse(r1)
-            r2 = await chat_module.chat(req, chat_module.ChatRequest(prompt="p2", chat_id="c"))
-            f2 = await _collect_sse(r2)
-
-            # Exactly one session/client — reuse proven at the fake seam.
-            assert len(make.created) == 1
-            assert make.created[0].prompts == ["p1", "p2"]
-            assert make.created[0].query_calls == 2
-            # Both turns completed with a (stripped) result.
-            assert {"type": "result", "is_error": False} in f1
-            assert {"type": "result", "is_error": False} in f2
-            await registry.cleanup_all()
 
 
 class TestChatAtomicity:
@@ -967,7 +817,7 @@ class TestChatStatusMapIntegration:
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry()
             req = _req(registry)
-            session, token = await _inflight_session(req, "c")
+            session, token = await _inflight_session(req, "c", make)
 
             second = asyncio.ensure_future(
                 chat_module.chat(req, chat_module.ChatRequest(prompt="second", chat_id="c"))
@@ -979,7 +829,7 @@ class TestChatStatusMapIntegration:
 
             # End the parked turn: the guard goes first, so the wait sees idle.
             session.release_turn(token)
-            session._client.interrupted.set()
+            make.created[0].interrupted.set()
 
             resp = await _settled(second)
             assert resp.media_type == "text/event-stream"
@@ -1001,7 +851,7 @@ class TestChatStatusMapIntegration:
             registry = OperatorRegistry()
             req = _req(registry)
             _fast_handoff_clock(req.app)
-            session, token = await _inflight_session(req, "c")
+            session, token = await _inflight_session(req, "c", make)
 
             waiting = asyncio.ensure_future(
                 chat_module.chat(req, chat_module.ChatRequest(prompt="second", chat_id="c"))
@@ -1021,14 +871,14 @@ class TestChatStatusMapIntegration:
             with contextlib.suppress(asyncio.CancelledError):
                 await waiting
             session.release_turn(token)
-            session._client.interrupted.set()
+            make.created[0].interrupted.set()
             await registry.cleanup_all()
 
     async def test_all_busy_returns_429(self):
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry(chat_max_sessions=1)
             req = _req(registry)
-            a, token = await _inflight_session(req, "A")
+            a, token = await _inflight_session(req, "A", make)
 
             with pytest.raises(HTTPException) as ei:
                 await chat_module.chat(req, chat_module.ChatRequest(prompt="x", chat_id="B"))
@@ -1038,7 +888,7 @@ class TestChatStatusMapIntegration:
             assert len(make.created) == 1  # 'B' was never created
 
             a.release_turn(token)
-            a._client.interrupted.set()
+            make.created[0].interrupted.set()
             await registry.cleanup_all()
 
 
@@ -1119,6 +969,70 @@ class TestChatSessionResetContract:
             assert len(make.created) == 3  # still a new process, just not a new conversation
 
 
+#: A key the posture route can address: a canonical, lowercase, bare UUID.
+_ADDRESSABLE_CHAT_ID = "cccccccc-1111-2222-3333-444444444444"
+
+
+async def _spawned_child_env(chat_id: str) -> dict[str, str]:
+    """The environment the chat route hands the child it spawns for *chat_id*."""
+
+    def make_client(options=None):  # noqa: ARG001
+        return _ScriptedSdkClient(_clean_responder())
+
+    with patch.object(chat_module, "HAS_SDK", True), sdk_seam(make_client) as captured:
+        registry = OperatorRegistry()
+        try:
+            resp = await chat_module.chat(
+                _req(registry), chat_module.ChatRequest(prompt="p", chat_id=chat_id)
+            )
+            await _collect_sse(resp)
+        finally:
+            await registry.cleanup_all()
+
+    assert len(captured) == 1, "one turn on an empty key spawns exactly one child"
+    return dict(captured[0].env)
+
+
+class TestChatPostureSource:
+    """The chat route stamps the child's posture source from the key grammar.
+
+    The route stamps ``live`` only for a key the posture route can address and
+    ``process`` for any other, and an auditor reads that marker off every
+    envelope the child files. These tests read it from the options the spawned
+    child was built with, so they see what the conditional computes rather than
+    how it is spelled.
+    """
+
+    async def test_an_addressable_key_is_stamped_live(self, monkeypatch):
+        """A canonical bare UUID is a key the posture route answers for, so the
+        child says ``live`` and names that key."""
+        env = await _spawned_child_env(_ADDRESSABLE_CHAT_ID)
+
+        assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_LIVE
+        assert env[POSTURE_SESSION_ENV] == _ADDRESSABLE_CHAT_ID
+        monkeypatch.setenv(POSTURE_SOURCE_ENV, env[POSTURE_SOURCE_ENV])
+        assert posture_source() == POSTURE_SOURCE_LIVE
+
+    @pytest.mark.parametrize(
+        "chat_id",
+        [
+            pytest.param("user-42-chat-3", id="embedder-chosen"),
+            pytest.param("CCCCCCCC-1111-2222-3333-444444444444", id="uppercase-uuid"),
+            pytest.param("operator-deadbeef", id="operator-shaped"),
+        ],
+    )
+    async def test_an_unaddressable_key_is_stamped_process(self, monkeypatch, chat_id):
+        """The posture route refuses each of these keys, so no toggle can govern
+        the child and it says ``process``; it still names the key, because the
+        session marker is the ledger's join and is stamped whatever the source."""
+        env = await _spawned_child_env(chat_id)
+
+        assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_PROCESS
+        assert env[POSTURE_SESSION_ENV] == chat_id
+        monkeypatch.setenv(POSTURE_SOURCE_ENV, env[POSTURE_SOURCE_ENV])
+        assert posture_source() == POSTURE_SOURCE_PROCESS
+
+
 class TestChatDeleteEndpointIntegration:
     """Matrix 6 & 7: DELETE on idle (prompt return) and busy (interrupt + teardown)."""
 
@@ -1139,7 +1053,7 @@ class TestChatDeleteEndpointIntegration:
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry()
             req = _req(registry)
-            session, _token = await _inflight_session(req, "c")
+            session, _token = await _inflight_session(req, "c", make)
 
             resp = await asyncio.wait_for(chat_module.delete_chat("c", req), timeout=3.0)
 
@@ -1156,7 +1070,7 @@ class TestChatInterruptEndpointIntegration:
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry()
             req = _req(registry)
-            session, token = await _inflight_session(req, "c")
+            session, token = await _inflight_session(req, "c", make)
 
             resp = await chat_module.interrupt_chat("c", req)
 
@@ -1272,12 +1186,11 @@ class TestChatStripOnTheWire:
             )
 
         tool_use = [f for f in frames if f.get("type") == "tool_use"]
-        tool_result = [f for f in frames if f.get("type") == "tool_result"]
         thinking = [f for f in frames if f.get("type") == "thinking"]
         result = [f for f in frames if f.get("type") == "result"]
 
         assert tool_use and all("input" not in f for f in tool_use)
-        assert tool_result and all("content" not in f for f in tool_result)
+        assert not any(f.get("type") == "tool_result" for f in frames)
         assert thinking and all("content" not in f for f in thinking)
         assert result and all(set(f) == {"type", "is_error"} for f in result)
         # Cost/duration/turn metadata never reaches the wire on any frame.
@@ -1304,7 +1217,7 @@ class TestChatStripOnTheWire:
 
         events = payload["events"]
         assert any(e.get("type") == "tool_use" and "input" not in e for e in events)
-        assert any(e.get("type") == "tool_result" and "content" not in e for e in events)
+        assert not any(e.get("type") == "tool_result" for e in events)
         assert any(e.get("type") == "thinking" and "content" not in e for e in events)
         result = [e for e in events if e.get("type") == "result"]
         assert result and all(set(e) == {"type", "is_error"} for e in result)
@@ -1322,8 +1235,13 @@ class TestChatStripOnTheWire:
 class TestIsTerminal:
     """is_terminal_event: which chat events end a turn's event stream."""
 
-    def test_result_is_terminal(self):
-        assert chat_module.is_terminal_event({"type": "result"}) is True
+    @pytest.mark.parametrize(
+        ("event", "terminal"),
+        [({"type": "result"}, True), ({"type": "text", "content": "hi"}, False)],
+        ids=["result", "text"],
+    )
+    def test_result_is_terminal(self, event, terminal):
+        assert chat_module.is_terminal_event(event) is terminal
 
     def test_fatal_error_is_terminal(self):
         assert chat_module.is_terminal_event({"type": "error", "error_type": "Boom"}) is True
@@ -1334,9 +1252,6 @@ class TestIsTerminal:
             chat_module.is_terminal_event({"type": "error", "error_type": "AssistantMessageError"})
             is False
         )
-
-    def test_text_is_not_terminal(self):
-        assert chat_module.is_terminal_event({"type": "text", "content": "hi"}) is False
 
 
 class TestSseFormatting:

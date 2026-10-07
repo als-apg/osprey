@@ -365,7 +365,7 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
     if env_path.exists():
         return
 
-    from osprey.build.claude_code_resolver import provider_auth_secret_env
+    from osprey.agent_runner.provider_env import provider_auth_secret_env
     from osprey.deployment.web_terminals.env_production import required_provider_endpoint_var
 
     provider = (config.get("claude_code") or {}).get("provider")
@@ -450,6 +450,7 @@ def _warn_if_host_networking_is_off(config: dict) -> None:
     :param config: The as-built deploy config, already loaded by the caller.
     """
     from osprey.deployment.docker_desktop import (
+        HOST_NETWORK_LIMIT,
         HOST_NETWORKING_REMEDY,
         host_networking_enabled,
         on_docker_desktop,
@@ -488,7 +489,8 @@ def _warn_if_host_networking_is_off(config: dict) -> None:
         "machine. The containers will start and report themselves healthy either way, "
         "and http://127.0.0.1:"
         f"{nginx_port}/ will not load in a browser. Everything else in this deployment "
-        "publishes its ports normally and is unaffected.",
+        "publishes its ports normally and is unaffected."
+        f" {HOST_NETWORK_LIMIT}",
         f"{HOST_NETWORKING_REMEDY}, and run this again",
     )
 
@@ -919,7 +921,9 @@ def status_verb(repo: Path | None, show_agents: bool) -> None:
     checkout of the same deployment on this host is reported as a second
     checkout instead of being folded in. One limit, stated where it matters: a
     container created before this labelling existed carries no label and can
-    only be matched by project name. Status says which rows those are.
+    only be matched by project name. Status says which rows those are. A
+    container with no project label at all is listed only when its name matches
+    a deployed service.
 
     Examples:
 

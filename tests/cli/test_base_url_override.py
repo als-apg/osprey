@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS, ClaudeCodeModelResolver
-from osprey.models.provider_registry import get_provider_registry
+from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS, ClaudeCodeModelResolver
+from osprey.models.provider_registry import (
+    _BUILTIN_PROVIDERS,
+    PROVIDER_API_KEYS,
+    get_provider_registry,
+)
 
 FACILITY_GATEWAY = "https://llm.facility.example.org"
 
@@ -140,14 +144,30 @@ class TestV1StripSurvivesTheOverride:
 class TestProxyUpstreamFollowsTheOverride:
     """upstream_base_url stays the single source the launch paths start the proxy from."""
 
-    def test_builtin_providers_are_native_so_no_upstream_is_set(self):
-        """Built-ins skip the translation proxy — overriding the URL must not change that."""
+    def test_anthropic_native_builtins_set_no_upstream(self):
+        """An Anthropic-native built-in skips the translation proxy; overriding the URL does
+        not change that."""
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "cborg"},
             api_providers={"cborg": {"base_url": f"{FACILITY_GATEWAY}/v1"}},
         )
         assert spec.needs_proxy is False
         assert spec.upstream_base_url is None
+
+    def test_explicit_openai_on_a_native_builtin_sets_the_upstream(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "cborg"},
+            api_providers={
+                "cborg": {
+                    "base_url": f"{FACILITY_GATEWAY}/v1",
+                    "api_protocol": "openai",
+                    **_served(),
+                }
+            },
+        )
+        assert spec.needs_proxy is True
+        assert spec.upstream_base_url == f"{FACILITY_GATEWAY}/v1"
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
     def test_custom_proxy_upstream_keeps_v1_from_the_same_resolved_url(self):
         spec = ClaudeCodeModelResolver.resolve(
@@ -163,7 +183,7 @@ class TestEndToEndThroughLoadProviderSpec:
     """The on-disk path: config.yml override reaches the spec, ${VAR} included."""
 
     def test_config_yml_override_reaches_env_block(self, tmp_path):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         (tmp_path / "config.yml").write_text(
             "api:\n"
@@ -177,7 +197,7 @@ class TestEndToEndThroughLoadProviderSpec:
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
     def test_env_placeholder_in_builtin_override_is_expanded(self, tmp_path, monkeypatch):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("FACILITY_GATEWAY_URL", raising=False)
         (tmp_path / "config.yml").write_text(
@@ -202,7 +222,7 @@ class TestEndToEndThroughLoadProviderSpec:
         hostname. Driven through the synthetic built-in, since a provider that
         ships an endpoint of its own falls back to it instead.
         """
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.setitem(
             CLAUDE_CODE_PROVIDERS, GATEWAY_WITHOUT_ENDPOINT, GATEWAY_WITHOUT_ENDPOINT_ENTRY
@@ -227,7 +247,7 @@ class TestEndToEndThroughLoadProviderSpec:
         another, so ``${VAR}`` there is the render's contract with its runtime.
         Only the paths that are about to call the gateway refuse.
         """
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
         (tmp_path / "config.yml").write_text(
@@ -244,7 +264,7 @@ class TestEndToEndThroughLoadProviderSpec:
 
     def test_unexported_placeholder_leaves_a_builtin_url_in_charge(self, tmp_path, monkeypatch):
         """Blanking happens before the fallback chain, not instead of it."""
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("FACILITY_GATEWAY_URL", raising=False)
         (tmp_path / "config.yml").write_text(
@@ -327,11 +347,14 @@ class TestEnvVarParityWithProviderAdapters:
     not the other, which reads as "the override didn't work" with nothing in
     any log to say why.
 
-    Deriving one table from the other would force :mod:`osprey.build` to import
-    the adapter classes, defeating the registry's lazy loading (the point of
-    which is to keep air-gapped machines from triggering import side effects).
-    The duplication is therefore deliberate, and a guard is the honest way to
-    hold it together.
+    The override variable is the one column both tables still state. Deriving
+    it from the adapters would force :mod:`osprey.build` to import the adapter
+    classes, defeating the registry's lazy loading (the point of which is to
+    keep air-gapped machines from triggering import side effects); the key
+    column, by contrast, comes from the registry's entry per provider
+    (``PROVIDER_API_KEYS``), which is data and needs no adapter import. This
+    duplication is therefore deliberate, and a guard is the honest way to hold
+    it together.
     """
 
     def test_every_claude_code_provider_has_an_adapter(self):
@@ -344,6 +367,12 @@ class TestEnvVarParityWithProviderAdapters:
     def test_tables_agree_on_the_override_var(self, provider):
         adapter = get_provider_registry().get_provider(provider)
         assert CLAUDE_CODE_PROVIDERS[provider].get("base_url_env_var") == adapter.base_url_env_var
+
+    def test_the_launch_table_is_the_anthropic_native_builtins(self):
+        native = {n for n, e in _BUILTIN_PROVIDERS.items() if e.api_protocol == "anthropic"}
+        assert set(CLAUDE_CODE_PROVIDERS) == native
+        for name, row in CLAUDE_CODE_PROVIDERS.items():
+            assert row["auth_secret_env"] == PROVIDER_API_KEYS[name], name
 
 
 class TestResolveNeverReadsAmbientEnviron:
@@ -402,7 +431,7 @@ class TestOverrideReachesTheRuntimePath:
 
     def test_process_env_overrides_the_baked_config(self, tmp_path, monkeypatch):
         """The production mechanism: the value arrives in the container's env."""
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         (tmp_path / "config.yml").write_text(self.BAKED_CONFIG)
         monkeypatch.setenv("ALS_APG_BASE_URL", f"{FACILITY_GATEWAY}/v1")
@@ -411,7 +440,7 @@ class TestOverrideReachesTheRuntimePath:
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
     def test_project_dotenv_overrides_the_baked_config(self, tmp_path, monkeypatch):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
         (tmp_path / "config.yml").write_text(self.BAKED_CONFIG)
@@ -421,7 +450,7 @@ class TestOverrideReachesTheRuntimePath:
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
     def test_baked_config_stands_when_nothing_overrides_it(self, tmp_path, monkeypatch):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
         (tmp_path / "config.yml").write_text(self.BAKED_CONFIG)
@@ -432,7 +461,7 @@ class TestOverrideReachesTheRuntimePath:
     def test_the_catalog_placeholder_resolves_once_the_variable_is_exported(
         self, tmp_path, monkeypatch
     ):
-        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.agent_runner.provider_env import load_provider_spec
 
         monkeypatch.setenv("ALS_APG_BASE_URL", f"{FACILITY_GATEWAY}/v1")
         (tmp_path / "config.yml").write_text(

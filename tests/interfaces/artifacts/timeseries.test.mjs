@@ -25,6 +25,8 @@
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { qs } from '../_support/dom.mjs';
+import { FACILITY_ZONE, stampFacilityZone, zoneName } from '../_support/facility-zone.mjs';
+import { facilityWallClock } from '/design-system/js/facility-time.js';
 
 import {
   renderTimeseriesView,
@@ -776,8 +778,8 @@ describe('renderTimeseriesChart', () => {
     const [plotEl, traces, layout, config] = Plotly.newPlot.mock.calls[0];
     expect(plotEl).toBe(el);
     expect(traces).toEqual([
-      { x: chartData.channels[0].timestamps, y: [1.0, 1.5], name: 'SR:MAG:QF1:I', type: 'scattergl', mode: 'lines', hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>' },
-      { x: chartData.channels[1].timestamps, y: [2.0, 2.5], name: 'SR:MAG:QF2:I', type: 'scattergl', mode: 'lines', hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>' },
+      { x: chartData.channels[0].timestamps.map(facilityWallClock), y: [1.0, 1.5], name: 'SR:MAG:QF1:I', type: 'scattergl', mode: 'lines', hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>' },
+      { x: chartData.channels[1].timestamps.map(facilityWallClock), y: [2.0, 2.5], name: 'SR:MAG:QF2:I', type: 'scattergl', mode: 'lines', hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>' },
     ]);
     expect(layout.hovermode).toBe('x unified');
     expect(layout.margin).toEqual({ t: 30, r: 20, b: 50, l: 60 });
@@ -786,6 +788,31 @@ describe('renderTimeseriesChart', () => {
       displaylogo: false,
       modeBarButtonsToRemove: ['lasso2d', 'select2d'],
     });
+  });
+
+  test('the x axis reads the facility wall clock and names the zone', async () => {
+    /** @type {Record<string, string[]>} */
+    const WALL = {
+      'Asia/Tokyo': ['2026-07-01 09:00:00.000', '2026-07-01 09:01:00.000'],
+      'Europe/Berlin': ['2026-07-01 02:00:00.000', '2026-07-01 02:01:00.000'],
+      'America/New_York': ['2026-06-30 20:00:00.000', '2026-06-30 20:01:00.000'],
+    };
+    stampFacilityZone(FACILITY_ZONE);
+    try {
+      const el = document.createElement('div');
+      const chartData = makeChartData();
+      expect(chartData.channels[0].timestamps).toEqual(['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z']);
+
+      await renderTimeseriesChart(el, chartData);
+
+      const [, traces, layout] = Plotly.newPlot.mock.calls[0];
+      expect(traces[0].x).toEqual(WALL[FACILITY_ZONE]);
+      expect(layout.xaxis.title.text).toBe(
+        `Time (${zoneName(FACILITY_ZONE, Date.parse('2026-07-01T00:01:00Z'))})`
+      );
+    } finally {
+      stampFacilityZone(null);
+    }
   });
 
   test('two channels of different cadence each keep their own independent x -- not a shared axis', async () => {
@@ -817,9 +844,9 @@ describe('renderTimeseriesChart', () => {
     await renderTimeseriesChart(el, chartData);
 
     const [, traces] = Plotly.newPlot.mock.calls[0];
-    expect(traces[0].x).toEqual(chartData.channels[0].timestamps);
+    expect(traces[0].x).toEqual(chartData.channels[0].timestamps.map(facilityWallClock));
     expect(traces[0].x).toHaveLength(3);
-    expect(traces[1].x).toEqual(chartData.channels[1].timestamps);
+    expect(traces[1].x).toEqual(chartData.channels[1].timestamps.map(facilityWallClock));
     expect(traces[1].x).toHaveLength(5);
     // Genuinely independent arrays, not the same shared axis sliced twice.
     expect(traces[0].x).not.toEqual(traces[1].x);

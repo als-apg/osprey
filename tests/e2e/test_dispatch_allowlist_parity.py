@@ -52,6 +52,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.test_dispatch_tutorial import (
     HEALTH_TIMEOUT_SEC,
@@ -71,7 +72,7 @@ pytestmark = [
     pytest.mark.flaky(reruns=2, reruns_delay=5),  # agentic-e2e convention
 ]
 
-# Deny messages emitted by the worker's tool policy (tool_policy.py).
+# Deny messages emitted by the dispatch tool policy (osprey.agent_runner.tool_policy).
 HOOK_DENY_MARKERS = (
     "is not in this trigger's allowed_tools list",
     "is not in subagent",
@@ -341,10 +342,10 @@ def test_subagent_tools_work_in_settings_stripped_repo(worker):
     denied = [tc for tc in sub_calls if _denied_by_policy(tc["result"])]
     assert not denied, f"subagent tool calls denied (starvation persists): {denied}"
 
-    # CF-2 leg: harness pass-through — if the agent waited for MCP cold-start,
-    # that call must not have been denied by the policy.
-    for tc in _calls(run, "WaitForMcpServers"):
-        assert not _denied_by_policy(tc["result"])
+    # harness pass-through: a task-list call the agent makes is never denied by the policy
+    for tc in run.get("tool_calls", []):
+        if tc["name"] in PASSTHROUGH_TOOLS:
+            assert not _denied_by_policy(tc["result"])
 
 
 # ---------------------------------------------------------------------------

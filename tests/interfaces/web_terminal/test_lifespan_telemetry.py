@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.build import claude_code_resolver
+from osprey.agent_runner import provider_env
 from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_terminal import app as web_app
@@ -48,7 +48,7 @@ def injected(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         seen.append(spec)
         return []
 
-    monkeypatch.setattr(claude_code_resolver, "inject_provider_env", _record)
+    monkeypatch.setattr(provider_env, "inject_provider_env", _record)
     return seen
 
 
@@ -83,19 +83,11 @@ def _serve(project: Path) -> None:
     """Enter and leave the real lifespan for *project*."""
     app = web_app.create_app(
         config_path=str(project / "config.yml"),
-        shell_command="echo",
+        shell_command=["echo"],
         project_dir=str(project),
     )
     with TestClient(app):
         pass
-
-
-def test_the_token_under_test_is_really_store_issued() -> None:
-    """Guards every assertion below from passing for the wrong reason."""
-    from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
-
-    assert "ZO_INGEST_SA_TOKEN" in _STORE_ISSUED_VARS
-    assert "OPERATOR_OTLP_SECRET" not in _STORE_ISSUED_VARS
 
 
 def test_an_unissued_store_credential_serves_without_telemetry(

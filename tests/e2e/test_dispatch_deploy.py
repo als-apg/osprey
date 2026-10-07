@@ -839,8 +839,9 @@ def _worker_mcp_surface() -> str:
     A third cause — the server was provisioned but not yet connected when the
     agent's first turn went out, so the tool was never in its toolset — no
     longer reaches this assertion: the worker refuses such a run as an
-    ``infrastructure`` error (see ``sdk_runner._stream_with_ready_mcp``), which
-    the status assertion above reports with the server named. The persisted run
+    ``infrastructure`` error (the runner's readiness barrier, which
+    ``run_dispatch`` hands its allow-listed servers as ``require_mcp_servers``),
+    which the status assertion above reports with the server named. The persisted run
     record's ``mcp_servers`` snapshot shows what the barrier saw either way.
     """
     proc = subprocess.run(

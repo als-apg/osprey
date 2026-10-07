@@ -1,9 +1,9 @@
 """Tests that ``.env.example`` derives its providers from the registry.
 
 ``project/env.example.j2`` iterates the ``provider_api_keys`` context entry
-(built from ``osprey.models.provider_registry.PROVIDER_API_KEYS``) instead of
-hand-listing providers, so a provider added to the registry automatically
-appears in the emitted example.
+(built from the provider registry's key variables) instead of hand-listing
+providers, so a provider added to the registry automatically appears in the
+emitted example, and so does a registered provider.
 
 Its former sibling ``project/env.j2`` is gone. The render writes no ``.env`` at
 all now — the deployment's one secret store is the repo-root ``.env``, written
@@ -68,6 +68,26 @@ def a_registered_gateway_without_an_endpoint(monkeypatch):
     return GATEWAY_WITHOUT_ENDPOINT_VAR
 
 
+class _SiteGatewayAdapter(BaseProvider):
+    name = "site-gateway"
+    description = "A gateway a site registers for itself"
+    requires_api_key = True
+    api_key_env_var = "SITE_GATEWAY_TOKEN"
+
+
+@pytest.fixture
+def a_registered_site_gateway(monkeypatch):
+    """Put a site's own provider class in the registry for one test."""
+    from osprey.models.provider_registry import _ProviderEntry, get_provider_registry
+
+    registry = get_provider_registry()
+    monkeypatch.setitem(
+        registry._entries, "site-gateway", _ProviderEntry(__name__, "_SiteGatewayAdapter")
+    )
+    monkeypatch.setitem(registry._providers, "site-gateway", _SiteGatewayAdapter)
+    return "SITE_GATEWAY_TOKEN"
+
+
 def _render(template_name: str, ctx: dict) -> str:
     manager = TemplateManager()
     return manager.jinja_env.get_template(template_name).render(**ctx)
@@ -99,6 +119,16 @@ class TestProviderApiKeyEntries:
         entries = provider_api_key_entries()
         expected = {v for v in PROVIDER_API_KEYS.values() if v is not None}
         assert {e["var"] for e in entries} == expected
+
+    def test_a_registered_provider_gets_its_own_row(self, a_registered_site_gateway):
+        stock = [
+            {"provider": provider, "var": var}
+            for provider, var in PROVIDER_API_KEYS.items()
+            if var is not None
+        ]
+        entries = provider_api_key_entries()
+        assert entries[-1] == {"provider": "site-gateway", "var": a_registered_site_gateway}
+        assert entries[:-1] == stock
 
     def test_keyless_providers_excluded(self):
         providers = {e["provider"] for e in provider_api_key_entries()}
@@ -159,6 +189,10 @@ class TestEnvExampleJ2:
         rendered = _render("project/env.example.j2", _base_ctx({}))
         for entry in provider_api_key_entries():
             assert f"{entry['var']}=" in rendered
+
+    def test_lists_a_registered_providers_key(self, a_registered_site_gateway):
+        rendered = _render("project/env.example.j2", _base_ctx({}))
+        assert f"{a_registered_site_gateway}=" in rendered
 
     def test_names_the_endpoint_a_deployment_has_to_supply(self):
         """The one file a deployment is told to fill in names the variable.

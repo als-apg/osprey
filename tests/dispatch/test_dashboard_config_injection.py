@@ -24,6 +24,7 @@ def test_default_injection_is_empty_config():
     assert '"facility_name": ""' in html
     assert '"channel_strip_prefix": ""' in html
     assert '"telemetry_url": ""' in html
+    assert '"telemetry_org": ""' in html
     assert "/* OSPREY_CONFIG_PLACEHOLDER */" not in html
 
 
@@ -31,6 +32,19 @@ def test_injects_the_browser_facing_telemetry_url():
     """The telemetry store's browser URL reaches the dashboard config verbatim."""
     html = render_dashboard_html(telemetry_url="http://localhost:5080")
     assert '"telemetry_url": "http://localhost:5080"' in html
+
+
+def test_injects_the_telemetry_org():
+    """The telemetry store organization reaches the dashboard config verbatim."""
+    html = render_dashboard_html(telemetry_url="http://localhost:5080", telemetry_org="ops")
+    assert '"telemetry_org": "ops"' in html
+
+
+def test_org_is_not_a_page_literal():
+    """The link's organization comes from the injected config, never a page constant."""
+    html = render_dashboard_html()
+    assert "TELEMETRY_ORG" not in html
+    assert "window.__OSPREY_CONFIG__.telemetry_org" in html
 
 
 def test_absent_telemetry_url_is_the_no_store_signal():

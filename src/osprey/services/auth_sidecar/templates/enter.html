@@ -1,0 +1,92 @@
+{% extends "_frame.html" %}
+{#
+  enter.html — the sign-in that names no card.
+
+  Rendered by routes/entry.py (Jinja2, autoescape ON) and served through
+  nginx's public `/auth/` location. Extends _frame.html, so it wears the same
+  stylesheet and baked palette as the card prompt.
+
+  Template variables (contract with routes/entry.py), besides the frame's
+  `theme_blocks` and `app_name`:
+
+    shape: "form" | "cards" | "none", required
+      Which page this is. `form` asks for a username and a password; `cards`
+      lists every terminal the login just unlocked; `none` says no card
+      admits this account.
+
+    username: str
+      Prefill for the username input on a re-rendered form — the bounded name
+      the attempt submitted. Empty on a first prompt. Unused by the other
+      shapes.
+
+    error: str | None
+      A message to show above the form. One fixed string per refusal kind, so
+      an unknown name and a wrong password read identically.
+
+    enter_path: str, required
+      Where the form posts. Comes from the route module's own constant.
+
+    cards: list[{"name", "href", "own"}]
+      The unlocked terminals, own cards first. `href` is the terminal's mount;
+      `own` is false for a card shared with this person, which is tagged.
+#}
+{% block title %}Log in{% endblock %}
+{% block style %}
+    .login-cards {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .login-cards li {
+      display: flex;
+      align-items: baseline;
+      gap: 0.6rem;
+      padding: 0.6rem 0;
+      border-top: 1px solid var(--border-default, #2c3235);
+    }
+    .login-cards li:first-child { border-top: none; }
+    .login-cards a {
+      color: var(--color-accent, #6e9fff);
+      font-size: 1rem;
+      overflow-wrap: anywhere;
+    }
+    .login-tag {
+      font-size: 0.75rem;
+      color: var(--text-muted, #6e6e77);
+    }
+{%- endblock %}
+{% block card %}<main class="login-card">
+    {%- if app_name %}
+    <p class="login-facility">{{ app_name|e }}</p>
+    {%- endif %}
+    <p class="login-mark">OSPREY</p>
+    {%- if shape == "cards" %}
+    <h1 class="login-prompt">Choose a terminal</h1>
+    <p class="login-hint">You are logged in to each of these.</p>
+    <ul class="login-cards">
+      {%- for card in cards %}
+      <li><a href="{{ card.href|e }}">{{ card.name|e }}</a>
+        {%- if not card.own %} <span class="login-tag">shared</span>{% endif %}</li>
+      {%- endfor %}
+    </ul>
+    {%- elif shape == "none" %}
+    <h1 class="login-prompt">No terminal for this account</h1>
+    <p class="login-hint">Ask your administrator to add you to a card.</p>
+    {%- else %}
+    <h1 class="login-prompt">Log in to your terminal</h1>
+    {%- if error %}
+    <p class="login-error" role="alert">{{ error|e }}</p>
+    {%- endif %}
+    <form method="post" action="{{ enter_path|e }}">
+      <label class="login-label" for="username">Username</label>
+      <input class="login-input" id="username" name="username" type="text"
+             value="{{ username|e }}" autocomplete="username" autocapitalize="none"
+             spellcheck="false" autofocus required>
+      <label class="login-label" for="password">Password</label>
+      <input class="login-input" id="password" name="password" type="password"
+             autocomplete="current-password" required>
+      <button class="login-submit" type="submit">Log in</button>
+    </form>
+    {%- endif %}
+    <a class="login-back" href="/">&larr; Back</a>
+  </main>{% endblock %}

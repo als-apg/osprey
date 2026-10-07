@@ -24,6 +24,8 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
+from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 
 # Rooted at the templates/ PROJECT root, not services/, because service
@@ -34,6 +36,19 @@ _TEMPLATES_ROOT = Path(__file__).resolve().parents[2] / "src" / "osprey" / "temp
 TEMPLATE_DIR = _TEMPLATES_ROOT / "services"
 _LOADER_ROOTS = [str(_TEMPLATES_ROOT), str(TEMPLATE_DIR)]
 BLUESKY_TEMPLATE = "bluesky/docker-compose.yml.j2"
+
+
+def _control_identity_context() -> dict[str, Any]:
+    """The two control-identity keys ``_inject_project_metadata`` injects, for hand-built ctx.
+
+    Every bluesky lane's queueserver renames root to its lane identity before
+    ``start-re-manager`` runs, so the template reads both keys with no fallback:
+    a context without them is not a render any deploy produces.
+    """
+    return {
+        "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
+    }
 
 
 def _image_defaults(project_name: str) -> dict[str, str]:
@@ -153,6 +168,7 @@ def _render(
         # ``<key> | default(osprey_ports.<slot>, true)``, so a context without
         # this table is not a render any deploy produces.
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+        **_control_identity_context(),
     }
     if limits_mount is not None:
         context["limits_mount"] = limits_mount
@@ -563,12 +579,16 @@ def test_shipped_permissions_allow_only_preview_plan() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_queueserver_gets_the_config_mount_and_config_file(rendered: dict[str, Any]) -> None:
+def test_queueserver_gets_the_config_mount_and_both_config_variables(
+    rendered: dict[str, Any],
+) -> None:
     """The reference monitor runs in this container now, so it needs the same
-    config.yml the bridge reads — and CONFIG_FILE to find it, since CWD is the
-    image WORKDIR, not the project dir."""
+    config.yml the bridge reads — named by CONFIG_FILE and by OSPREY_CONFIG, since
+    CWD is the image WORKDIR, not the project dir, and the framework's loader
+    reads only the second."""
     queueserver = rendered["services"]["queueserver"]
     assert queueserver["environment"]["CONFIG_FILE"] == "/app/project/config.yml"
+    assert queueserver["environment"]["OSPREY_CONFIG"] == "/app/project/config.yml"
     assert (
         "./build/services/bluesky/config.yml:/app/project/config.yml:ro" in queueserver["volumes"]
     )
@@ -845,6 +865,7 @@ def test_redis_image_honours_a_config_override() -> None:
                 "deployed_services": ["bluesky"],
                 "services": {"bluesky": {"redis_image": context_image}},
                 "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+                **_control_identity_context(),
             }
         )
     )
@@ -992,6 +1013,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                 "deployed_services": ["bluesky"],
                 "services": {"bluesky": {}},
                 "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+                **_control_identity_context(),
                 "dev_mode": True,
             }
         )
@@ -1017,6 +1039,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                 "deployed_services": ["bluesky"],
                 "services": {"bluesky": {}},
                 "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+                **_control_identity_context(),
             }
         )
     )

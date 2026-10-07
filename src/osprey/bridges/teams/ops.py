@@ -56,6 +56,17 @@ channel itself for a channel thread (never the team), the chat for a chat. The
 list comes from the Connector's paged member listing, cached per conversation by
 :class:`~osprey.bridges.teams.roster.ConversationRoster`, with names the
 conversation showed filling any the listing left empty.
+
+Where files go
+--------------
+:meth:`TeamsOps.deliver_files` gives every artifact of a run one of three
+outcomes. A PNG that fits the inline budget is posted inside the conversation as
+an inline image. Every other artifact — a table, a PDF, an image too large or too
+broken to inline — is uploaded into the one document library the Microsoft 365
+administrator set aside for the bot (``TEAMS_FILES_DRIVE_ID``), into the run's own
+folder, which is shared with exactly the conversation's members as listed at that
+moment; one card per file carries an "Open" button. Whatever reaches neither is
+named in one closing note. No organisation-wide or anonymous link is ever made.
 """
 
 from __future__ import annotations
@@ -64,6 +75,7 @@ import base64
 import io
 import logging
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -80,13 +92,16 @@ from osprey.bridges.core import (
     RoomPeople,
     RoomRoster,
     artifact_descriptors,
+    ext_for_mime,
     fetch_artifact,
     queued_since,
     safe_label,
+    unique_stems,
+    upload_name,
 )
 from osprey.bridges.core.text import chunk_text
 
-from .client import ConnectorClient, MessageSizeTooBig, TokenSource
+from .client import Audience, ConnectorClient, MessageSizeTooBig, TokenSource
 from .config import TeamsBridgeConfig
 from .events import (
     CHANNEL_CONVERSATION,
@@ -101,7 +116,8 @@ from .events import (
 from .events import parse_event as parse_teams_event
 from .events import resolve_reply_context as resolve_teams_reply_context
 from .formatting import markdown_to_teams, render_mentions
-from .roster import ConversationRoster
+from .graph import GraphFiles, UploadedFile, run_folder
+from .roster import ConversationRoster, share_audience
 
 logger = logging.getLogger(__name__)
 
@@ -327,14 +343,11 @@ def _answer_chunks(result: Mapping[str, Any]) -> list[str]:
     ) or [EMPTY_ANSWER_TEXT]
 
 
-# --- outbound image delivery ------------------------------------------------
+# --- outbound file delivery -------------------------------------------------
 #
-# Teams has no file-upload leg in this bridge: an image is delivered by POSTing
-# another message activity that carries the bytes inline as a ``data:`` URL. That
-# is the whole reason the two bounds below exist and why they are the adapter's
-# own rather than the shared ones in :mod:`osprey.bridges.core.artifacts` — those
-# bound what a bridge that UPLOADS may send, and an inline attachment is charged
-# against the Connector's request body instead.
+# A PNG that fits the inline budget is posted inline as a ``data:`` URL.
+# Every other artifact goes to the file library, shared with the conversation.
+# Whatever reaches neither is named in the closing note.
 
 IMAGE_BOX_PX = 1024
 """Side of the square box every delivered PNG is fitted into.
@@ -349,54 +362,70 @@ MAX_ATTACHMENT_BYTES = 1024 * 1024
 
 A base64 ``data:`` URL costs a third more than the bytes it carries, and the
 whole activity — text, attachments and all — is one Connector request body. An
-image still over this after the fit is dropped rather than posted: an oversize
-inline attachment does not render smaller, it renders broken or is refused
-outright, and either is worse for the user than being told the image was left
-out."""
+image still over this after the fit is not posted inline: an oversize inline
+attachment does not render smaller, it renders broken or is refused outright. It
+goes to the file library at its original size instead, or is named in the note
+when there is none."""
 
 ATTACHMENT_CONTENT_TYPE = "image/png"
-"""``contentType`` of every delivered attachment. PNG is the only type this
-bridge delivers, and the re-encode is what makes the claim true regardless of
-what the worker served."""
+"""``contentType`` of every inline attachment. PNG is the only type this bridge
+posts inline, and the re-encode is what makes the claim true regardless of what
+the worker served."""
 
 DATA_URL_PREFIX = f"data:{ATTACHMENT_CONTENT_TYPE};base64,"
 """What an inline ``contentUrl`` starts with, composed from the content type so
 the two cannot disagree."""
 
-SKIPPED_IMAGES_NOTE = "I couldn't attach: {names}."
-"""One-line note naming the images the answer promised and the delivery dropped.
+SKIPPED_FILES_NOTE = "I couldn't attach: {names}."
+"""One-line note naming the files the answer promised and the delivery dropped.
 
-Posted as its own message because by the time the images are fetched the answer
+Posted as its own message because by the time the files are fetched the answer
 has already landed — :meth:`~TeamsOps.deliver_files` runs after
 :meth:`~TeamsOps.post_answer`, and a message that has been posted cannot be
-appended to. It says nothing about *why*: oversize and "this deployment has no
-Pillow" read identically to a user, who can act on neither, and the diagnosis is
-in the bridge log. Saying nothing at all is the option this rules out — an
-answer that discusses a plot nobody can see is indistinguishable from a broken
-bridge."""
+appended to. It says nothing about *why*: "no file library", "the share was
+refused" and "the worker could not serve it" read identically to a user, who can
+act on none of them, and the diagnosis is in the bridge log. Saying nothing at
+all is the option this rules out — an answer that discusses a plot or a table
+nobody can see is indistinguishable from a broken bridge."""
 
 NAME_SEPARATOR = ", "
 """How the note joins several names, so it stays one line."""
 
 
-def skipped_images_note(names: Sequence[str]) -> str:
-    """The note for images that were not delivered.
+FILE_CARD_CONTENT_TYPE = "application/vnd.microsoft.card.adaptive"
+"""``contentType`` of the card announcing one shared file. An Adaptive Card with an
+``Action.OpenUrl`` renders alike in channels, group chats and one-to-one chats,
+which is why it is the one shape a shared file is announced in."""
+
+FILE_CARD_VERSION = "1.4"
+"""Adaptive Card schema version of the file card."""
+
+FILE_BUTTON_TEXT = "Open"
+"""Title of the file card's one button, which opens the file in the library.
+
+One card per file, for the reason :func:`_attachment_activity` posts one image per
+activity: Teams caps a card's top-level actions, and one file per message looks
+the same in every client."""
+
+
+def skipped_files_note(names: Sequence[str]) -> str:
+    """The note for files that were not delivered.
 
     Public for the same reason :func:`ack_text` is: the e2e lane asserts the
     posted text by equality against it, and a test that re-spelled the wording
     would prove only that someone typed it twice.
 
     Args:
-        names: The dropped images' names, in delivery order.
+        names: The dropped files' names, in delivery order.
 
     Returns:
-        :data:`SKIPPED_IMAGES_NOTE` filled with the names, on one line.
+        :data:`SKIPPED_FILES_NOTE` filled with the names, on one line.
     """
-    return SKIPPED_IMAGES_NOTE.format(names=NAME_SEPARATOR.join(names))
+    return SKIPPED_FILES_NOTE.format(names=NAME_SEPARATOR.join(names))
 
 
 def _image_name(descriptor: Mapping[str, Any], artifact_id: str) -> str:
-    """The filename one image is attached and, if dropped, named under.
+    """The filename one image is attached under when it is posted inline.
 
     The worker's ``filename`` hint is user-visible text that lands in a
     serialized activity body, so it goes through
@@ -462,6 +491,37 @@ def _attachment_activity(name: str, data: bytes) -> dict[str, Any]:
     }
 
 
+def _file_card_activity(name: str, url: str) -> dict[str, Any]:
+    """One message activity announcing one shared file, with a button that opens it.
+
+    The text is empty, as for :func:`_attachment_activity`: the answer the file
+    belongs to has already been posted.
+    """
+    return {
+        **_message_activity(""),
+        "attachments": [
+            {
+                "contentType": FILE_CARD_CONTENT_TYPE,
+                "content": {
+                    "type": "AdaptiveCard",
+                    "version": FILE_CARD_VERSION,
+                    "body": [{"type": "TextBlock", "text": name, "wrap": True}],
+                    "actions": [{"type": "Action.OpenUrl", "title": FILE_BUTTON_TEXT, "url": url}],
+                },
+            }
+        ],
+    }
+
+
+@dataclass(frozen=True)
+class _PendingFile:
+    """One artifact bound for the file library: its storage name, bytes and type."""
+
+    name: str
+    data: bytes
+    content_type: str | None
+
+
 def _roster_address(entry: Mapping[str, Any]) -> tuple[str, str]:
     """``(service URL, roster conversation id)`` for the entry; each ``""`` when absent.
 
@@ -485,8 +545,10 @@ class TeamsOps:
     member derives everything it needs from the ``entry`` it is handed. The
     collaborators it holds are themselves thread-safe — the connector client
     serializes its HTTP leg behind its own lock, and ``httpx.Client`` is safe to
-    share. The instance holds one cross-call state, the room roster cache, which
-    owns its lock and its bound; it is the only state besides the collaborators.
+    share. The Graph file client, when a library is configured, locks its own
+    HTTP leg the same way. The instance holds one cross-call state, the room
+    roster cache, which owns its lock and its bound; it is the only state besides
+    the collaborators.
     """
 
     def __init__(
@@ -495,6 +557,7 @@ class TeamsOps:
         client: ConnectorClient | None = None,
         worker_http: httpx.Client | None = None,
         artifact_fetcher: ArtifactFetcher = fetch_artifact,
+        files: GraphFiles | None = None,
     ) -> None:
         """Wire the adapter to its config, the Connector client and the worker.
 
@@ -519,6 +582,9 @@ class TeamsOps:
                 in front of the worker.
             artifact_fetcher: How an artifact's bytes are fetched. See
                 :data:`ArtifactFetcher`.
+            files: Graph client for the file library. ``None`` builds one over
+                its own Graph token when ``cfg.files_drive_id`` is set, and holds
+                none otherwise.
         """
         self._cfg = cfg
         self._client = client if client is not None else ConnectorClient(cfg, TokenSource(cfg))
@@ -526,6 +592,9 @@ class TeamsOps:
             worker_http if worker_http is not None else httpx.Client(trust_env=cfg.core.trust_env)
         )
         self._fetch_artifact = artifact_fetcher
+        if files is None and cfg.files_drive_id:
+            files = GraphFiles(cfg, TokenSource(cfg, audience=Audience.GRAPH))
+        self._files = files
         self._roster = ConversationRoster(self._list_members, cfg.app_id)
 
     def _list_members(
@@ -892,35 +961,41 @@ class TeamsOps:
     def deliver_files(
         self, entry: Mapping[str, Any], result: Mapping[str, Any]
     ) -> Mapping[str, str]:
-        """Post the run's PNG artifacts into the conversation. Never raises.
+        """Deliver the run's artifacts into the conversation. Never raises.
 
-        Each artifact is fetched from the worker's byte route, fitted into
-        :data:`IMAGE_BOX_PX` and re-encoded, then posted as its own activity
-        carrying the bytes inline as a ``data:`` URL — Teams' Bot Connector has
-        no upload leg, so an inline attachment is the delivery. Artifacts are
-        independent: one that cannot be fetched, decoded or posted costs only
-        itself. Images that were dropped are named to the user in one
-        :func:`skipped_images_note` message, posted last.
+        Each artifact is fetched from the worker's byte route and meets one of
+        three outcomes:
 
-        **Only PNGs are delivered.** Documents are out of scope for v1 — they
-        would need a Graph permission and a SharePoint upload — so a non-PNG
-        artifact is ignored silently rather than named in the note: the note
-        promises images, and an unfetchable artifact whose bytes were never seen
-        cannot be claimed to have been one.
+        * a PNG that Pillow can re-encode into :data:`IMAGE_BOX_PX` within
+          :data:`MAX_ATTACHMENT_BYTES` is posted as its own activity carrying the
+          bytes inline as a ``data:`` URL;
+        * every other artifact — a document, or an image too large, undecodable
+          or without Pillow to fit it — is uploaded at its original bytes into the
+          run's folder of the file library, the folder is shared once with the
+          conversation's members, and one card per file announces it;
+        * whatever reaches neither is named in one :func:`skipped_files_note`
+          message, posted last.
+
+        Artifacts are independent: one that cannot be fetched, uploaded or posted
+        costs only itself. The file path fails closed: without a library, when the
+        member listing fails, or when it names nobody with a directory id, nothing
+        is uploaded and the files are named; when the share fails no card is
+        posted and every uploaded file is named. No path shares wider than the
+        conversation's listed members.
 
         ``Pillow`` is imported HERE rather than at module scope, which is what
         lets the whole adapter import on a deployment that installed the bridge
-        without its optional extra. With it missing every image is skipped with
-        the same note, because a user can act on neither cause and the
-        distinction belongs in the log.
+        without its optional extra. With it missing every image takes the file
+        path, because it cannot be fitted for inline posting.
 
         **Returns ``{}`` unconditionally — including on complete success. This
         is not an oversight.** The engine treats a returned URL as re-fetchable
         by an *unauthenticated* GET, which is how it re-injects a prior artifact
         into a later run. An inline ``data:`` URL is not a URL anything can
-        fetch, and the Connector mints no public link, so returning nothing is
-        what makes re-injection fall back to the worker byte route — which
-        always works. Do not "fix" this to return the data URL.
+        fetch, and a SharePoint ``webUrl`` needs a signed-in member and fails that
+        GET the same way, so returning nothing is what makes re-injection fall
+        back to the worker byte route — which always works. Do not "fix" this to
+        return either.
 
         Best-effort by contract: the answer text has already landed via
         :meth:`post_answer`, and no delivery failure may un-deliver it.
@@ -946,36 +1021,67 @@ class TeamsOps:
             from PIL import Image
         except Exception:
             # Not an error: Pillow is optional, and a bridge without it is a
-            # supported deployment that answers in text and says what it dropped.
-            logger.info("Pillow is not installed; images will not be delivered")
+            # supported deployment whose images take the file path.
+            logger.info("Pillow is not installed; images will not be posted inline")
             image_module = None
         else:
             image_module = Image
 
-        skipped: list[str] = []
+        # One naming pass over every descriptor, before any fetch: a run's files
+        # share one library folder, so two artifacts claiming one name must not
+        # overwrite each other there, nor read alike in the note.
+        stems = unique_stems(descriptors)
+
+        # Each slot is one artifact's name for the note, a pending file, or None
+        # (posted inline); kept in descriptor order so the note reads in order.
+        slots: list[str | _PendingFile | None] = []
         for descriptor in descriptors:
-            name = self._deliver_one(entry, run_id, descriptor, image_module)
-            if name is not None:
-                skipped.append(name)
+            artifact_id = descriptor.get("artifact_id")
+            if not isinstance(artifact_id, str) or artifact_id not in stems:
+                continue  # artifact_descriptors already drops these
+            slots.append(
+                self._route_one(entry, run_id, descriptor, stems[artifact_id], image_module)
+            )
+
+        pending = [slot for slot in slots if isinstance(slot, _PendingFile)]
+        undelivered: set[str] = set()
+        if pending:
+            if self._files is None:
+                logger.info(
+                    "%d file(s) for %s not shared: no file library is configured",
+                    len(pending),
+                    entry.get(MS_ACTIVITY_ID),
+                )
+                undelivered = {file.name for file in pending}
+            else:
+                undelivered = self._share_files(entry, run_id, pending, self._files)
+
+        skipped = [
+            slot.name if isinstance(slot, _PendingFile) else slot
+            for slot in slots
+            if isinstance(slot, str)
+            or (isinstance(slot, _PendingFile) and slot.name in undelivered)
+        ]
         if skipped:
             try:
-                self._post_text(entry, skipped_images_note(skipped))
+                self._post_text(entry, skipped_files_note(skipped))
             except Exception:
                 logger.warning(
-                    "skipped-image note failed for %s; the images are gone either way",
+                    "skipped-file note failed for %s; the files are gone either way",
                     entry.get(MS_ACTIVITY_ID),
                     exc_info=True,
                 )
         return {}
 
-    def _deliver_one(
+    def _route_one(
         self,
         entry: Mapping[str, Any],
         run_id: str,
         descriptor: Mapping[str, Any],
+        stem: str,
         image_module: Any,
-    ) -> str | None:
-        """Fetch, fit and post one artifact. Never raises.
+    ) -> str | _PendingFile | None:
+        """Fetch one artifact and post it inline, or say where it goes. Never raises.
 
         The descriptor only *names* the artifact: its ``delivered_mime`` is a
         prediction made before anything was rendered, so an artifact whose
@@ -988,49 +1094,128 @@ class TeamsOps:
             entry: The persisted entry; supplies the destination address.
             run_id: Run the artifact belongs to.
             descriptor: Normalized artifact descriptor.
+            stem: The storage stem :func:`~osprey.bridges.core.unique_stems`
+                assigned this artifact for this delivery.
             image_module: ``PIL.Image``, or ``None`` on a deployment without
-                Pillow — in which case every image this sees is skipped.
+                Pillow — in which case every image takes the file path.
 
         Returns:
-            The name to put in the skip note, or ``None`` when there is nothing
-            to tell the user: the image was posted, or the bytes were never
-            known to be an image at all.
+            ``None`` when the image was posted inline (or its inline post failed,
+            which is logged); a :class:`_PendingFile` for the library; or a name
+            for the note when the artifact could not be fetched.
         """
         artifact_id = descriptor["artifact_id"]
+        predicted = descriptor.get("delivered_mime")
+        predicted = predicted if isinstance(predicted, str) else None
         try:
             fetched = self._fetch_artifact(self._http, self._cfg.core, run_id, artifact_id)
         except Exception:
             # fetch_artifact promises not to raise; the seam takes any callable.
             logger.warning("artifact fetch failed for %s/%s", run_id, artifact_id, exc_info=True)
-            return None
+            fetched = None
         if fetched is None:
-            # The fetcher logged why. Nothing is known about what the bytes were,
-            # so this is not reported as a dropped image.
-            return None
-        if not fetched.is_png:
-            logger.debug("artifact %s is not a PNG; not delivered to Teams", artifact_id)
-            return None
-        name = _image_name(descriptor, artifact_id)
-        if image_module is None:
-            return name
-        data = _fit_png(image_module, fetched.data)
-        if data is None:
-            return name
-        if len(data) > MAX_ATTACHMENT_BYTES:
-            logger.warning(
-                "image artifact %s is %d bytes after the fit, over the inline budget",
-                artifact_id,
-                len(data),
+            # The fetcher logged why. The bytes were never seen, so the name comes
+            # from what the descriptor predicted.
+            return upload_name(
+                stem, ".png" if predicted == "image/png" else ext_for_mime(predicted)
             )
-            return name
+        if fetched.is_png:
+            file = _PendingFile(upload_name(stem, ".png"), fetched.data, fetched.content_type)
+            if image_module is None:
+                return file
+            data = _fit_png(image_module, fetched.data)
+            if data is None:
+                return file
+            if len(data) > MAX_ATTACHMENT_BYTES:
+                logger.info(
+                    "image artifact %s is %d bytes after the fit, over the inline budget",
+                    artifact_id,
+                    len(data),
+                )
+                return file
+            try:
+                self._reply(entry, _attachment_activity(_image_name(descriptor, artifact_id), data))
+            except Exception:
+                # The answer already landed; an image that could not be posted must
+                # not cost it. The note is not attempted either — it would travel
+                # the same leg that just failed.
+                logger.warning(
+                    "image artifact %s not delivered; text only", artifact_id, exc_info=True
+                )
+            return None
+        extension = ext_for_mime(fetched.content_type or predicted)
+        return _PendingFile(upload_name(stem, extension), fetched.data, fetched.content_type)
+
+    def _share_files(
+        self,
+        entry: Mapping[str, Any],
+        run_id: str,
+        pending: Sequence[_PendingFile],
+        files: GraphFiles,
+    ) -> set[str]:
+        """Upload ``pending`` into the run's folder, share it, and card each file.
+
+        Fails closed, in this order: a run id that is not one folder segment, a
+        missing address, a failed member listing or an audience with no directory
+        id uploads nothing; a failed upload costs that file; a failed share posts
+        no card and leaves the uploads for a redelivery to re-share. The audience
+        is read fresh and to its end on every call, never from the roster cache.
+
+        Returns:
+            The names of the files that did not reach the conversation.
+        """
+        every = {file.name for file in pending}
         try:
-            self._reply(entry, _attachment_activity(name, data))
+            folder = run_folder(self._cfg, run_id)
+        except ValueError:
+            logger.warning("run id %r is not one folder segment; files not shared", run_id)
+            return every
+        try:
+            service_url, conversation = _roster_address(entry)
+            if not service_url or not conversation:
+                logger.warning("no conversation address to share files with; files not shared")
+                return every
+            members, _ = self._client.list_members(service_url, conversation, limit=None)
+            audience = share_audience(members, self._cfg.app_id, self._cfg.tenant_id)
         except Exception:
-            # The answer already landed; an image that could not be posted must
-            # not cost it. The note is not attempted either — it would travel the
-            # same leg that just failed.
-            logger.warning("image artifact %s not delivered; text only", artifact_id, exc_info=True)
-        return None
+            logger.warning(
+                "member listing failed for %s; files not shared", conversation, exc_info=True
+            )
+            return every
+        if not audience:
+            logger.warning("no member of %s has a directory id; files not shared", conversation)
+            return every
+
+        uploaded: list[UploadedFile] = []
+        for file in pending:
+            try:
+                uploaded.append(files.upload(folder, file.name, file.data, file.content_type))
+            except Exception:
+                logger.warning("upload of %s for run %s failed", file.name, run_id, exc_info=True)
+        if not uploaded:
+            return every
+
+        # Every file of a run lands in one folder, so one share covers them all and
+        # each inherits exactly that audience.
+        try:
+            for folder_id in dict.fromkeys(done.folder_id for done in uploaded):
+                files.share(folder_id, audience)
+        except Exception:
+            logger.warning(
+                "sharing run %s's folder with %s failed; no card posted",
+                run_id,
+                conversation,
+                exc_info=True,
+            )
+            return every
+
+        for done in uploaded:
+            try:
+                self._reply(entry, _file_card_activity(done.name, done.web_url))
+            except Exception:
+                # The note would travel the same leg that just failed.
+                logger.warning("file card for %s not posted", done.name, exc_info=True)
+        return every - {done.name for done in uploaded}
 
 
 # NOT dead code, and not to be "cleaned up": these are the whole static conformance

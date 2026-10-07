@@ -607,3 +607,49 @@ def test_preview_iframe_inherits_gallery_theme(tmp_path, monkeypatch, chromium_b
         )
         expect(link).to_have_attribute("href", re.compile(r"theme=high-contrast-light"))
         page.close()
+
+
+# ---------------------------------------------------------------------------
+# Picking several artifacts and deleting them together
+# ---------------------------------------------------------------------------
+
+
+def test_shift_click_picks_a_run_and_deletes_it_together(tmp_path, monkeypatch, chromium_browser):
+    """Click the first row, Shift-click the third: three rows are picked and
+    the bar above the list says so. Delete, once confirmed, removes those
+    three from the store and the list and leaves the fourth.
+    """
+    with _launch_many_artifacts(tmp_path, monkeypatch, 4) as base_url:
+        page = chromium_browser.new_page(viewport=VIEWPORT)
+        page.goto(base_url, wait_until="domcontentloaded")
+
+        rows = page.locator(".tree-item")
+        expect(rows).to_have_count(4, timeout=10_000)
+        # Newest first: 003, 002, 001, 000.
+        _card_for_title(page, "Paged Artifact 003").click()
+        _card_for_title(page, "Paged Artifact 001").click(modifiers=["Shift"])
+
+        expect(page.locator(".tree-item.picked")).to_have_count(3, timeout=5_000)
+        bar = page.locator("#pick-bar")
+        expect(bar).to_be_visible()
+        expect(page.locator("#pick-count")).to_have_text("3 selected")
+
+        messages: list[str] = []
+
+        def accept(dialog):
+            messages.append(dialog.message)
+            dialog.accept()
+
+        page.once("dialog", accept)
+        page.locator("#pick-delete").click()
+
+        expect(rows).to_have_count(1, timeout=5_000)
+        expect(_card_for_title(page, "Paged Artifact 000")).to_have_count(1)
+        expect(bar).to_be_hidden()
+        assert messages == ["Delete 3 artifacts? This cannot be undone."]
+
+        from osprey.stores.artifact_store import ArtifactStore
+
+        titles = [e.title for e in ArtifactStore(workspace_root=tmp_path).list_entries()]
+        assert titles == ["Paged Artifact 000"]
+        page.close()

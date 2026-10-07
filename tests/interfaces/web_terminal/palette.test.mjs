@@ -7,8 +7,8 @@
  * CLASS/ATTRIBUTE state and never scroll position. document.activeElement is
  * asserted in one place only — the focus-on-open block, which checks WHEN
  * focus() is called relative to the reveal frame, not browser focus fidelity.
- * scrollIntoView is stubbed to a no-op and a fake `fetchConfig` is injected so
- * no real network is hit.
+ * scrollIntoView is stubbed to a no-op and the one network call the palette
+ * makes, GET /api/config, is answered by the fetch stub below.
  *
  * Imported by RELATIVE path — this module lives under web_terminal, so the
  * /design-system/js/* alias does not apply to it.
@@ -34,11 +34,43 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/feedback-modal.js
   isFeedbackModalOpen: () => feedbackModalState.open,
 }));
 
-// palette-boot.js's import graph reaches bar-sync.js, which GETs the operator's
-// bar layout at import time. Nothing serves this environment, so that request is
-// answered here, before the dynamic import below is evaluated. Any other URL is
-// a dependency this file has not declared, and fails loudly.
+/** A sections fixture: three leaf dot-keys under two sections. */
+const SECTIONS = {
+  control_system: { type: 'epics', writes_enabled: true },
+  ui: { theme: 'dark' },
+};
+
+/** @param {any} body */
+function configResponse(body) {
+  return { ok: true, status: 200, statusText: 'OK', json: async () => body };
+}
+
+/** The palette's own config read, answered with SECTIONS unless a test holds or fails it. */
+const defaultConfigAnswer = () => Promise.resolve(configResponse({ sections: SECTIONS }));
+/** @type {() => Promise<any>} */
+let answerConfig = defaultConfigAnswer;
+
+/**
+ * Hold the next config reads until the test resolves them.
+ * @returns {(body: any) => void} resolves every held read with `body`
+ */
+function holdConfig() {
+  /** @type {(value: any) => void} */
+  let release = () => {};
+  const pending = new Promise((r) => {
+    release = r;
+  });
+  answerConfig = () => pending.then(configResponse);
+  return release;
+}
+
+// Two requests reach this environment: the palette's GET /api/config, and the
+// operator's bar layout, which bar-sync.js (reached through palette-boot.js's
+// import graph) GETs at import time — before the dynamic import below is
+// evaluated. Any other URL is a dependency this file has not declared, and
+// fails loudly.
 vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+  if (url === '/api/config') return answerConfig();
   if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
   return {
     ok: true,
@@ -58,12 +90,6 @@ const { initCommandPalette } = await import(
   '../../../src/osprey/interfaces/web_terminal/static/js/palette-boot.js'
 );
 
-/** A sections fixture: three leaf dot-keys under two sections. */
-const SECTIONS = {
-  control_system: { type: 'epics', writes_enabled: true },
-  ui: { theme: 'dark' },
-};
-
 /** Flush the requestAnimationFrame that adds the `.visible` class. */
 function flushRaf() {
   return new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
@@ -75,8 +101,8 @@ function flushMicro() {
 }
 
 /**
- * Build a deps bundle with spied navigation callbacks and a config fetch that
- * resolves to SECTIONS. Pass `fetchConfig` to override the config flow.
+ * Build a deps bundle with spied navigation callbacks. `revealSetting` is
+ * present, so the palette reads /api/config (see `answerConfig`).
  * @param {Record<string, any>} [over]
  */
 function makeDeps(over = {}) {
@@ -89,7 +115,6 @@ function makeDeps(over = {}) {
     applyPreset: vi.fn(),
     revealSetting: vi.fn(),
     actions: [{ label: 'Restart terminal', run: vi.fn() }],
-    fetchConfig: () => Promise.resolve({ sections: SECTIONS }),
     ...over,
   };
 }
@@ -118,22 +143,6 @@ function pressKey(key) {
   input().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 }
 
-/**
- * Recent commands need a working `localStorage`. Node defines a `localStorage`
- * global that stays undefined unless the process was started with
- * `--localstorage-file`, and on Node versions that ship it that definition
- * shadows the one happy-dom installs — so the Recent code path would be
- * exercised against nothing on such a host. Give the global a real happy-dom
- * Storage when it is missing; a working one is left untouched.
- */
-if (!globalThis.localStorage) {
-  Object.defineProperty(globalThis, 'localStorage', {
-    value: new Storage(),
-    configurable: true,
-    writable: true,
-  });
-}
-
 /** localStorage key holding the Recent list (mirrors palette.js). */
 const RECENT_KEY = 'osprey-palette-recent-v1';
 
@@ -153,6 +162,7 @@ function rowLabels() {
 }
 
 beforeEach(() => {
+  answerConfig = defaultConfigAnswer;
   closePalette();
   document.body.innerHTML = '';
   localStorage.clear();
@@ -189,13 +199,29 @@ describe('open / close lifecycle', () => {
 });
 
 describe('filtering + highlight', () => {
-  test('a matching query renders items with highlight spans', async () => {
+  test("the highlight marks the query's characters inside the label", async () => {
     openPalette(makeDeps());
     await flushMicro();
     typeQuery('control');
-    const items = document.querySelectorAll('.command-palette-item');
-    expect(items.length).toBeGreaterThan(0);
-    expect(document.querySelectorAll('.command-palette-match').length).toBeGreaterThan(0);
+    const row = [...document.querySelectorAll('.command-palette-item')].find(
+      (r) => r.querySelector('.command-palette-item-label')?.textContent === 'control_system.type',
+    );
+    if (!row) throw new Error('no control_system.type row');
+    const marks = [...row.querySelectorAll('.command-palette-match')];
+    expect(marks.map((m) => m.textContent).join('')).toBe('control');
+    expect(marks.every((m) => m.closest('.command-palette-item-label'))).toBe(true);
+  });
+
+  test('a row found through its searchText alone renders its label un-highlighted', async () => {
+    // "optics" is a Lattice synonym carried only in searchText: it ranks the
+    // row, but no character of "Focus Lattice" is marked for it.
+    openPalette(makeDeps());
+    await flushMicro();
+    typeQuery('optics');
+    const labels = [...document.querySelectorAll('.command-palette-item-label')];
+    const lattice = labels.find((l) => l.textContent === 'Focus Lattice');
+    if (!lattice) throw new Error('no Focus Lattice row');
+    expect(lattice.querySelectorAll('.command-palette-match')).toHaveLength(0);
   });
 
   test('a non-matching query renders the empty state', async () => {
@@ -220,12 +246,8 @@ describe('filtering + highlight', () => {
 describe('keyboard navigation', () => {
   test('Arrow keys move the active row and skip status rows', async () => {
     // Loading state: a status decoration coexists with panel/layout/action rows.
-    /** @type {(value: any) => void} */
-    let resolveConfig = () => {};
-    const pending = new Promise((r) => {
-      resolveConfig = r;
-    });
-    openPalette(makeDeps({ fetchConfig: () => pending }));
+    const resolveConfig = holdConfig();
+    openPalette(makeDeps());
     typeQuery('');
 
     const status = /** @type {HTMLElement} */ (document.querySelector('.command-palette-status'));
@@ -279,12 +301,8 @@ describe('keyboard navigation', () => {
 
 describe('concurrent config fetch', () => {
   test('pending -> loading status; resolved -> settings items appear', async () => {
-    /** @type {(value: any) => void} */
-    let resolveConfig = () => {};
-    const pending = new Promise((r) => {
-      resolveConfig = r;
-    });
-    openPalette(makeDeps({ fetchConfig: () => pending }));
+    const resolveConfig = holdConfig();
+    openPalette(makeDeps());
     typeQuery('control');
 
     // While pending, the Settings group shows the loading decoration.
@@ -304,7 +322,8 @@ describe('concurrent config fetch', () => {
   });
 
   test('a rejecting fetch yields the unavailable status row', async () => {
-    openPalette(makeDeps({ fetchConfig: () => Promise.reject(new Error('boom')) }));
+    answerConfig = () => Promise.reject(new Error('boom'));
+    openPalette(makeDeps());
     typeQuery('control');
     await flushMicro();
     const status = /** @type {HTMLElement} */ (document.querySelector('.command-palette-status'));
@@ -437,12 +456,8 @@ describe('recent commands', () => {
 
   test('selection stays on the home-group row when Recent duplicates it', async () => {
     seedRecent([RESTART]);
-    /** @type {(value: any) => void} */
-    let resolveConfig = () => {};
-    const pending = new Promise((r) => {
-      resolveConfig = r;
-    });
-    openPalette(makeDeps({ fetchConfig: () => pending }));
+    const resolveConfig = holdConfig();
+    openPalette(makeDeps());
     typeQuery('');
 
     const options = () => [...document.querySelectorAll('[role="option"]')];

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import types
 from unittest.mock import AsyncMock, MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi import FastAPI
@@ -17,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
 from osprey.interfaces.ariel.app import REMEDY_NO_CONFIG_FILE
+from osprey.services.ariel_search.capabilities import attachments_capability
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.exceptions import VocabularyError
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
@@ -65,6 +67,8 @@ def _make_service(search_result=None, search_error=None) -> AsyncMock:
     """Build a mock ARIEL service with a real config and a stubbed search."""
     service = AsyncMock()
     service.repository = AsyncMock()
+    # A migrated store with no attachment rows.
+    service.repository.get_attachment_rows = AsyncMock(return_value={})
     service.config = ARIELConfig.from_dict(
         {
             "database": {"uri": "postgresql://localhost:5432/test"},
@@ -103,9 +107,11 @@ def test_capabilities_configuration_invalid_payload_is_service_independent():
         config_errors=[VOCABULARY_ERROR],
         config_remedy=VocabularyError.remedy,
         ariel_service=None,
+        config_panel_enabled=True,
     )
 
-    response = TestClient(app).get("/api/capabilities")
+    with patch.object(routes, "get_facility_timezone", return_value=ZoneInfo("Asia/Tokyo")):
+        response = TestClient(app).get("/api/capabilities")
 
     assert response.status_code == 200
     assert response.json() == {
@@ -117,6 +123,7 @@ def test_capabilities_configuration_invalid_payload_is_service_independent():
         "shared_parameters": [],
         "vocabulary": {"enabled": False, "concepts": 0, "expand_by_default": False},
         "config_panel_enabled": True,
+        "facility_timezone": "Asia/Tokyo",
     }
     assert "ariel.vocabulary.path" in response.json()["remedy"]
 
@@ -162,9 +169,25 @@ def test_capabilities_configuration_warning_keeps_the_normal_payload():
     }
 
 
+def test_capabilities_configuration_warning_names_the_facility_zone():
+    """The warning payload spreads the normal one, so it names the zone too."""
+    app = _make_app(
+        config_status="configuration_warning",
+        config_errors=["search_modules.semantic.model is required"],
+        config_remedy="fix the named key in config.yml and restart",
+        ariel_service=_make_service(),
+    )
+
+    with patch.object(routes, "get_facility_timezone", return_value=ZoneInfo("Asia/Tokyo")):
+        payload = TestClient(app).get("/api/capabilities").json()
+
+    assert payload["facility_timezone"] == "Asia/Tokyo"
+
+
 def test_capabilities_without_config_state_returns_the_normal_payload():
     """The pre-existing route-test app (service only) behaves exactly as before."""
-    app = _make_app(ariel_service=_make_service())
+    service = _make_service()
+    app = _make_app(ariel_service=service)
 
     response = TestClient(app).get("/api/capabilities")
 
@@ -175,8 +198,11 @@ def test_capabilities_without_config_state_returns_the_normal_payload():
         "default_mode",
         "shared_parameters",
         "vocabulary",
+        "attachments",
         "config_panel_enabled",
+        "facility_timezone",
     }
+    assert payload["attachments"] == attachments_capability(service.config)
     assert "status" not in payload
 
 
@@ -303,7 +329,7 @@ def test_config_endpoints_use_the_path_the_panel_loaded(tmp_path):
     """Editor and loader agree on the file: app.state.config_path wins."""
     config_file = tmp_path / "config.yml"
     config_file.write_text("ariel:\n  vocabulary:\n    enabled: false\n")
-    app = _make_app(ariel_service=None, config_path=config_file)
+    app = _make_app(ariel_service=None, config_path=config_file, config_panel_enabled=True)
     client = TestClient(app)
 
     got = client.get("/api/config")
@@ -321,7 +347,7 @@ def test_config_path_falls_back_to_the_candidate_list(tmp_path, monkeypatch):
     config_file = tmp_path / "config.yml"
     config_file.write_text("ariel: {}\n")
     monkeypatch.setenv("CONFIG_FILE", str(config_file))
-    app = _make_app(ariel_service=None)
+    app = _make_app(ariel_service=None, config_panel_enabled=True)
 
     response = TestClient(app).get("/api/config")
 

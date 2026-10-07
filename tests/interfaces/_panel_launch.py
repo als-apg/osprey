@@ -3,8 +3,9 @@
 Browser and design-system tests need the WORKSPACE tab to look available
 without a real artifact-gallery process behind it. They all patch
 ``web_terminal.app._launch_panel_server``; this is the one side effect they
-share, so the stub's semantics — publish the gallery URL, leave every other
-companion panel unlaunched — are stated once instead of re-derived per file.
+share, so the stub's semantics — publish the URLs a test hands it, by registry
+key, and leave every other companion panel unlaunched — are stated once; the
+gallery-only form is the common case.
 """
 
 from __future__ import annotations
@@ -38,6 +39,24 @@ def _reserve_unserved_port() -> int:
 DEFAULT_ARTIFACT_URL = f"http://127.0.0.1:{_reserve_unserved_port()}"
 
 
+def publish_panel_urls(urls: dict[str, str | None]):
+    """Return a ``_launch_panel_server`` side effect publishing *urls* by registry key.
+
+    Args:
+        urls: The URL each companion server should be reported at, keyed by its
+            registry key (``"artifact"``, ``"okf"``, ...). A key not in the
+            mapping is published as ``None``, the state an unlaunched panel has.
+
+    Returns:
+        A ``(app, key)`` callable that publishes ``urls.get(key)`` for *key*.
+    """
+
+    def _launch(app: Any, key: str) -> None:
+        setattr(app.state, panel_url_state_attr(key), urls.get(key))
+
+    return _launch
+
+
 def publish_artifact_url(url: str | None = DEFAULT_ARTIFACT_URL):
     """Return a ``_launch_panel_server`` side effect that fakes the gallery launch.
 
@@ -50,8 +69,4 @@ def publish_artifact_url(url: str | None = DEFAULT_ARTIFACT_URL):
         server and leaves every other companion panel without a URL — the state
         an unlaunched panel has, so no tab is advertised that nothing serves.
     """
-
-    def _launch(app: Any, key: str) -> None:
-        setattr(app.state, panel_url_state_attr(key), url if key == "artifact" else None)
-
-    return _launch
+    return publish_panel_urls({"artifact": url})

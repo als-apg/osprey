@@ -37,6 +37,7 @@ Example structure:
 """
 
 import json
+from typing import Any
 
 from ..core.base_database import BaseDatabase, DatabaseWriteError
 
@@ -109,6 +110,9 @@ class MiddleLayerDatabase(BaseDatabase):
     Designed for React agent-style exploration using query tools.
     """
 
+    # Populated by load_database(); its isinstance check guards the shape.
+    data: dict[str, Any]
+
     def __init__(self, db_path: str) -> None:
         """
         Initialize middle layer database.
@@ -159,7 +163,7 @@ class MiddleLayerDatabase(BaseDatabase):
         Raises:
             ValueError: A system or family whose value is not a mapping.
         """
-        channels = {}
+        channels: dict[str, dict[str, Any]] = {}
 
         for system, families in self.data.items():
             if system.startswith("_"):
@@ -654,7 +658,7 @@ class MiddleLayerDatabase(BaseDatabase):
             Dict with common_names, device_list, sectors, devices_per_sector,
             and total_devices.
         """
-        empty = {
+        empty: dict[str, Any] = {
             "common_names": None,
             "device_list": None,
             "sectors": [],
@@ -707,7 +711,7 @@ class MiddleLayerDatabase(BaseDatabase):
         """
         if system not in self.data:
             raise DatabaseWriteError(f"System '{system}' not found", "not_found")
-        node = self.data[system]
+        node: dict[str, Any] = self.data[system]
         if family is not None:
             if family not in node:
                 raise DatabaseWriteError(

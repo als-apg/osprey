@@ -18,7 +18,7 @@ import pytest
 
 from osprey.services.facility_knowledge.okf.bundle import OKFBundle
 from osprey.services.facility_knowledge.okf.document import OKFDocument
-from osprey.services.facility_knowledge.okf.index import validate_index
+from osprey.services.facility_knowledge.okf.index import check_indexes, validate_index
 from osprey.services.mml.emit import EmitContext, build_context
 from osprey.services.mml.emit.okf import write_okf_bundle
 from osprey.services.mml.mapping.schema import (
@@ -333,6 +333,7 @@ class TestBundle:
                 validate_index(md, bundle_root=bundle)
             else:
                 OKFDocument.parse(md.read_text(encoding="utf-8")).validate("authoring")
+        assert check_indexes(bundle) == []
 
     def test_indexes_list_pages(self, tmp_path: Path, ctx) -> None:
         bundle = _emit(tmp_path, ctx)

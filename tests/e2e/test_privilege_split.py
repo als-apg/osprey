@@ -63,6 +63,15 @@ land in the render zone at ``<container_project_dir>/build/.claude/skills``
 root-owned so a session cannot edit the skills the next session reads, while
 the claude-config volume is handed to the runtime uid.
 
+``TestControlIdentity`` — a card's control identity. A container started with
+``OSPREY_CONTROL_IDENTITY=alice`` and the rewrite module mounted read-only
+resolves uid 1000 to ``alice`` while every file stays owned by number and
+``osprey`` still names uid 1000; both ``gosu`` spellings keep the mounts'
+groups; a restart leaves one identity line; ``BASE_IMAGE_ACCOUNTS`` lists the
+image's accounts. The wire proof runs ``_ca_client_name_sniffer.py`` in the
+container: a CA client's CLIENT_NAME message says ``alice`` (``osprey`` in a
+plain container), and a PVA put's ``op.account()`` says ``alice``.
+
 Cost discipline: TWO images, built from one shared ``osprey init`` + ``osprey
 build``, as module-scoped fixtures. Everything above the deployment ``COPY``
 is byte-identical between the two renders, so the second build reuses the
@@ -1113,6 +1122,289 @@ class TestMultiUserSeeding:
             "the seeded skill is not visible from the agent's project cwd — it "
             "landed outside the scope --setting-sources project loads"
         )
+
+
+# ── per-card control identity: uid 1000 answers to a person ─────────────────
+
+#: The person the identity container is started as. A roster-shaped name that
+#: is in no base-image account list, so the module's own refusals never fire.
+IDENTITY = "alice"
+
+#: Foreign gids for the two group-shared binds the identity container gets. Not
+#: present in the image's ``/etc/group``, so the entrypoint's join has to CREATE
+#: the group and add ``osprey`` to it — and the identity rewrite then has to
+#: carry that membership over to the identity's name, or ``gosu 1000`` (which
+#: resolves uid 1000 to the identity and asks ``initgroups`` for ITS groups)
+#: would drop the very directories the card writes its records into.
+AUDIT_GID = 4242
+CONTEXT_GID = 4343
+
+#: The in-container probe. Fed to the image's python on stdin, never collected.
+_PROBE_SCRIPT = Path(__file__).with_name("_ca_client_name_sniffer.py")
+
+
+def _wait_for_drops(cid: str, count: int, timeout: float = 120) -> str:
+    """Wait until the entrypoint has reached its privilege drop *count* times.
+
+    ``docker logs`` accumulates across restarts, so the count is how a restart
+    is told apart from the first boot. Fails with the log when the container
+    exits instead — an identity the entrypoint refuses to apply is exactly that.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        logs = _logs(cid)
+        if logs.count("dropping privileges") >= count:
+            return logs
+        if not _is_running(cid):
+            pytest.fail(f"container exited before its privilege drop:\n{logs[-4000:]}")
+        time.sleep(1.0)
+    pytest.fail(f"container never reached privilege drop #{count}:\n{_logs(cid)[-4000:]}")
+
+
+def _probe(cid: str, mode: str) -> dict:
+    """Run the wire probe in *cid* as root, its client dropped to ``osprey``."""
+    run = subprocess.run(
+        ["docker", "exec", "-i", "-u", "0", cid, "python", "-", mode, "--user", "osprey"],
+        capture_output=True,
+        text=True,
+        input=_PROBE_SCRIPT.read_text(encoding="utf-8"),
+        timeout=RUN_TIMEOUT,
+    )
+    marker = {"ca": "__CA_CLIENT_NAME__", "pva": "__PVA_ACCOUNT__"}[mode]
+    lines = [line for line in run.stdout.splitlines() if line.startswith(marker)]
+    assert run.returncode == 0 and lines, (
+        f"the {mode} probe failed (exit {run.returncode}):\n--- stdout ---\n"
+        f"{run.stdout[-4000:]}\n--- stderr ---\n{run.stderr[-4000:]}"
+    )
+    return json.loads(lines[0][len(marker) :])
+
+
+def _run_sleeper(tag: str, *extra: str) -> str:
+    """Start *tag* on ``sleep infinity`` through the real entrypoint; wait for the drop."""
+    name = f"{TAG_PREFIX}-{uuid.uuid4().hex[:8]}"
+    run = _docker("run", "-d", "--name", name, *extra, tag, "sleep", "infinity", timeout=120)
+    assert run.returncode == 0, f"docker run failed: {run.stderr}"
+    return name
+
+
+def _group_volume(tag: str, gid: int) -> str:
+    """A named volume whose root is ``root:<gid>`` mode 2770, like a provisioned bind.
+
+    Prepared in a throwaway container rather than on the host, because a
+    host-side ``chgrp`` to an arbitrary gid needs root, and Docker Desktop
+    remaps a bind's ownership on the way in anyway. A volume keeps the gid the
+    container sees exactly the gid the test chose.
+    """
+    volume = f"{TAG_PREFIX}-gid{gid}-{uuid.uuid4().hex[:8]}"
+    prep = _docker(
+        "run",
+        "--rm",
+        "--entrypoint",
+        "sh",
+        "-v",
+        f"{volume}:/mnt/prep",
+        tag,
+        "-c",
+        f"chown 0:{gid} /mnt/prep && chmod 2770 /mnt/prep",
+        timeout=120,
+    )
+    assert prep.returncode == 0, f"could not prepare volume {volume}: {prep.stderr}"
+    return volume
+
+
+@pytest.fixture(scope="class")
+def identity_containers(ro_image):
+    """An identity container (``alice``) and a plain one, from the same image.
+
+    The identity container is started by hand with the env/mount contract the
+    walled web-terminal compose emits for a card that carries a
+    ``control_identity``: ``OSPREY_CONTROL_IDENTITY``, the module path in
+    ``OSPREY_CONTROL_IDENTITY_MODULE``, and the module itself bind-mounted
+    read-only. The module is mounted from THIS tree, so the rewrite under test
+    is the local one whatever the image carries. Two group-shared binds with
+    foreign gids stand in for the audit and control-context directories, so
+    the join-then-rewrite order is exercised on real memberships.
+
+    ``sleep infinity`` rather than the server CMD: every assertion here is about
+    the account database the entrypoint left behind and the name a dropped
+    process resolves, and the entrypoint wraps any command identically.
+    """
+    from osprey.deployment import control_identity
+
+    tag, project = ro_image
+    root = f"/app/{project}"
+    audit_dir = f"{root}/var/audit/{IDENTITY}"
+    context_dir = f"{root}/var/agent_data/control_target/{IDENTITY}"
+    module_host_path = Path(control_identity.__file__).resolve()
+    module_path = control_identity.CONTROL_IDENTITY_CONTAINER_PATH
+
+    volumes: list[str] = []
+    names: list[str] = []
+    try:
+        volumes.append(_group_volume(tag, AUDIT_GID))
+        volumes.append(_group_volume(tag, CONTEXT_GID))
+        names.append(
+            _run_sleeper(
+                tag,
+                "-e",
+                f"OSPREY_CONTROL_IDENTITY={IDENTITY}",
+                "-e",
+                f"OSPREY_CONTROL_IDENTITY_MODULE={module_path}",
+                "-v",
+                f"{module_host_path}:{module_path}:ro",
+                "-v",
+                f"{volumes[0]}:{audit_dir}",
+                "-e",
+                f"OSPREY_AUDIT_DIR={audit_dir}",
+                "-v",
+                f"{volumes[1]}:{context_dir}",
+                "-e",
+                f"OSPREY_CONTROL_CONTEXT_DIR={context_dir}",
+            )
+        )
+        names.append(_run_sleeper(tag))
+        identity_logs = _wait_for_drops(names[0], 1)
+        _wait_for_drops(names[1], 1)
+        yield SimpleNamespace(
+            cid=names[0],
+            plain=names[1],
+            root=root,
+            audit_dir=audit_dir,
+            context_dir=context_dir,
+            logs=identity_logs,
+        )
+    finally:
+        for name in names:
+            _docker("rm", "-f", name, timeout=120)
+        for volume in volumes:
+            _docker("volume", "rm", "-f", volume, timeout=60)
+
+
+def _passwd_lines(cid: str) -> list[list[str]]:
+    cat = _exec(cid, "cat", "/etc/passwd")
+    assert cat.returncode == 0, cat.stderr
+    return [line.split(":") for line in cat.stdout.splitlines() if line.count(":") == 6]
+
+
+class TestControlIdentity:
+    """A card's uid 1000 answers to its person, on disk and on the wire.
+
+    The identity is a NAME, never a uid: every file stays owned by 1000, the
+    ``osprey`` account still resolves, and only what ``getpwuid(1000)``
+    answers changes — which is what EPICS clients put on the wire as the
+    account an IOC or gateway attributes a write to.
+    """
+
+    def test_the_entrypoint_applied_the_identity_before_the_drop(self, identity_containers):
+        logs = identity_containers.logs
+        applied = f"control identity: uid 1000 is '{IDENTITY}'"
+        assert applied in logs, logs[-4000:]
+        assert logs.index(applied) < logs.index("dropping privileges"), logs[-4000:]
+
+    def test_uid_1000_is_the_identity_and_osprey_still_resolves(self, identity_containers):
+        """``getpwuid`` answers the identity; ``getpwnam("osprey")`` still
+        answers uid 1000, so everything that names the account keeps working."""
+        by_uid = _exec(identity_containers.cid, "getent", "passwd", "1000")
+        assert by_uid.returncode == 0, by_uid.stderr
+        assert by_uid.stdout.split(":")[0] == IDENTITY, by_uid.stdout
+
+        by_name = _exec(identity_containers.cid, "getent", "passwd", "osprey")
+        assert by_name.returncode == 0, by_name.stderr
+        assert by_name.stdout.split(":")[2] == "1000", by_name.stdout
+
+    def test_ownership_is_unchanged_by_number(self, identity_containers):
+        """The state zone is still uid 1000's — only the name printed for it
+        moved. A file the dropped process creates is 1000 as well."""
+        state = f"{identity_containers.root}/var"
+        numeric = _exec(identity_containers.cid, "stat", "-c", "%u:%g", state)
+        assert numeric.returncode == 0, numeric.stderr
+        assert numeric.stdout.strip() == "1000:1000", numeric.stdout
+        named = _exec(identity_containers.cid, "stat", "-c", "%U", state)
+        assert named.stdout.strip() == IDENTITY, named.stdout
+
+        probe = f"{identity_containers.audit_dir}/e2e-identity-probe"
+        touch = _exec(identity_containers.cid, "gosu", "osprey", "touch", probe)
+        assert touch.returncode == 0, (
+            f"the dropped user cannot write its audit bind:\n{touch.stderr}"
+        )
+        owner = _exec(identity_containers.cid, "stat", "-c", "%u:%g", probe)
+        assert owner.stdout.strip() == f"1000:{AUDIT_GID}", owner.stdout
+
+    @pytest.mark.parametrize("spelling", ["osprey", "1000"])
+    def test_both_gosu_spellings_carry_the_mount_gids(self, identity_containers, spelling):
+        """``gosu osprey`` initgroups by the canonical name; ``gosu 1000``
+        resolves the uid to the identity and initgroups by THAT name. Both
+        have to land in the mounts' groups, or one spelling loses the binds."""
+        ids = _exec(identity_containers.cid, "gosu", spelling, "id", "-G")
+        assert ids.returncode == 0, ids.stderr
+        gids = set(ids.stdout.split())
+        assert {str(AUDIT_GID), str(CONTEXT_GID)} <= gids, (
+            f"`gosu {spelling} id -G` lacks a mount gid: {ids.stdout!r}\n"
+            f"{identity_containers.logs[-4000:]}"
+        )
+
+    @pytest.mark.parametrize("spelling", ["osprey", "1000"])
+    def test_getpwuid_under_gosu_is_the_identity(self, identity_containers, spelling):
+        """The lookup every EPICS client makes for its account name."""
+        run = _exec(
+            identity_containers.cid,
+            "gosu",
+            spelling,
+            "python",
+            "-c",
+            "import os, pwd; print(pwd.getpwuid(os.getuid()).pw_name)",
+        )
+        assert run.returncode == 0, run.stderr
+        assert run.stdout.strip() == IDENTITY, run.stdout
+
+    def test_base_image_accounts_cover_the_image(self, identity_containers):
+        """Roster lint refuses a name in ``BASE_IMAGE_ACCOUNTS`` because the
+        rewrite cannot take a name the image already has. That only holds
+        while the set really lists the image's accounts — asked of the plain
+        container, whose passwd is the image's own."""
+        from osprey.deployment.control_identity import BASE_IMAGE_ACCOUNTS
+
+        names = {fields[0] for fields in _passwd_lines(identity_containers.plain)}
+        assert {"root", "osprey"} <= names, names
+        missing = names - {"root", "osprey"} - BASE_IMAGE_ACCOUNTS
+        assert not missing, f"image accounts absent from BASE_IMAGE_ACCOUNTS: {sorted(missing)}"
+
+    def test_the_ca_client_name_on_the_wire_is_the_identity(self, identity_containers):
+        """The proof the feature exists for: libca's CLIENT_NAME message."""
+        seen = _probe(identity_containers.cid, "ca")
+        assert seen["client_name"] == IDENTITY, seen
+
+    def test_a_plain_container_sends_osprey(self, identity_containers):
+        """The control: without an identity the same probe reads ``osprey``,
+        so the identity result above is the rewrite's doing, not the probe's."""
+        seen = _probe(identity_containers.plain, "ca")
+        assert seen["client_name"] == "osprey", seen
+
+    def test_the_pva_account_is_the_identity(self, identity_containers):
+        """PVA puts carry the account too; a ``SharedPV`` server reads it back."""
+        seen = _probe(identity_containers.cid, "pva")
+        assert seen["account"] == IDENTITY, seen
+
+    def test_a_restart_leaves_exactly_one_identity_line(self, identity_containers):
+        """The entrypoint re-applies on every start; the rewrite is idempotent.
+        Last in the class, because it restarts the container the others read."""
+        restart = _docker("restart", "-t", "2", identity_containers.cid, timeout=120)
+        assert restart.returncode == 0, restart.stderr
+        logs = _wait_for_drops(identity_containers.cid, 2)
+        assert logs.count(f"control identity: uid 1000 is '{IDENTITY}'") == 2, logs[-4000:]
+
+        lines = _passwd_lines(identity_containers.cid)
+        assert [fields[0] for fields in lines].count(IDENTITY) == 1, lines
+        assert [fields[0] for fields in lines if fields[2] == "1000"] == [IDENTITY, "osprey"], lines
+
+        group = _exec(identity_containers.cid, "cat", "/etc/group")
+        assert group.returncode == 0, group.stderr
+        for line in group.stdout.splitlines():
+            members = line.rsplit(":", 1)[-1].split(",")
+            assert members.count(IDENTITY) <= 1, f"duplicated membership: {line}"
+
+        by_uid = _exec(identity_containers.cid, "getent", "passwd", "1000")
+        assert by_uid.stdout.split(":")[0] == IDENTITY, by_uid.stdout
 
 
 if __name__ == "__main__":

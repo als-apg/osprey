@@ -12,9 +12,10 @@ still starts, still logs, and still looks healthy:
    the drain thread. Two token sources are two AAD exchanges on every expiry; two
    connector clients are two HTTP locks where the point of the lock was that there is
    one.
-*  **all four injected seams are honored** — queue receiver, token leg, connector leg,
-   worker byte route — because the end-to-end tier boots this exact wiring with fakes
-   in all four, and a seam that were quietly ignored would send the test at Microsoft.
+*  **all five injected seams are honored** — queue receiver, token leg, connector leg,
+   Graph leg, worker byte route — because the end-to-end tier boots this exact wiring
+   with fakes in all five, and a seam that were quietly ignored would send the test at
+   Microsoft.
 *  **the receiver is closed when the pull ends, and the close is guarded.** The
    production receiver holds an AMQP link and renewal threads; ``close`` is not in the
    :class:`~osprey.bridges.teams.receiver.QueueReceiver` Protocol and the end-to-end
@@ -60,8 +61,9 @@ from osprey.bridges.teams.__main__ import (
     run,
     serve_events,
 )
-from osprey.bridges.teams.client import token_url
+from osprey.bridges.teams.client import Audience, token_url
 from osprey.bridges.teams.config import TeamsBridgeConfig
+from osprey.bridges.teams.graph import GraphFiles
 from osprey.bridges.teams.ops import ack_text
 from osprey.bridges.teams.receiver import QueueReceiver, make_receiver
 from tests.bridges.teams.test_posting import (
@@ -135,7 +137,7 @@ EXPORTED_NAMES = (
     "require_boot",
     "resolve_reply_context",
     "serve",
-    "skipped_images_note",
+    "skipped_files_note",
 )
 """What the package root must hand out. The wording constants are here because the
 end-to-end lane asserts posted text by equality against them; the types because the
@@ -414,7 +416,7 @@ def test_the_wiring_is_frozen(cfg: TeamsBridgeConfig) -> None:
         wiring.stop = threading.Event()  # type: ignore[misc]
 
 
-# --- the four seams ----------------------------------------------------------
+# --- the five seams ---------------------------------------------------------
 
 
 def test_the_injected_token_and_connector_clients_are_what_a_post_travels_over(
@@ -444,6 +446,79 @@ def test_the_injected_worker_client_is_the_one_the_artifact_route_uses(
     wiring = build_wiring(cfg, worker_http=worker_http)
 
     assert wiring.ops._http is worker_http
+
+
+def test_the_wiring_holds_no_file_client_without_a_library(cfg: TeamsBridgeConfig) -> None:
+    wiring = build_wiring(cfg)
+
+    assert wiring.files is None
+    assert wiring.ops._files is None
+
+
+def test_the_wiring_builds_one_file_client_over_its_own_graph_token(
+    cfg: TeamsBridgeConfig,
+) -> None:
+    """The file client holds a Graph token source of its own, so a refused Graph grant
+    never touches the Connector bearer replies travel on."""
+    wiring = build_wiring(dataclasses.replace(cfg, files_drive_id="b!library"))
+
+    assert isinstance(wiring.files, GraphFiles)
+    assert wiring.ops._files is wiring.files
+    assert wiring.files._tokens is not wiring.tokens
+    assert wiring.files._tokens._audience is Audience.GRAPH
+    assert wiring.tokens._audience is Audience.CONNECTOR
+
+
+def test_the_injected_graph_client_is_what_an_upload_travels_over(
+    cfg: TeamsBridgeConfig,
+) -> None:
+    token_http, token_requests = token_leg()
+    graph_http, graph_requests = recording_client(
+        lambda request: httpx.Response(
+            201,
+            json={
+                "id": "item-1",
+                "parentReference": {"id": "folder-1"},
+                "webUrl": "https://tenant.sharepoint.com/a.csv",
+            },
+        )
+    )
+    wiring = build_wiring(
+        dataclasses.replace(cfg, files_drive_id="b!library"),
+        token_http=token_http,
+        graph_http=graph_http,
+    )
+    assert wiring.files is not None
+
+    wiring.files.upload(("R1",), "a.csv", b"a\n", "text/csv")
+
+    assert [request.url.host for request in graph_requests] == ["graph.microsoft.com"]
+    scopes = [request.content.decode() for request in token_requests]
+    assert len(scopes) == 1 and "graph.microsoft.com" in scopes[0]
+
+
+@pytest.mark.parametrize(
+    ("drive", "folder", "shown"),
+    [
+        ("b!library", "osprey/answers", "files=b!library/osprey/answers"),
+        ("", "", "files=(none: files are named, not shared)"),
+    ],
+)
+def test_the_startup_line_names_the_file_library(
+    cfg: TeamsBridgeConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    drive: str,
+    folder: str,
+    shown: str,
+) -> None:
+    monkeypatch.setattr(main_module, "run_forever", lambda *a, **k: None)
+    library = dataclasses.replace(cfg, files_drive_id=drive, files_folder=folder)
+
+    with caplog.at_level(logging.INFO, logger=main_module.__name__):
+        run(build_wiring(library))
+
+    assert shown in caplog.text
 
 
 def test_the_injected_receiver_factory_is_asked_for_the_receiver_the_loop_pulls(

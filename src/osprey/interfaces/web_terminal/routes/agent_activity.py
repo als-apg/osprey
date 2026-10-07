@@ -86,15 +86,10 @@ def record_activity(request: Request, tool: str, target: dict) -> dict:
         target: Already-serialised target, optional keys omitted.
 
     Returns:
-        The frame, whether or not the app carries a ring.
+        The frame.
     """
     event = {"type": "agent_activity", "tool": tool, "target": target, "ts": time.time()}
-    # Apps that mount these routers standalone (tests, embedders) need not
-    # carry a ring; history is then simply unavailable, and the caller's own
-    # work (a broadcast, or nothing) still runs.
-    ring = getattr(request.app.state, "agent_activity_ring", None)
-    if ring is not None:
-        ring.append(event)
+    request.app.state.agent_activity_ring.append(event)
     return event
 
 
@@ -122,10 +117,7 @@ async def get_recent_agent_activity(request: Request, limit: int = ACTIVITY_RING
 
     ``limit`` is clamped into ``0..ACTIVITY_RING_MAX`` rather than rejected, so
     a caller asking for more than the ring can hold gets everything it has.
-    Apps that mount this router without a ring report an empty history.
     """
-    ring = getattr(request.app.state, "agent_activity_ring", None)
-    if ring is None:
-        return {"events": []}
+    ring = request.app.state.agent_activity_ring
     limit = max(0, min(limit, ACTIVITY_RING_MAX))
     return {"events": list(islice(reversed(ring), limit))}

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import at
 import numpy as np
@@ -42,10 +42,7 @@ def unpack_tracking(result: Any) -> np.ndarray:
     Handles both old API (returns ndarray) and new API (returns tuple).
     Squeezes single-particle dimension for 1-particle tracking.
     """
-    if isinstance(result, tuple):
-        data = result[0]
-    else:
-        data = result
+    data: np.ndarray = result[0] if isinstance(result, tuple) else result
     # Squeeze nparticles dim: (6, nrefpts, 1, nturns) → (6, nrefpts, nturns)
     if data.ndim == 4 and data.shape[2] == 1:
         data = data[:, :, 0, :]
@@ -61,7 +58,7 @@ def parse_args() -> tuple[Path, Path]:
 
 
 def load_state(state_path: Path) -> dict[str, Any]:
-    return json.loads(state_path.read_text())
+    return cast(dict[str, Any], json.loads(state_path.read_text()))
 
 
 def load_ring(state: dict[str, Any]) -> at.Lattice:
@@ -117,7 +114,7 @@ def save_data(data: dict[str, Any], output_path: Path) -> None:
 
 def figure_to_dict(fig: Any) -> dict[str, Any]:
     """Convert a Plotly figure to a JSON-safe dict (no numpy types)."""
-    return json.loads(json.dumps(fig.to_dict(), default=_numpy_default))
+    return cast(dict[str, Any], json.loads(json.dumps(fig.to_dict(), default=_numpy_default)))
 
 
 def add_resonance_overlay(

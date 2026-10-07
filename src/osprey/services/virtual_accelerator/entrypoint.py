@@ -92,9 +92,9 @@ import os
 import signal
 import threading
 import time
-from collections.abc import Container
+from collections.abc import Callable, Container
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import pydantic
 
@@ -625,6 +625,12 @@ def _start_monitor_motion(runner: Any, bridge: Any, interval: float) -> threadin
     return thread
 
 
+class _RunnerRefresh(TypedDict, total=False):
+    """The runner's one optional keyword this boot fills only when a physics bridge exists."""
+
+    refresh: Callable[[list[str]], None]
+
+
 def main() -> None:
     from osprey.utils.logger import configure_logging
 
@@ -961,7 +967,7 @@ def main() -> None:
         # without this hook a written fault is held but never read. With no
         # bridge nothing derives a reading from a model variable, so there is
         # nothing to recompute and the runner's inert default stands.
-        **({"refresh": bridge.refresh} if bridge is not None else {}),
+        **(_RunnerRefresh(refresh=bridge.refresh) if bridge is not None else _RunnerRefresh()),
         drive_limits=drive_limits,
         bound_setpoints=bound,
         stuck_setpoints=stuck_setpoints,

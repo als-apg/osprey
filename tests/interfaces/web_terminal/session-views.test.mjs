@@ -8,10 +8,10 @@
  *   - session.js: the page entry point's refresh-loop view dispatch (nav
  *     click -> activeView change -> the matching session-views.js
  *     renderer runs against the right DOM section) and the initial-load /
- *     periodic-refresh call. The same-origin `osprey-session-change`
- *     receiver's foreign-origin-rejection contract is pinned separately
- *     by the real-browser test_contract_params.py suite (this file does
- *     not duplicate that -- see the module docstring there).
+ *     periodic-refresh call, and the accepted same-origin
+ *     `osprey-session-change`. Its foreign-origin rejection is owned by the
+ *     real-browser test_contract_params.py suite, which drives the served
+ *     page with a positive control.
  *
  * Pure DOM/logic guard, happy-dom environment (configured globally), fetch
  * stubbed (never a real network call):
@@ -85,13 +85,6 @@ describe('session-views renderers', () => {
       expect(el.querySelectorAll('.badge-error').length).toBe(1);
     });
 
-    test('caches the fetched data on the passed-in cache object', async () => {
-      /** @type {Record<string, unknown>} */
-      const cache = {};
-      await Views.renderAgents(ctx({ apiFetch: vi.fn().mockResolvedValue(FIXTURE), cache }));
-      expect(cache.agents).toEqual(FIXTURE);
-    });
-
     test('shows an empty state and clears the cache when there is no activity', async () => {
       const cache = { agents: FIXTURE };
       await Views.renderAgents(
@@ -109,11 +102,22 @@ describe('session-views renderers', () => {
       expect(byId('view-agents').textContent).toContain('ERROR');
     });
 
-    test('on fetch failure with a previously cached render, leaves the stale DOM untouched', async () => {
-      byId('view-agents').innerHTML = '<div class="agent-card">stale</div>';
-      const apiFetch = vi.fn().mockRejectedValue(new Error('network down'));
-      await Views.renderAgents({ apiFetch, showToast: vi.fn(), cache: { agents: FIXTURE } });
-      expect(byId('view-agents').innerHTML).toContain('stale');
+    test('a refresh that fails after a good render keeps that render on screen', async () => {
+      // One cache object across both calls, as session.js keeps it.
+      /** @type {Record<string, unknown>} */
+      const cache = {};
+      const showToast = vi.fn();
+      await Views.renderAgents({ apiFetch: vi.fn().mockResolvedValue(FIXTURE), showToast, cache });
+
+      await Views.renderAgents({
+        apiFetch: vi.fn().mockRejectedValue(new Error('network down')),
+        showToast,
+        cache,
+      });
+
+      expect(showToast).toHaveBeenCalledWith('Failed to load agents');
+      expect(byId('view-agents').querySelectorAll('.agent-card').length).toBe(2);
+      expect(byId('view-agents').textContent).not.toContain('ERROR');
     });
 
     test('expanding a sub-agent card lazily loads its timeline exactly once', async () => {
@@ -339,22 +343,6 @@ describe('session.js refresh-loop view dispatch', () => {
     expect(path).toContain('/api/session-agents');
     expect(path).toContain('session_id=test-session-42');
   });
-
-  test('a foreign-origin osprey-session-change is ignored (no re-dispatch with a session id)', async () => {
-    await import(ENTRY_PATH);
-    await flush();
-
-    fetchMock.mockClear();
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        origin: 'https://evil.example',
-        data: { type: 'osprey-session-change', session_id: 'evil-session-999' },
-      })
-    );
-    await flush();
-
-    expect(fetch).not.toHaveBeenCalled();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -429,18 +417,14 @@ describe('session.js apiFetch: per-user URL prefix', () => {
     return lastCallArgs[0];
   }
 
-  test('a set window.__OSPREY_PREFIX__ is prepended ahead of the unchanged session_id param', async () => {
-    /** @type {any} */ (window).__OSPREY_PREFIX__ = '/u/alice';
+  test.each([
+    ['/u/alice', '/u/alice/api/session-agents?session_id=sess-1'],
+    [undefined, '/api/session-agents?session_id=sess-1'],
+  ])('prefix %s is prepended ahead of the unchanged session_id param', async (prefix, expected) => {
+    if (prefix !== undefined) /** @type {any} */ (window).__OSPREY_PREFIX__ = prefix;
     await import(ENTRY_PATH);
     await flush();
 
-    expect(await lastFetchedPathAfter('sess-1')).toBe('/u/alice/api/session-agents?session_id=sess-1');
-  });
-
-  test('an empty/absent prefix leaves the fetch path byte-identical to current behavior', async () => {
-    await import(ENTRY_PATH);
-    await flush();
-
-    expect(await lastFetchedPathAfter('sess-2')).toBe('/api/session-agents?session_id=sess-2');
+    expect(await lastFetchedPathAfter('sess-1')).toBe(expected);
   });
 });

@@ -8,6 +8,7 @@ byte-compare that keeps unchanged entries from being rewritten.
 import os
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -23,6 +24,18 @@ from osprey.services.ariel_search.enhancement.qmd_export.writer import (
     sanitize_text,
     write_entry,
 )
+
+
+@pytest.fixture
+def facility_zone(monkeypatch):
+    """Pin the facility zone the body states times in; call it with the zone name."""
+
+    def _pin(name: str) -> None:
+        zone = ZoneInfo(name)
+        monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: zone)
+
+    return _pin
+
 
 # Ids that must survive a round trip through the filesystem.
 HOSTILE_IDS = [
@@ -136,6 +149,14 @@ class TestMirrorPath:
         path = mirror_path(tmp_path, make_entry(timestamp=stamp))
         assert path.parent == tmp_path.resolve() / "2024" / "05"
 
+    def test_shard_stays_on_the_utc_month_in_a_facility_zone(self, tmp_path, facility_zone):
+        """The body states the facility-local date; the shard keeps the UTC month."""
+        facility_zone("Europe/Berlin")
+        entry = make_entry(timestamp=datetime(2024, 5, 31, 23, 30, tzinfo=UTC))
+
+        assert "2024-06-01T01:30:00+02:00" in render_entry(entry)
+        assert mirror_path(tmp_path, entry).parent == tmp_path.resolve() / "2024" / "05"
+
     def test_missing_timestamp_uses_unknown_shard(self, tmp_path):
         """A row without a usable timestamp still gets a stable home."""
         path = mirror_path(tmp_path, make_entry(timestamp=None))
@@ -229,14 +250,21 @@ class TestSanitize:
 class TestRender:
     """Document rendering: body prose, determinism, cap."""
 
-    def test_metadata_is_body_text_not_frontmatter(self):
+    def test_metadata_is_body_text_not_frontmatter(self, facility_zone):
         """Author, timestamp and source are prose; there is no frontmatter."""
+        facility_zone("UTC")
         document = render_entry(make_entry())
         assert not document.startswith("---")
         assert "jdoe" in document
-        assert "2024-05-17 13:45:09 UTC" in document
+        assert "2024-05-17T13:45:09+00:00" in document
         assert "Example eLog" in document
         assert "Beam lost at 13:45." in document
+
+    def test_body_states_the_time_in_the_facility_zone(self, facility_zone):
+        """The body carries the facility-local time with its offset."""
+        facility_zone("Europe/Berlin")
+        document = render_entry(make_entry())
+        assert "Logged by jdoe on 2024-05-17T15:45:09+02:00." in document
 
     def test_scalar_metadata_rendered_sorted(self):
         """Facility metadata is searchable and order-independent."""
@@ -402,3 +430,64 @@ class TestWriteEntry:
         """The root may arrive as a configured string path."""
         assert write_entry(str(tmp_path), make_entry()) is True
         assert (Path(tmp_path) / "2024" / "05" / "12345.md").is_file()
+
+
+_CAPTIONS = (
+    "[picture a.png - upstream caption] dipole trip\n"
+    "[picture b.png - machine caption by vision-x] RF cavity trace"
+)
+
+
+class TestCaptionsLine:
+    """An entry's picture text is rendered as one searchable body line."""
+
+    def test_captions_line_follows_keywords_before_the_text(self):
+        document = render_entry(make_entry(keywords=["rf"], attachment_text=_CAPTIONS))
+
+        lines = document.splitlines()
+        captions = (
+            "Captions: [picture a.png - upstream caption] dipole trip "
+            "[picture b.png - machine caption by vision-x] RF cavity trace"
+        )
+        assert captions in lines
+        assert lines.index(captions) == lines.index("Keywords: rf.") + 1
+        assert lines.index(captions) < lines.index(make_entry()["raw_text"])
+
+    @pytest.mark.parametrize("blank", [None, "", "  \n "])
+    def test_no_picture_text_renders_the_b1_bytes(self, blank):
+        assert render_entry(make_entry(attachment_text=blank)) == render_entry(make_entry())
+        assert "Captions:" not in render_entry(make_entry(attachment_text=blank))
+
+    def test_control_characters_in_captions_are_stripped(self):
+        document = render_entry(make_entry(attachment_text="trip\x00 here"))
+        assert "Captions: trip here" in document
+
+    @pytest.mark.asyncio
+    async def test_qmd_export_and_qmd_resync_write_identical_bytes(self, monkeypatch, tmp_path):
+        from osprey.services.ariel_search import cli_operations as ops
+        from osprey.services.ariel_search.enhancement.qmd_export import QmdExportModule
+        from tests.services.ariel_search._cli_ops_doubles import _patch_pool
+        from tests.services.ariel_search.conftest import _FakePool
+
+        row = make_entry(attachment_text=_CAPTIONS, keywords=["rf"], summary="RF trip.")
+        exported, resynced = tmp_path / "exported", tmp_path / "resynced"
+        module = QmdExportModule()
+        module.configure({"mirror_path": str(exported)})
+        await module.enhance(dict(row), None)  # type: ignore[arg-type]
+
+        _patch_pool(monkeypatch, _FakePool(rows_for={"FROM enhanced_entries": [dict(row)]}))
+        result = await ops.run_qmd_resync(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "enhancement_modules": {
+                    "qmd_export": {"enabled": True, "mirror_path": str(resynced)}
+                },
+            },
+            rebuild=True,
+        )
+
+        assert result is not None and result.written == 1
+        relative = mirror_path(exported, row).relative_to(exported)
+        exported_bytes = (exported / relative).read_bytes()
+        assert exported_bytes == (resynced / relative).read_bytes()
+        assert b"Captions: [picture a.png - upstream caption] dipole trip" in exported_bytes

@@ -52,8 +52,8 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
         This is best-effort TEXT MATCHING, not a list of what OSPREY can
         enforce. It names the spellings the framework happens to know -
         osprey.runtime, pyepics (Channel Access), p4p (PVAccess), pvaPy
-        (``pvaccess``, Channel Access and PVAccess), PyTango,
-        doocs4py and LabVIEW bindings - and a library or an idiom outside that
+        (``pvaccess``, Channel Access and PVAccess), PyTango, doocs4py and
+        LabVIEW bindings - and a library or an idiom outside that
         list is simply not detected. Extend it with facility-specific
         spellings under control_system.patterns in config.yml. The layers that
         do NOT depend on spelling are the ones to rely on: the readonly
@@ -92,24 +92,20 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
             # ============================================================
             # CIRCUMVENTION DETECTION: PVAccess / Channel Access (pvaPy library)
             # ============================================================
-            # pvaPy (``import pvaccess``) is installed wherever OSPREY is, so it
-            # is the client an agent is most likely to reach for. Anchored to
-            # pvaccess the way the p4p entries are anchored to p4p. The generic
-            # r"\.put\s*\(" above catches a plain Channel.put() only; pvaPy
-            # also spells one typed setter per scalar kind (putDouble,
-            # putScalarArray, ...), putGet, asyncPut, parsePut/parsePutGet and
-            # MultiChannel.putAsDoubleArray, none of which it matches.
-            r"\bpvaccess\b[\s\S]*?\.(?:put|asyncPut|parsePut)\w*\s*\(",  # Channel.put*()
-            # The same spellings unanchored, as RpcClient below is. The anchor
-            # needs the literal token pvaccess, which an import built at
-            # runtime - importlib.import_module("pva" + "ccess") - never
-            # writes. A camelCase put/asyncPut/parsePut is pvaPy's spelling and
-            # rare in ordinary analysis code; the runtime guard refuses these
-            # whatever the regex sees.
-            r"\.put[A-Z]\w*\s*\(",  # ch.putDouble(1.0), ch.putGet(...), mc.putAsDoubleArray(...)
+            # The generic r"\.put\s*\(" above catches a plain Channel.put()
+            # only; pvaPy also spells one typed setter per scalar kind
+            # (putDouble, putScalarArray, ...), putGet, asyncPut,
+            # parsePut/parsePutGet and MultiChannel.putAsDoubleArray. These are
+            # NOT anchored to pvaccess, as RpcClient below is not: an import
+            # built at runtime - importlib.import_module("pva" + "ccess") -
+            # never writes that token. The setters are named rather than
+            # matched as any camelCase put, which would also flag OpenCV's
+            # putText; the runtime guards sweep the whole family whatever the
+            # regex sees.
+            r"\.put(?:Get|Boolean|Byte|Double|Float|Int|Long|Short|String|ScalarArray"  # ch.putDouble(1.0)
+            r"|UByte|UInt|ULong|UShort|AsDoubleArray)\w*\s*\(",  # mc.putAsDoubleArray(...)
             r"\.asyncPut\s*\(",  # ch.asyncPut(pv, cb, err)
             r"\.parsePut\w*\s*\(",  # ch.parsePut([...]), ch.parsePutGet([...])
-            r"\.putAsDoubleArray\s*\(",  # MultiChannel.putAsDoubleArray([...])
             r"\bRpcClient\s*\(",  # pvaccess.RpcClient('SVC') - a PVA RPC call can write
             r"\bpvaccess\b[\s\S]*?\.invoke\s*\(",  # RpcClient(...).invoke(request)
             r"\b(?:PvaServer|PvaMirrorServer|RpcServer|CaIoc)\b",  # serving PVs, like SharedPV
@@ -167,7 +163,8 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
             # CIRCUMVENTION DETECTION: PVAccess / Channel Access (pvaPy library)
             # ============================================================
             # Anchored to pvaccess. The generic r"\.get\s*\(" already matches
-            # Channel.get(); these add the reads nothing else covers - the
+            # Channel.get(); these name the library in detected_patterns, as
+            # the p4p entries do, and add the reads nothing else covers - the
             # monitor family (monitor, subscribe, startMonitor, qMonitor, ...),
             # asyncGet/getPut/getAsDoubleArray, and Channel/MultiChannel
             # creation, which opens a connection but puts nothing on the wire.

@@ -26,6 +26,7 @@ Two claims are tested here, and the first one is the anchor:
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,14 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.bluesky_bridge_connection import (
+    LANE_KEYS,
+    SECOND_LANE_KEYS,
+    lane_control_identity,
+    lane_env_prefix,
+)
 from osprey.deployment.compose_generator import repo_relative_mount_source
+from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from osprey.utils.workspace import AUDIT_DIR_RELPATH
 
@@ -212,7 +220,14 @@ def _context(
         # Both halves of a queueserver's audit bind, injected unconditionally
         # for the same reason.
         "osprey_audit_mount_source": repo_relative_mount_source(AUDIT_DIR_RELPATH),
-        "osprey_lane_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
+        "osprey_service_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
+        # The registry's second-lane keys, injected unconditionally like `osprey_ports`.
+        "bluesky_second_lane_keys": list(SECOND_LANE_KEYS.values()),
+        # The control-identity module's container path and each lane's
+        # identity, injected unconditionally because the generator injects
+        # them unconditionally.
+        "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
+        "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
     }
     if any(posture.values()):
         context["limits_mount"] = LIMITS_MOUNT
@@ -928,6 +943,51 @@ def test_only_lane_one_builds_the_shared_image(two_lane: dict[str, Any]) -> None
     )
 
 
+#: An image OSPREY does not build, as a site would name it on a lane's block.
+_FOREIGN_BRIDGE_IMAGE = "registry.example.org/site/bluesky-bridge:pinned"
+
+
+def _two_lane_text_with_images(images: dict[str, str]) -> str:
+    """The two-lane render with ``image`` set on the lanes *images* names."""
+    lanes = {
+        key: ({**block, "image": images[key]} if key in images else block)
+        for key, block in VA_BASELINE_LANES.items()
+    }
+    return _render_text(
+        _context(
+            lanes=lanes,
+            deployed_services=["bluesky", "bluesky_live", "virtual_accelerator"],
+        )
+    )
+
+
+def _builders(rendered: dict[str, Any]) -> list[str]:
+    return [name for name, service in rendered["services"].items() if "build" in service]
+
+
+def test_the_second_lane_builds_when_lane_one_runs_another_image() -> None:
+    """The build goes to the first lane that runs the image OSPREY builds."""
+    rendered = yaml.safe_load(_two_lane_text_with_images({"bluesky": _FOREIGN_BRIDGE_IMAGE}))
+    assert _builders(rendered) == ["bluesky-live-bridge"]
+
+
+def test_no_lane_builds_when_every_lane_runs_another_image() -> None:
+    """With no lane on OSPREY's image, nothing in the file builds."""
+    rendered = yaml.safe_load(
+        _two_lane_text_with_images(
+            {"bluesky": _FOREIGN_BRIDGE_IMAGE, "bluesky_live": _FOREIGN_BRIDGE_IMAGE}
+        )
+    )
+    assert _builders(rendered) == []
+
+
+def test_a_lane_running_another_image_says_so_on_its_queueserver() -> None:
+    """Each queueserver's comment names who builds its image, or that nobody does."""
+    text = _two_lane_text_with_images({"bluesky": _FOREIGN_BRIDGE_IMAGE})
+    assert text.count("This lane names an image OSPREY does not build") == 1
+    assert text.count("`bluesky-live-bridge` above owns the build") == 1
+
+
 def test_a_va_second_lane_is_named_for_its_target_too() -> None:
     """A live BASELINE puts the VA on lane 2, and the naming follows the target.
 
@@ -1494,8 +1554,10 @@ def _web_context(
         },
         "osprey_images": _image_defaults("proj"),
         "osprey_audit_mount_source": "./var/audit",
-        "osprey_service_container_audit_dir": "/app/var/audit",
+        "osprey_service_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+        # The registry's second-lane keys, injected unconditionally like `osprey_ports`.
+        "bluesky_second_lane_keys": list(SECOND_LANE_KEYS.values()),
     }
 
 
@@ -1505,10 +1567,12 @@ def _render_web(context: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    ("lane_key", "port"), [("bluesky_va", SECOND_LANE_PORT), ("bluesky_live", SECOND_LANE_PORT)]
+    ("target", "lane_key", "port"),
+    [(target, key, SECOND_LANE_PORT) for target, key in SECOND_LANE_KEYS.items()],
+    ids=list(SECOND_LANE_KEYS.values()),
 )
 def test_a_two_lane_sidecar_render_carries_the_second_lanes_url_and_token(
-    lane_key: str, port: int
+    target: str, lane_key: str, port: int
 ) -> None:
     """The gap the panel path had: the sidecar could neither reach the second
     bridge nor present its token. The pair is spelled under the lane's env
@@ -1519,12 +1583,12 @@ def test_a_two_lane_sidecar_render_carries_the_second_lanes_url_and_token(
             deployed_services=["bluesky", lane_key, "bluesky_web"],
             lanes={
                 "bluesky": _lane_block(BLUESKY_PORT, target="live"),
-                lane_key: _lane_block(port, target="va"),
+                lane_key: _lane_block(port, target=target),
             },
         )
     )
     environment = rendered["services"]["bluesky-web"]["environment"]
-    prefix = lane_key.upper()
+    prefix = lane_env_prefix(lane_key)
     lane_service = lane_key.replace("_", "-")
 
     assert environment["BLUESKY_BRIDGE_URL"] == f"http://bluesky-bridge:{BLUESKY_PORT}"
@@ -1532,21 +1596,24 @@ def test_a_two_lane_sidecar_render_carries_the_second_lanes_url_and_token(
     assert environment[f"{prefix}_LAUNCH_TOKEN"] == f"${{{prefix}_LAUNCH_TOKEN}}"
 
 
-def test_a_two_lane_sidecar_waits_on_both_bridges() -> None:
+@pytest.mark.parametrize(
+    ("target", "lane_key"), list(SECOND_LANE_KEYS.items()), ids=list(SECOND_LANE_KEYS.values())
+)
+def test_a_two_lane_sidecar_waits_on_both_bridges(target: str, lane_key: str) -> None:
     """`depends_on: service_healthy` covered lane 1 only; a sidecar racing the
     second bridge's startup would 502 that lane's panel reads."""
     rendered = _render_web(
         _web_context(
-            deployed_services=["bluesky", "bluesky_va", "bluesky_web"],
+            deployed_services=["bluesky", lane_key, "bluesky_web"],
             lanes={
                 "bluesky": _lane_block(BLUESKY_PORT, target="live"),
-                "bluesky_va": _lane_block(SECOND_LANE_PORT, target="va"),
+                lane_key: _lane_block(SECOND_LANE_PORT, target=target),
             },
         )
     )
     depends = rendered["services"]["bluesky-web"]["depends_on"]
     assert depends["bluesky-bridge"] == {"condition": "service_healthy"}
-    assert depends["bluesky-va-bridge"] == {"condition": "service_healthy"}
+    assert depends[f"{lane_key.replace('_', '-')}-bridge"] == {"condition": "service_healthy"}
 
 
 def test_a_single_lane_sidecar_render_carries_no_second_lane_names() -> None:
@@ -1561,8 +1628,9 @@ def test_a_single_lane_sidecar_render_carries_no_second_lane_names() -> None:
     )
     service = rendered["services"]["bluesky-web"]
     assert list(service["depends_on"]) == ["bluesky-bridge"]
+    second_lane_prefixes = tuple(f"{lane_env_prefix(key)}_" for key in SECOND_LANE_KEYS.values())
     for name in service["environment"]:
-        assert not name.startswith(("BLUESKY_VA_", "BLUESKY_LIVE_"))
+        assert not name.startswith(second_lane_prefixes)
 
 
 # ---------------------------------------------------------------------------
@@ -1707,6 +1775,106 @@ def test_the_second_lane_reads_the_same_one_tree() -> None:
 
     assert _tree_bind(doc, "queueserver") == _tree_bind(doc, "bluesky-va-queueserver")
     assert _tree_bind(doc, "queueserver") != []
+
+
+# ---------------------------------------------------------------------------
+# The lane's control identity
+# ---------------------------------------------------------------------------
+
+
+def _two_lane_identity_doc() -> dict[str, Any]:
+    return _render(
+        _context(
+            lanes={
+                "bluesky": _lane_block(BLUESKY_PORT, target="va"),
+                "bluesky_live": _lane_block(SECOND_LANE_PORT, target="live"),
+            },
+            deployed_services=["bluesky", "bluesky_live"],
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("lane", "service"),
+    [("bluesky", "queueserver"), ("bluesky_live", "bluesky-live-queueserver")],
+)
+def test_the_queueserver_applies_its_lane_identity_before_the_manager_starts(
+    lane: str, service: str
+) -> None:
+    """The RE Manager writes as root, so root is renamed to the lane's name
+    first. The name labels the lane in the put-log and guards nothing, so a
+    failed rename warns and the manager starts anyway; the `;` is what starts
+    it on either outcome."""
+    command = _two_lane_identity_doc()["services"][service]["command"]
+    script = command[2]
+    identity = lane_control_identity(lane)
+
+    assert command[:2] == ["sh", "-c"]
+    assert script.startswith(
+        f"python {CONTROL_IDENTITY_CONTAINER_PATH} apply --uid 0 --name {identity}"
+        f' || echo "WARNING: control identity {identity} not applied; this lane writes as root"'
+        " >&2; exec start-re-manager"
+    )
+    subprocess.run(["sh", "-n", "-c", script], check=True)
+
+
+@pytest.mark.parametrize("rename_exit", [0, 1])
+def test_the_manager_starts_whether_or_not_the_rename_lands(
+    tmp_path: Path, rename_exit: int
+) -> None:
+    """Run the rendered command with stub `python` and `start-re-manager` on
+    PATH: the manager starts after a landed rename and after a failed one, and
+    only the failure prints the warning."""
+    script = _two_lane_identity_doc()["services"]["queueserver"]["command"][2]
+    stub_python = tmp_path / "python"
+    stub_python.write_text(f"#!/bin/sh\nexit {rename_exit}\n")
+    stub_manager = tmp_path / "start-re-manager"
+    stub_manager.write_text('#!/bin/sh\necho "manager started"\n')
+    for stub in (stub_python, stub_manager):
+        stub.chmod(0o755)
+
+    # Compose unescapes `$$` before the shell sees the command.
+    result = subprocess.run(
+        ["sh", "-c", script.replace("$$", "$")],
+        env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "manager started" in result.stdout
+    assert ("not applied" in result.stderr) is bool(rename_exit)
+
+
+@pytest.mark.parametrize(
+    ("lane", "service"),
+    [("bluesky", "queueserver"), ("bluesky_live", "bluesky-live-queueserver")],
+)
+def test_the_queueserver_mounts_the_module_and_carries_the_lane_hostname(
+    lane: str, service: str
+) -> None:
+    """The module the command runs is the staged packaged copy, read-only; the
+    hostname names the lane in the audit trail and the shell prompt alike."""
+    qserver = _two_lane_identity_doc()["services"][service]
+
+    assert qserver["hostname"] == lane_control_identity(lane)
+    assert (
+        f"./build/services/bluesky/control_identity.py:{CONTROL_IDENTITY_CONTAINER_PATH}:ro"
+        in qserver["volumes"]
+    )
+
+
+def test_an_external_worker_lane_renders_no_control_identity() -> None:
+    """A facility-run RE Manager is not this deployment's container: nothing
+    here renames its accounts, so the lane renders no apply, module or name."""
+    lane = dict(_lane_block(BLUESKY_PORT))
+    lane["external"] = {"zmq_control_addr": "tcp://facility:60615"}
+    text = _render_text(_context(lanes={"bluesky": lane}, deployed_services=["bluesky"]))
+
+    assert "control_identity.py" not in text
+    assert "apply --uid" not in text
+    assert f"hostname: {lane_control_identity('bluesky')}" not in text
 
 
 def _regenerate() -> None:

@@ -50,13 +50,10 @@ def web(port: int | None, host: str | None, reload: bool) -> None:
         osprey artifacts web --host 0.0.0.0     # Bind to all interfaces
         osprey artifacts web --reload           # Development mode
     """
-    from osprey.registry.web import resolve_web_server_address
+    from osprey.registry.web import resolve_web_server_bind
 
-    # Explicit flags win; otherwise the framework's shared derivation, which
-    # applies the OSPREY_ARTIFACT_SERVER_PORT override the deployment may set.
-    default_host, default_port = resolve_web_server_address("artifact")
-    host = host or default_host
-    port = port or default_port
+    # No config in hand here: None loads it on demand.
+    host, port = resolve_web_server_bind("artifact", None, host=host, port=port)
 
     output.report(f"Starting OSPREY Artifact Gallery on http://{host}:{port}")
     output.note("Press Ctrl+C to stop")

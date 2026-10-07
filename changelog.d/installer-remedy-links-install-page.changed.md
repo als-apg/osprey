@@ -1,0 +1,1 @@
+The retired `--config` refusal and the persona `build_profile` errors from `osprey scaffold web-terminals lint` and deploy link the installer's documentation page, instead of naming a slash command for one coding-agent client.

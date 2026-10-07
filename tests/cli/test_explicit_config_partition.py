@@ -72,6 +72,10 @@ _PROVIDERS_KEY = "api.providers"
 #: catalog: the four entries their own templates never carried (Requirement 1).
 _STANDALONE_GAINS = frozenset({"amsc-i2", "stanford", "argo", "ds4"})
 
+#: Entries the catalog carries that no frozen render had, in every preset: the
+#: embeddings-only llama-cpp, which an embedding module names as its provider.
+_CATALOG_GAINS = frozenset({"llama-cpp"})
+
 #: Keys whose rendered VALUE is legitimately not the preset's: the build
 #: resolves ``auto`` to the runtime it used, the injectors append every service
 #: a profile section deploys, and ``osprey init`` repoints the persona catalog
@@ -138,8 +142,17 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
 #: the sandbox simulator now, so the frozen render holds the old value. The
 #: frozen value is asserted before the key is skipped, so the exception proves
 #: the freeze rather than blinding the comparison; the difference itself is
-#: pinned in ``test_explicit_config_equivalence.CELL_DELTAS``.
-_VALUE_MOVED_SINCE_THE_FREEZE = {"control_system.type": "live_standin"}
+#: pinned in ``test_explicit_config_equivalence.CELL_DELTAS``. The two presets
+#: that carry a text-embedding block now state each model's input window
+#: (``max_input_tokens``), so the frozen renders hold the models list as it was
+#: before that key existed; lists are leaves here, so the whole list is the
+#: frozen value.
+_VALUE_MOVED_SINCE_THE_FREEZE = {
+    "control_system.type": "live_standin",
+    "ariel.enhancement_modules.text_embedding.models": [
+        {"dimension": 768, "name": "nomic-embed-text"}
+    ],
+}
 
 #: The same, for a leaf one cell alone retired, keyed by fixture directory.
 #:
@@ -155,9 +168,36 @@ _RETIRED_PER_CELL: Mapping[str, frozenset[str]] = {
     "hello-world/unset": frozenset({"approval.tools.entry_create"}),
 }
 
+#: Leaves retired since the freeze from one persona document of every
+#: control-assistant cell. The logbook and knowledge personas drop the JUPYTER
+#: panel, whose kernels reach the control target, so the switch their frozen
+#: renders carry is no longer one their preset selects.
+_RETIRED_PER_DOCUMENT: Mapping[str, frozenset[str]] = {
+    "knowledge": frozenset({"web.panels.jupyter.enabled"}),
+    "logbook": frozenset({"web.panels.jupyter.enabled"}),
+}
+
+
+#: The ARIEL picture-module leaves the presets state; the freeze predates them.
+_PICTURE_MODULE_KEYS = (
+    "ariel.attachments.copy_on_ingest",
+    "ariel.attachments.view.enabled",
+    "ariel.enhancement_modules.image_caption.enabled",
+    "ariel.enhancement_modules.image_caption.provider",
+    "ariel.enhancement_modules.image_caption.model.model_id",
+    "ariel.enhancement_modules.image_embedding.enabled",
+    "ariel.enhancement_modules.image_embedding.provider",
+    "ariel.enhancement_modules.image_embedding.model",
+    "ariel.enhancement_modules.image_embedding.dimensions",
+)
+
 
 def _render(directory: str, document: str = "root") -> dict[str, Any]:
-    retired = _RETIRED_SINCE_THE_FREEZE | _RETIRED_PER_CELL.get(directory, frozenset())
+    retired = (
+        _RETIRED_SINCE_THE_FREEZE
+        | _RETIRED_PER_CELL.get(directory, frozenset())
+        | _RETIRED_PER_DOCUMENT.get(document, frozenset())
+    )
     frozen = _leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text()))
     return {key: value for key, value in frozen if key not in retired}
 
@@ -309,7 +349,15 @@ def test_root_render_is_partitioned_between_its_sources(
     # the tool-content gate and the content limit, which the telemetry block
     # did not carry when the freeze ran; and every preset that turns on the
     # full tool-call record gains its two `audit.tool_call.*` keys, which
-    # did not exist when the freeze ran.
+    # did not exist when the freeze ran; and every preset that carries a
+    # keyword block gains its `fuzzy_threshold`, the fuzzy-fallback floor,
+    # which was a number fixed in the keyword module; and control-assistant
+    # gains the readiness-probe bound, which was a constant when the freeze ran;
+    # and every preset that reaches no machine gains
+    # `web.control_target_picker`, which did not exist when the freeze ran;
+    # and every preset that carries an `ariel:` block gains the picture
+    # modules (`image_caption`, `image_embedding`) and the two
+    # `ariel.attachments` switches, none of which existed when the freeze ran.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
     if "approval.tools.entry_publish" in config:
@@ -328,6 +376,15 @@ def test_root_render_is_partitioned_between_its_sources(
         if key in config:
             expected_gain = expected_gain | {key}
     for key in ("audit.tool_call.enabled", "audit.tool_call.max_inline_bytes"):
+        if key in config:
+            expected_gain = expected_gain | {key}
+    if "ariel.search_modules.keyword.settings.fuzzy_threshold" in config:
+        expected_gain = expected_gain | {"ariel.search_modules.keyword.settings.fuzzy_threshold"}
+    if "control_system.target_switch.probe_timeout_s" in config:
+        expected_gain = expected_gain | {"control_system.target_switch.probe_timeout_s"}
+    if "web.control_target_picker" in config:
+        expected_gain = expected_gain | {"web.control_target_picker"}
+    for key in _PICTURE_MODULE_KEYS:
         if key in config:
             expected_gain = expected_gain | {key}
     assert missing == expected_gain, (
@@ -394,17 +451,18 @@ def test_provider_catalog_covers_the_render(
 ) -> None:
     """The packaged catalog carries every provider the old render had.
 
-    The standalones gain the four entries their templates never listed and
-    nothing else (Requirement 1); the other presets gain nothing.
+    The standalones gain the four entries their templates never listed
+    (Requirement 1); every preset gains the embeddings-only llama-cpp entry,
+    and nothing else.
     """
     rendered_names = set(_render(directory)[_PROVIDERS_KEY])
     catalog_names = set(load_provider_catalog(tmp_path).entries)
     assert rendered_names <= catalog_names
     gained = catalog_names - rendered_names
     if preset in {"ariel-standalone", "channel-finder-standalone"}:
-        assert gained == _STANDALONE_GAINS
+        assert gained == _STANDALONE_GAINS | _CATALOG_GAINS
     else:
-        assert not gained
+        assert gained == _CATALOG_GAINS
 
 
 def _persona_cells() -> list[tuple[str, str, str]]:

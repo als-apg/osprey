@@ -142,6 +142,12 @@ beta  = elemdata.beta            # (N, 2) beta_x, beta_y along the ring
 disp  = elemdata.dispersion      # dispersion function
 ```
 
+`elemdata` has one row per entry of `refpts`, in that order. With
+`refpts=range(len(ring4d))` a row's index is the element's index in the ring, so
+`elemdata.beta[idx[0]]` is the value at the named element. With a shorter
+`refpts` (only the monitors, say) index by the element's position *within that
+list*, never by its index in the ring: the two agree only by accident.
+
 Report tunes as computed (state whether integer part is included); compare tunes
 modulo 1 when checking against a reference. `find_orbit4` gives the 4D closed orbit;
 `get_optics` on the 4D ring gives beta/alpha/dispersion/phase.

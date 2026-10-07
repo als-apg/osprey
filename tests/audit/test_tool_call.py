@@ -205,3 +205,158 @@ def test_the_record_keeps_its_documented_order() -> None:
         "facts",
         "duration_ms",
     ]
+
+
+# ---- image blocks -----------------------------------------------------------
+
+
+class _SpillStore:
+    """Fake store recording ``save_or_touch_by_sha256`` calls; dedups on sha256."""
+
+    def __init__(self, fail: bool = False) -> None:
+        self.calls: list[dict] = []
+        self.ids: dict[str, str] = {}
+        self.fail = fail
+
+    def save_or_touch_by_sha256(self, sha256, *, origin, save_kwargs):
+        if self.fail:
+            raise OSError("disk full")
+        self.calls.append({"sha256": sha256, "origin": origin, **save_kwargs})
+        art = self.ids.setdefault(sha256, f"art-{len(self.ids)}")
+        return SimpleNamespace(id=art)
+
+    def list_entries(self, *_a, **_kw):  # pragma: no cover - must never be used
+        raise AssertionError("serialize_result must not list entries")
+
+
+@pytest.fixture
+def spill_store(monkeypatch: pytest.MonkeyPatch) -> _SpillStore:
+    fake = _SpillStore()
+    monkeypatch.setattr("osprey.stores.artifact_store.get_artifact_store", lambda: fake)
+    return fake
+
+
+def _image_result(raw: bytes, *, text: str = "caption"):
+    import base64
+
+    from fastmcp.tools.base import ToolResult
+    from mcp.types import ImageContent, TextContent
+
+    return ToolResult(
+        content=[
+            TextContent(type="text", text=text),
+            ImageContent(type="image", data=base64.b64encode(raw).decode(), mimeType="image/png"),
+        ],
+        structured_content=None,
+    )
+
+
+def test_a_large_image_block_becomes_a_reference(spill_store: _SpillStore) -> None:
+    raw = bytes(range(256)) * 40  # 10 KiB
+    out = tool_call.serialize_result(
+        _image_result(raw), subject="mcp__x__screenshot", tool_use_id="toolu_7"
+    )
+
+    text, image = out["content"]
+    assert text == {"type": "text", "text": "caption"}
+    digest = hashlib.sha256(raw).hexdigest()
+    assert image == {
+        "type": "image",
+        "mimeType": "image/png",
+        "size": len(raw),
+        "sha256": digest,
+        "artifact_id": "art-0",
+    }
+    (call,) = spill_store.calls
+    assert call["sha256"] == digest
+    assert call["origin"] == tool_call.ARTIFACT_ORIGIN
+    assert call["file_content"] == raw
+    assert call["artifact_type"] == "image"
+    assert call["mime_type"] == "image/png"
+    assert call["filename"].startswith("toolu_7-")
+    assert "mcp__x__screenshot" in call["title"]
+    assert call["metadata"] == {"tool_use_id": "toolu_7", "sha256": digest}
+
+
+def test_a_small_image_block_stays_inline(spill_store: _SpillStore) -> None:
+    import base64
+
+    raw = b"\x89PNG tiny"
+    out = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="t")
+    assert out["content"][1] == {
+        "type": "image",
+        "data": base64.b64encode(raw).decode(),
+        "mimeType": "image/png",
+    }
+    assert spill_store.calls == []
+
+
+def test_the_threshold_is_four_kilobytes(spill_store: _SpillStore) -> None:
+    assert tool_call.IMAGE_SPILL_BYTES == 4096
+    tool_call.serialize_result(_image_result(b"a" * 4096), subject="s", tool_use_id="t")
+    assert spill_store.calls == []
+    tool_call.serialize_result(_image_result(b"a" * 4097), subject="s", tool_use_id="t")
+    assert len(spill_store.calls) == 1
+
+
+@pytest.mark.usefixtures("spill_store")
+def test_two_views_of_one_picture_name_one_artifact() -> None:
+    raw = b"z" * 9000
+    one = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="a")
+    two = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="b")
+    assert one["content"][1]["artifact_id"] == two["content"][1]["artifact_id"]
+
+
+@pytest.mark.usefixtures("spill_store")
+def test_the_original_result_is_never_modified() -> None:
+    result = _image_result(b"q" * 9000)
+    before = result.content[1].data
+
+    tool_call.serialize_result(result, subject="s", tool_use_id="t")
+
+    assert result.content[1].data == before
+    assert result.content[1].mimeType == "image/png"
+
+
+def test_a_failed_image_save_keeps_the_record_without_the_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken():
+        raise RuntimeError("no store")
+
+    monkeypatch.setattr("osprey.stores.artifact_store.get_artifact_store", broken)
+    raw = b"w" * 9000
+
+    out = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="t")
+
+    image = out["content"][1]
+    assert image["artifact_id"] is None
+    assert image["artifact_error"] == "RuntimeError"
+    assert image["size"] == len(raw)
+    assert image["sha256"] == hashlib.sha256(raw).hexdigest()
+    assert "data" not in image
+
+
+def test_a_raising_save_names_its_error_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "osprey.stores.artifact_store.get_artifact_store", lambda: _SpillStore(fail=True)
+    )
+    out = tool_call.serialize_result(_image_result(b"w" * 9000), subject="s", tool_use_id="t")
+    assert out["content"][1]["artifact_error"] == "OSError"
+
+
+def test_a_real_store_spill_round_trips(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from osprey.stores.artifact_store import ArtifactStore
+
+    real = ArtifactStore(workspace_root=tmp_path, auto_launch=False)
+    monkeypatch.setattr("osprey.stores.artifact_store.get_artifact_store", lambda: real)
+    raw = b"r" * 9000
+
+    first = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="t1")
+    second = tool_call.serialize_result(_image_result(raw), subject="s", tool_use_id="t2")
+
+    art_id = first["content"][1]["artifact_id"]
+    assert art_id and art_id == second["content"][1]["artifact_id"]
+    assert real.get_file_path(art_id).read_bytes() == raw
+    assert real.list_entries() == []
+    assert len(real.list_entries(include_audit=True)) == 1

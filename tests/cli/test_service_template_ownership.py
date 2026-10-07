@@ -17,8 +17,8 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
-from osprey.services.build_artifacts.ownership import update_config_add_user_owned
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.ownership import update_config_add_user_owned
 
 _SERVICE_ARTIFACTS = [
     "services/postgresql",
@@ -399,3 +399,87 @@ class TestScaffoldCliDirectoryArtifacts:
         assert result.exit_code == 0, result.output
         # Collapse the console's line wrapping: the phrase may break mid-sentence.
         assert "no differences" in " ".join(result.output.split())
+
+
+class TestClaimedServiceDrift:
+    """A recorded claim reports drift when the framework's template changes.
+
+    The claim records the framework hash of the artifact; the drift check
+    recomputes it with the same function. For a service directory that is the
+    tree digest of the packaged template, so an edited or added file in the
+    framework's copy is drift, exactly as for a claimed Claude Code file.
+    """
+
+    def _claim(self, tmp_path: Path, name: str, source: Path, relative: str):
+        import json
+        import shutil
+        from types import SimpleNamespace
+
+        import jinja2
+
+        from osprey.agent_runner.build_artifacts.ownership import update_manifest_add_user_owned
+        from osprey.build.manifest import MANIFEST_FILENAME
+
+        templates = tmp_path / "templates"
+        copy = templates / relative
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_dir():
+            shutil.copytree(source, copy)
+        else:
+            shutil.copy2(source, copy)
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(templates)))
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / MANIFEST_FILENAME).write_text(json.dumps({}), encoding="utf-8")
+        update_manifest_add_user_owned(
+            project, SimpleNamespace(template_root=templates, jinja_env=env), {}, name
+        )
+        return templates, env, project, copy
+
+    def _claim_postgresql(self, tmp_path: Path):
+        from osprey.cli.templates.manager import TemplateManager
+
+        source = TemplateManager().template_root / "services" / "postgresql"
+        return self._claim(tmp_path, "services/postgresql", source, "services/postgresql")
+
+    def test_unchanged_service_template_reports_no_drift(self, tmp_path: Path):
+        from osprey.cli.templates.claude_code import check_user_owned_drift
+
+        templates, env, project, _ = self._claim_postgresql(tmp_path)
+
+        assert check_user_owned_drift(templates, env, project, {}) == []
+
+    def test_changed_service_template_reports_drift(self, tmp_path: Path):
+        from osprey.cli.templates.claude_code import check_user_owned_drift
+
+        templates, env, project, copy = self._claim_postgresql(tmp_path)
+        compose = copy / "docker-compose.yml.j2"
+        compose.write_text(
+            compose.read_text(encoding="utf-8") + "# framework change\n", encoding="utf-8"
+        )
+
+        assert check_user_owned_drift(templates, env, project, {}) == ["services/postgresql"]
+
+    def test_added_file_in_service_template_reports_drift(self, tmp_path: Path):
+        from osprey.cli.templates.claude_code import check_user_owned_drift
+
+        templates, env, project, copy = self._claim_postgresql(tmp_path)
+        (copy / "20-extra.sh").write_text("echo extra\n", encoding="utf-8")
+
+        assert check_user_owned_drift(templates, env, project, {}) == ["services/postgresql"]
+
+    def test_claimed_claude_code_file_still_reports_drift(self, tmp_path: Path):
+        from osprey.cli.templates.claude_code import check_user_owned_drift
+        from osprey.cli.templates.manager import TemplateManager
+
+        relative = "claude_code/claude/rules/error-handling.md"
+        source = TemplateManager().template_root / relative
+        templates, env, project, copy = self._claim(
+            tmp_path, "rules/error-handling", source, relative
+        )
+
+        assert check_user_owned_drift(templates, env, project, {}) == []
+
+        copy.write_text(copy.read_text(encoding="utf-8") + "\nframework change\n", encoding="utf-8")
+
+        assert check_user_owned_drift(templates, env, project, {}) == ["rules/error-handling"]

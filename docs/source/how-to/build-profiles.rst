@@ -109,6 +109,10 @@ the profile ships its ``deploy:`` block commented out, so there are no
 coordinates to render one from. Fill the block in and ``osprey scaffold ci``
 writes the pipeline — see :doc:`deploy-a-facility`.
 
+A preset with a simulated machine carries it under ``data/simulation/``:
+``machine.json`` and one directory per scenario under ``scenarios/``. What those
+files hold is the :doc:`/reference/contracts/simulation-bundle`.
+
 Directories for your own artifacts (``rules/``, ``skills/``, and the rest) are
 **not** created up front. Create the ones you need; a directory you never create
 simply means the profile contributes nothing of that kind.
@@ -949,9 +953,10 @@ the text everyone starts from (see :ref:`profile-context-baseline`).
 another channel owns. The message names the channel, and the exact move where
 one exists.
 
-**"Profile has N unrecognized top-level entry/entries"** — a warning, not an
-error: a directory in the profile that nothing copies. Usually a typo of a
-convention directory name.
+**"Repo root has N unrecognized top-level entry/entries"** — a warning, not an
+error: an entry no channel renders into the project. Usually a typo of a
+convention directory name. A container image still carries it, as part of the
+repository's source.
 
 **"Unknown profile key(s): 'overlay'"** — a profile has no ``overlay``
 section. Move the files into the convention directory that matches what they

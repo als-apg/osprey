@@ -10,6 +10,7 @@ import { test, expect, describe, beforeEach } from 'vitest';
 import {
   STRUCTURE_MARKER,
   el,
+  hashChangeTarget,
   isFallback,
   readPanelParams,
 } from '../../../src/osprey/interfaces/okf_panel/static/js/helpers.js';
@@ -127,5 +128,51 @@ describe('readPanelParams', () => {
     const params = readPanelParams();
     expect(params.concept).toBe(malformed);
     expect(params.raw).toBe(malformed);
+  });
+});
+
+describe('hashChangeTarget', () => {
+  /**
+   * @param {string} hash
+   */
+  function paramsFor(hash) {
+    location.hash = hash;
+    return readPanelParams();
+  }
+
+  const known = new Set(['devices/bpm', 'procedures/orbit-correction']);
+
+  beforeEach(() => {
+    location.hash = '';
+  });
+
+  test('an empty hash yields null', () => {
+    expect(hashChangeTarget(paramsFor(''), null, known)).toBe(null);
+  });
+
+  test('a history state already on the target yields null', () => {
+    expect(hashChangeTarget(paramsFor('#devices/bpm'), { id: 'devices/bpm' }, known)).toBe(null);
+  });
+
+  test('the structure marker with a null state yields the marker', () => {
+    expect(hashChangeTarget(paramsFor(`#${STRUCTURE_MARKER}`), null, known)).toBe(
+      STRUCTURE_MARKER
+    );
+  });
+
+  test('a listed concept id with a null state yields that id', () => {
+    expect(hashChangeTarget(paramsFor('#devices/bpm'), null, known)).toBe('devices/bpm');
+  });
+
+  test('a percent-encoded listed id yields the decoded id', () => {
+    expect(hashChangeTarget(paramsFor('#devices%2Fbpm'), null, known)).toBe('devices/bpm');
+  });
+
+  test('an id the tree does not list yields null', () => {
+    expect(hashChangeTarget(paramsFor('#some-heading'), null, known)).toBe(null);
+  });
+
+  test('any id while the tree has not loaded yields that id', () => {
+    expect(hashChangeTarget(paramsFor('#some-heading'), null, null)).toBe('some-heading');
   });
 });

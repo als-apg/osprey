@@ -157,16 +157,32 @@ def test_from_env_applies_no_trigger_default():
 
 
 @pytest.mark.parametrize(
-    ("cloud", "login_host", "token_scope"),
+    ("cloud", "login_host", "token_scope", "graph_host", "graph_scope"),
     [
-        ("commercial", "login.microsoftonline.com", "https://api.botframework.com/.default"),
-        ("gcchigh", "login.microsoftonline.us", "https://api.botframework.us/.default"),
+        (
+            "commercial",
+            "login.microsoftonline.com",
+            "https://api.botframework.com/.default",
+            "graph.microsoft.com",
+            "https://graph.microsoft.com/.default",
+        ),
+        (
+            "gcchigh",
+            "login.microsoftonline.us",
+            "https://api.botframework.us/.default",
+            "graph.microsoft.us",
+            "https://graph.microsoft.us/.default",
+        ),
     ],
 )
-def test_each_cloud_row_selects_its_login_host_and_scope(cloud, login_host, token_scope):
+def test_each_cloud_row_selects_its_login_host_and_scope(
+    cloud, login_host, token_scope, graph_host, graph_scope
+):
     cfg = TeamsBridgeConfig.from_env(complete(TEAMS_CLOUD=cloud))
     assert cfg.login_host == login_host
     assert cfg.token_scope == token_scope
+    assert cfg.graph_host == graph_host
+    assert cfg.graph_scope == graph_scope
 
 
 def test_the_cloud_table_carries_exactly_the_two_supported_clouds():
@@ -286,12 +302,22 @@ def test_require_startup_lists_every_missing_var_in_one_raise():
         assert name in message
 
 
-@pytest.mark.parametrize("name", ["TEAMS_CLOUD", "APP_VERSION_DISPLAY"])
+@pytest.mark.parametrize(
+    "name", ["TEAMS_CLOUD", "APP_VERSION_DISPLAY", "TEAMS_FILES_DRIVE_ID", "TEAMS_FILES_FOLDER"]
+)
 def test_require_startup_ignores_the_optional_vars(name):
-    # The cloud has a default and the version tag only plainens the ack: neither
-    # is a bridge that must refuse to start.
-    env = complete(TEAMS_CLOUD="gcchigh", APP_VERSION_DISPLAY="v1")
+    # The cloud has a default, the version tag only plainens the ack, and without a
+    # file library files are named rather than shared: none of them is a bridge that
+    # must refuse to start.
+    env = complete(
+        TEAMS_CLOUD="gcchigh",
+        APP_VERSION_DISPLAY="v1",
+        TEAMS_FILES_DRIVE_ID="b!drive",
+        TEAMS_FILES_FOLDER="osprey",
+    )
     env[name] = ""
+    if name == "TEAMS_FILES_DRIVE_ID":
+        env["TEAMS_FILES_FOLDER"] = ""
     TeamsBridgeConfig.from_env(env).require_startup()  # no raise
 
 
@@ -384,6 +410,54 @@ def test_no_field_default_carries_a_credential():
         for f in dataclasses.fields(TeamsBridgeConfig)
         if f.name in credentials and f.default != ""
     ]
+
+
+# --- the file library -----------------------------------------------------------
+
+
+def test_from_env_maps_the_file_library_pair():
+    cfg = TeamsBridgeConfig.from_env(
+        complete(TEAMS_FILES_DRIVE_ID="b!abc_DEF-123", TEAMS_FILES_FOLDER="/osprey/answers/")
+    )
+    assert cfg.files_drive_id == "b!abc_DEF-123"
+    assert cfg.files_folder == "osprey/answers"
+
+
+@pytest.mark.parametrize("env", [{}, {"TEAMS_FILES_DRIVE_ID": "", "TEAMS_FILES_FOLDER": ""}])
+def test_the_file_library_is_unset_by_default(env):
+    # Compose renders both bare, so an unset pair arrives as "" as well as absent.
+    cfg = TeamsBridgeConfig.from_env(complete(**env))
+    assert cfg.files_drive_id == ""
+    assert cfg.files_folder == ""
+    assert cfg.files_folder_segments == ()
+
+
+def test_a_folder_without_a_library_is_refused():
+    with pytest.raises(
+        ValueError, match="TEAMS_FILES_FOLDER is set but TEAMS_FILES_DRIVE_ID is not"
+    ):
+        TeamsBridgeConfig.from_env(complete(TEAMS_FILES_FOLDER="osprey"))
+
+
+def test_a_folder_is_split_into_segments_without_its_slashes():
+    cfg = TeamsBridgeConfig.from_env(
+        complete(TEAMS_FILES_DRIVE_ID="b!drive", TEAMS_FILES_FOLDER="/Osprey files//runs/")
+    )
+    assert cfg.files_folder_segments == ("Osprey files", "runs")
+
+
+@pytest.mark.parametrize("folder", ["..", ".", "a:b", "a?b", "runs/../other"])
+def test_a_folder_segment_that_could_leave_the_library_is_refused(folder):
+    with pytest.raises(ValueError, match="TEAMS_FILES_FOLDER"):
+        TeamsBridgeConfig.from_env(
+            complete(TEAMS_FILES_DRIVE_ID="b!drive", TEAMS_FILES_FOLDER=folder)
+        )
+
+
+@pytest.mark.parametrize("drive_id", ["b!a/b", "b!a?x", "b!a#x", "b!a b", "b!a\tb"])
+def test_a_drive_id_that_is_not_one_path_segment_is_refused(drive_id):
+    with pytest.raises(ValueError, match="TEAMS_FILES_DRIVE_ID"):
+        TeamsBridgeConfig.from_env(complete(TEAMS_FILES_DRIVE_ID=drive_id))
 
 
 # --- mentions ------------------------------------------------------------------

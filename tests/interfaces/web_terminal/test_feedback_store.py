@@ -54,27 +54,22 @@ def test_new_record_id_is_unique_within_one_frozen_millisecond(
     assert all(i.startswith("fb-1755712345678-") for i in ids)
 
 
-def test_filename_helpers_pair_a_header_and_context_for_one_record_id() -> None:
-    record_id = "fb-1755712345678-3fa9c1d2"
-    assert feedback_store.header_filename(record_id) == "fb-1755712345678-3fa9c1d2.json"
-    assert feedback_store.context_filename(record_id) == "ctx-1755712345678-3fa9c1d2.json"
-    assert fnmatch.fnmatch(feedback_store.header_filename(record_id), feedback_store.HEADER_GLOB)
-    assert fnmatch.fnmatch(feedback_store.context_filename(record_id), feedback_store.CONTEXT_GLOB)
-
-
 # ── write_record ───────────────────────────────────────────────────────────
 
 
 def test_write_record_creates_both_documents_and_returns_the_id(tmp_path: Path) -> None:
     feedback_dir = tmp_path / "nested" / "feedback"
 
+    allocated = feedback_store.new_record_id()
+
     record_id = feedback_store.write_record(
         feedback_dir,
         {"channel": "local", "excerpt": "it broke"},
         {"context": {"panels": []}, "scrollback": "$ osprey\n"},
+        record_id=allocated,
     )
 
-    assert ID_RE.match(record_id), record_id
+    assert record_id == allocated
     header_path = feedback_dir / feedback_store.header_filename(record_id)
     context_path = feedback_dir / feedback_store.context_filename(record_id)
     assert header_path.is_file()
@@ -107,7 +102,12 @@ def test_write_record_puts_the_context_on_disk_before_the_header(
 
     monkeypatch.setattr(os, "replace", spy_replace)
 
-    record_id = feedback_store.write_record(feedback_dir, {"channel": "local"}, {"context": {}})
+    record_id = feedback_store.write_record(
+        feedback_dir,
+        {"channel": "local"},
+        {"context": {}},
+        record_id=feedback_store.new_record_id(),
+    )
 
     assert destinations == [
         feedback_store.context_filename(record_id),
@@ -143,7 +143,12 @@ def test_write_record_temp_files_never_match_the_record_globs(
 
     monkeypatch.setattr(os, "replace", spy_replace)
 
-    feedback_store.write_record(feedback_dir, {"channel": "local"}, {"context": {}})
+    feedback_store.write_record(
+        feedback_dir,
+        {"channel": "local"},
+        {"context": {}},
+        record_id=feedback_store.new_record_id(),
+    )
 
     assert len(temp_names) == 2
     for name in temp_names:
@@ -159,7 +164,9 @@ def test_write_record_does_not_mutate_the_caller_dicts(tmp_path: Path) -> None:
     header = {"channel": "local"}
     context = {"context": {}}
 
-    feedback_store.write_record(tmp_path / "feedback", header, context)
+    feedback_store.write_record(
+        tmp_path / "feedback", header, context, record_id=feedback_store.new_record_id()
+    )
 
     assert header == {"channel": "local"}
     assert context == {"context": {}}
@@ -172,6 +179,7 @@ def test_write_record_id_and_pointer_win_over_caller_supplied_values(tmp_path: P
         feedback_dir,
         {"id": "spoofed", "context_file": "../escape.json"},
         {"id": "spoofed"},
+        record_id=feedback_store.new_record_id(),
     )
 
     header = json.loads((feedback_dir / feedback_store.header_filename(record_id)).read_text())
@@ -209,8 +217,8 @@ def test_write_record_files_under_a_caller_supplied_id(tmp_path: Path) -> None:
 )
 def test_write_record_refuses_an_id_without_the_header_prefix(tmp_path: Path, bad_id: str) -> None:
     # The id IS the header's filename stem: without the prefix the header files
-    # somewhere HEADER_GLOB cannot see, so the submission disappears from
-    # list_headers and the pruner while its context becomes a prunable orphan.
+    # somewhere HEADER_GLOB cannot see, so the submission disappears from every
+    # store reader and the pruner while its context becomes a prunable orphan.
     feedback_dir = tmp_path / "feedback"
 
     with pytest.raises(ValueError, match="must start with"):
@@ -220,86 +228,6 @@ def test_write_record_refuses_an_id_without_the_header_prefix(tmp_path: Path, ba
 
     # Refused before the directory is even created, so a bad id leaves nothing.
     assert not feedback_dir.exists()
-
-
-def test_write_record_mints_its_own_id_when_none_is_supplied(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    feedback_dir = tmp_path / "feedback"
-    monkeypatch.setattr(feedback_store, "_now_ms", lambda: 1755712345678)
-
-    record_id = feedback_store.write_record(feedback_dir, {"channel": "local"}, {"context": {}})
-
-    assert ID_RE.match(record_id), record_id
-    assert record_id.startswith("fb-1755712345678-")
-    assert (feedback_dir / feedback_store.header_filename(record_id)).is_file()
-
-
-# ── list_headers ───────────────────────────────────────────────────────────
-
-
-def test_list_headers_tolerates_a_missing_directory(tmp_path: Path) -> None:
-    assert feedback_store.list_headers(tmp_path / "never-created") == []
-
-
-def test_list_headers_reads_only_headers_ignoring_contexts_and_temp_files(
-    tmp_path: Path,
-) -> None:
-    feedback_dir = tmp_path / "feedback"
-    feedback_dir.mkdir()
-    (feedback_dir / "fb-1755712345678-aaaaaaaa.json").write_text(
-        json.dumps({"id": "fb-1755712345678-aaaaaaaa", "channel": "local"})
-    )
-    (feedback_dir / "ctx-1755712345678-aaaaaaaa.json").write_text(
-        json.dumps({"id": "fb-1755712345678-aaaaaaaa", "context": {"big": "payload"}})
-    )
-    (feedback_dir / ".fb-1755712345679-bbbbbbbb.json.xyz.tmp").write_text("{partial")
-    (feedback_dir / "notes.txt").write_text("unrelated")
-
-    headers = feedback_store.list_headers(feedback_dir)
-
-    assert [h["id"] for h in headers] == ["fb-1755712345678-aaaaaaaa"]
-    assert headers[0]["channel"] == "local"
-
-
-def test_list_headers_sorts_by_id(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "feedback"
-    feedback_dir.mkdir()
-    for stem in (
-        "fb-1755712345680-cccccccc",
-        "fb-1755712345678-aaaaaaaa",
-        "fb-1755712345679-bbbbbbbb",
-    ):
-        (feedback_dir / f"{stem}.json").write_text(json.dumps({"id": stem}))
-
-    assert [h["id"] for h in feedback_store.list_headers(feedback_dir)] == [
-        "fb-1755712345678-aaaaaaaa",
-        "fb-1755712345679-bbbbbbbb",
-        "fb-1755712345680-cccccccc",
-    ]
-
-
-def test_list_headers_skips_unreadable_documents(tmp_path: Path) -> None:
-    feedback_dir = tmp_path / "feedback"
-    feedback_dir.mkdir()
-    (feedback_dir / "fb-1755712345678-aaaaaaaa.json").write_text(
-        json.dumps({"id": "fb-1755712345678-aaaaaaaa"})
-    )
-    (feedback_dir / "fb-1755712345679-bbbbbbbb.json").write_text("{ truncated")
-    (feedback_dir / "fb-1755712345680-cccccccc.json").write_text(json.dumps(["not", "a", "dict"]))
-
-    assert [h["id"] for h in feedback_store.list_headers(feedback_dir)] == [
-        "fb-1755712345678-aaaaaaaa"
-    ]
-
-
-def test_list_headers_returns_empty_for_a_file_where_the_directory_should_be(
-    tmp_path: Path,
-) -> None:
-    not_a_dir = tmp_path / "feedback"
-    not_a_dir.write_text("oops")
-
-    assert feedback_store.list_headers(not_a_dir) == []
 
 
 # ── prune_store ────────────────────────────────────────────────────────────

@@ -38,6 +38,14 @@ def test_get_control_system_type(tmp_path, sample_config_content):
     assert archiver_type == "mock_archiver"
 
 
+def test_a_non_string_type_reads_as_not_found(tmp_path):
+    """A type that is not a string is reported as not found."""
+    config_path = tmp_path / "config.yml"
+    config_path.write_text("control_system:\n  type: 5\n")
+
+    assert get_control_system_type(config_path) is None
+
+
 def test_set_control_system_type_to_epics(tmp_path, sample_config_content):
     """Test switching from mock to EPICS."""
     config_path = tmp_path / "config.yml"

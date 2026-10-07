@@ -5,21 +5,28 @@ REST endpoints for search, entry management, status, and settings.
 
 from __future__ import annotations
 
+import copy
 import json as _json
 import os
+import re
 import time
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import yaml
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
+from osprey.imaging.formats import OCTET_STREAM
+from osprey.interfaces.ariel.api.attachment_response import attachment_response
 from osprey.interfaces.ariel.api.schemas import (
+    AttachmentResponse,
     DiagnosticResponse,
+    EmbeddingTableStatus,
     EntriesListResponse,
     EntryCreateRequest,
     EntryCreateResponse,
@@ -29,11 +36,13 @@ from osprey.interfaces.ariel.api.schemas import (
     SearchResponse,
     StatusResponse,
 )
-from osprey.utils.config import to_facility_iso
+from osprey.utils.config import get_facility_timezone, to_facility_iso
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search import ARIELSearchService
+    from osprey.services.ariel_search.entry_fields import ResolvedEntryWrite
+    from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 
 router = APIRouter(prefix="/api")
 logger = get_logger("ariel")
@@ -80,22 +89,136 @@ def _require_service(request: Request) -> ARIELSearchService:
         if errors:
             detail = f"{detail} Configuration errors: " + "; ".join(errors)
         raise HTTPException(status_code=503, detail=detail)
-    return service
+    return cast("ARIELSearchService", service)
+
+
+_ATTACHMENT_ROUTE_PREFIX = "/api/attachments/"
+
+#: Where the attachment routes sit relative to the API base. ``display_url``
+#: names a local route this way so the page can resolve it against the same API
+#: base its other calls use, wherever the page is mounted.
+_ATTACHMENT_API_ROUTE = "/attachments/"
+
+
+def _safe_url(url: Any) -> str | None:
+    """Return ``url`` when the page may link to it, else None.
+
+    Only absolute http(s) urls and this API's own attachment routes pass; any
+    other scheme (``javascript:``, ``file:``, ``data:``) or relative path is
+    dropped so it never reaches an ``href`` or ``src``.
+    """
+    if not isinstance(url, str) or not url:
+        return None
+    if url.startswith(_ATTACHMENT_ROUTE_PREFIX):
+        return url
+    lowered = url.lower()
+    if lowered.startswith(("http://", "https://")):
+        return url
+    return None
+
+
+def _display_url(
+    entry_id: str,
+    summary: Mapping[str, Any],
+    item: Mapping[str, Any],
+    *,
+    copy_state: bool,
+) -> str | None:
+    """Return where the web page shows or downloads one attachment from.
+
+    A local route is given relative to the API base (``/api``), not to the
+    server root: the page joins it to its own API base, which is the one path
+    a proxy that mounts the page under a prefix rewrites. A root-absolute path
+    in this JSON value would escape that rewrite and miss the prefix.
+
+    ===========================================  ==========================================
+    The attachment                               ``display_url``
+    ===========================================  ==========================================
+    viewable                                     ``/attachments/{id}/rendition``
+    copied, not viewable                         ``/attachments/{id}``
+    no copy state, native item                   ``/attachments/{id parsed from url}``
+    anything else with an absolute http(s) url   that url
+    anything else                                null
+    ===========================================  ==========================================
+
+    Args:
+        entry_id: The entry the attachment belongs to.
+        summary: The attachment's summary.
+        item: The JSONB attachment item the summary was built from.
+        copy_state: Whether the store holds attachment copy state.
+
+    Returns:
+        The display url, or None.
+    """
+    from osprey.services.ariel_search.attachments import attachment_id_for, is_native_item
+
+    attachment_id = summary.get("attachment_id")
+    if attachment_id and summary.get("viewable"):
+        return f"{_ATTACHMENT_API_ROUTE}{attachment_id}/rendition"
+    if attachment_id and summary.get("copy_status") == "copied":
+        return f"{_ATTACHMENT_API_ROUTE}{attachment_id}"
+    if not copy_state and is_native_item(item):
+        return f"{_ATTACHMENT_API_ROUTE}{attachment_id_for(entry_id, item)}"
+    url = summary.get("url")
+    if isinstance(url, str) and url.lower().startswith(("http://", "https://")):
+        return url
+    return None
 
 
 def _entry_to_response(
-    entry: dict,
+    entry: Mapping[str, Any],
+    *,
+    attachment_rows: list[dict[str, Any]] | None,
+    model_id: str | None,
+    file_source: bool,
     score: float | None = None,
     highlights: list[str] | None = None,
 ) -> EntryResponse:
-    """Convert database entry to response model."""
-    from osprey.services.ariel_search.attachments import guess_mime_type
+    """Convert a database entry to the web response model.
 
-    # Enrich attachments that have no MIME type but have a filename
-    attachments = entry.get("attachments", [])
-    for att in attachments:
-        if not att.get("type") and att.get("filename"):
-            att["type"] = guess_mime_type(att["filename"])
+    Every attachment is kept, with its caption and visible text whole, matched
+    attachments first. ``_matched_via`` and ``_matched_attachment_ids`` on the
+    entry come out as ``matched_via`` and ``matched_attachment_ids``.
+
+    Args:
+        entry: The entry dict.
+        attachment_rows: The entry's ``attachment_files`` rows, or None when the
+            store holds no copy state.
+        model_id: The configured caption model id (``caption_model_id``).
+        file_source: Whether the entry's source resolves relative attachment
+            paths (``file_source_for``).
+        score: The search score, if any.
+        highlights: The search highlights, if any.
+
+    Returns:
+        The entry response.
+    """
+    from osprey.services.ariel_search.attachments.summaries import (
+        build_attachment_summary_pairs,
+    )
+
+    entry_id = str(entry.get("entry_id") or "")
+    pairs = build_attachment_summary_pairs(
+        entry,
+        attachment_rows,
+        None,
+        entry.get("_matched_attachment_ids", ()),
+        file_source=file_source,
+        full_captions=True,
+        model_id=model_id,
+    )
+    attachments = []
+    for summary, item in pairs:
+        display_url = _display_url(entry_id, summary, item, copy_state=attachment_rows is not None)
+        attachments.append(
+            AttachmentResponse(
+                **{
+                    **summary,
+                    "url": _safe_url(summary.get("url")),
+                    "display_url": display_url,
+                }
+            )
+        )
 
     # Render the three timestamp fields facility-local (ISO with offset) via the
     # shared egress helper, so the web wire format matches the MCP path
@@ -115,7 +238,71 @@ def _entry_to_response(
         keywords=entry.get("keywords", []),
         score=score,
         highlights=highlights or [],
+        matched_via=list(entry.get("_matched_via") or ()),
+        matched_attachment_ids=list(entry.get("_matched_attachment_ids") or ()),
     )
+
+
+async def _attachment_rows_by_entry(
+    service: ARIELSearchService, entries: list[Mapping[str, Any]]
+) -> Mapping[str, list[dict[str, Any]]] | None:
+    """Read the attachment rows of a page of entries in one call.
+
+    A ``DatabaseQueryError`` from the reader is treated as a store without copy
+    state: the entries keep their fallback summaries and the process logs the
+    schema-gap warning once, so a failing reader never costs a result.
+
+    Args:
+        service: The ARIEL service whose repository is read.
+        entries: The entries of the response; no read is made when empty.
+
+    Returns:
+        The rows per entry id, or None when the store holds no copy state.
+
+    Raises:
+        TypeError: If the reader returned something other than None or a dict.
+    """
+    from osprey.services.ariel_search.database.repository import read_attachment_rows
+
+    if not entries:
+        return {}
+    return await read_attachment_rows(service.repository, [e["entry_id"] for e in entries])
+
+
+async def _entry_responses(
+    service: ARIELSearchService,
+    entries: list[Mapping[str, Any]],
+    *,
+    with_scores: bool = False,
+) -> list[EntryResponse]:
+    """Convert a page of entries to responses with their attachment summaries.
+
+    Args:
+        service: The ARIEL service; its config resolves the caption model id and
+            the file-source flag, and its repository supplies the rows.
+        entries: The entries, in output order.
+        with_scores: Carry each entry's ``_score`` and ``_highlights`` across.
+
+    Returns:
+        One response per entry, in the given order.
+    """
+    from osprey.services.ariel_search.attachments.compose import caption_model_id
+    from osprey.services.ariel_search.attachments.summaries import file_source_for
+
+    mapping = await _attachment_rows_by_entry(service, entries)
+    model_id = caption_model_id(service.config)
+    file_source = file_source_for(service.config)
+    return [
+        _entry_to_response(
+            e,
+            attachment_rows=None if mapping is None else mapping.get(e["entry_id"], []),
+            model_id=model_id,
+            file_source=file_source,
+            score=e.get("_score") if with_scores else None,
+            highlights=e.get("_highlights") if with_scores else None,
+        )
+        for e in entries
+    ]
 
 
 def _capabilities_modes(service: ARIELSearchService) -> list[str]:
@@ -178,12 +365,13 @@ def _resolve_search_mode(service: ARIELSearchService, requested: str | None) -> 
 def _validate_hybrid_overrides(advanced_params: dict[str, Any]) -> None:
     """Reject malformed hybrid per-query overrides before the search runs.
 
-    The search panel sends ``rerank`` from a toggle and ``candidate_limit`` from
-    a number field, so real traffic is already well-formed; a hand-written HTTP
-    caller is not. Both keys are forwarded to the hybrid module verbatim, where
-    ``"false"`` is truthy and would silently run the slow reranked path the
-    caller asked to skip, and a zero or negative width is a nonsense retrieval
-    size. The wording matches the config-side parser, so an operator who sets
+    The search panel sends ``rerank`` and ``include_images`` from toggles and
+    ``candidate_limit`` from a number field, so real traffic is already
+    well-formed; a hand-written HTTP caller is not. A string ``"false"`` is
+    truthy and would silently run the slow reranked path, or the picture lane,
+    the caller asked to skip, and a zero or negative width is a nonsense
+    retrieval size. Only the type is checked here: whether ``include_images``
+    takes effect is the search service's to resolve. The wording matches the config-side parser, so an operator who sets
     the same value badly in ``config.yml`` reads the same sentence either way.
 
     A missing key -- and an explicit ``null``, which is how JSON spells the same
@@ -200,6 +388,13 @@ def _validate_hybrid_overrides(advanced_params: dict[str, Any]) -> None:
         raise HTTPException(
             status_code=400,
             detail=f"rerank must be a boolean, got {rerank!r}",
+        )
+
+    include_images = advanced_params.get("include_images")
+    if include_images is not None and not isinstance(include_images, bool):
+        raise HTTPException(
+            status_code=400,
+            detail=f"include_images must be a boolean, got {include_images!r}",
         )
 
     candidate_limit = advanced_params.get("candidate_limit")
@@ -252,8 +447,10 @@ async def get_capabilities(request: Request) -> dict:
     working service, so it returns the normal payload with the three
     configuration keys added; if that service is missing the database really
     is down and ``_require_service`` raises 503 as it does everywhere else.
-    An app whose state carries no configuration fields at all behaves exactly
-    as it did before this endpoint learned about them.
+    An app whose state carries no configuration fields at all answers with the
+    normal payload, with ``config_panel_enabled`` False. The payload names the
+    zone every entry timestamp in this API is rendered in, so the page can read
+    those times in it.
     """
     from osprey.interfaces.ariel.app import CONFIG_STATUS_INVALID, CONFIG_STATUS_WARNING
     from osprey.services.ariel_search.capabilities import get_capabilities as _get_caps
@@ -265,14 +462,26 @@ async def get_capabilities(request: Request) -> dict:
 
     # The Config panel's server gate, reported so the frontend can take the
     # Settings entry out of the display menu. The server refusal is the real
-    # gate; this is its other half, never the only half.
-    panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", True))
+    # gate; this is its other half, never the only half. An app whose state
+    # carries no flag is refused by that gate, so absence reads as False here.
+    panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", False))
+    # Never raises: an invalid configuration answers UTC, which is also the
+    # zone to_facility_iso renders in then.
+    facility_timezone = get_facility_timezone().key
 
     if status == CONFIG_STATUS_INVALID or (errors and status is None and service is None):
-        return {**_invalid_capabilities(errors, remedy), "config_panel_enabled": panel_enabled}
+        return {
+            **_invalid_capabilities(errors, remedy),
+            "config_panel_enabled": panel_enabled,
+            "facility_timezone": facility_timezone,
+        }
 
     service = _require_service(request)
-    payload = {**_get_caps(service.config), "config_panel_enabled": panel_enabled}
+    payload = {
+        **_get_caps(service.config),
+        "config_panel_enabled": panel_enabled,
+        "facility_timezone": facility_timezone,
+    }
     if errors:
         payload = {
             **payload,
@@ -283,8 +492,17 @@ async def get_capabilities(request: Request) -> dict:
     return payload
 
 
-@router.get("/publish-info")
-async def get_publish_info(request: Request) -> dict:
+def entry_field_options_path(name: str) -> str:
+    """Return the options route of entry field ``name``, relative to the ARIEL API base.
+
+    The path carries no ``/api`` prefix: the browser resolves it through the
+    API client, which adds the base the panel proxy rewrites.
+    """
+    return f"/entry-fields/{name}/options"
+
+
+@router.get("/publish-info", response_model=None)
+async def get_publish_info(request: Request) -> dict | JSONResponse:
     """Describe the configured logbook's write capability for the create form.
 
     Lets the UI adapt its credential prompt to the actual adapter instead of
@@ -293,9 +511,19 @@ async def get_publish_info(request: Request) -> dict:
     adapter saves to ARIEL only. ``requires_auth`` is reported as
     ``supports_write and requires_write_auth`` — a read-only adapter cannot
     publish, so credentials are irrelevant there.
+
+    ``entry_fields`` lists the adapter's checked entry-field declarations in
+    form order; each ``dynamic_select`` carries an ``options_endpoint``
+    relative to the ARIEL API base. It is ``[]`` when no adapter is configured
+    or the adapter declares none. A broken declaration returns the 500
+    ``entry_fields_misdeclared`` envelope.
     """
     service = _require_service(request)
 
+    from osprey.services.ariel_search.entry_fields import (
+        EntryFieldDeclarationError,
+        entry_field_descriptors,
+    )
     from osprey.services.ariel_search.exceptions import AdapterNotFoundError
     from osprey.services.ariel_search.ingestion import get_adapter
 
@@ -303,13 +531,102 @@ async def get_publish_info(request: Request) -> dict:
         adapter = get_adapter(service.config)
     except AdapterNotFoundError:
         # No ingestion adapter configured — entries can only be saved locally.
-        return {"supports_write": False, "requires_auth": False, "source_system": None}
+        return {
+            "supports_write": False,
+            "requires_auth": False,
+            "source_system": None,
+            "entry_fields": [],
+        }
+
+    try:
+        descriptors = entry_field_descriptors(service.config)
+    except EntryFieldDeclarationError as exc:
+        return _entry_field_error_response(exc)
+
+    entry_fields = []
+    for descriptor in descriptors:
+        field = descriptor.to_dict()
+        if descriptor.param_type == "dynamic_select":
+            field["options_endpoint"] = entry_field_options_path(descriptor.name)
+        entry_fields.append(field)
 
     return {
         "supports_write": adapter.supports_write,
         "requires_auth": adapter.supports_write and adapter.requires_write_auth,
         "source_system": adapter.source_system_name,
+        "entry_fields": entry_fields,
     }
+
+
+@router.get("/entry-fields/{name}/options", response_model=None)
+async def get_entry_field_options(request: Request, name: str) -> dict | JSONResponse:
+    """List the choices of one ``dynamic_select`` entry field.
+
+    Only the field's ``depends_on`` keys are read from the query string, each
+    coerced against its own declaration; every other key is ignored, and a
+    parent left out or blank is not passed to the adapter. The adapter is asked
+    under the server's options timeout.
+
+    Args:
+        request: The incoming request; its query string carries the parents' values.
+        name: The entry field whose choices are listed.
+
+    Returns:
+        ``{"field": name, "options": [{"value", "label"}, ...]}``, or an error
+        envelope: 422 ``invalid_entry_field`` naming a bad parent, 502
+        ``entry_field_options_unavailable`` when the adapter fails or times
+        out, 500 ``entry_fields_misdeclared`` for a broken declaration.
+
+    Raises:
+        HTTPException: 404 unless ``name`` is a declared ``dynamic_select``;
+            503 when the service is unavailable.
+    """
+    service = _require_service(request)
+
+    from osprey.services.ariel_search.entry_fields import (
+        EntryFieldDeclarationError,
+        EntryFieldError,
+        EntryFieldOptionsUnavailable,
+        coerce_entry_value,
+        entry_field_descriptors,
+        fetch_entry_field_options,
+    )
+    from osprey.services.ariel_search.exceptions import AdapterNotFoundError
+    from osprey.services.ariel_search.ingestion import get_adapter
+
+    not_found = HTTPException(
+        status_code=404, detail=f"No dynamic_select entry field named '{name}'."
+    )
+    try:
+        adapter = get_adapter(service.config)
+    except AdapterNotFoundError:
+        raise not_found from None
+
+    try:
+        descriptors = entry_field_descriptors(service.config)
+    except EntryFieldDeclarationError as exc:
+        return _entry_field_error_response(exc)
+
+    by_name = {descriptor.name: descriptor for descriptor in descriptors}
+    field = by_name.get(name)
+    if field is None or field.param_type != "dynamic_select":
+        raise not_found
+
+    values: dict[str, Any] = {}
+    try:
+        for parent in field.depends_on:
+            value = coerce_entry_value(by_name[parent], request.query_params.get(parent))
+            if value is not None:
+                values[parent] = value
+    except EntryFieldError as exc:
+        return _entry_field_error_response(exc)
+
+    try:
+        options = await fetch_entry_field_options(adapter, name, values)
+    except EntryFieldOptionsUnavailable as exc:
+        return _entry_field_error_response(exc)
+
+    return {"field": name, "options": options}
 
 
 @router.get("/filter-options/{field_name}")
@@ -383,6 +700,7 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
     Routes to the search module named by ``mode``; an unknown or disabled mode
     is rejected with 400 rather than falling back to another module.
     """
+    from osprey.services.ariel_search.database.repository import schema_behind_diagnostics
     from osprey.services.ariel_search.exceptions import PatternError, VocabularyError
 
     service = _require_service(request)
@@ -426,15 +744,22 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
 
         execution_time = int((time.time() - start_time) * 1000)
 
-        entries = [
-            _entry_to_response(e, score=e.get("_score"), highlights=e.get("_highlights"))
-            for e in result.entries
-        ]
+        # A fused hybrid result may hold image-only entries beyond the text
+        # hits; the page shows at most max_results, and its sources name
+        # exactly the entries shown.
+        page: list[Mapping[str, Any]] = [*result.entries[: search_req.max_results]]
+        sources = (
+            [entry["entry_id"] for entry in page]
+            if any("_matched_via" in entry for entry in page)
+            else list(result.sources)
+        )
+        entries = await _entry_responses(service, page, with_scores=True)
+        schema_behind = await schema_behind_diagnostics(service.repository)
 
         return SearchResponse(
             entries=entries,
             answer=result.answer,
-            sources=list(result.sources),
+            sources=sources,
             search_modes_used=list(result.search_modes_used),
             reasoning=result.reasoning,
             total_results=len(entries),
@@ -446,7 +771,7 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
                     message=d.message,
                     category=d.category,
                 )
-                for d in result.diagnostics
+                for d in (*result.diagnostics, *schema_behind)
             ],
             expanded_terms=_expanded_terms(result),
         )
@@ -510,7 +835,7 @@ async def list_entries(
             source_system=source_system,
         )
 
-        entry_responses = [_entry_to_response(e) for e in entries]
+        entry_responses = await _entry_responses(service, list(entries))
 
         total_pages = (total + page_size - 1) // page_size
 
@@ -536,7 +861,7 @@ async def get_entry(request: Request, entry_id: str) -> EntryResponse:
         if not entry:
             raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
 
-        return _entry_to_response(entry)
+        return (await _entry_responses(service, [entry]))[0]
 
     except HTTPException:
         raise
@@ -556,11 +881,130 @@ def _auth_required_response(exc: Exception) -> JSONResponse:
     )
 
 
+def _entry_field_error_response(exc: Exception) -> JSONResponse:
+    """Map an entry-field failure to its JSON error envelope.
+
+    * ``EntryFieldError`` -> 422 ``{detail, code: "invalid_entry_field", field}``:
+      the operator submitted a bad value and can correct it.
+    * ``EntryFieldOptionsUnavailable`` -> 502
+      ``{detail, code: "entry_field_options_unavailable", field}``: the facility
+      adapter could not list a field's choices. The detail is the generic
+      message, never the adapter's own error text.
+    * ``EntryFieldDeclarationError`` -> 500 ``{detail, code: "entry_fields_misdeclared"}``:
+      the adapter declared its fields wrongly; only a deployment fix helps.
+
+    Args:
+        exc: One of the three entry-field exceptions.
+
+    Returns:
+        The JSON response carrying the envelope.
+
+    Raises:
+        TypeError: If ``exc`` is not an entry-field exception.
+    """
+    from osprey.services.ariel_search.entry_fields import (
+        EntryFieldDeclarationError,
+        EntryFieldError,
+        EntryFieldOptionsUnavailable,
+    )
+
+    if isinstance(exc, EntryFieldError):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": exc.message, "code": "invalid_entry_field", "field": exc.field},
+        )
+    if isinstance(exc, EntryFieldOptionsUnavailable):
+        return JSONResponse(
+            status_code=502,
+            content={
+                "detail": exc.message,
+                "code": "entry_field_options_unavailable",
+                "field": exc.field,
+            },
+        )
+    if isinstance(exc, EntryFieldDeclarationError):
+        return JSONResponse(
+            status_code=500,
+            content={"detail": exc.message, "code": "entry_fields_misdeclared"},
+        )
+    raise TypeError(f"not an entry-field error: {type(exc).__name__}")
+
+
+async def _resolve_create_fields(
+    service: ARIELSearchService,
+    client_metadata: dict[str, Any],
+    *,
+    logbook: str | None,
+    shift: str | None,
+    tags: list[str],
+) -> ResolvedEntryWrite | JSONResponse:
+    """Validate a create request's declared values and resolve what the write uses.
+
+    The declared values are read from the client's ``metadata`` and checked in
+    full, with each ``dynamic_select`` checked against the adapter's live
+    choices; keys that are not declared fields are ignored. A draft's
+    ``session_metadata`` is kept as provenance for ARIEL's local copy only.
+
+    Args:
+        service: The ARIEL search service.
+        client_metadata: The ``metadata`` the client submitted.
+        logbook: The built-in logbook input.
+        shift: The built-in shift input.
+        tags: The entry's tags.
+
+    Returns:
+        The resolved write: request ``logbook``/``shift``, adapter metadata and
+        local-copy metadata; or the entry-field error envelope (see
+        :func:`_entry_field_error_response`) when a submitted value is invalid
+        or missing, a live check cannot list the choices, or the adapter
+        declares its fields wrongly.
+
+    Raises:
+        HTTPException: 500 on any other failure.
+    """
+    from osprey.services.ariel_search.entry_fields import (
+        EntryFieldDeclarationError,
+        EntryFieldError,
+        EntryFieldOptionsUnavailable,
+        entry_field_descriptors,
+        resolve_entry_write,
+        validate_entry_fields,
+    )
+    from osprey.services.ariel_search.exceptions import AdapterNotFoundError
+    from osprey.services.ariel_search.ingestion import get_adapter
+
+    try:
+        descriptors = entry_field_descriptors(service.config)
+        adapter = None
+        if descriptors:
+            try:
+                adapter = get_adapter(service.config)
+            except AdapterNotFoundError:
+                adapter = None
+        declared = await validate_entry_fields(
+            adapter, descriptors, client_metadata, partial=False, check_live=True, strict=False
+        )
+        session_metadata = client_metadata.get("session_metadata")
+        return resolve_entry_write(
+            descriptors,
+            declared,
+            logbook=logbook,
+            shift=shift,
+            tags=tags,
+            created_via="ariel-web",
+            session_metadata=session_metadata if isinstance(session_metadata, dict) else None,
+        )
+    except (EntryFieldError, EntryFieldOptionsUnavailable, EntryFieldDeclarationError) as exc:
+        return _entry_field_error_response(exc)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 async def _publish_or_local(
     service: ARIELSearchService,
     facility_request: Any,
     *,
-    fallback_metadata: dict[str, Any],
+    local_metadata: dict[str, Any],
 ) -> tuple[str, str, str, str]:
     """Publish an entry via the facility adapter, or save local-only if read-only.
 
@@ -571,14 +1015,21 @@ async def _publish_or_local(
     ``IngestionError`` (the publish attempt failed) propagate to the caller so
     nothing is silently saved.
 
+    Both the service's optimistic copy and the local-only insert store
+    ``local_metadata``; the insert sets ``sync_status`` last, so no submitted
+    value overrides it.
+
     Args:
         service: The ARIEL search service.
-        facility_request: A ``FacilityEntryCreateRequest`` for the text entry.
-        fallback_metadata: Fields for the local-only insert (``author``,
-            ``raw_text``, ``metadata``) used when the adapter is read-only.
+        facility_request: A ``FacilityEntryCreateRequest`` for the text entry;
+            its ``author``, ``subject`` and ``details`` also build the local copy.
+        local_metadata: Metadata of ARIEL's own copy, as resolved by
+            ``resolve_entry_write``. Copied, never mutated.
     """
+    from osprey.services.ariel_search.models import SyncStatus
+
     try:
-        result = await service.create_entry(facility_request)
+        result = await service.create_entry(facility_request, local_metadata=local_metadata)
         return (
             result.entry_id,
             result.source_system,
@@ -590,15 +1041,17 @@ async def _publish_or_local(
 
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
+        metadata = copy.deepcopy(local_metadata)
+        metadata["sync_status"] = SyncStatus.LOCAL_ONLY.value
 
-        entry = {
+        entry: EnhancedLogbookEntry = {
             "entry_id": entry_id,
             "source_system": "ARIEL Web",
             "timestamp": now,
-            "author": fallback_metadata.get("author") or "Anonymous",
-            "raw_text": fallback_metadata["raw_text"],
+            "author": facility_request.author or "Anonymous",
+            "raw_text": f"{facility_request.subject}\n\n{facility_request.details}",
             "attachments": [],
-            "metadata": fallback_metadata["metadata"],
+            "metadata": metadata,
             "created_at": now,
             "updated_at": now,
         }
@@ -608,7 +1061,7 @@ async def _publish_or_local(
         return (
             entry_id,
             "ARIEL Web",
-            "local_only",
+            SyncStatus.LOCAL_ONLY.value,
             f"Entry {entry_id} created (saved locally, not published to external logbook)",
         )
 
@@ -633,32 +1086,31 @@ async def create_entry(
     )
     from osprey.services.ariel_search.models import FacilityEntryCreateRequest
 
+    resolved = await _resolve_create_fields(
+        service,
+        entry_req.metadata or {},
+        logbook=entry_req.logbook,
+        shift=entry_req.shift,
+        tags=entry_req.tags,
+    )
+    if isinstance(resolved, JSONResponse):
+        return resolved
+
     facility_request = FacilityEntryCreateRequest(
         subject=entry_req.subject,
         details=entry_req.details,
         author=entry_req.author,
-        logbook=entry_req.logbook,
-        shift=entry_req.shift,
+        logbook=resolved.logbook,
+        shift=resolved.shift,
         tags=entry_req.tags,
         auth_user=entry_req.auth_user,
         auth_password=entry_req.auth_password,
+        metadata=resolved.adapter_metadata,
     )
 
     try:
         entry_id, source_system, sync_status, message = await _publish_or_local(
-            service,
-            facility_request,
-            fallback_metadata={
-                "author": entry_req.author,
-                "raw_text": f"{entry_req.subject}\n\n{entry_req.details}",
-                "metadata": {
-                    "logbook": entry_req.logbook,
-                    "shift": entry_req.shift,
-                    "tags": entry_req.tags,
-                    "created_via": "ariel-web",
-                    **(entry_req.metadata or {}),
-                },
-            },
+            service, facility_request, local_metadata=resolved.local_metadata
         )
     except AuthenticationRequiredError as e:
         return _auth_required_response(e)
@@ -675,27 +1127,58 @@ async def create_entry(
     )
 
 
+#: The one 404 detail both attachment routes answer; it never echoes the id.
+_PICTURE_NOT_AVAILABLE = "picture not available"
+
+
+def _require_attachment_id(attachment_id: str) -> None:
+    """Answer 404 for an id that is not an attachment id, before any lookup."""
+    from osprey.services.ariel_search.attachments import ATTACHMENT_ID_RE
+
+    if re.fullmatch(ATTACHMENT_ID_RE, attachment_id) is None:
+        raise HTTPException(status_code=404, detail=_PICTURE_NOT_AVAILABLE)
+
+
 @router.get("/attachments/{attachment_id}")
 async def get_attachment(request: Request, attachment_id: str) -> Response:
-    """Serve an attachment file by its ID.
+    """Serve the stored original bytes of an attachment.
 
-    Returns the raw binary data with the correct Content-Type header.
+    The bytes are served through :func:`attachment_response`, which sniffs them:
+    a raster picture opens inline, anything else downloads as a file. The stored
+    MIME type is never used for serving.
     """
     service = _require_service(request)
+    _require_attachment_id(attachment_id)
 
     try:
-        attachment = await service.repository.get_attachment(attachment_id)
-        if not attachment:
-            raise HTTPException(status_code=404, detail=f"Attachment {attachment_id} not found")
+        original = await service.repository.get_attachment_original(attachment_id)
+        if not original:
+            raise HTTPException(status_code=404, detail=_PICTURE_NOT_AVAILABLE)
+        return attachment_response(bytes(original["data"]), original.get("filename") or "file")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
-        return Response(
-            content=attachment["data"],
-            media_type=attachment.get("mime_type") or "application/octet-stream",
-            headers={
-                "Content-Disposition": f'inline; filename="{attachment.get("filename", "file")}"',
-            },
-        )
 
+@router.get("/attachments/{attachment_id}/rendition")
+async def get_attachment_rendition(request: Request, attachment_id: str) -> Response:
+    """Serve the stored display rendition of a viewable picture.
+
+    Only bytes already stored are served; this route never renders. An
+    attachment that is not viewable (no finished copy, a skipped or non-picture
+    row, no rendition yet) answers 404.
+    """
+    from osprey.services.ariel_search.attachments.formats import is_viewable
+
+    service = _require_service(request)
+    _require_attachment_id(attachment_id)
+
+    try:
+        row = await service.repository.get_rendition(attachment_id)
+        if not row or not is_viewable(row):
+            raise HTTPException(status_code=404, detail=_PICTURE_NOT_AVAILABLE)
+        return attachment_response(bytes(row["rendition_bytes"]), row.get("filename") or "file")
     except HTTPException:
         raise
     except Exception as e:
@@ -711,30 +1194,24 @@ async def _store_and_link_attachments(
 
     Files are stored in ARIEL's own attachment store and referenced on the entry
     record. The adapter write contract carries no attachments, so they are never
-    pushed to an external logbook — they live in ARIEL only.
+    pushed to an external logbook — they live in ARIEL only. Each picture is
+    stored with its rendition, so it is viewable as soon as the request returns.
 
     Returns:
         The number of attachments stored.
     """
-    from osprey.services.ariel_search.attachments import generate_attachment_id
+    from osprey.services.ariel_search.attachments import store_native_attachment
 
-    attachment_infos: list[dict[str, Any]] = []
+    attachment_infos: list[AttachmentInfo] = []
     for filename, mime_type, data in staged:
-        attachment_id = generate_attachment_id()
-        await service.repository.store_attachment(
-            entry_id=entry_id,
-            attachment_id=attachment_id,
-            filename=filename,
-            mime_type=mime_type,
-            data=data,
-            size_bytes=len(data),
-        )
         attachment_infos.append(
-            {
-                "url": f"/api/attachments/{attachment_id}",
-                "type": mime_type,
-                "filename": filename,
-            }
+            await store_native_attachment(
+                service.repository,
+                entry_id,
+                filename=filename,
+                declared_mime=mime_type,
+                data=data,
+            )
         )
 
     if attachment_infos:
@@ -797,37 +1274,36 @@ async def create_entry_with_attachments(
             validate_file_size(len(data), upload_file.filename)
         except AttachmentValidationError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        mime_type = upload_file.content_type or guess_mime_type(upload_file.filename)
+        # A browser re-uploading a blob it downloaded declares octet-stream; that
+        # says nothing about the file, so the name decides instead.
+        declared = upload_file.content_type
+        if not declared or declared == OCTET_STREAM:
+            declared = guess_mime_type(upload_file.filename)
+        mime_type = declared
         staged.append((upload_file.filename, mime_type, data))
+
+    resolved = await _resolve_create_fields(
+        service, parsed_metadata, logbook=logbook, shift=shift, tags=tag_list
+    )
+    if isinstance(resolved, JSONResponse):
+        return resolved
 
     facility_request = FacilityEntryCreateRequest(
         subject=subject,
         details=details,
         author=author,
-        logbook=logbook,
-        shift=shift,
+        logbook=resolved.logbook,
+        shift=resolved.shift,
         tags=tag_list,
         auth_user=auth_user,
         auth_password=auth_password,
-        metadata=parsed_metadata,
+        metadata=resolved.adapter_metadata,
     )
 
     # Publish the text body (or save local-only for a read-only adapter).
     try:
         entry_id, source_system, sync_status, message = await _publish_or_local(
-            service,
-            facility_request,
-            fallback_metadata={
-                "author": author,
-                "raw_text": f"{subject}\n\n{details}",
-                "metadata": {
-                    "logbook": logbook,
-                    "shift": shift,
-                    "tags": tag_list,
-                    "created_via": "ariel-web",
-                    **parsed_metadata,
-                },
-            },
+            service, facility_request, local_metadata=resolved.local_metadata
         )
     except AuthenticationRequiredError as e:
         return _auth_required_response(e)
@@ -870,12 +1346,12 @@ async def get_status(request: Request) -> StatusResponse:
             database_uri=status.database_uri,
             entry_count=status.entry_count,
             embedding_tables=[
-                {
-                    "table_name": t.table_name,
-                    "entry_count": t.entry_count,
-                    "dimension": t.dimension,
-                    "is_active": t.is_active,
-                }
+                EmbeddingTableStatus(
+                    table_name=t.table_name,
+                    entry_count=t.entry_count,
+                    dimension=t.dimension,
+                    is_active=t.is_active,
+                )
                 for t in status.embedding_tables
             ],
             active_embedding_model=status.active_embedding_model,

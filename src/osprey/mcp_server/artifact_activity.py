@@ -59,7 +59,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from osprey.mcp_server.http import notify_agent_activity
-from osprey.stores.artifact_store import current_artifact_mutation_actor
+from osprey.stores.artifact_store import AUDIT_ORIGIN, current_artifact_mutation_actor
 
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactEntry
@@ -140,6 +140,8 @@ def notify_bulk_delete(scope: str, count: int) -> None:
 
 def _is_bookkeeping(entry: ArtifactEntry) -> bool:
     """Return True when *entry* is a by-product of a run rather than an action."""
+    if entry.origin == AUDIT_ORIGIN:
+        return True
     if entry.category == _BOOKKEEPING_CATEGORY:
         return True
     return entry.artifact_type == "notebook" and entry.tool_source in _NOTEBOOK_BOOKKEEPING_SOURCES

@@ -22,7 +22,6 @@ import { test, expect, describe, beforeEach, afterEach } from 'vitest';
 import {
   hostElement,
   hydrate,
-  poolElement,
   reconcile,
 } from '../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js';
 import {
@@ -101,9 +100,14 @@ function typesIn(/** @type {'header' | 'status'} */ host) {
   );
 }
 
+/** The hidden pool parked shells wait in. */
+function poolElement() {
+  return document.getElementById('bar-item-pool');
+}
+
 /** @returns {string[]} the `data-bar-item` types currently parked in the pool */
 function typesInPool() {
-  const pool = poolElement(document);
+  const pool = poolElement();
   if (!pool) return [];
   return Array.from(pool.querySelectorAll('.bar-item')).map(
     (el) => /** @type {HTMLElement} */ (el).dataset.barItem ?? ''
@@ -181,7 +185,7 @@ describe('rung 3 — foldable items fold, lowest priority first', () => {
     crowdingAtCapacity(1);
     applyOverflow(document);
 
-    expect(poolElement(document)?.contains(clock)).toBe(true);
+    expect(poolElement()?.contains(clock)).toBe(true);
     expect(clock.hasAttribute('hidden')).toBe(false);
     expect(clock.dataset.barDensity).toBeUndefined();
   });

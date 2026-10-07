@@ -5,7 +5,9 @@
  *   npx vitest run tests/interfaces/channel_finder/feedback-render.test.mjs
  */
 
-import { test, expect } from 'vitest';
+import { test, expect, afterEach } from 'vitest';
+
+import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 import {
   _toolLabel,
@@ -15,6 +17,8 @@ import {
   _parseSelections,
   _formatTime,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/feedback-render.js';
+
+afterEach(() => stampFacilityZone(null));
 
 test('_toolLabel maps tool names to short badges', () => {
   expect(_toolLabel('mcp__cf__build_channels')).toBe('build');
@@ -74,8 +78,20 @@ test('_parseSelections parses one key:value per line, skipping blanks and keyles
   expect(_parseSelections(undefined)).toEqual({});
 });
 
-test('_formatTime returns "" for empty input and a non-empty label for a valid ISO string', () => {
+test('_formatTime reads the stamped facility zone', () => {
+  stampFacilityZone(FACILITY_ZONE);
+  const expected = new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: FACILITY_ZONE,
+  }).format(new Date('2024-01-15T10:30:00Z'));
+  expect(_formatTime('2024-01-15T10:30:00Z')).toBe(expected);
+});
+
+test('_formatTime renders nothing for empty input and shows an unparseable value as written', () => {
   expect(_formatTime('')).toBe('');
   expect(_formatTime(undefined)).toBe('');
-  expect(_formatTime('2024-01-15T10:30:00Z').length).toBeGreaterThan(0);
+  expect(_formatTime('not-a-time')).toBe('not-a-time');
 });

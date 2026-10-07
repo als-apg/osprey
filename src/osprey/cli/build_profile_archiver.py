@@ -43,8 +43,7 @@ from osprey.connectors.types import (
 )
 from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
-
-from .build_profile_schema import _ENV_VAR_RE
+from osprey_connectors.connection import ENV_NAME_RE
 
 #: Block compressors ``mongod`` accepts for a WiredTiger collection. The value
 #: reaches the container as a command flag and the collection inherits it at
@@ -203,7 +202,7 @@ class VAArchiverConfig:
 
     auth_database: str = "admin"
     """Database that user authenticates against — ``admin`` for the root user a
-    deployed store mints. Rendered as the connector's ``auth`` key."""
+    deployed store mints. Rendered as the connector's ``auth.source`` key."""
 
     password_env: str = "MONGO_ROOT_PASSWORD"
     """Name of the variable holding that user's password. The value is minted
@@ -409,7 +408,7 @@ def va_archiver_errors(
             f"forbids in a database name: {' '.join(illegal)}"
         )
 
-    if not _ENV_VAR_RE.match(cfg.password_env):
+    if not ENV_NAME_RE.match(cfg.password_env):
         errors.append(
             f"va_archiver.password_env must be an environment variable NAME "
             f"(letters, digits, underscores), got {cfg.password_env!r}. The "
@@ -559,10 +558,10 @@ def va_archiver_config_overrides(va_archiver: VAArchiverConfig | None) -> dict[s
         f"{CONNECTION_CONFIG_PREFIX}.port": cfg.port_host,
         f"{CONNECTION_CONFIG_PREFIX}.name": cfg.database,
         f"{CONNECTION_CONFIG_PREFIX}.collection": cfg.collection,
-        f"{CONNECTION_CONFIG_PREFIX}.auth": cfg.auth_database,
-        f"{CONNECTION_CONFIG_PREFIX}.username": cfg.username,
-        f"{CONNECTION_CONFIG_PREFIX}.password_env": cfg.password_env,
-        f"{CONNECTION_CONFIG_PREFIX}.timeout": cfg.timeout_sec,
+        f"{CONNECTION_CONFIG_PREFIX}.auth.source": cfg.auth_database,
+        f"{CONNECTION_CONFIG_PREFIX}.auth.username": cfg.username,
+        f"{CONNECTION_CONFIG_PREFIX}.auth.password_env": cfg.password_env,
+        f"{CONNECTION_CONFIG_PREFIX}.timeout_s": cfg.timeout_sec,
     }
     overrides.update(
         {f"{KNOBS_CONFIG_PREFIX}.{knob}": getattr(cfg, knob) for knob in _KNOB_CONFIG_KEYS}
@@ -762,10 +761,10 @@ def _reject_unknown_keys(block: dict[str, Any], problems: list[str]) -> None:
 
 def _parse_int(value: Any, key: str, problems: list[str]) -> int:
     """Read one integer knob, refusing the bool YAML would otherwise let pass."""
-    if isinstance(value, bool) or not isinstance(value, int):
-        problems.append(f"'{key}' must be an integer (got {value!r}).")
-        return 1
-    return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    problems.append(f"'{key}' must be an integer (got {value!r}).")
+    return 1
 
 
 def _parse_str(value: Any, key: str, problems: list[str]) -> str:

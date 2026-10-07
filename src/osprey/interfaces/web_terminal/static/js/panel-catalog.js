@@ -23,6 +23,7 @@
  * @property {string | null} configEndpoint
  * @property {string | null} [healthEndpoint] - null/undefined means skip health polling
  * @property {string} [path] - iframe subpath for custom panels (e.g. "/panel/")
+ * @property {string} [startEndpoint] - POST target that starts a failed sidecar again
  */
 
 /** Rail id of the terminal/chat tile. NOT a service panel: it has no iframe,
@@ -108,6 +109,7 @@ export const PANELS = [
     label: labelOf('jupyter'),
     configEndpoint: '/api/jupyter-server',
     healthEndpoint: '/api/status', // the sidecar's own status route, reached through the panel proxy
+    startEndpoint: '/api/panels/jupyter/start', // data string; apiRequest prefixes it in retryPanelStart()
   },
   {
     id: 'okf',
@@ -118,6 +120,6 @@ export const PANELS = [
     id: 'system-health',
     label: labelOf('system-health'),
     configEndpoint: '/api/system-health-server', // data string; fetchJSON prefixes it in initPanel()
-    healthEndpoint: '/health', // EXPLICIT — omitting/null skips polling and pins the panel healthy, which would leave the rail entry enabled with the sidecar down
+    healthEndpoint: '/health', // EXPLICIT — omitting/null skips polling and pins the panel healthy, so its rail entry would never go disabled (down at boot) or unreachable (down later)
   },
 ];

@@ -8,7 +8,7 @@
  *
  *   - Expert's preview pane (preview.js's `renderPreview`) — inside its
  *     header/meta/action chrome
- *   - Simple's latest-result card (gallery.js's `renderSimple`) — inside its
+ *   - Simple's latest-result card (simple-view.js's `render`) — inside its
  *     own friendlier header (title, NEW badge, Open full size / Save)
  *
  * The two panes differ in the chrome around the viewport, never in the

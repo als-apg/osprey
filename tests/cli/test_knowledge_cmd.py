@@ -162,6 +162,8 @@ def test_validate_help_lists_validate() -> None:
 def test_validate_clean_bundle_exits_zero(okf_bundle: Path) -> None:
     """``validate <bundle>`` exits 0 when all documents are valid."""
     runner = CliRunner()
+    regen = runner.invoke(knowledge, ["regen-index", str(okf_bundle)])
+    assert regen.exit_code == 0, regen.output
     result = runner.invoke(knowledge, ["validate", str(okf_bundle)])
     assert result.exit_code == 0, result.output + (result.stderr or "")
     assert "valid" in result.output.lower()
@@ -285,6 +287,98 @@ def test_validate_malformed_yaml_index_and_broken_concept_collect_all(
     assert "device.md" in result.output
     # No raw Python traceback should appear.
     assert "Traceback" not in result.output
+
+
+def _bundle_with_a_removed_page(okf_bundle: Path) -> Path:
+    """Regenerate, add a page, regenerate, then delete it: the index still lists it."""
+    runner = CliRunner()
+    assert runner.invoke(knowledge, ["regen-index", str(okf_bundle)]).exit_code == 0
+    (okf_bundle / "concepts" / "linac.md").write_text(
+        textwrap.dedent("""\
+            ---
+            type: Concept
+            title: Linac
+            description: The injector linac.
+            ---
+
+            Body.
+        """),
+        encoding="utf-8",
+    )
+    assert runner.invoke(knowledge, ["regen-index", str(okf_bundle)]).exit_code == 0
+    (okf_bundle / "concepts" / "linac.md").unlink()
+    return okf_bundle
+
+
+def test_validate_reports_an_index_that_lists_a_removed_page(okf_bundle: Path) -> None:
+    """``validate`` names an index that still lists a deleted page, and the fix."""
+    bundle = _bundle_with_a_removed_page(okf_bundle)
+
+    result = CliRunner().invoke(knowledge, ["validate", str(bundle)])
+
+    assert result.exit_code != 0
+    assert "concepts/index.md" in result.output
+    assert "does not match its directory" in result.output
+    assert "osprey knowledge regen-index" in result.output
+
+
+def test_validate_reports_a_missing_index(okf_bundle: Path) -> None:
+    """``validate`` fails a directory that holds pages but has no index.md."""
+    result = CliRunner().invoke(knowledge, ["validate", str(okf_bundle)])
+
+    assert result.exit_code != 0
+    assert "missing" in result.output
+
+
+def test_validate_passes_after_regen_index(okf_bundle: Path) -> None:
+    """``regen-index`` is the remedy ``validate`` names."""
+    bundle = _bundle_with_a_removed_page(okf_bundle)
+    runner = CliRunner()
+    assert runner.invoke(knowledge, ["regen-index", str(bundle)]).exit_code == 0
+
+    result = runner.invoke(knowledge, ["validate", str(bundle)])
+
+    assert result.exit_code == 0, result.output
+
+
+def test_validate_reports_a_bad_index_once(okf_bundle: Path) -> None:
+    """An index that breaks OKF §6 is one failed file, not a second drift line."""
+    runner = CliRunner()
+    assert runner.invoke(knowledge, ["regen-index", str(okf_bundle)]).exit_code == 0
+    (okf_bundle / "concepts" / "index.md").write_text(
+        textwrap.dedent("""\
+            ---
+            title: Should not be here
+            ---
+
+            # Concepts
+        """),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(knowledge, ["validate", str(okf_bundle)])
+
+    assert result.exit_code != 0
+    lines = [line for line in result.output.splitlines() if "concepts/index.md" in line]
+    assert len(lines) == 1, result.output
+    assert "1 file(s) failed validation" in result.output
+
+
+def test_the_shipped_bundle_validates() -> None:
+    """The example bundle passes ``validate``, so an edit to it needs ``regen-index`` to merge.
+
+    ``validate`` never writes, so the bundle is read in place.
+    """
+    import osprey
+
+    bundle = (
+        Path(osprey.__file__).parent / "templates/apps/control_assistant/data/facility_knowledge"
+    )
+
+    result = CliRunner().invoke(knowledge, ["validate", str(bundle)])
+
+    assert result.exit_code == 0, result.output
+    assert "valid" in result.output
 
 
 # ---------------------------------------------------------------------------

@@ -598,13 +598,6 @@ class TestApplyingBound:
 
         assert bound == 5 + 2 * (10 + 4)
 
-    def test_a_launch_that_cannot_retry_counts_the_pair_once(self):
-        bound = target_state.applying_bound_s(
-            spawn_timeout_s=10, probe_timeout_s=4, drain_timeout_s=5, fallback_retry=False
-        )
-
-        assert bound == 5 + 10 + 4
-
 
 class TestPublishLastSwitch:
     @pytest.mark.usefixtures("started")

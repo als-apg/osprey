@@ -147,3 +147,160 @@ def test_reapply_is_idempotent(tmp_path, database_url):
 
     entries = asyncio.run(_fetch(database_url))
     assert len(entries) == 28  # no duplication across re-applies
+
+
+async def _embedding_tables(database_url: str) -> set[str]:
+    """Every text and image embedding table currently in the store."""
+    from osprey.services.ariel_search.config import DatabaseConfig
+    from osprey.services.ariel_search.database import create_connection_pool
+    from osprey.services.ariel_search.database.repository import image_embedding_table_names
+
+    pool = await create_connection_pool(DatabaseConfig(uri=database_url))
+    try:
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_name LIKE 'text_embeddings_%'"
+            )
+            tables = {row[0] for row in await cur.fetchall()}
+            tables.update(await image_embedding_table_names(cur))
+    finally:
+        await pool.close()
+    return tables
+
+
+def test_apply_leaves_the_embedding_tables_in_place(tmp_path, database_url):
+    """The purge inside apply drops every embedding table; apply migrates again
+    afterwards, so vector and picture search work on the reseeded logbook without
+    a manual ``osprey ariel migrate`` (a running ingest watcher never recreates
+    them on its own)."""
+    from osprey.services.ariel_search.database.migrations import image_table_name
+    from tests.services.ariel_search.llama_stub import MODEL as IMAGE_MODEL
+
+    project = _make_project(tmp_path, database_url)
+    config = yaml.safe_load((project / "config.yml").read_text())
+    config["ariel"]["enhancement_modules"] = {
+        "text_embedding": {
+            "enabled": True,
+            "models": [{"name": "nomic-embed-text", "dimension": 768}],
+        },
+        "image_embedding": {
+            "enabled": True,
+            "provider": {"name": "llama-cpp", "base_url": "http://127.0.0.1:9"},
+            "model": IMAGE_MODEL,
+            "dimensions": 1024,
+        },
+    }
+    (project / "config.yml").write_text(yaml.safe_dump(config))
+
+    apply_scenarios(project, ["rf-thermal"], now=T0)
+
+    tables = asyncio.run(_embedding_tables(database_url))
+    assert image_table_name(IMAGE_MODEL, 1024) in tables
+    assert any(table.startswith("text_embeddings_") for table in tables), tables
+
+
+async def _pictures(database_url: str, entry_id: str) -> tuple[list, list, list]:
+    """``(entry attachments JSONB, copy rows, renditions)`` for one seeded entry."""
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.database import create_connection_pool
+    from osprey.services.ariel_search.database.repository import ARIELRepository
+
+    config = ARIELConfig.from_dict({"database": {"uri": database_url}})
+    pool = await create_connection_pool(config.database)
+    try:
+        repository = ARIELRepository(pool, config)
+        entry = await repository.get_entry(entry_id)
+        rows = await repository.get_copy_rows(entry_id)
+        renditions = [await repository.get_rendition(row["attachment_id"]) for row in rows]
+    finally:
+        await pool.close()
+    assert entry is not None, f"{entry_id} was not seeded"
+    return list(entry["attachments"]), rows, renditions
+
+
+async def _original(database_url: str, attachment_id: str) -> bytes:
+    """The stored original bytes of one attachment."""
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.database import create_connection_pool
+    from osprey.services.ariel_search.database.repository import ARIELRepository
+
+    config = ARIELConfig.from_dict({"database": {"uri": database_url}})
+    pool = await create_connection_pool(config.database)
+    try:
+        original = await ARIELRepository(pool, config).get_attachment_original(attachment_id)
+    finally:
+        await pool.close()
+    assert original is not None, f"{attachment_id} has no stored original"
+    return bytes(original["data"])
+
+
+def _drawn(entry_id: str) -> bytes:
+    """The PNG seeding draws for ``entry_id``'s plot spec when applied at :data:`T0`."""
+    from osprey.simulation.machine import PlotSpec, load_narratives
+    from osprey.simulation.plots import render_plot_spec
+    from osprey.utils.relative_time import resolve_relative_timestamp
+
+    for entries in load_narratives(TEMPLATE_SIM / "scenarios").values():
+        for entry in entries:
+            if entry.entry_id == entry_id:
+                (spec,) = [item for item in entry.attachments if isinstance(item, PlotSpec)]
+                return render_plot_spec(spec, resolve_relative_timestamp(entry.when, T0))
+    raise AssertionError(f"no bundle entry {entry_id}")
+
+
+def test_seeded_pictures_are_copied_with_a_viewable_rendition(tmp_path, database_url):
+    """A bundle entry's picture is in the store, linked on the entry and viewable as
+    soon as apply returns -- no enhancement pass runs in between."""
+    project = _make_project(tmp_path, database_url)
+    apply_scenarios(project, ["rf-thermal"], now=T0)
+
+    items, rows, renditions = asyncio.run(_pictures(database_url, "DEMO-027"))
+
+    assert len(items) == len(rows) == 1
+    (row,) = rows
+    assert row["copy_status"] == "copied", row
+    assert items[0]["url"] == f"/api/attachments/{row['attachment_id']}"
+    assert items[0]["filename"] == "cavity_temperatures.png"
+    assert renditions[0] is not None
+    # The stored original is the entry's plot spec drawn at the entry's own instant.
+    assert asyncio.run(_original(database_url, row["attachment_id"])) == _drawn("DEMO-027")
+
+    bare, bare_rows, _ = asyncio.run(_pictures(database_url, "DEMO-026"))
+    assert bare == [] and bare_rows == []
+
+
+def test_reapply_replaces_pictures_rather_than_piling_them_up(tmp_path, database_url):
+    project = _make_project(tmp_path, database_url)
+    apply_scenarios(project, ["rf-thermal"], now=T0)
+    apply_scenarios(project, ["rf-thermal"], now=T0)
+
+    items, rows, _ = asyncio.run(_pictures(database_url, "DEMO-027"))
+    assert len(items) == len(rows) == 1
+
+
+def test_a_demo_narrative_seeds_every_scenario_with_its_pictures(tmp_path, database_url):
+    """The standalone path: no simulation, every bundle's narrative, viewable pictures."""
+    from osprey.services.ariel_search.cli_operations import run_migrate
+    from osprey.simulation.apply import seed_active_logbook
+
+    shutil.copytree(TEMPLATE_SIM / "scenarios", tmp_path / "data" / "logbook_seed")
+    ariel = {"database": {"uri": database_url}, "demo_narrative": "data/logbook_seed"}
+    config = {"ariel": ariel}
+    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
+    asyncio.run(run_migrate(ariel))
+    from osprey.services.ariel_search.cli_operations import execute_purge
+
+    asyncio.run(execute_purge(ariel, embeddings_only=False))
+
+    seeded = seed_active_logbook(config, tmp_path, ariel)
+
+    assert seeded == 29
+    assert len(asyncio.run(_fetch(database_url))) == 29
+    for entry_id in ("DEMO-011", "DEMO-027", "DEMO-031"):
+        items, rows, renditions = asyncio.run(_pictures(database_url, entry_id))
+        assert len(items) == len(rows) == 1, entry_id
+        assert rows[0]["copy_status"] == "copied"
+        assert renditions[0] is not None
+    # A second deploy finds the logbook full and adds nothing.
+    assert seed_active_logbook(config, tmp_path, ariel) == 0

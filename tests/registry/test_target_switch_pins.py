@@ -646,11 +646,11 @@ def test_a_two_target_deployment_enumerates_exactly_its_two_targets() -> None:
     )
 
     connector = {
-        "virtual_accelerator": {"timeout": 5.0},
+        "virtual_accelerator": {"timeout_s": 5.0},
         "epics": {"address_list": "10.0.0.1"},
     }
     two = {"type": "virtual_accelerator", "writes_enabled": True, "connector": connector}
-    three = {**two, "connector": {**connector, "live_standin": {"timeout": 5.0}}}
+    three = {**two, "connector": {**connector, "live_standin": {"timeout_s": 5.0}}}
 
     assert configured_targets(two) == [TARGET_LIVE, TARGET_VA]
     assert set(session_posture(two)) == {TARGET_LIVE, TARGET_VA}

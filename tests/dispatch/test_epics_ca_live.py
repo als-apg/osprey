@@ -68,7 +68,7 @@ _CHILD = textwrap.dedent(
                 break
             await asyncio.sleep(0.1)
         await source.stop()
-        print(json.dumps(fired))
+        print(json.dumps(fired, default=str))  # event instants are datetimes
 
     asyncio.run(main())
     """

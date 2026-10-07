@@ -40,18 +40,14 @@ export function resetFetchCache() {
   _fetchPromise = null;
 }
 
-// Re-exported so the sibling scaffold write-action modules (edit.js,
-// detail.js) share api.js's one copy instead of each keeping their own.
-export { apiRequest };
-
 // ---- Data Actions ---- //
 
 /**
  * The subset of an ArtifactGallery instance that {@link loadArtifacts} needs:
  * the domain filter and the two category-remapping tables.
  * @typedef {object} ArtifactFilterState
- * @property {(artifact: {category: string, name?: string}) => boolean} categoryFilter
- * @property {Record<string, string>} categoryOverrides
+ * @property {(artifact: {category: string, name?: string, output_path?: string}) => boolean} categoryFilter
+ * @property {Record<string, string>} categoryOverrides keyed by output path
  * @property {Record<string, string>} categoryRemaps
  */
 
@@ -86,17 +82,15 @@ export async function loadArtifacts(state, opts = {}) {
     .map(/** @param {any} a */ (a) => ({
       ...a,
       displayCategory:
-        state.categoryOverrides[a.name] ||
+        state.categoryOverrides[a.output_path] ||
         state.categoryRemaps[a.category] ||
         a.category,
     }));
 
   const allUntracked = untrackedData.untracked || [];
-  const untrackedFiles = allUntracked.filter(/** @param {any} u */ (u) => {
-    const mapped = state.categoryRemaps[u.category] || u.category;
-    return state.categoryFilter({ category: u.category, name: u.canonical_name })
-      || state.categoryFilter({ category: mapped, name: u.canonical_name });
-  });
+  const untrackedFiles = allUntracked.filter(
+    /** @param {any} u */ (u) => state.categoryFilter({ category: u.category, name: u.canonical_name })
+  );
 
   const framework = artifacts.filter(/** @param {any} a */ (a) => a.status === 'framework').length;
   const userOwned = artifacts.filter(/** @param {any} a */ (a) => a.status === 'user-owned').length;
@@ -193,7 +187,7 @@ export function createScaffoldDataActions(domain, callbacks) {
       await registerUntrackedFile(canonicalName);
       await reloadFull();
     } catch (e) {
-      callbacks.onLoadError(`Register failed: ${messageOf(e)}`);
+      callbacks.onLoadError(messageOf(e));
     }
   }
 
@@ -203,7 +197,7 @@ export function createScaffoldDataActions(domain, callbacks) {
       const deleted = await deleteUntrackedFile(canonicalName);
       if (deleted) await reloadFull();
     } catch (e) {
-      callbacks.onLoadError(`Delete failed: ${messageOf(e)}`);
+      callbacks.onLoadError(messageOf(e));
     }
   }
 

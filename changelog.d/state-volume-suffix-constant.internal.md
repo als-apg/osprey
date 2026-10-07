@@ -1,0 +1,1 @@
+Every per-user state-volume name, whether in the web-terminal compose file, the archive service, `osprey status` or orphan-volume cleanup, is built from one constant. The rendered names are unchanged.

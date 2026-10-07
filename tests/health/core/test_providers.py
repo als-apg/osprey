@@ -27,11 +27,15 @@ from osprey.health.models import CheckResult, Status
 class _StubRegistry:
     """Duck-typed stand-in for ``ProviderRegistry`` with a name→class map."""
 
-    def __init__(self, mapping: dict[str, type]) -> None:
+    def __init__(self, mapping: dict[str, type], non_chat: frozenset[str] = frozenset()) -> None:
         self._mapping = mapping
+        self._non_chat = non_chat
 
     def get_provider(self, name: str) -> type | None:
         return self._mapping.get(name)
+
+    def is_chat(self, name: str) -> bool:
+        return name not in self._non_chat
 
 
 def _provider(result: tuple[bool, str] = (True, "ok"), sleep: float = 0.0) -> type:
@@ -160,3 +164,45 @@ async def test_seven_slow_providers_run_concurrently() -> None:
     # Serial execution would take n × per_item_sleep = 7s; concurrent ≈ 1s. A
     # generous ceiling well under the serial time proves the items overlap.
     assert elapsed < 4.0
+
+
+_EMBEDDINGS_ONLY = "embeddings only, no chat; reachability is reported by `osprey ariel status`"
+
+
+async def test_a_non_chat_provider_is_skipped_in_config_order() -> None:
+    probed: list[str] = []
+
+    def _recording(name: str) -> type:
+        class _Fake:
+            def check_health(self, *_: Any, **__: Any) -> tuple[bool, str]:
+                probed.append(name)
+                return True, "reachable"
+
+        return _Fake
+
+    registry = _StubRegistry(
+        {"a": _recording("a"), "emb": _recording("emb"), "z": _recording("z")},
+        non_chat=frozenset({"emb"}),
+    )
+    config = {"api": {"providers": {"a": {}, "emb": {}, "z": {}}}}
+    rows = await _run(config, registry)
+
+    assert [row.name for row in rows] == ["a", "emb", "z"]
+    emb = rows[1]
+    assert emb.status is Status.SKIP
+    assert emb.message == _EMBEDDINGS_ONLY
+    assert sorted(probed) == ["a", "z"]
+
+
+async def test_the_packaged_llama_cpp_entry_gives_no_warning_row() -> None:
+    from osprey.models.provider_registry import get_provider_registry
+    from osprey.profiles.providers import load_provider_catalog
+
+    entry = load_provider_catalog(None).entries["llama-cpp"]
+    config = {"api": {"providers": {"llama-cpp": dict(entry)}}}
+    rows = await providers(config, registry=get_provider_registry())()
+
+    assert len(rows) == 1
+    assert rows[0].name == "llama-cpp"
+    assert rows[0].status is Status.SKIP
+    assert rows[0].message == _EMBEDDINGS_ONLY

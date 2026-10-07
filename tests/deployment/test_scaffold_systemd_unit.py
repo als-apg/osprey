@@ -37,7 +37,6 @@ import yaml
 
 import osprey
 from osprey.cli.deploy_scaffold_templates import (
-    DEPLOY_DOCS_URL,
     SYSTEMD_MARKER,
     SYSTEMD_START_TIMEOUT_SEC,
     SYSTEMD_TEMPLATE,
@@ -45,6 +44,7 @@ from osprey.cli.deploy_scaffold_templates import (
     build_systemd_context,
     render,
 )
+from osprey.docs_links import DEPLOY_DOCS_URL
 
 GOLDENS = Path(__file__).parent / "goldens"
 EXEMPLAR_DIR = GOLDENS / "exemplar-profile"

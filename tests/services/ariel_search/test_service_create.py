@@ -5,10 +5,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from osprey.services.ariel_search.entry_fields import resolve_entry_write
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.models import (
     FacilityEntryCreateRequest,
     FacilityEntryCreateResult,
     SyncStatus,
+)
+from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by name
+    EXAMPLE_SOURCE_SYSTEM,
+    dict_repository_fixture,
+    example_config,
+    example_descriptors,
+    example_entry_fields_fixture,
 )
 
 
@@ -32,7 +41,7 @@ def _make_mock_service(adapter_supports_write: bool = True, source_system: str =
     service = ARIELSearchService(config=config, pool=mock_pool, repository=mock_repository)
 
     # Build mock adapter
-    mock_adapter = AsyncMock()
+    mock_adapter = AsyncMock(spec=FacilityAdapter)
     mock_adapter.supports_write = adapter_supports_write
     mock_adapter.source_system_name = source_system
     mock_adapter.create_entry = AsyncMock(return_value="test-entry-001")
@@ -244,7 +253,7 @@ async def test_create_entry_mirrors_inline_when_qmd_export_enabled(tmp_path):
     )
     service = ARIELSearchService(config=config, pool=MagicMock(), repository=AsyncMock())
 
-    mock_adapter = AsyncMock()
+    mock_adapter = AsyncMock(spec=FacilityAdapter)
     mock_adapter.supports_write = True
     mock_adapter.source_system_name = "Generic JSON"
     mock_adapter.create_entry = AsyncMock(return_value="inline-mirror-001")
@@ -284,7 +293,7 @@ async def test_create_entry_mirror_failure_is_warned_not_raised(caplog):
     )
     service = ARIELSearchService(config=config, pool=MagicMock(), repository=AsyncMock())
 
-    mock_adapter = AsyncMock()
+    mock_adapter = AsyncMock(spec=FacilityAdapter)
     mock_adapter.supports_write = True
     mock_adapter.source_system_name = "Generic JSON"
     mock_adapter.create_entry = AsyncMock(return_value="inline-mirror-002")
@@ -320,7 +329,7 @@ async def test_create_entry_skips_mirror_when_qmd_export_disabled(tmp_path):
     )
     service = ARIELSearchService(config=config, pool=MagicMock(), repository=AsyncMock())
 
-    mock_adapter = AsyncMock()
+    mock_adapter = AsyncMock(spec=FacilityAdapter)
     mock_adapter.supports_write = True
     mock_adapter.source_system_name = "Generic JSON"
     mock_adapter.create_entry = AsyncMock(return_value="inline-mirror-003")
@@ -332,3 +341,157 @@ async def test_create_entry_skips_mirror_when_qmd_export_disabled(tmp_path):
         await service.create_entry(FacilityEntryCreateRequest(subject="No mirror", details="x"))
 
     assert not mirror.exists()
+
+
+def _example_service(repository):
+    from osprey.services.ariel_search.service import ARIELSearchService
+
+    return ARIELSearchService(config=example_config(), pool=MagicMock(), repository=repository)
+
+
+@pytest.mark.asyncio
+async def test_create_entry_keeps_declared_date_in_local_copy(
+    example_entry_fields, dict_repository
+):
+    """A declared date value lands in the optimistic copy as its ISO string."""
+    resolved = resolve_entry_write(
+        example_descriptors(),
+        {"book": "ops", "day": "2026-10-04"},
+        logbook=None,
+        shift=None,
+        tags=["rf"],
+        created_via="ariel-web",
+    )
+    request = FacilityEntryCreateRequest(
+        subject="Beam lost",
+        details="RF trip",
+        author="op",
+        tags=["rf"],
+        metadata=resolved.adapter_metadata,
+    )
+
+    result = await _example_service(dict_repository).create_entry(
+        request, local_metadata=resolved.local_metadata
+    )
+
+    assert result.entry_id == "example-1"
+    assert result.sync_status == SyncStatus.PENDING_SYNC
+    stored = dict_repository.entries["example-1"]["metadata"]
+    assert stored["day"] == "2026-10-04"
+    assert stored["book"] == "ops"
+    assert stored["tags"] == ["rf"]
+    assert stored["created_via"] == "ariel-web"
+    assert stored["sync_status"] == SyncStatus.PENDING_SYNC.value
+    # The adapter receives the request as built, with adapter metadata only.
+    assert example_entry_fields.state.created == [request]
+    assert "created_via" not in example_entry_fields.state.created[0].metadata
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("example_entry_fields")
+async def test_create_entry_keeps_provenance_on_writable_adapter(dict_repository):
+    """session_metadata and created_via survive a write through a writable adapter."""
+    session = {"session_id": "s-42", "agent": "logbook"}
+    resolved = resolve_entry_write(
+        example_descriptors(),
+        {"book": "physics"},
+        logbook="control-room",
+        shift="day",
+        tags=[],
+        created_via="ariel-mcp",
+        session_metadata=session,
+    )
+    request = FacilityEntryCreateRequest(
+        subject="Orbit drift",
+        details="",
+        logbook=resolved.logbook,
+        shift=resolved.shift,
+        metadata=resolved.adapter_metadata,
+    )
+
+    await _example_service(dict_repository).create_entry(
+        request, local_metadata=resolved.local_metadata
+    )
+
+    stored = dict_repository.entries["example-1"]["metadata"]
+    assert stored["session_metadata"] == session
+    assert stored["created_via"] == "ariel-mcp"
+    assert stored["logbook"] == "control-room"
+    assert stored["shift"] == "day"
+    assert stored["book"] == "physics"
+    assert dict_repository.entries["example-1"]["source_system"] == EXAMPLE_SOURCE_SYSTEM
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("example_entry_fields")
+async def test_create_entry_service_sets_sync_status_over_local_metadata(dict_repository):
+    """A sync_status in the local metadata never overrides the service's own."""
+    local = {"created_via": "ariel-web", "sync_status": "synced"}
+
+    await _example_service(dict_repository).create_entry(
+        FacilityEntryCreateRequest(subject="x", details="y"), local_metadata=local
+    )
+
+    stored = dict_repository.entries["example-1"]["metadata"]
+    assert stored["sync_status"] == SyncStatus.PENDING_SYNC.value
+    # The caller's dict is copied, not mutated.
+    assert local == {"created_via": "ariel-web", "sync_status": "synced"}
+    assert stored is not local
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("example_entry_fields")
+async def test_create_entry_without_local_metadata_keeps_default_copy(dict_repository):
+    """With no local metadata the optimistic copy holds logbook, shift, tags, sync_status."""
+    request = FacilityEntryCreateRequest(
+        subject="x", details="y", logbook="ops", shift="night", tags=["a"]
+    )
+
+    await _example_service(dict_repository).create_entry(request)
+
+    assert dict_repository.entries["example-1"]["metadata"] == {
+        "logbook": "ops",
+        "shift": "night",
+        "tags": ["a"],
+        "sync_status": SyncStatus.PENDING_SYNC.value,
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_entry_synced_copy_is_facility_record_not_merged():
+    """After re-ingest finds the entry, the facility record replaces the local copy."""
+    service, mock_adapter, mock_repository = _make_mock_service(
+        adapter_supports_write=True,
+        source_system="Example eLog",
+    )
+    fetched_entry = {
+        "entry_id": "test-entry-001",
+        "source_system": "Example eLog",
+        "timestamp": None,
+        "author": "tester",
+        "raw_text": "Test entry",
+        "attachments": [],
+        "metadata": {"facility": "yes"},
+        "created_at": None,
+        "updated_at": None,
+    }
+
+    async def fetch_with_entry(**kwargs):
+        yield fetched_entry
+
+    mock_adapter.fetch_entries = fetch_with_entry
+
+    with patch(
+        "osprey.services.ariel_search.ingestion.get_adapter",
+        return_value=mock_adapter,
+    ):
+        result = await service.create_entry(
+            FacilityEntryCreateRequest(subject="Test entry", details=""),
+            local_metadata={"created_via": "ariel-web", "session_metadata": {"s": 1}},
+        )
+
+    assert result.sync_status == SyncStatus.SYNCED
+    optimistic = mock_repository.upsert_entry.call_args_list[0][0][0]
+    assert optimistic["metadata"]["created_via"] == "ariel-web"
+    synced = mock_repository.upsert_entry.call_args_list[1][0][0]
+    assert synced["metadata"] == {"facility": "yes"}

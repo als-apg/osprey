@@ -7,7 +7,6 @@ import copy
 import json
 import logging
 import os
-import re
 import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
@@ -22,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebS
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from osprey.agent_runner.launcher import NoConversationWatch, build_session_argv
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.common_middleware import (
     HTTP_MUTATION_POSTURE,
@@ -36,7 +36,6 @@ from osprey.interfaces.web_terminal.control_context_owner import (
     ContextOwnerError,
     Mutation,
     owned_elsewhere_message,
-    terminal_identity,
 )
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SESSION_ENV,
@@ -52,7 +51,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.base import is_readonly_run
 
 if TYPE_CHECKING:
-    from osprey.interfaces.web_terminal.pty_manager import PtySession
+    from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
     from osprey.interfaces.web_terminal.session_handoff import (
         AcquireResult,
         SpawnCallback,
@@ -62,14 +61,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# The loose shape check the resume path (``switch_session``) applies to ids
-# Claude itself wrote: any 36 characters drawn from ``[a-f0-9-]``, which is
-# fine for "does this look like a session file stem" and much too wide for a
-# key that is written to a store on disk and later decides a child process's
-# execution mode. The posture surface's *closed* key grammar is
-# :func:`~osprey.interfaces.web_terminal.session_key.is_posture_key`.
-_UUID_RE = re.compile(r"^[a-f0-9-]{36}$")
 
 # ── Per-target runtime posture ───────────────────────────────────────────────
 #
@@ -150,39 +141,6 @@ def _require_session_uuid(session_id: str | None) -> None:
         )
 
 
-def _holds_a_chat_pool_entry(app, session_id: str) -> bool:
-    """Whether the chat pool holds an entry under *session_id* right now.
-
-    Deliberately **not** a liveness check: ``get_chat_session`` reads the
-    pool's session map and a dead-but-unreaped entry answers ``True``. That is
-    the right answer for both callers — such a key still names a chat the
-    operator can address, and terminating it evicts the corpse, which is what
-    wants to happen anyway.
-
-    It is also the *narrower* of this module's two chat probes. The map it
-    reads is one of two places a chat can live: a creation still inside
-    ``start()`` sits in the pool's ``_pending`` and is invisible here, which on
-    the first prompt of a chat is the ordinary state rather than a corner case.
-    :func:`_chat_pool_answers_to` is the one that sees both, and it is what the
-    addressability gate asks.
-
-    The Simple-mode chat surface (``POST /api/chat``) keys its pool on the
-    caller-supplied ``chat_id`` and spawns the child under that key, so the
-    pool key and the audit session id are the same string. Membership is read
-    through the registry's own read-only accessor — never the pool's internals
-    — so a probe cannot refresh an entry's idle clock or evict anything.
-
-    Absent or unfamiliar registries answer ``False`` rather than raising: the
-    caller is an existence gate, and a registry that cannot be asked simply has
-    no chat session to offer.
-    """
-    registry = getattr(app.state, "operator_registry", None)
-    getter = getattr(registry, "get_chat_session", None)
-    if not callable(getter):
-        return False
-    return getter(session_id) is not None
-
-
 def _chat_is_busy(app, session_id: str) -> bool:
     """Whether the chat pooled under *session_id* is mid-turn right now.
 
@@ -204,9 +162,9 @@ def _chat_is_busy(app, session_id: str) -> bool:
 def _chat_pool_answers_to(app, session_id: str) -> bool:
     """Whether the chat pool would answer to *session_id* at all.
 
-    The *addressability* probe, and deliberately a wider question than
-    :func:`_holds_a_chat_pool_entry`: it also says ``True`` while a creation is
-    still inside ``start()``. That window is not a corner case on this surface
+    The *addressability* probe, and deliberately wider than a look at the
+    pool's session map: it also says ``True`` while a creation is still inside
+    ``start()``. That window is not a corner case on this surface
     — it is the first prompt of a chat, the moment the child is being armed
     with tools — and answering ``False`` there refuses the operator's toggle
     with a 409 that stores nothing, on a session that is starting in front of
@@ -215,16 +173,12 @@ def _chat_pool_answers_to(app, session_id: str) -> bool:
 
     Reached through the registry's own read-only facade
     (:meth:`~osprey.interfaces.web_terminal.operator_session.OperatorRegistry.has_chat_key`),
-    so a probe disturbs no LRU order and creates nothing. A registry that
-    predates the facade — a hand-rolled double, say — falls back to the
-    narrower session-map probe rather than raising, the same tolerance the rest
-    of this surface grants an unfamiliar registry.
+    so a probe disturbs no LRU order and creates nothing. An app with no
+    operator registry has no chat to offer and answers ``False``.
     """
     registry = getattr(app.state, "operator_registry", None)
     prober = getattr(registry, "has_chat_key", None)
-    if callable(prober):
-        return bool(prober(session_id))
-    return _holds_a_chat_pool_entry(app, session_id)
+    return bool(prober(session_id)) if callable(prober) else False
 
 
 def _record_available() -> bool:
@@ -241,10 +195,10 @@ def _record_available() -> bool:
 
 
 def _recorded_posture() -> dict[str, str]:
-    """The deployment's per-target narrowings — ``{target: "sandbox"}``.
+    """This login's per-target narrowings — ``{target: "sandbox"}``.
 
-    The record's ``posture`` field, which is the whole of what this deployment
-    has narrowed: there is one control context per deployment, and no
+    The record's ``posture`` field, which is the whole of what this login has
+    narrowed: there is one control context per login identity, and no
     per-session posture store behind it. A target that narrows nothing is
     ABSENT from the map — absence is how this field spells ``writes``, and a
     stored ``"writes"`` would be a second spelling of it.
@@ -302,8 +256,13 @@ _UNREADABLE_SECTION = object()
 _CONFIG_MEMO: tuple[Path, tuple[int, int, int], Any] | None = None
 
 
-def _reset_rendered_config_memo() -> None:
-    """Forget the parsed render. For tests, and for anything that rewrites it."""
+def reset_rendered_config_memo() -> None:
+    """Forget the parsed render, so the next read parses the file afresh.
+
+    The memo is process-wide: without a reset, a render parsed for one app is
+    still answered to the next app in the same process whose file carries the
+    same path and stat signature.
+    """
     global _CONFIG_MEMO
     _CONFIG_MEMO = None
 
@@ -383,8 +342,10 @@ def _control_system_section(config_path: Path | None) -> Any:
 
 def _pid_or_none(value: object) -> int | None:
     """Coerce a record field to ``int``, or ``None`` when it is not a number."""
+    if not isinstance(value, (int, float, str)):
+        return None
     try:
-        return int(value)  # type: ignore[arg-type]
+        return int(value)
     except (TypeError, ValueError):
         return None
 
@@ -411,22 +372,15 @@ def _read_effort_level(config_path: Path | None) -> str | None:
         return None
     try:
         config = yaml.safe_load(Path(config_path).read_text()) or {}
-        return config.get("claude_code", {}).get("effort")
+        if not isinstance(config, dict):
+            return None
+        section = config.get("claude_code", {})
+        if not isinstance(section, dict):
+            return None
+        effort = section.get("effort")
+        return effort if isinstance(effort, str) else None
     except Exception:
         return None
-
-
-#: What ``claude --resume <id>`` prints before exiting 1 when no transcript
-#: for that id exists. The pre-spawn check in :func:`_transcript_missing` is
-#: meant to keep such a child from ever being spawned; this is the second net,
-#: for a transcript that vanished after the check or one the CLI refuses to
-#: load.
-NO_CONVERSATION_MARKER = b"No conversation found with session ID"
-
-#: How much of a ``--resume`` child's output is searched for the marker. The
-#: verdict is the first thing the CLI prints, so anything beyond the first
-#: few kilobytes is a session that resumed and is now doing real work.
-_NO_CONVERSATION_SCAN_LIMIT = 16 * 1024
 
 
 def _transcript_missing(app, registry, discovery: SessionDiscovery, session_id: str) -> bool:
@@ -441,7 +395,7 @@ def _transcript_missing(app, registry, discovery: SessionDiscovery, session_id: 
     windows onto one key, and the conversation the operator started in Simple
     is the one they are asking for here. Only with none of those is the
     transcript directory the authority: ``--resume`` on an id with no file
-    there prints :data:`NO_CONVERSATION_MARKER` and exits, which is the dead
+    there prints :data:`~osprey.agent_runner.launcher.NO_CONVERSATION_MARKER` and exits, which is the dead
     PTY the caller refuses to hand the operator.
     """
     existing = registry.get_session(session_id)
@@ -470,28 +424,25 @@ async def _run_output_loop(
 
     ``resume_id`` names the id a ``--resume`` child spawned by this handler
     was asked for. Its early output is then watched for
-    :data:`NO_CONVERSATION_MARKER`: a child that prints it and exits is
+    :data:`~osprey.agent_runner.launcher.NO_CONVERSATION_MARKER`: a child that prints it and exits is
     reported as ``transcript_missing`` rather than a bare ``exit``, so the
     client renders the same state the pre-spawn refusal produces instead of
     a process-exited line the operator cannot act on.
     """
-    no_conversation = False
-    scanned = bytearray()
+    watch = NoConversationWatch() if resume_id is not None else None
     try:
         async for data in session.read_output():
             if stop_event.is_set():
                 return
-            if resume_id is not None and not no_conversation:
-                if len(scanned) < _NO_CONVERSATION_SCAN_LIMIT:
-                    scanned.extend(data)
-                    no_conversation = NO_CONVERSATION_MARKER in scanned
+            if watch is not None:
+                watch.feed(data)
             await websocket.send_bytes(data)
     except Exception:
         pass
     finally:
         if not stop_event.is_set():
             code = session.exit_code
-            if no_conversation and resume_id is not None:
+            if watch is not None and watch.found and resume_id is not None:
                 frame = _transcript_missing_frame(resume_id, code)
             else:
                 frame = json.dumps({"type": "exit", "code": code})
@@ -557,9 +508,6 @@ def _build_extra_env(
         extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
         extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
     extra_env[PANEL_TOKEN_ENV] = get_web_credentials(websocket.app).panel_token
-    hooks_env = getattr(websocket.app.state, "hooks_env", {})
-    if hooks_env:
-        extra_env.update(hooks_env)
 
     # The posture ANCHORS — never the posture itself. Keyed on the pool key:
     # ``terminal_ws`` computes ``current_key = claude_session_id or
@@ -574,8 +522,9 @@ def _build_extra_env(
     # could not express "the stand-in is read-only and the simulator is not" —
     # it sandboxes the whole session — and it could only be changed by killing
     # the child, which is the conversation this feature exists to keep. A
-    # deployment-wide readonly marker still reaches the child, as it always
-    # has, through ``hooks_env`` above or the inherited environment.
+    # deployment-wide readonly marker still reaches the child through the
+    # environment it inherits: ``build_base_child_env`` copies this process's
+    # ``os.environ`` into every PTY spawn.
     #
     # What the child is handed is where to look and whose answer to read:
     # ``OSPREY_POSTURE_SESSION`` (the store key) and
@@ -717,7 +666,13 @@ class _TerminalChannel:
             pass
 
     async def acquire(
-        self, app: Any, key: str, *, interrupt: bool, spawn: SpawnCallback
+        self,
+        app: Any,
+        key: str,
+        *,
+        interrupt: bool,
+        spawn: SpawnCallback,
+        end_started: bool = False,
     ) -> AcquireResult:
         """Take *key* for the Expert surface while reading the socket.
 
@@ -736,6 +691,7 @@ class _TerminalChannel:
                 self.token,
                 interrupt=interrupt,
                 spawn=spawn,
+                end_started=end_started,
             )
         finally:
             reader.cancel()
@@ -772,14 +728,18 @@ async def _open_surface(
     *,
     interrupt: bool,
     spawn: SpawnCallback,
+    end_started: bool = False,
 ) -> AcquireResult | None:
     """Take *key* for this terminal, answering the client for every way that can end.
 
     Returns the result on success. Returns None once the client has been
     answered — a refusal closes the socket with the refusal's close code
     (4409 attached elsewhere, 4503 the outgoing process survived its kill,
-    which the client offers a retry for); a hand-off error is an ``error``
-    frame and a close; a channel that closed during the wait gets nothing.
+    which the client offers a retry for, 4428 the chat's agent started
+    commands still running, which the client asks the operator about, and
+    before which a ``handoff_refused`` frame carries their list); a hand-off
+    error is an ``error`` frame and a close; a channel that closed during the
+    wait gets nothing.
     The ``handoff_pending`` frame goes out first whenever the chat surface
     holds the key, which is the one case the door waits on a foreign entry
     for a terminal; the client shows the transitional state until
@@ -794,9 +754,20 @@ async def _open_surface(
     if _chat_pool_answers_to(app, key):
         await channel.send_json({"type": "handoff_pending", "busy": _chat_is_busy(app, key)})
     try:
-        return await channel.acquire(app, key, interrupt=interrupt, spawn=spawn)
+        return await channel.acquire(
+            app, key, interrupt=interrupt, spawn=spawn, end_started=end_started
+        )
     except session_handoff.HandoffRefused as refused:
         logger.info("Refusing the terminal session %s: %s", key, refused)
+        if refused.extra:
+            await channel.send_json(
+                {
+                    "type": "handoff_refused",
+                    "error": refused.error,
+                    "session_id": key,
+                    **refused.extra,
+                }
+            )
         await channel.close(refused.ws_close_code or session_handoff.WS_CLOSE_SESSION_ATTACHED)
         return None
     except session_handoff.ChannelClosed:
@@ -824,6 +795,55 @@ def _resize_pty(session: PtySession, rows: int, cols: int) -> None:
         logger.debug("Could not resize the PTY", exc_info=True)
 
 
+async def _spawn_pooled_pty(
+    registry: PtyRegistry,
+    key: str,
+    command: list[str],
+    *,
+    rows: int,
+    cols: int,
+    extra_env: dict[str, str] | None,
+    cwd: str | None,
+) -> PtySession:
+    """Fill *key* in the pool without killing anything on the event loop.
+
+    The registry fills a key on the calling thread, and both kills it may
+    perform there — a warm child whose launch env no longer matches, and the
+    oldest background session of a full pool — block for seconds. This takes
+    each out of the pool unkilled and kills it in a worker thread before
+    asking the registry to spawn. The env-mismatched entry goes first, so its
+    slot counts before the eviction pass picks a victim.
+
+    Every popped entry is killed exactly once: the pop and the threaded kill
+    are adjacent, and this runs only inside the hand-off door's shielded
+    phase, which is never cancelled, so a submitted kill is never abandoned.
+
+    Args:
+        registry: The pool to fill.
+        key: The session key to spawn under.
+        command: The child's argv.
+        rows: Initial terminal height.
+        cols: Initial terminal width.
+        extra_env: The one launch-env overlay used for the mismatch check and
+            the spawn alike.
+        cwd: Working directory for a spawned child.
+
+    Returns:
+        The session now pooled under *key*.
+    """
+    stale = registry.pop_env_mismatch(key, extra_env)
+    if stale is not None:
+        await asyncio.to_thread(stale.terminate)
+    victim = registry.pop_lru_victim()
+    if victim is not None:
+        await asyncio.to_thread(victim.terminate)
+    spawned: PtySession
+    spawned, _ = registry.get_or_create_session(
+        key, command, rows=rows, cols=cols, extra_env=extra_env, cwd=cwd
+    )
+    return spawned
+
+
 @router.websocket("/ws/terminal")
 async def terminal_ws(websocket: WebSocket):
     """WebSocket bridge for terminal I/O with session pool support.
@@ -837,13 +857,16 @@ async def terminal_ws(websocket: WebSocket):
     - Server -> Client JSON: {"type": "session_switched", "session_id": UUID}
     - Server -> Client JSON: {"type": "session_info", "session_id": UUID}
     - Server -> Client JSON: {"type": "handoff_pending", "busy": bool}
+    - Server -> Client JSON: {"type": "handoff_refused", "error": str, "session_id": UUID,
+      "commands": [{"label": str, "command": str}]}
     - Server -> Client JSON: {"type": "transcript_missing", "session_id": UUID, "code"?: N}
     - Server -> Client JSON: {"type": "error", "message": str}
 
     Query: ``session_id`` and ``mode=resume`` name the session key to
     resume; without them a new key is minted. ``interrupt=1`` on a resume
     cuts short a turn the chat surface is running on that key instead of
-    waiting for it.
+    waiting for it. ``end_started=1`` on a resume says the operator agreed
+    that the hand-off ends the commands the chat agent started.
 
     Every PTY this handler serves comes through
     :func:`~osprey.interfaces.web_terminal.session_handoff.acquire_surface`:
@@ -851,14 +874,19 @@ async def terminal_ws(websocket: WebSocket):
     the conversation off from a chat that holds it (``handoff_pending``
     while that finishes), takes it over from an older terminal on the same
     key (closed with 4409), reuses the pooled PTY, or spawns one resuming
-    the key's current transcript. The spawn callback below is the only
-    place the registry's blocking create path is called from.
+    the key's current transcript. The spawn callback below, through
+    :func:`_spawn_pooled_pty`, is the only place the registry's create path is
+    called from, and it never lets that path kill on the loop.
 
     ``transcript_missing`` answers a resume — the ``mode=resume`` connect or a
     ``switch_session`` — of an id no surface holds and no transcript on disk
     names.
     Nothing is spawned for it: on the connect path the socket is then closed,
-    on the switch path the current session stays attached. The same frame,
+    on the switch path the current session stays attached. An id outside the
+    session-key grammar
+    (:func:`~osprey.interfaces.web_terminal.session_key.is_posture_key`) gets
+    the same answer on each path without the pool, the chat pool or the
+    transcript directory being consulted. The same frame,
     with the exit ``code``, replaces ``exit`` when a ``--resume`` child prints
     that it found no such conversation and quits.
     """
@@ -873,6 +901,7 @@ async def terminal_ws(websocket: WebSocket):
     req_session_id = websocket.query_params.get("session_id")
     mode = websocket.query_params.get("mode", "new")
     interrupt = mode == "resume" and _query_flag(websocket, "interrupt")
+    end_started = mode == "resume" and _query_flag(websocket, "end_started")
 
     effort = _read_effort_level(app.state.config_path)
 
@@ -891,6 +920,17 @@ async def terminal_ws(websocket: WebSocket):
     channel = _TerminalChannel(websocket)
     token = channel.token
     state = session_handoff.get_state(app)
+
+    # A resume key outside the session-key grammar is refused before any
+    # lookup: no store will ever answer for it, and the pool, the chat pool
+    # and the transcript directory are not asked about a string that cannot
+    # be a key. Same answer as a key that names no session, so the client
+    # renders one state and drops the pointer that sent it.
+    if mode == "resume" and req_session_id and not is_posture_key(req_session_id):
+        logger.info("Refusing to resume %r: not a session key", req_session_id)
+        await channel.send_text(_transcript_missing_frame(req_session_id))
+        await channel.close()
+        return
 
     # The resume boundary. ``--resume`` on an id with no transcript exits at
     # once with "No conversation found", and a PTY that dies on attach is a
@@ -913,34 +953,26 @@ async def terminal_ws(websocket: WebSocket):
         return
 
     async def spawn(request: SpawnRequest) -> PtySession:
-        # base_shell_command is list[str] (set by app.lifespan), so unpack
-        # with [*base, ...] — nesting would break PtySession's exec (issue
-        # #218). The door decided what to resume: the key's current
-        # transcript when one is on disk, else a fresh session under the key.
+        # base_shell_command is list[str] (set by app.lifespan) and is
+        # extended, never nested — a nested list would break PtySession's
+        # exec. The door decided what to resume: the key's current transcript
+        # when one is on disk, else a fresh session under the key.
         if request.resume_id:
-            command: list[str] = [*base_shell_command, "--resume", request.resume_id]
+            command = build_session_argv(
+                base_shell_command, resume_id=request.resume_id, effort=effort
+            )
         else:
-            command = [*base_shell_command, "--session-id", request.key]
-        if effort:
-            command.extend(["--effort", effort])
+            command = build_session_argv(base_shell_command, session_id=request.key, effort=effort)
         extra_env = _build_extra_env(websocket, request.key, request.key)
-        # A full pool evicts its oldest background session first, and the
-        # registry's own eviction kills it on the calling thread. This runs
-        # on the event loop, under the key's hand-off lock, so the victim is
-        # taken out here and killed off the loop instead.
-        victim = registry.pop_lru_victim()
-        if victim is not None:
-            await asyncio.to_thread(victim.terminate)
-        spawned: PtySession
-        spawned, _ = registry.get_or_create_session(
+        return await _spawn_pooled_pty(
+            registry,
             request.key,
             command,
             rows=channel.rows,
             cols=channel.cols,
-            extra_env=extra_env if extra_env else None,
+            extra_env=extra_env or None,
             cwd=app.state.project_cwd,
         )
-        return spawned
 
     async def close_displaced() -> None:
         # A newer terminal on the same key took the PTY over. This handler's
@@ -965,7 +997,9 @@ async def terminal_ws(websocket: WebSocket):
     stop_event = asyncio.Event()
     output_task: asyncio.Task[None] | None = None
     try:
-        result = await _open_surface(channel, app, current_key, interrupt=interrupt, spawn=spawn)
+        result = await _open_surface(
+            channel, app, current_key, interrupt=interrupt, spawn=spawn, end_started=end_started
+        )
         if result is None or channel.closed.is_set():
             return
         session = cast("PtySession", result.session)
@@ -1008,7 +1042,7 @@ async def terminal_ws(websocket: WebSocket):
 
                     if msg.get("type") == "switch_session":
                         target_id = msg.get("session_id", "")
-                        if not _UUID_RE.match(target_id):
+                        if not is_posture_key(target_id):
                             await websocket.send_text(
                                 json.dumps(
                                     {
@@ -1062,7 +1096,12 @@ async def terminal_ws(websocket: WebSocket):
                         current_key = target_id
                         try:
                             result = await _open_surface(
-                                channel, app, target_id, interrupt=False, spawn=spawn
+                                channel,
+                                app,
+                                target_id,
+                                interrupt=False,
+                                spawn=spawn,
+                                end_started=False,
                             )
                         except Exception:
                             logger.exception("Session switch to %s failed", target_id)
@@ -1275,9 +1314,9 @@ def _context_write_rung(
       no location, or no tick has yet reached one, so there is nowhere to
       record a control context the agent would read back.
     * **409** ``context_owned_elsewhere`` — this terminal is following another
-      one. A deployment has a single control context and a single writer for
-      it; the refusal names the owner's pid and port so the operator can open
-      the terminal that does own it.
+      one. Each login identity has a single control context and a single
+      writer for it; the refusal names the owner's pid and port so the
+      operator can open the terminal that does own it.
 
     Placed where the old per-session ``store_unavailable`` rung was, ahead of
     every judgement about the target: a terminal that may not write must not go
@@ -1780,11 +1819,12 @@ def _target_refusal(
 
 @router.post("/api/terminal/target", status_code=202)
 async def request_terminal_target(body: TargetRequest, request: Request):
-    """Move this deployment's control target.
+    """Move this login's control target.
 
-    **One control context per deployment, and one writer for it.** The record
-    holds the target, the generation the fleet coordinates on and the terminus
-    of the last switch; a web terminal owns it while it is running. So this
+    **One control context per login identity, and one writer for it.** The
+    record (``control_target/<identity>/control_context.json``) holds the
+    target, the generation the fleet coordinates on and the terminus of the
+    last switch; a web terminal owns it while it is running. So this
     route does not file desired state for somebody else to apply — it takes the
     record, runs the switch gate against it and writes the answer, both halves
     inside one mutation, so no reader can ever see a target that moved without
@@ -2652,10 +2692,14 @@ def _owner_row(app: Any, record: Any) -> dict[str, Any] | None:
     ``None`` when nothing owns the context — no tick has got far enough and the
     record on disk names nobody. A ``controls_server`` owner is an ordinary
     answer here and carries ``port: null``: it serves nothing to open.
+
+    This terminal's own row is the identity its owner claimed as — the one
+    every write stamps into the record — so the row and the record name the
+    same port.
     """
     context = _context_state(app)
     if context.owner is not None:
-        identity = context.follows if context.follows is not None else terminal_identity()
+        identity = context.follows if context.follows is not None else context.owner.identity
         return {**identity.to_payload(), "self": context.follows is None}
     recorded = getattr(record, "owner", None)
     if recorded is None:
@@ -2774,7 +2818,7 @@ def _fleet_realign(reports: Sequence[Any]) -> dict[str, Any] | None:
     server finished realigning afterwards. Ordering by time alone would let that
     newer ``done`` hide the toggle that has not taken effect.
     """
-    blocks = [
+    blocks: list[dict[str, Any]] = [
         block
         for block in (report.last_posture_realign for report in reports)
         if isinstance(block, dict)
@@ -2782,7 +2826,8 @@ def _fleet_realign(reports: Sequence[Any]) -> dict[str, Any] | None:
     if not blocks:
         return None
     pending = [block for block in blocks if block.get("state") == REALIGN_PENDING]
-    return dict(max(pending or blocks, key=lambda block: _stamp_epoch(block.get("at"))))
+    latest = max(pending or blocks, key=lambda block: _stamp_epoch(block.get("at")))
+    return dict(latest)
 
 
 def _execution_rows() -> list[dict[str, Any]]:
@@ -2911,9 +2956,9 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
     frame, and closing it properly means letting that function take an
     already-read record rather than opening the file again.
 
-    **No session is involved.** There is one control context per deployment, so
-    every answer here is the deployment's: the caller's ``session_id`` names who
-    is asking and decides nothing about what they are told.
+    **No session is involved.** There is one control context per login
+    identity, so every answer here is that login's: the caller's ``session_id``
+    names who is asking and decides nothing about what they are told.
     """
     config = _rendered_config(config_path)
     section = _section_of(config)

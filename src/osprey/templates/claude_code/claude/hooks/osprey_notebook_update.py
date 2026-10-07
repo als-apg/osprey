@@ -60,15 +60,14 @@ point the operator at the wrong panel.
 
 ## Notebooks tree
 
-The tree is ``<agent-data root>/notebooks/``, resolved exactly the way
-``osprey_memory_guard.py`` resolves the sibling trees it gates: the
-``agent_data.base_dir`` config key, anchored — when it is relative, the normal
-case — on both the repo root that owns durable agent state and the render
-Claude Code runs in, which coincide in a flat layout and diverge in a zoned
-one. The two hooks must agree on the answer, or an edit the guard allowed would
-badge nothing. The resolution is restated here rather than imported: these are
-standalone scripts copied into a deployment, and a badge has no business
-importing a write gate.
+The tree is ``<agent-data root>/notebooks/``: the ``agent_data.base_dir``
+config key, anchored — when it is relative, the normal case — on both the repo
+root that owns durable agent state and the render Claude Code runs in, which
+coincide in a flat layout and diverge in a zoned one. The two hooks must agree
+on the answer, or an edit the guard allowed would badge nothing, so both
+resolve it through ``osprey_hook_log.agent_data_subdirs`` and cannot answer
+differently. The badge still imports no write gate: the shared resolver lives
+in the logging sibling every hook already imports.
 
 ## Terminal-API authorization
 
@@ -104,10 +103,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
+    agent_data_subdirs,
     get_hook_input,
-    get_project_dir,
-    get_repo_root,
-    load_osprey_config,
     log_hook,
 )
 
@@ -115,16 +112,6 @@ from osprey_hook_log import (
 #: is the ``notebooks`` in ``Edit(<agent_data_root>/notebooks/**)`` as
 #: rendered by ``settings.json.j2`` and gated by ``osprey_memory_guard.py``.
 _NOTEBOOKS_SUBDIR = "notebooks"
-
-# The framework DEFAULT agent-data root, imported rather than spelled out here
-# so the two cannot drift apart. Only the default is imported: a project that
-# overrides ``agent_data.base_dir`` is honoured through the config read in
-# :func:`_agent_data_base_dir` below. The literal fallback covers a hook running
-# with osprey off the path, the one case where guessing beats crashing.
-try:
-    from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR as _DEFAULT_AGENT_DATA_ROOT
-except Exception:  # pragma: no cover - hooks must never crash the agent
-    _DEFAULT_AGENT_DATA_ROOT = "var/agent_data"
 
 #: The panel the badge lands on, and the tool the frame reports. The panel id
 #: is the one ``jupyter`` panel the web terminal registers.
@@ -141,29 +128,11 @@ _ACTIVITY_TIMEOUT = 1
 _DEFAULT_WEB_PORT = "10100"  # osprey:not-a-port — stdlib-only hook contract (see module docstring); equals default_port('web', 0)
 
 
-def _agent_data_base_dir(config):
-    """Read ``agent_data.base_dir`` out of an already-loaded config mapping.
-
-    Args:
-        config: Loaded ``config.yml`` mapping, or ``None``.
-
-    Returns:
-        The configured base directory, possibly relative to a project anchor.
-    """
-    section = (config or {}).get("agent_data") or {}
-    if not isinstance(section, dict):
-        return _DEFAULT_AGENT_DATA_ROOT
-    return str(section.get("base_dir") or _DEFAULT_AGENT_DATA_ROOT)
-
-
 def resolve_notebooks_dirs(hook_input=None):
     """Resolve the notebook directories whose edits badge the JUPYTER panel.
 
-    A relative ``agent_data.base_dir`` — the normal case — needs an anchor, and
-    under the four-zone layout there are two plausible ones: the repo root that
-    owns durable agent state and the render Claude Code actually runs in. They
-    coincide in a flat layout and diverge in a zoned one, so both are accepted.
-    An absolute ``base_dir`` needs no anchor and yields exactly one directory.
+    Every anchor of the agent-data root, as ``osprey_hook_log.agent_data_subdirs``
+    resolves it for the memory guard too.
 
     Args:
         hook_input: The parsed hook payload, used to locate the project.
@@ -171,26 +140,7 @@ def resolve_notebooks_dirs(hook_input=None):
     Returns:
         Resolved ``.../notebooks`` directories, deduplicated, possibly empty.
     """
-    base = Path(_agent_data_base_dir(load_osprey_config(hook_input))).expanduser()
-
-    if base.is_absolute():
-        candidates = [base]
-    else:
-        candidates = [
-            Path(anchor).expanduser() / base
-            for anchor in (get_repo_root(hook_input), get_project_dir(hook_input))
-            if anchor
-        ]
-
-    notebooks_dirs = []
-    for candidate in candidates:
-        try:
-            resolved = (candidate / _NOTEBOOKS_SUBDIR).resolve()
-        except (OSError, ValueError):
-            continue
-        if resolved not in notebooks_dirs:
-            notebooks_dirs.append(resolved)
-    return notebooks_dirs
+    return agent_data_subdirs(hook_input, _NOTEBOOKS_SUBDIR)
 
 
 def notebook_relpath(notebook_path, notebooks_dirs):

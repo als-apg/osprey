@@ -6,6 +6,7 @@ This module provides shared fixtures and utilities for all Osprey tests.
 
 import logging
 import os
+import sys
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -15,8 +16,9 @@ from pathlib import Path
 import pytest
 from rich.logging import RichHandler
 
+from osprey.services.bluesky_bridge import session_dir as _session_plan_dir
 from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
-from tests import _env_scope_guard, _repo_cleanliness, ci_diagnostics
+from tests import _env_scope_guard, _live_threads, _repo_cleanliness, ci_diagnostics
 from tests._env_scope_guard import restore_module_environment
 
 #: Repo root — the fallback when a test leaves the process in a deleted cwd.
@@ -231,6 +233,41 @@ def session_posture_leak_guard(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True, scope="function")
+def writable_plan_dir_per_test(tmp_path):
+    """Resolve the Bluesky bridge's writable plan directory under this test's ``tmp_path``.
+
+    Every test that reaches the bridge's plan loader or session-plan routes
+    resolves ``BLUESKY_SESSION_PLAN_DIR`` to a path under its own ``tmp_path``,
+    which is created only if something resolves it. ``tmp_path`` is already
+    requested for every test by :func:`_isolate_audit_zone`, so this adds no
+    directory. Without it, resolution falls back to the in-package default and
+    the run leaves a ``plans_session/`` directory inside the checkout, which
+    :func:`no_authored_plans_in_the_package` fails.
+
+    A test that sets the variable itself wins: this fixture is set up before a
+    module's own, so the test's value lands on top, and its teardown restores
+    the value set here.
+
+    It patches on its own ``MonkeyPatch.context()`` rather than the
+    ``monkeypatch`` fixture, because a test's ``monkeypatch.undo()`` reverts
+    every patch on that fixture. With the shared one, a test lifting its own
+    patch would also drop this one and send the rest of the test to the
+    in-package default.
+
+    It is set up before the shared ``monkeypatch`` and torn down after it:
+    :func:`_isolate_audit_zone`, the first function-scoped fixture to request
+    ``monkeypatch``, requests this one ahead of it. A test that sets the
+    variable on ``monkeypatch`` records the value set here as the one to put
+    back, so that undo has to run while this patch is still in place; run
+    after it, the undo would write this test's ``tmp_path`` back into the
+    environment for whatever resolves between tests.
+    """
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setenv(_PLAN_DIR_ENV, str(tmp_path / "bluesky-plans"))
+        yield
+
+
 _REAL_DEPLOYMENT_LANES = ("tests/e2e/", "tests/va/e2e/")
 
 #: The lane that asserts where ``audit_dir()`` resolves to, rather than writing
@@ -262,6 +299,17 @@ _AGENT_DATA_BASELINE = _repo_cleanliness.snapshot(_AGENT_DATA_MARKER)
 #: that were already there; what this run files beside them is the suite's.
 _AUDIT_BASELINE = _repo_cleanliness.snapshot(_AUDIT_MARKER)
 
+#: The variable that names the Bluesky bridge's writable plan directory, read
+#: from the bridge so it is spelled once.
+_PLAN_DIR_ENV = _session_plan_dir._SESSION_PLAN_DIR_ENV
+
+#: The bridge's in-package plan directory — the marker
+#: :func:`no_authored_plans_in_the_package` watches.
+_PLAN_DIR_MARKER = _session_plan_dir._DEFAULT_SESSION_PLAN_DIR
+
+#: The same baseline for the in-package plan directory, taken at the same moment.
+_PLAN_DIR_BASELINE = _repo_cleanliness.snapshot(_PLAN_DIR_MARKER)
+
 #: The first test in THIS worker whose teardown found this run's mark on the
 #: directory, ``None`` while none has. Recorded by
 #: :func:`pytest_runtest_teardown` and read by the guard.
@@ -269,6 +317,9 @@ _AGENT_DATA_FIRST_SEEN: str | None = None
 
 #: The same bound for ``<repo>/var/audit``.
 _AUDIT_FIRST_SEEN: str | None = None
+
+#: The same bound for the bridge's in-package plan directory.
+_PLAN_DIR_FIRST_SEEN: str | None = None
 
 #: Whether the item now running is a real-deployment one. Written by
 #: :func:`pytest_runtest_setup`, cleared by :func:`pytest_runtest_teardown`,
@@ -345,7 +396,8 @@ def pytest_runtest_teardown(item):
     flag is cleared AFTER them, so a real-deployment item's fixtures still
     resolve to the checkout while they finalize.
     """
-    global _AGENT_DATA_FIRST_SEEN, _AUDIT_FIRST_SEEN, _REAL_DEPLOYMENT_ITEM_RUNNING
+    global _AGENT_DATA_FIRST_SEEN, _AUDIT_FIRST_SEEN, _PLAN_DIR_FIRST_SEEN
+    global _REAL_DEPLOYMENT_ITEM_RUNNING
     if not _REAL_DEPLOYMENT_LANE_RAN:
         worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
         if _AGENT_DATA_FIRST_SEEN is None and _repo_cleanliness.what_this_run_did(
@@ -356,6 +408,10 @@ def pytest_runtest_teardown(item):
             _AUDIT_BASELINE, _AUDIT_MARKER
         ):
             _AUDIT_FIRST_SEEN = f"{item.nodeid} (worker {worker})"
+        if _PLAN_DIR_FIRST_SEEN is None and _repo_cleanliness.what_this_run_did(
+            _PLAN_DIR_BASELINE, _PLAN_DIR_MARKER
+        ):
+            _PLAN_DIR_FIRST_SEEN = f"{item.nodeid} (worker {worker})"
     try:
         yield
     finally:
@@ -547,8 +603,63 @@ def no_audit_ledger_in_the_repo():
         )
 
 
+@pytest.fixture(autouse=True, scope="session")
+def no_authored_plans_in_the_package():
+    """Fail the session if the suite created the bridge's in-package ``plans_session/``.
+
+    The twin of :func:`no_agent_data_in_the_repo` and
+    :func:`no_audit_ledger_in_the_repo`, watching the directory
+    ``resolve_session_plan_dir()`` falls back to when
+    ``BLUESKY_SESSION_PLAN_DIR`` is unset. That directory sits inside the
+    package tree of this checkout, so a run that resolves to it leaves an
+    empty directory behind that ``git status`` never mentions.
+
+    Keyed on what the run did, the same way as the twins: a directory already
+    present from an earlier run is not a failure, but an entry this run adds to
+    it is. The real-deployment lanes are exempt once such an item has run in
+    this worker, for the twins' reason.
+    """
+    marker = _PLAN_DIR_MARKER
+    yield
+    if _REAL_DEPLOYMENT_LANE_RAN:
+        return
+    clause = _repo_cleanliness.what_this_run_did(_PLAN_DIR_BASELINE, marker)
+    if clause:
+        raise AssertionError(
+            f"the test run {clause} — something resolved the Bluesky bridge's "
+            "writable plan directory to its in-package default. A test that reaches "
+            "the bridge's plan loader or session-plan routes gets a per-test directory "
+            "from writable_plan_dir_per_test, so a leak means something bypassed it: "
+            "a thread that outlived its test, a subprocess started with a scrubbed "
+            "environment, or a test that deleted the variable."
+            f"{_first_seen_clause(_PLAN_DIR_FIRST_SEEN)}"
+            f"{_GUARD_KNOWN_LIMIT}"
+        )
+
+
 @pytest.fixture(autouse=True)
-def _isolate_audit_zone(request, tmp_path, monkeypatch):
+def render_worker_ends_with_its_test():
+    """Kill the picture render worker a test left cached, when that test ends.
+
+    ``osprey.imaging.render`` keeps one worker subprocess per process, so a test
+    that renders a picture without closing the worker hands it to whichever test
+    runs next on the same xdist worker. A test that asserts no worker was
+    spawned then sees a pid it never started. A test that never imported the
+    module pays nothing.
+    """
+    yield
+    render = sys.modules.get("osprey.imaging.render")
+    if render is not None and render.worker_pid() is not None:
+        render._forget_worker()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_audit_zone(
+    request,
+    tmp_path,
+    writable_plan_dir_per_test,  # noqa: ARG001 - requested for its place ahead of monkeypatch
+    monkeypatch,
+):
     """Keep every record a test fires out of the live ledger.
 
     ``writer.audit_dir`` is the ledger's one seam — the HTTP middleware, the
@@ -576,6 +687,10 @@ def _isolate_audit_zone(request, tmp_path, monkeypatch):
     ``tests/audit/``, which asserts what ``audit_dir()`` resolves to under a
     rendered project and pins its own zone wherever it writes — patching the
     seam from out here would be answering the question under test.
+
+    It requests :func:`writable_plan_dir_per_test` before ``monkeypatch`` so
+    that fixture wraps the shared ``monkeypatch`` on both sides; its
+    docstring gives the reason.
     """
     from osprey.audit import writer
 
@@ -586,6 +701,19 @@ def _isolate_audit_zone(request, tmp_path, monkeypatch):
         return zone
     monkeypatch.setattr(writer, "audit_dir", lambda: zone)
     return zone
+
+
+@pytest.fixture
+def audit_zone_path(_isolate_audit_zone: Path) -> Path:
+    """The zone :func:`_isolate_audit_zone` redirected the ledger to, by a public name.
+
+    A test that reads what it filed requests this rather than redirecting the
+    seam again in a local fixture of its own. It is the zone records land in
+    only while nothing closer re-points ``writer.audit_dir``: a module's own
+    ``audit_zone`` fixture wins over the suite-wide one, and this still names
+    the suite-wide zone.
+    """
+    return _isolate_audit_zone
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -661,9 +789,9 @@ def reset_state_between_tests():
 #
 # ``WebAuthMiddleware`` is installed outermost on every interface app by
 # ``configure_interface_app``, so every request a ``starlette.testclient``
-# (a.k.a. ``fastapi.testclient``) ``TestClient`` — or an ``httpx.AsyncClient``
-# wrapping an ``ASGITransport`` — makes is 401'd unless it carries a live
-# operator credential. Hundreds of existing tests drive interface routes through
+# ``TestClient`` (re-exported as ``fastapi.testclient``; an ``httpx2.Client``
+# subclass) — or an ``httpx.AsyncClient`` wrapping an ``httpx.ASGITransport`` —
+# makes is 401'd unless it carries a live operator credential. Hundreds of existing tests drive interface routes through
 # these clients and predate the gate; they assert the route's own behaviour, not
 # the absence of authentication. Rather than touch each of them, this seam makes
 # every such client present the operator credential by default.
@@ -699,6 +827,8 @@ def reset_state_between_tests():
 # at any other ASGI app, or at a real network host, is left untouched. Both
 # client shapes are covered: ``TestClient`` over HTTP *and* its
 # ``websocket_connect`` handshake, and ``httpx.AsyncClient`` over ``ASGITransport``.
+# The two shapes come from different packages, ``httpx2`` for ``TestClient`` and
+# ``httpx`` for the async client, which is why the seam patches each class by name.
 #
 # Install is session-scoped so it wraps client fixtures of every scope — a
 # module-scoped client is built before any function-scoped fixture would run.
@@ -764,7 +894,7 @@ def reset_web_credentials_between_tests(monkeypatch: pytest.MonkeyPatch):
 def _gated_interface_app(client):
     """Return the client's target app if it is a gated interface app, else None.
 
-    A ``TestClient`` records the app on ``self.app``; an httpx client wrapping an
+    A ``TestClient`` records the app on ``self.app``; an ``httpx.AsyncClient`` wrapping an
     ``ASGITransport`` carries it on the transport. The tell that the app installed
     :class:`WebAuthMiddleware` is a real :class:`WebCredentials` on
     ``app.state`` — seeded by ``configure_interface_app`` and read by the gate.
@@ -789,7 +919,8 @@ def _current_operator_secret(app):
 
 
 def _install_client_auth(client) -> None:
-    """Arm one httpx client to present the operator secret to its gated app.
+    """Arm one test client — a ``TestClient`` (httpx2) or an ``httpx.AsyncClient`` — to
+    present the operator secret to its gated app.
 
     A no-op for a client not aimed at a gated interface app. Otherwise it appends
     a request event hook (async for an ``AsyncClient``, sync otherwise) that
@@ -1241,6 +1372,28 @@ def _is_ollama_available() -> bool:
         return False
 
 
+def ollama_has_model(name: str, base_url: str = "http://localhost:11434") -> bool:
+    """True if the Ollama server at ``base_url`` lists ``name`` in ``/api/tags``.
+
+    A name without a tag matches its ``:latest`` listing. Never raises: an
+    unreachable server or an unexpected listing reads as ``False``.
+    """
+    wanted = {name, name if ":" in name else f"{name}:latest"}
+    try:
+        import requests
+
+        response = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=2)
+        if response.status_code != 200:
+            return False
+        models = response.json().get("models") or []
+        return any(
+            isinstance(m, dict) and (m.get("name") in wanted or m.get("model") in wanted)
+            for m in models
+        )
+    except Exception:
+        return False
+
+
 # The second element is the skip reason: a fixed string, or a zero-arg callable
 # for a resource whose absence has more than one explanation to report.
 _RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] = {
@@ -1311,6 +1464,11 @@ def pytest_configure(config):
     # one is not among them. See tests/_env_scope_guard.py.
     if not config.pluginmanager.is_registered(_env_scope_guard):
         config.pluginmanager.register(_env_scope_guard, "osprey-env-scope-guard")
+
+    # Reports what keeps the process alive after its last test; on for every
+    # run because it prints nothing when nothing is left. See tests/_live_threads.py.
+    if not config.pluginmanager.is_registered(_live_threads):
+        config.pluginmanager.register(_live_threads, _live_threads.PLUGIN_NAME)
 
     # Registered here rather than in pyproject.toml so the seam and its opt-out
     # marker live in one file; `--strict-markers` would otherwise reject it.
@@ -1392,11 +1550,17 @@ else:
             return nodeid.split("::", 1)[0]
 
 
+@pytest.hookimpl(optionalhook=True)
 def pytest_xdist_make_scheduler(config, log):
     """Use FileOrGroupScheduling for `--dist loadgroup`, stock xdist otherwise.
 
     Returning None hands the choice back to xdist, leaving the e2e lane's
     `--dist loadfile` and ad-hoc `--dist load`/`worksteal` runs untouched.
+
+    Declared optional because only xdist provides this hook's specification:
+    pytest ends a session over a conftest hook it cannot match to a loaded
+    plugin, so without the declaration a run with xdist disabled or absent
+    would collect nothing at all.
     """
     if FileOrGroupScheduling is None:
         return None

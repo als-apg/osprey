@@ -14,6 +14,11 @@ import pytest
 
 from osprey.health.core.web_panels import CATEGORY, web_panels
 from osprey.health.models import CheckResult, Status
+from osprey.interfaces.web_terminal.sidecar_status import (
+    SidecarStatus,
+    status_path,
+    write_status,
+)
 from osprey.port_layout import default_port
 
 #: The URL a facility writes for a custom "plan" panel — the bluesky sidecar's
@@ -27,10 +32,10 @@ _MOVED_ARIEL_PORT = default_port("ariel", base=_OTHER_BASE)
 _MOVED_OKF_PORT = default_port("okf", base=_OTHER_BASE)
 
 
-async def _run(config, *, handler=None) -> dict[str, CheckResult]:
+async def _run(config, *, handler=None, shared_root=None) -> dict[str, CheckResult]:
     """Run the category against a mock transport, keyed by row name."""
     transport = httpx.MockTransport(handler or (lambda r: httpx.Response(200, text="ok")))
-    results = await web_panels(config, transport=transport)()
+    results = await web_panels(config, transport=transport, shared_root=shared_root)()
     assert isinstance(results, list)
     assert all(r.category == CATEGORY for r in results)
     return {r.name: r for r in results}
@@ -273,21 +278,78 @@ class TestBuiltinAddressResolution:
 class TestSidecarPanels:
     """A panel the web terminal serves itself is reported, never probed."""
 
-    async def test_enabled_sidecar_gets_a_skip_row(self):
+    async def test_an_enabled_sidecar_with_no_record_gets_a_skip_row(self, tmp_path):
         """Skip, not OK: this category never established the sidecar is up.
 
         The sidecar has no address of its own — it is reached through the
         terminal's panel proxy — so an OK row would assert a liveness nothing
         here measured, and a warning would call every terminal-less host broken.
         """
-        rows = await _run(_cfg({"jupyter": True}))
+        rows = await _run(_cfg({"jupyter": True}), shared_root=tmp_path)
         row = rows["web_panels.jupyter"]
 
         assert row.status is Status.SKIP
         assert row.message == (
-            "JUPYTER: not probed — served inside the web terminal; a grey tab "
-            "means the sidecar did not start, see the terminal log"
+            "JUPYTER: not probed — served inside the web terminal, which has recorded no start"
         )
+
+    async def test_a_recorded_failure_is_a_warning_with_the_ruled_sentence(self, tmp_path):
+        status = SidecarStatus.failed("boom")
+        write_status(tmp_path, "jupyter", status)
+
+        row = (await _run(_cfg({"jupyter": True}), shared_root=tmp_path))["web_panels.jupyter"]
+
+        assert row.status is Status.WARNING
+        assert row.message == "JUPYTER failed to start: boom"
+        assert row.value == "failed"
+        assert row.details == (
+            f"Recorded by the web terminal at {status.recorded_at}. Opening the JUPYTER tab "
+            "starts it again; the terminal log has the sidecar's last error lines."
+        )
+
+    async def test_a_recorded_start_in_progress_is_a_skip(self, tmp_path):
+        write_status(tmp_path, "jupyter", SidecarStatus.starting())
+
+        row = (await _run(_cfg({"jupyter": True}), shared_root=tmp_path))["web_panels.jupyter"]
+
+        assert row.status is Status.SKIP
+        assert row.message == "JUPYTER: starting — reported by the web terminal"
+
+    async def test_a_recorded_running_sidecar_is_a_skip_that_claims_no_liveness(self, tmp_path):
+        """A record is the terminal's claim, and can outlive a terminal that crashed."""
+        status = SidecarStatus.running()
+        write_status(tmp_path, "jupyter", status)
+
+        row = (await _run(_cfg({"jupyter": True}), shared_root=tmp_path))["web_panels.jupyter"]
+
+        assert row.status is Status.SKIP
+        assert row.message == "JUPYTER: started — not probed, served inside the web terminal"
+        assert status.recorded_at in row.details
+
+    async def test_a_damaged_record_reads_as_no_record(self, tmp_path):
+        path = status_path(tmp_path, "jupyter")
+        path.parent.mkdir(parents=True)
+        path.write_text('{"state": "failed"')
+
+        row = (await _run(_cfg({"jupyter": True}), shared_root=tmp_path))["web_panels.jupyter"]
+
+        assert row.status is Status.SKIP
+        assert "has recorded no start" in row.message
+
+    async def test_the_record_is_read_from_the_configured_agent_data_root(self, tmp_path):
+        cfg = _cfg(
+            {"jupyter": True},
+            project_root=str(tmp_path),
+            agent_data={"base_dir": "var/agent_data"},
+        )
+        write_status(
+            (tmp_path / "var" / "agent_data").resolve(), "jupyter", SidecarStatus.failed("boom")
+        )
+
+        row = (await _run(cfg))["web_panels.jupyter"]
+
+        assert row.status is Status.WARNING
+        assert row.message == "JUPYTER failed to start: boom"
 
     async def test_disabled_sidecar_gets_no_row(self):
         rows = await _run(_cfg({"jupyter": {"enabled": False}}))

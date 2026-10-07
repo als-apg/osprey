@@ -19,6 +19,7 @@ from osprey.cli.output import report_fact, warn_fact
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.compose_generator import resolve_repo_root
 from osprey.deployment.docker_desktop import (
+    HOST_NETWORK_LIMIT,
     HOST_NETWORKING_REMEDY,
     host_networking_enabled,
     on_docker_desktop,
@@ -122,9 +123,9 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
     verify.sh`` doesn't exist — a profile that carries no such script must
     deploy without any mention of one.
 
-    The script's own convention (see its header) is to ALWAYS exit 0 —
-    verification is advisory, never deploy-blocking — but this runs it via
-    ``bash`` (rather than executing the path directly) and ignores whatever
+    The script exits 0 unless it is given ``--strict``, which this never
+    passes — verification is advisory, never deploy-blocking — but this runs
+    it via ``bash`` (rather than executing the path directly) and ignores whatever
     exit code it reports either way, so a site-customized copy that doesn't
     honor that convention still can never fail ``osprey up``: this
     step runs after compose already reported success, so a nonzero exit is a
@@ -210,15 +211,30 @@ def reload_nginx_config(web_cmd: list[str], run_env: dict[str, str]) -> None:
         )
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Surface a 3xx as an ``HTTPError`` instead of following it."""
+
+    def redirect_request(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+
+#: The opener the reachability probe dials with: it never follows a redirect.
+_PROBE_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def _host_port_answers(url: str, attempts: int, delay: float) -> bool:
     """Poll ``url`` from this host; ``True`` as soon as anything answers.
 
     Any HTTP status counts — a 502 from nginx still proves the host can reach
-    the listening socket, which is the only thing being tested here.
+    the listening socket, which is the only thing being tested here. A redirect
+    is an answer too and is never followed: the loopback address is not the
+    deployment's origin whenever ``deploy.fqdn`` names another host, and with
+    TLS on the plain port always redirects, so following would dial a name or
+    port this host may not reach.
     """
     for attempt in range(attempts):
         try:
-            with urllib.request.urlopen(url, timeout=3):
+            with _PROBE_OPENER.open(url, timeout=3):
                 return True
         except urllib.error.HTTPError:
             return True  # any HTTP response at all proves host-side reachability
@@ -366,7 +382,7 @@ def warn_if_web_stack_unreachable(
             f"every container is healthy and nginx is listening on port {nginx_port}, but it "
             "is listening inside the Docker Desktop Linux VM. Host networking is turned off "
             f"in Docker Desktop, so {url} never reaches this machine and the landing page "
-            "will not load in a browser."
+            f"will not load in a browser. {HOST_NETWORK_LIMIT}"
         )
         remedy = f"{HOST_NETWORKING_REMEDY}, and re-run `osprey up`"
     elif desktop:
@@ -377,7 +393,8 @@ def warn_if_web_stack_unreachable(
             f"{url} did not answer after {attempts} probes, so the landing page will not "
             "load in a browser. On Docker Desktop the web stack binds its port inside the "
             "Docker Linux VM and reaches this machine only through the host-network "
-            f"forwarder, which is off unless host networking is enabled.{bounced}"
+            f"forwarder, which is off unless host networking is enabled.{bounced} "
+            f"{HOST_NETWORK_LIMIT}"
         )
         remedy = f"check that host networking is on: {HOST_NETWORKING_REMEDY}"
     else:

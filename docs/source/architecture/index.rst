@@ -24,8 +24,9 @@ architecture of their own:
       :link-type: doc
       :shadow: md
 
-      Four ways to write to a machine — a channel write, agent-written
-      Python, a Bluesky plan, a notebook cell — and what stands in the way of
+      Four ways to write to a machine through the connector — a channel
+      write, agent-written Python, a Bluesky plan, a notebook cell — the
+      Phoebus drive that does not reach it, and what stands in the way of
       each: the PreToolUse hooks, the gates below them, the connector, and
       the audit trail.
 

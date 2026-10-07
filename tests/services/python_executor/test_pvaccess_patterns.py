@@ -2,10 +2,9 @@
 
 pvaPy is the EPICS connector's client for both Channel Access and PVAccess,
 so it is installed wherever OSPREY is - which makes it the direct client an
-agent is most likely to reach for. Before these entries a plain
-``Channel.put()`` was caught by accident (the generic ``\\.put\\s*\\(``), while
-the typed setters, ``asyncPut``, ``parsePut``, ``RpcClient.invoke`` and the
-whole monitor family went undetected.
+agent is most likely to reach for. Before these entries a plain ``Channel.put()`` was caught by accident (the generic
+``\\.put\\s*\\(``), while the typed setters, ``asyncPut``, ``parsePut``,
+``RpcClient.invoke`` and the whole monitor family went undetected.
 
 As in ``test_p4p_patterns.py``, these tests pin three things: every new regex
 fires on code an agent would plausibly write, none fires on ordinary analysis
@@ -24,11 +23,10 @@ from osprey.services.python_executor.analysis.pattern_detection import (
 # --- the new pvaccess entries, by list --------------------------------------
 
 PVACCESS_WRITE_PATTERNS = [
-    r"\bpvaccess\b[\s\S]*?\.(?:put|asyncPut|parsePut)\w*\s*\(",
-    r"\.put[A-Z]\w*\s*\(",
+    r"\.put(?:Get|Boolean|Byte|Double|Float|Int|Long|Short|String|ScalarArray"
+    r"|UByte|UInt|ULong|UShort|AsDoubleArray)\w*\s*\(",
     r"\.asyncPut\s*\(",
     r"\.parsePut\w*\s*\(",
-    r"\.putAsDoubleArray\s*\(",
     r"\bRpcClient\s*\(",
     r"\bpvaccess\b[\s\S]*?\.invoke\s*\(",
     r"\b(?:PvaServer|PvaMirrorServer|RpcServer|CaIoc)\b",
@@ -73,6 +71,18 @@ def test_pvaccess_read_patterns_are_in_the_read_list(pattern):
 
     assert pattern in patterns["read"]
     assert pattern not in patterns["write"]
+
+
+def test_the_setter_pattern_names_every_put_the_installed_binding_has():
+    """The setters are named rather than matched as any camelCase put, so a
+    setter the binding adds would go unseen; the installed one has none."""
+    pvaccess = pytest.importorskip("pvaccess", reason="pvaccess is not installed")
+    writes = get_framework_standard_patterns()["write"]
+    for cls in (pvaccess.Channel, pvaccess.MultiChannel):
+        for name in dir(cls):
+            if name.startswith(("put", "asyncPut", "parsePut")):
+                code = f"x.{name}(1)"
+                assert any(re.search(p, code) for p in writes), f"{name} is not detected"
 
 
 def test_every_pvaccess_pattern_compiles():
@@ -163,10 +173,10 @@ def test_pvaccess_write_code_is_detected_as_a_write(code):
     ],
 )
 def test_pvaccess_writes_the_generic_put_misses_are_caught(code):
-    """The generic ``\\.put\\s*\\(`` is blind to these spellings; the anchored
-    entry is what catches them."""
+    """The generic ``\\.put\\s*\\(`` is blind to these spellings; the pvaPy
+    put-family entries are what catch them."""
     assert re.search(r"\.put\s*\(", code) is None
-    assert re.search(PVACCESS_WRITE_PATTERNS[0], code) is not None
+    assert any(re.search(pattern, code) for pattern in PVACCESS_WRITE_PATTERNS[:3])
     assert detect(code)["has_writes"] is True
 
 
@@ -322,6 +332,12 @@ def test_each_new_read_pattern_fires_on_some_snippet(pattern):
             "cache.put_many(items)\noutput = compute(input_data)\nthroughput = n / dt\n",
             id="snake-case-put-and-put-substrings",
         ),
+        pytest.param(
+            "import cv2\ncv2.putText(frame, 'BPM 3', (10, 30), font, 1.0, (255, 0, 0))\n",
+            id="opencv-put-text",
+        ),
+        pytest.param("device.putChar(b'x')\nnp.putmask(arr, mask, 0)\n", id="other-put-names"),
+        pytest.param("reply = chain.invoke({'question': q})\n", id="unrelated-invoke-call"),
     ],
 )
 def test_ordinary_code_does_not_fire_any_new_pvaccess_pattern(code):

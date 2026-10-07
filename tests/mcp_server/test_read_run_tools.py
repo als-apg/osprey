@@ -142,6 +142,12 @@ async def test_list_devices_bridge_error():
     assert "no manager" in ctx["envelope"]["error_message"]
 
 
+async def test_list_devices_refuses_a_body_that_is_not_a_device_page():
+    with patch(f"{_MOD}._http_get_json", return_value=(200, [{"name": "BPM1"}])):
+        with assert_raises_error(error_type="bluesky_bridge_error"):
+            await _fn("list_devices")()
+
+
 async def test_list_devices_partial_page_reports_total_and_note():
     """A page shorter than `total` is the case the agent must not mistake for
     the whole namespace, so the count it is missing — and how to reach it — is

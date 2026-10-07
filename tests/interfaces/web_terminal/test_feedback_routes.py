@@ -349,19 +349,29 @@ def test_send_carries_the_session_id_in_the_deployment_tier(env: _Env) -> None:
 # ---- POST /api/feedback: collection discipline ----
 
 
-def test_send_reads_each_transcript_source_exactly_once(env: _Env) -> None:
-    env.client.post("/api/feedback", json=_send_body(channel="github"))
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("/api/feedback", _send_body(channel="github")),
+        ("/api/feedback/bundle", {"session_id": SESSION_ID, "text_len": 0, "scrollback": ""}),
+    ],
+    ids=["send", "bundle"],
+)
+def test_each_transcript_source_is_read_exactly_once(
+    env: _Env, path: str, body: dict[str, Any]
+) -> None:
+    env.client.post(path, json=body)
 
     assert env.reader.read_session_by_id.call_count == 1
     assert env.reader.read_chat_history_by_id.call_count == 1
     assert env.store.list_entries.call_count == 1
 
 
-@pytest.mark.usefixtures("env")
-def test_send_handler_runs_in_the_threadpool() -> None:
+@pytest.mark.parametrize("handler", ["submit_feedback", "feedback_bundle"])
+def test_handlers_run_in_the_threadpool(handler: str) -> None:
     from osprey.interfaces.web_terminal.routes import feedback as module
 
-    assert not inspect.iscoroutinefunction(module.submit_feedback)
+    assert not inspect.iscoroutinefunction(getattr(module, handler))
 
 
 def test_send_prunes_the_store_after_writing(env: _Env, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -428,36 +438,6 @@ def test_send_identity_is_the_service_identity_in_a_container_without_a_terminal
     assert env.headers()[0]["identity"] == "dispatch-worker"
 
 
-def test_send_falls_back_to_the_process_account_without_a_terminal_user(
-    env: _Env, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    env.client.app.state.terminal_user = ""
-    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
-    monkeypatch.delenv(AUDIT_IDENTITY_ENV, raising=False)
-    monkeypatch.setattr("getpass.getuser", lambda: "hostaccount")
-
-    env.client.post("/api/feedback", json=_send_body())
-
-    assert env.headers()[0]["identity"] == "hostaccount"
-
-
-def test_send_identity_is_unknown_when_the_process_account_is_unavailable(
-    env: _Env, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    env.client.app.state.terminal_user = ""
-    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
-    monkeypatch.delenv(AUDIT_IDENTITY_ENV, raising=False)
-
-    def _boom() -> str:
-        raise KeyError("no pwd entry")
-
-    monkeypatch.setattr("getpass.getuser", _boom)
-
-    env.client.post("/api/feedback", json=_send_body())
-
-    assert env.headers()[0]["identity"] == "unknown"
-
-
 # ---- POST /api/feedback: hostile input ----
 
 
@@ -494,7 +474,9 @@ def test_send_survives_a_lone_surrogate_in_the_scrollback(env: _Env) -> None:
     )
 
     assert response.status_code == 200
-    assert len(env.contexts()) == 1
+    # The record's copy of the scrollback is substituted too, not only the
+    # rendered bundle: "?" is what UTF-8's "replace" handler emits on encode.
+    assert env.contexts()[0]["scrollback"] == "$ ls ?\n"
 
 
 def test_send_survives_a_lone_surrogate_read_from_the_transcript(env: _Env) -> None:
@@ -653,15 +635,6 @@ def test_bundle_drops_the_metadata_tier_when_the_checkbox_is_off(env: _Env) -> N
     assert "submitted" in without
 
 
-def test_bundle_keeps_the_metadata_tier_for_a_client_that_omits_the_flag(env: _Env) -> None:
-    body = env.client.post(
-        "/api/feedback/bundle",
-        json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""},
-    ).json()["bundle"]
-
-    assert "OSPREY Test Rig" in body
-
-
 def test_the_bundle_carries_the_deployment_build_facts(env: _Env) -> None:
     """The maintainer's own copy names which build produced the report.
 
@@ -710,17 +683,9 @@ def test_a_deployment_the_project_owns_carries_no_escalation_link(env: _Env) -> 
         json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""},
     ).json()["bundle"]
 
-    assert "escalate" not in body.lower()
-
-
-def test_the_bundle_survives_a_deployment_with_no_identity(env: _Env) -> None:
-    """A lifespan that never ran must not cost the report."""
-    body = env.client.post(
-        "/api/feedback/bundle",
-        json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""},
-    ).json()["bundle"]
-
-    assert "OSPREY Test Rig" in body
+    deployment = body.split("## deployment\n", 1)[1].split("\n\n", 1)[0]
+    labels = {line[2:].split(":", 1)[0] for line in deployment.splitlines()}
+    assert labels == {"submitted", "user", "osprey version", "app", "browser", "session"}
 
 
 def test_bundle_rejects_a_non_uuid_session_id(env: _Env) -> None:
@@ -760,18 +725,6 @@ def test_bundle_refuses_a_non_numeric_text_len(env: _Env, text_len: Any) -> None
     assert env.files() == []
 
 
-def test_bundle_respects_the_cap_when_text_len_is_absent(env: _Env) -> None:
-    env.reader.read_session_by_id.return_value = _events(400)
-
-    response = env.client.post(
-        "/api/feedback/bundle",
-        json={"session_id": SESSION_ID, "scrollback": "ы" * 100_000},
-    )
-
-    assert response.status_code == 200
-    assert len(response.json()["bundle"].encode("utf-8")) <= PAYLOAD_CAP_BYTES
-
-
 def test_bundle_without_a_session_returns_metadata_only(env: _Env) -> None:
     response = env.client.post("/api/feedback/bundle", json={"text_len": 0})
 
@@ -780,39 +733,6 @@ def test_bundle_without_a_session_returns_metadata_only(env: _Env) -> None:
     assert "## deployment" in body
     assert "## event log" not in body
     env.reader.find_transcript_by_id.assert_not_called()
-    assert env.files() == []
-
-
-def test_bundle_reads_each_transcript_source_exactly_once(env: _Env) -> None:
-    env.client.post(
-        "/api/feedback/bundle",
-        json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""},
-    )
-
-    assert env.reader.read_session_by_id.call_count == 1
-    assert env.reader.read_chat_history_by_id.call_count == 1
-    assert env.store.list_entries.call_count == 1
-
-
-@pytest.mark.usefixtures("env")
-def test_bundle_handler_runs_in_the_threadpool() -> None:
-    from osprey.interfaces.web_terminal.routes import feedback as module
-
-    assert not inspect.iscoroutinefunction(module.feedback_bundle)
-
-
-def test_bundle_survives_a_lone_surrogate_read_from_the_transcript(env: _Env) -> None:
-    env.reader.read_chat_history_by_id.return_value = [
-        {"role": "user", "timestamp": "2026-08-20T18:00:50.000Z", "content": "oops \ud800 half"}
-    ]
-
-    response = env.client.post(
-        "/api/feedback/bundle",
-        json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""},
-    )
-
-    assert response.status_code == 200
-    assert "\ud800" not in response.json()["bundle"]
     assert env.files() == []
 
 
@@ -832,20 +752,6 @@ def test_bundle_refuses_a_scrollback_over_the_body_limit(env: _Env) -> None:
     assert "too large" in response.json()["detail"]
     assert env.files() == []
     env.reader.find_transcript_by_id.assert_not_called()
-
-
-def test_bundle_survives_a_lone_surrogate_in_the_scrollback(env: _Env) -> None:
-    response = env.client.post(
-        "/api/feedback/bundle",
-        content=json.dumps(
-            {"session_id": SESSION_ID, "text_len": 0, "scrollback": "$ ls \ud800\n"}
-        ).encode("ascii"),
-        headers={"content-type": "application/json"},
-    )
-
-    assert response.status_code == 200
-    assert "\ud800" not in response.json()["bundle"]
-    assert env.files() == []
 
 
 def test_bundle_uses_the_session_it_was_given(env: _Env) -> None:

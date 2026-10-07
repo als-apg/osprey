@@ -982,34 +982,6 @@ class TestFromPosture:
 
 
 # ---------------------------------------------------------------------------
-# get_limits_config
-# ---------------------------------------------------------------------------
-
-
-class TestGetLimitsConfig:
-    def test_known_channel_returns_full_dict(self, tmp_path):
-        validator = _make_validator(
-            tmp_path,
-            {"FOO": {"min_value": 1.0, "max_value": 9.0, "max_step": 2.0, "writable": True}},
-        )
-
-        config = validator.get_limits_config("FOO")
-
-        assert config == {
-            "channel_address": "FOO",
-            "min_value": 1.0,
-            "max_value": 9.0,
-            "max_step": 2.0,
-            "writable": True,
-        }
-
-    def test_unknown_channel_returns_none(self, tmp_path):
-        validator = _make_validator(tmp_path, {"FOO": {"max_value": 9.0}})
-
-        assert validator.get_limits_config("MISSING") is None
-
-
-# ---------------------------------------------------------------------------
 # resolve_confirm (channel entry -> defaults -> True)
 # ---------------------------------------------------------------------------
 
@@ -1240,7 +1212,7 @@ class TestMaxStepCheck:
 
         assert asked == ["FOO"]
 
-    @pytest.mark.parametrize("current", ["not-a-number", "50", float("nan"), float("inf"), [50.0]])
+    @pytest.mark.parametrize("current", ["not-a-number", "010", float("nan"), float("inf"), [50.0]])
     def test_a_current_value_that_is_not_a_finite_number_blocks_write(self, current):
         """A step that cannot be measured cannot be approved.
 
@@ -1387,44 +1359,91 @@ class TestValidate:
 
 
 class TestNonNumericValues:
-    """A channel with any numeric limit accepts only a finite real number.
+    """A channel with any numeric limit checks the number the write delivers.
 
-    The connector hands a string to the control system as-is, and an EPICS IOC
-    parses it with strtod/strtol: ``"0x10"`` writes 16 and ``"010"`` writes 8 to
-    a longout. The validator used to treat a string ``float()`` rejects as
-    "nothing numeric to check" -- so a value far outside [min, max] could be
-    written by spelling it in hex. NaN, meanwhile, passes every comparison.
-    Both now fail closed. A channel with no numeric limit is untouched.
+    A string written to a numeric channel is converted by the EPICS client, not
+    by the validator: the connector hands it to pvapy as-is, and the C
+    conversion uses base-0 ``strtol`` for an integer field and ``strtod`` for a
+    floating-point one -- so ``"0x10"`` writes 16. The validator used to treat
+    a string ``float()`` rejects as "nothing numeric to check", so a value far
+    outside [min, max] could be written by spelling it in hex. Strings are now read by the C rules, and one
+    they would read differently by channel type is refused. NaN, meanwhile,
+    passes every comparison; it is refused too. A channel with no numeric limit
+    is untouched.
     """
 
     LIMITED = {"FOO": {"min_value": 0.0, "max_value": 10.0}}
 
     @pytest.mark.parametrize(
+        ("value", "number"),
+        [
+            ("5", 5.0),
+            ("5.0", 5.0),
+            ("  5  ", 5.0),  # C whitespace around a numeral is skipped
+            ("+3", 3.0),
+            (".5", 0.5),
+            ("5.", 5.0),
+            ("1e0", 1.0),
+            ("0x8", 8.0),  # strtol base 0 and strtod agree
+            ("0X0A", 10.0),
+            ("0x1p3", 8.0),  # a C hex float
+            ("007", 7.0),  # octal 7 is decimal 7
+            ("08", 8.0),  # not octal: an integer field refuses it, strtod reads 8
+        ],
+    )
+    def test_a_numeral_is_checked_as_the_number_written(self, tmp_path, value, number):
+        validator = _make_validator(tmp_path, {"FOO": {"min_value": number, "max_value": number}})
+
+        validator.validate("FOO", value)
+
+    @pytest.mark.parametrize("value", ["0x10", "0X1p4", "1e3", "-0x10", "11", " 0x0B "])
+    def test_a_numeral_out_of_bounds_is_refused_as_such(self, tmp_path, value):
+        """The bypass: a hex string used to skip the range check entirely."""
+        validator = _make_validator(tmp_path, self.LIMITED)
+
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate("FOO", value)
+
+        assert exc.value.violation_type in ("MIN_EXCEEDED", "MAX_EXCEEDED")
+
+    @pytest.mark.parametrize(
         "value",
         [
-            "0x10",  # strtod: 16; float(): error
-            "0X1p4",  # C hex float: 16
-            "010",  # strtol: 8; float(): 10
-            "1_000",  # float(): 1000; strtod: 1
-            "  5  ",  # whitespace-padded numeral
-            "5",  # a plain numeral is still parsed by the IOC, not us
-            "5.0",
-            "1e3",  # strtol on a longout: 1
+            "010",  # strtol base 0: 8; strtod: 10
+            "-0100",
+            "1_000",  # float(): 1000; strtod: error
+            "1,000",
+            "0b11",
+            "0o7",
+            "nan",
+            "inf",
+            "-Infinity",
+            "1e400",  # overflows a double
+            "\u0663",  # ARABIC-INDIC DIGIT THREE: float() takes it, strtod does not
             b"5",
             "on",
             "",
         ],
     )
-    def test_a_string_is_refused(self, tmp_path, value):
+    def test_a_string_c_reads_otherwise_is_refused(self, tmp_path, value):
         validator = _make_validator(tmp_path, self.LIMITED)
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", value)
 
         assert exc.value.violation_type == "INVALID_NUMERIC_VALUE"
-        assert "String value" in exc.value.violation_reason
         assert exc.value.min_value == 0.0
         assert exc.value.max_value == 10.0
+
+    def test_an_ambiguous_numeral_names_both_readings(self, tmp_path):
+        validator = _make_validator(tmp_path, self.LIMITED)
+
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate("FOO", "010")
+
+        assert "ambiguous" in exc.value.violation_reason
+        assert "8" in exc.value.violation_reason
+        assert "10.0" in exc.value.violation_reason
 
     @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
     def test_a_non_finite_float_is_refused(self, tmp_path, value):
@@ -1454,14 +1473,14 @@ class TestNonNumericValues:
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate_without_step_check("FOO", "0x10")
 
-        assert exc.value.violation_type == "INVALID_NUMERIC_VALUE"
+        assert exc.value.violation_type == "MAX_EXCEEDED"
 
     @pytest.mark.parametrize("field", ["min_value", "max_value", "max_step"])
     def test_any_one_numeric_limit_is_enough(self, tmp_path, field):
         validator = _make_validator(tmp_path, {"FOO": {field: 100.0}})
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate_without_step_check("FOO", "0x10")
+            validator.validate_without_step_check("FOO", "010")
 
         assert exc.value.violation_type == "INVALID_NUMERIC_VALUE"
 
@@ -1473,9 +1492,9 @@ class TestNonNumericValues:
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", "0x10")
 
-        assert exc.value.violation_type == "INVALID_NUMERIC_VALUE"
+        assert exc.value.violation_type == "MAX_EXCEEDED"
 
-    def test_max_step_refuses_a_string_before_reading_the_channel(self):
+    def test_max_step_refuses_an_ambiguous_string_before_reading_the_channel(self):
         """The value is refused on its own; no read is spent measuring a step."""
         asked: list[str] = []
 
@@ -1486,11 +1505,24 @@ class TestNonNumericValues:
         validator = _step_validator(max_step=5.0)
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate("FOO", "0x33", read_current=reader)  # 51 to strtod
+            validator.validate("FOO", "063", read_current=reader)  # 51 or 63
 
         assert exc.value.violation_type == "INVALID_NUMERIC_VALUE"
         assert exc.value.max_step == 5.0
         assert asked == []
+
+    def test_max_step_measures_a_hex_string_as_its_number(self):
+        validator = _step_validator(max_step=5.0)
+
+        validator.validate("FOO", "0x33", read_current=lambda _address: 50.0)  # 51
+        with pytest.raises(ChannelLimitsViolationError) as exc:
+            validator.validate("FOO", "0x40", read_current=lambda _address: 50.0)  # 64
+        assert exc.value.violation_type == "MAX_STEP_EXCEEDED"
+
+    def test_a_numeral_current_reading_is_measured_from(self):
+        validator = _step_validator(max_step=5.0)
+
+        validator.validate("FOO", 52.0, read_current=lambda _address: "50")
 
     @pytest.mark.parametrize("value", [5, 5.0, True, 0, 10.0])
     def test_real_numbers_within_bounds_still_pass(self, tmp_path, value):

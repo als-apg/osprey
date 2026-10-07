@@ -69,6 +69,22 @@ _MANIFEST_PATH = "src/osprey/profiles/config_key_manifest.yml"
 #: ``artifact_server`` and ``python_executor`` earn theirs the same way: each
 #: has a key the reference page now documents, and a section name missing from
 #: this tuple turns its keys into prose the sweep never looks at.
+#:
+#: ``ariel`` joins for the same reason: the reference page documents
+#: ``ariel.entry_url_template``, and the profile page already names three
+#: ``ariel.*`` keys that the sweep could not see without it.
+#:
+#: ``phoebus`` belongs here because the reference page documents the Phoebus
+#: bridge's keys, and a section name missing from this tuple turns its keys into
+#: prose the sweep never looks at. The anchored dot keeps ``phoebus_drive`` and
+#: the other underscore spellings out.
+#:
+#: ``audit`` joins because the reference page documents
+#: ``audit.tool_call.enabled`` and ``audit.tool_call.max_inline_bytes``, and
+#: without the entry those literals are prose the sweep never checks.
+#:
+#: ``screen_capture`` earns its place the same way, now that the reference
+#: documents ``screen_capture.output_dir``.
 _SECTIONS = (
     "facility",
     "deployment",
@@ -87,6 +103,10 @@ _SECTIONS = (
     "artifacts",
     "agent_data",
     "file_paths",
+    "ariel",
+    "phoebus",
+    "audit",
+    "screen_capture",
 )
 
 #: An RST inline literal: ``like this``. Content may not span lines or contain
@@ -210,6 +230,26 @@ def test_the_manifest_declares_keys() -> None:
     )
 
 
+def test_the_phoebus_rows_are_swept() -> None:
+    """The ``phoebus`` section entry is only worth something if its rows reach the check.
+
+    A sweep that silently stopped recognising the reference page's Phoebus rows
+    would look identical to one that passes, so the rows are pinned as found.
+    """
+    expected = {
+        "phoebus.host",
+        "phoebus.port",
+        "phoebus.panels",
+        "phoebus.require_handle",
+        "phoebus.agent_access",
+        "phoebus.archiver_url",
+        "phoebus.plot_dir",
+        "phoebus.snapshot_dir",
+    }
+    swept = {key for _, _, key in _documented_keys()}
+    assert expected <= swept, f"phoebus rows the sweep does not see: {sorted(expected - swept)}"
+
+
 def _write_page(root: Path, name: str, body: str) -> None:
     target = root / _REFERENCE_DIR
     target.mkdir(parents=True, exist_ok=True)
@@ -235,6 +275,26 @@ def test_the_sweep_would_catch_a_bogus_key(tmp_path: Path) -> None:
         "the sweep should have flagged a documented key that is not in the manifest"
     )
     assert offenders[0][1] == 4, "the offender should be reported at its real line number"
+
+
+def test_the_sweep_reads_ariel_keys(tmp_path: Path) -> None:
+    """An ``ariel.*`` literal is a checked key, not prose.
+
+    Pins the ``ariel`` entry in :data:`_SECTIONS`: without it both literals below
+    are skipped and the sweep reports nothing either way.
+    """
+    fake_root = tmp_path / "repo"
+    _write_page(
+        fake_root,
+        "ariel.rst",
+        "ARIEL\n=====\n\n"
+        "Set ``ariel.entry_url_template`` to link entries.\n"
+        "Set ``ariel.not_a_real_key`` to do nothing.\n",
+    )
+
+    assert [hit[2] for hit in _undeclared_hits(docs_root=fake_root)] == ["ariel.not_a_real_key"], (
+        "the sweep should flag the bogus ariel key and pass the declared one"
+    )
 
 
 def test_a_declared_key_is_not_flagged(tmp_path: Path) -> None:

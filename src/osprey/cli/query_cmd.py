@@ -67,7 +67,7 @@ def _overlay_repo_env(repo_root: Path) -> None:
     The SECRETS zone is at the repo root while the render is under ``build/``,
     so the env chain and the ``config.yml`` this verb needs do not live in one
     directory — and the runner's own overlay
-    (``osprey.build.claude_code_resolver._env_lookup``) looks beside the config
+    (``osprey.agent_runner.provider_env._env_lookup``) looks beside the config
     it was handed. Without this the provider secret would simply not be found
     and the query would authenticate as whatever the ambient shell exported.
 

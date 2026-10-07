@@ -1,0 +1,36 @@
+{
+  "description": "Live thermal wander on cavity 01: one slow cooling-water driver moves body temperature, reflected power, forward power and tuner position together, each with its own readback noise, so a live correlation plot of temperature against reflected power (or tuner) shows a noisy, elongated cloud whose strength drifts over tens of seconds. For correlation demos; it adds no archived excursions (use rf-thermal for those) and does not compose with rf-thermal, which touches the same channels.",
+  "_comment": [
+    "`cav01-thermal` is a wander stack (5 log-spaced sines) with slowest period 300 s, so its",
+    "fastest component is 300 / 2^3.5 ~ 27 s; |driver| <= 1, std ~ 0.4.",
+    "Gains are in channel units per unit driver: +-0.5 degC body temperature, +-0.08 cm tuner,",
+    "+-2.5 kW reflected and forward power. Reflected power's gain rides a slow envelope",
+    "(x0.2..x1.8, slowest period 900 s), so its correlation with temperature waxes and wanes:",
+    "sampled at 1 s, r(T, REV) over a 5-min window wanders ~0.5-0.87; r(T, TUNER) ~0.96-0.98;",
+    "r(T, FWD) ~0.85-0.9. The `noise` block replaces these channels' machine-file noise while",
+    "the scenario is active (relative noise off, absolute sigma set) so the readback noise is",
+    "independent per channel and sized for those correlations. Couplings are deterministic in",
+    "epoch time, so archived history shows the same wander as the live values."
+  ],
+  "drivers": {
+    "cav01-thermal": {"kind": "wander", "amplitude": 1.0, "period_s": 300}
+  },
+  "couple": {
+    "SR:RF:CAVITY:01:TEMPERATURE:RB": [{"driver": "cav01-thermal", "gain": 0.5}],
+    "SR:RF:CAVITY:01:TUNER:RB": [{"driver": "cav01-thermal", "gain": 0.08}],
+    "SR:RF:CAVITY:01:POWER:REV": [
+      {
+        "driver": "cav01-thermal",
+        "gain": 2.5,
+        "gain_wander": {"amplitude": 0.8, "period_s": 900}
+      }
+    ],
+    "SR:RF:CAVITY:01:POWER:FWD": [{"driver": "cav01-thermal", "gain": 2.5}]
+  },
+  "noise": {
+    "SR:RF:CAVITY:01:TEMPERATURE:RB": {"noise": 0.0, "noise_abs": 0.03},
+    "SR:RF:CAVITY:01:TUNER:RB": {"noise": 0.0, "noise_abs": 0.004},
+    "SR:RF:CAVITY:01:POWER:REV": {"noise": 0.0, "noise_abs": 0.75},
+    "SR:RF:CAVITY:01:POWER:FWD": {"noise": 0.0, "noise_abs": 0.45}
+  }
+}

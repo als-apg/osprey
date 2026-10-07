@@ -120,6 +120,18 @@ class TestStoreExampleOrigin:
         store.delete_everything()
         assert store.example_removed
 
+    def test_deleting_an_example_by_id_list_writes_the_sentinel(self, tmp_path):
+        store = ArtifactStore(workspace_root=tmp_path)
+        demo = store.save_file(
+            file_content=b"<html></html>",
+            filename="demo.html",
+            artifact_type="plot_html",
+            title="Example",
+            origin=EXAMPLE_ORIGIN,
+        )
+        store.delete_entries([demo.id])
+        assert store.example_removed
+
 
 # ---------------------------------------------------------------------------
 # Seeder

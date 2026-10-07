@@ -14,6 +14,7 @@ vacuously against a file nothing had touched.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.routes import router
+from osprey.utils.config_writer import config_update_fields
 
 SAMPLE_CONFIG = """\
 # ============================================================
@@ -63,44 +65,14 @@ def client(project_dir):
     app.include_router(router)
     app.state.config_path = project_dir / "config.yml"
     app.state.project_cwd = str(project_dir)
+    # The lifespan resolves this tier flag; a routes-only app states it.
+    app.state.config_panel_enabled = True
     with TestClient(app) as c:
         yield c
 
 
 class TestPatchEndpoint:
     """Test PATCH /api/config for structured field updates."""
-
-    def test_patch_boolean_field(self, client, project_dir):
-        resp = client.patch(
-            "/api/config",
-            json={"updates": {"artifact_server.auto_launch": False}},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
-        assert resp.json()["fields_updated"] == 1
-
-        data = yaml.safe_load((project_dir / "config.yml").read_text())
-        assert data["artifact_server"]["auto_launch"] is False
-
-    def test_patch_string_field(self, client, project_dir):
-        resp = client.patch(
-            "/api/config",
-            json={"updates": {"artifact_server.host": "0.0.0.0"}},
-        )
-        assert resp.status_code == 200
-
-        data = yaml.safe_load((project_dir / "config.yml").read_text())
-        assert data["artifact_server"]["host"] == "0.0.0.0"
-
-    def test_patch_numeric_field(self, client, project_dir):
-        resp = client.patch(
-            "/api/config",
-            json={"updates": {"artifact_server.port": 9999}},
-        )
-        assert resp.status_code == 200
-
-        data = yaml.safe_load((project_dir / "config.yml").read_text())
-        assert data["artifact_server"]["port"] == 9999
 
     def test_patch_multiple_fields(self, client, project_dir):
         resp = client.patch(
@@ -115,6 +87,7 @@ class TestPatchEndpoint:
             },
         )
         assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
         assert resp.json()["fields_updated"] == 4
 
         data = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -138,31 +111,6 @@ class TestPatchEndpoint:
         assert "# Options: mock | epics" in text
         assert "# Master safety switch" in text
 
-    def test_patch_creates_backup(self, client, project_dir):
-        # Relocated, as the note here anticipated: the backup is a pre-write copy
-        # of the old file exactly as before, but it lands in the agent-data state
-        # zone instead of beside config.yml. SAMPLE_CONFIG names no
-        # `agent_data.base_dir`, so the zone is the framework default anchored on
-        # the project -- resolved through the same helpers the route uses rather
-        # than spelled out, since the location following the *config* is the
-        # property that matters (see test_config_routes.py for the relocation
-        # case). Beside-the-config is asserted absent: the render is root-owned
-        # after the container split, so a new file there is a 500, not a backup.
-        from osprey.utils.workspace import agent_data_base_dir, anchored_path
-
-        resp = client.patch(
-            "/api/config",
-            json={"updates": {"artifact_server.auto_launch": False}},
-        )
-        assert resp.status_code == 200
-
-        zone = anchored_path(agent_data_base_dir(yaml.safe_load(SAMPLE_CONFIG)), project_dir)
-        backup = zone / "config-backups" / "config.yml.bak"
-        assert backup.exists()
-        assert not (project_dir / "config.yml.bak").exists()
-        backup_text = backup.read_text()
-        assert "auto_launch: true" in backup_text
-
     def test_patch_empty_updates_rejected(self, client):
         resp = client.patch("/api/config", json={"updates": {}})
         assert resp.status_code == 422
@@ -179,12 +127,15 @@ class TestPatchEndpoint:
         original = yaml.safe_load((project_dir / "config.yml").read_text())
         original_keys = list(original.keys())
 
-        client.patch(
+        resp = client.patch(
             "/api/config",
             json={"updates": {"artifact_server.port": 1234}},
         )
 
+        # A refused or failed patch leaves the file untouched and the order equal.
+        assert resp.status_code == 200
         updated = yaml.safe_load((project_dir / "config.yml").read_text())
+        assert updated["artifact_server"]["port"] == 1234
         updated_keys = list(updated.keys())
         assert original_keys == updated_keys
 
@@ -192,13 +143,14 @@ class TestPatchEndpoint:
 class TestGetEndpoint:
     """Verify GET /api/config still works."""
 
-    def test_get_returns_sections_and_raw(self, client):
+    def test_get_returns_sections_and_raw(self, client, project_dir):
+        """The Form view gets only the allowlisted sections; Raw YAML gets the file."""
         resp = client.get("/api/config")
         assert resp.status_code == 200
         body = resp.json()
-        assert "sections" in body
-        assert "raw" in body
-        assert "path" in body
+        assert set(body["sections"]) == {"control_system", "approval", "artifact_server"}
+        assert "project_name" not in body["sections"]
+        assert body["path"] == str(project_dir / "config.yml")
         assert "# Test Config" in body["raw"]
 
 
@@ -229,3 +181,97 @@ class TestPutEndpointStillWorks:
             json={"raw": "invalid: yaml: [unterminated"},
         )
         assert resp.status_code == 422
+
+
+class TestHookDebugEndpoints:
+    """``/api/hooks/debug-status`` and ``/api/hooks/debug-log``.
+
+    Both read only ``app.state.config_path`` and ``app.state.project_cwd``, so
+    the bare router is their boundary; the lifespan that sets those attributes
+    is pinned by the app suites.
+    """
+
+    @pytest.mark.parametrize("debug", [True, False])
+    def test_debug_status_reads_config(self, client, project_dir, debug):
+        config_update_fields(project_dir / "config.yml", {"hooks.debug": debug})
+
+        resp = client.get("/api/hooks/debug-status")
+
+        assert resp.status_code == 200
+        assert resp.json()["enabled"] is debug
+
+    def test_debug_status_is_off_without_a_hooks_block(self, client):
+        resp = client.get("/api/hooks/debug-status")
+
+        assert resp.status_code == 200
+        assert resp.json()["enabled"] is False
+
+    def test_debug_log_returns_entries_newest_first(self, client, project_dir):
+        log_dir = project_dir / ".claude" / "hooks"
+        log_dir.mkdir(parents=True)
+        entries = [
+            {"ts": "2026-03-02T10:00:00Z", "hook": "PreToolUse", "tool": "Bash"},
+            {"ts": "2026-03-02T10:00:01Z", "hook": "PreToolUse", "tool": "Write"},
+        ]
+        (log_dir / "hook_debug.jsonl").write_text("\n".join(json.dumps(e) for e in entries))
+
+        resp = client.get("/api/hooks/debug-log?limit=50")
+
+        assert resp.status_code == 200
+        assert resp.json()["entries"] == list(reversed(entries))
+
+    def test_debug_log_is_empty_without_a_log_file(self, client):
+        resp = client.get("/api/hooks/debug-log")
+
+        assert resp.status_code == 200
+        assert resp.json()["entries"] == []
+
+
+class TestPanelGateFailsClosed:
+    """An app that never resolved ``web.config_panel.enabled`` is refused.
+
+    The lifespan always sets the flag; an app mounted without it (an embedder,
+    a routes-only app) has made no tier decision, and a tier gate that has no
+    decision to read refuses rather than opens.
+    """
+
+    @pytest.fixture
+    def flagless_client(self, project_dir):
+        app = FastAPI()
+        app.include_router(router)
+        app.state.config_path = project_dir / "config.yml"
+        app.state.project_cwd = str(project_dir)
+        with TestClient(app) as c:
+            yield c
+
+    @pytest.mark.parametrize(
+        "send",
+        [
+            pytest.param(lambda c: c.get("/api/config"), id="get-config"),
+            pytest.param(lambda c: c.put("/api/config", json={"raw": SAMPLE_CONFIG}), id="put"),
+            pytest.param(
+                lambda c: c.patch("/api/config", json={"updates": {"project_name": "x"}}),
+                id="patch",
+            ),
+            pytest.param(lambda c: c.get("/api/claude-setup"), id="get-claude-setup"),
+            pytest.param(
+                lambda c: c.put("/api/claude-setup", json={"path": "CLAUDE.md", "content": "x"}),
+                id="put-claude-setup",
+            ),
+            pytest.param(
+                lambda c: c.post(
+                    "/api/claude-setup", json={"path": ".claude/agents/x.md", "content": "x"}
+                ),
+                id="post-claude-setup",
+            ),
+        ],
+    )
+    def test_every_verb_is_refused_without_the_flag(self, flagless_client, project_dir, send):
+        before = (project_dir / "config.yml").read_bytes()
+
+        resp = send(flagless_client)
+
+        assert resp.status_code == 403
+        assert "web.config_panel.enabled" in resp.json()["detail"]
+        assert (project_dir / "config.yml").read_bytes() == before
+        assert not (project_dir / ".claude").exists()

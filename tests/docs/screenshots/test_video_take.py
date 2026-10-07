@@ -1581,13 +1581,13 @@ def test_web_terminal_keeps_nothing_by_default(monkeypatch, tmp_path) -> None:
 def test_the_demo_session_starts_in_auto_mode(monkeypatch, tmp_path) -> None:
     # The agent hands work to background subagents, which cannot show a
     # permission prompt; in manual mode their tool calls wait on nobody.
-    from osprey.deployment import claude_state_seed
+    from osprey.agent_runner import claude_state
 
     def seed(_build_dir, env):
         config_dir = Path(env["CLAUDE_CONFIG_DIR"])
         (config_dir / "settings.json").write_text(json.dumps({"model": "seeded"}))
 
-    monkeypatch.setattr(claude_state_seed, "seed_claude_state", seed)
+    monkeypatch.setattr(claude_state, "seed_claude_state", seed)
     monkeypatch.setattr(capture.tempfile, "mkdtemp", lambda prefix: str(tmp_path / "cfg"))
     (tmp_path / "cfg").mkdir()
 
@@ -1602,13 +1602,13 @@ def test_the_demo_session_starts_in_auto_mode(monkeypatch, tmp_path) -> None:
 def test_the_gateway_billing_notice_is_already_acknowledged(monkeypatch, tmp_path) -> None:
     # Auto mode behind a gateway opens a one-time notice that waits for Enter
     # and blocks the tool call it interrupted; a scripted take cannot answer it.
-    from osprey.deployment import claude_state_seed
+    from osprey.agent_runner import claude_state
 
     def seed(_build_dir, env):
         config_dir = Path(env["CLAUDE_CONFIG_DIR"])
         (config_dir / ".claude.json").write_text(json.dumps({"hasCompletedOnboarding": True}))
 
-    monkeypatch.setattr(claude_state_seed, "seed_claude_state", seed)
+    monkeypatch.setattr(claude_state, "seed_claude_state", seed)
     monkeypatch.setattr(capture.tempfile, "mkdtemp", lambda prefix: str(tmp_path / "cfg"))
     (tmp_path / "cfg").mkdir()
     monkeypatch.setattr(capture, "_now_ms", lambda: 1_790_000_000_500)

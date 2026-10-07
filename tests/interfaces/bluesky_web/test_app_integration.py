@@ -194,7 +194,7 @@ def _served_routes() -> dict[str, set[str]]:
     so an ``app.routes`` scan silently sees *zero* of them — passing the
     ``/stop`` check vacuously and failing the ``/runs/execute`` check. The
     OpenAPI schema is the public, version-stable contract for what the app
-    actually serves. See ``test_scaffold_routes_registration._registered_paths``.
+    actually serves. See ``test_scaffold_routes.py::TestRouteTable``.
     """
     schema = app.openapi()
     return {

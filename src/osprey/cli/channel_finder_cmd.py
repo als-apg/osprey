@@ -291,16 +291,20 @@ def build_database(
     "--pipeline",
     type=click.Choice(FILE_DATABASE_PARADIGMS),
     default=None,
-    help="Override pipeline type detection (default: auto-detect from config)",
+    help=(
+        "Paradigm to validate as; without --database, validates "
+        "channel_finder.pipelines.<paradigm>.database.path (default: auto-detect from config)"
+    ),
 )
 @click.pass_context
 def validate(ctx, database: str | None, verbose: bool, pipeline: str | None):
     """Validate a channel database JSON file.
 
     Checks JSON structure, schema validity, and database loading.
-    Auto-detects the paradigm from config when --pipeline is not given. A
-    graph project has no database file: it is told how to seed and inspect
-    its store instead.
+    --pipeline names the paradigm; without --database it validates the file
+    configured for that paradigm. Without --pipeline the paradigm is
+    auto-detected from config, and a graph project, which has no database
+    file, is told how to seed and inspect its store instead.
 
     Examples:
 
@@ -423,7 +427,7 @@ def preview(
 
 
 @channel_finder.command("web")
-@click.option("--host", default="127.0.0.1", help="Host to bind to")
+@click.option("--host", default=None, help="Host to bind to (default: from config or 127.0.0.1)")
 @click.option(
     "--port",
     default=None,
@@ -434,7 +438,7 @@ def preview(
     ),
 )
 @click.pass_context
-def web(ctx, host: str, port: int | None):
+def web(ctx, host: str | None, port: int | None):
     """Launch the Channel Finder web interface.
 
     Opens a browser-based interface for exploring, searching, and managing
@@ -457,14 +461,13 @@ def web(ctx, host: str, port: int | None):
     from osprey.interfaces.channel_finder.app import create_app
     from osprey.interfaces.common_middleware import WEB_PORT_ENV
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
-    from osprey.registry.web import resolve_web_server_address
+    from osprey.registry.web import resolve_web_server_bind
+    from osprey.utils.config import get_config_builder
 
-    if port is None:
-        # The framework's shared derivation: the OSPREY_CHANNEL_FINDER_PORT
-        # override a multi-user deployment exports, then the config section's
-        # own port, then the Channel Finder's slot at the base this deployment
-        # resolved. An explicit --port wins over all of it.
-        _, port = resolve_web_server_address("channel_finder")
+    # The config _setup_config selected, not the working directory's: under --project they differ.
+    # It is read only when a flag is missing, because a fully flagged run may have no config.
+    config = get_config_builder().raw_config if host is None or port is None else None
+    host, port = resolve_web_server_bind("channel_finder", config, host=host, port=port)
 
     # Publish the settled port before the app is constructed: cookies ignore
     # ports, so two OSPREY servers on this host share an origin as far as the
@@ -650,6 +653,7 @@ def generate(
     if do_validate:
         console.print("\nValidating generated databases...", style=Styles.INFO)
 
+        from osprey.services.channel_finder.core.base_database import BaseDatabase
         from osprey.services.channel_finder.databases.flat import ChannelDatabase
         from osprey.services.channel_finder.databases.hierarchical import (
             HierarchicalChannelDatabase,
@@ -658,7 +662,7 @@ def generate(
             MiddleLayerDatabase,
         )
 
-        validators = {
+        validators: dict[str, type[BaseDatabase]] = {
             "in_context.json": ChannelDatabase,
             "hierarchical.json": HierarchicalChannelDatabase,
             "middle_layer.json": MiddleLayerDatabase,

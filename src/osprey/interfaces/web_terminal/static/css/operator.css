@@ -596,6 +596,7 @@ html[data-ui-mode="simple"] #operator-container {
 /* ---- Command-line input area ---- */
 
 .op-input-area {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 0;
@@ -634,6 +635,54 @@ html[data-ui-mode="simple"] #operator-container {
 .op-input-area textarea::placeholder {
   color: var(--text-muted);
   opacity: 0.6;
+}
+
+/* ---- Slash-command suggestions ---- */
+.op-slash-popup {
+  position: absolute;
+  bottom: 100%;
+  left: 12px;
+  right: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-dropdown);
+  z-index: 5;
+}
+
+.op-slash-row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.op-slash-row:hover {
+  background: var(--accent-tint-06);
+}
+
+.op-slash-row.armed {
+  background: var(--accent-tint-12);
+}
+
+.op-slash-name {
+  color: var(--color-accent-light);
+}
+
+.op-slash-hint,
+.op-slash-desc {
+  color: var(--text-muted);
+}
+
+.op-slash-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .op-input-controls {

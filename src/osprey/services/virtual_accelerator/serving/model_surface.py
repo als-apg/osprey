@@ -184,9 +184,10 @@ class ModelSurface:
         self._write_token = model_write_token.encode() if model_write_token else None
         self._refresh = refresh
         self._seeds: dict[str, Any] = {
-            name: variable.default_value
+            name: seed
             for name, variable in partition.model_only.items()
-            if not variable.read_only and variable.default_value is not None
+            if not variable.read_only
+            and (seed := getattr(variable, "default_value", None)) is not None
         }
         self._backend_name = backend_name
         self._lattice_source = lattice_source

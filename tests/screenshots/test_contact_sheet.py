@@ -15,8 +15,10 @@ from pathlib import Path
 
 import pytest
 from docs.screenshots.contact_sheet import (
+    _PLOT_DRAWN_SELECTOR,
     ACCENT_EXCLUSIONS,
     CONTACT_SHEET_NAME,
+    DEMO_OPENING_PROMPT,
     DEMO_PLOT_ARTIFACT_ID,
     DEMO_SESSION_ID,
     DEMO_TRANSCRIPT_PATH,
@@ -28,23 +30,32 @@ from docs.screenshots.contact_sheet import (
     TRANSCRIPT_SENTINEL,
     VARIANTS,
     CapturedVariant,
+    HermeticHub,
+    Stage,
     _accent_override_css,
     _accent_override_var_names,
     _assert_accent_map_covers_tokens,
     _assert_fits_columns,
+    _beam_current_plot_html,
     _effective_variants,
     _fake_session_line,
+    _plot_frame_selector,
     _read_fitted_cols,
     _replay_shell_command,
     _variant_filename,
     _variant_label,
     _variant_url,
+    _wait_for_plot_drawn,
+    _wait_for_resumed_session,
     _write_fake_session,
+    capture_hub_view,
     compose_contact_sheet,
     hermetic_hub,
     longest_transcript_line_width,
     seed_demo_workspace,
 )
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from osprey.cli.project_utils import encode_claude_project_path
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
@@ -344,6 +355,147 @@ class _FakePage:
         return self.term_width if ".xterm" in expression else self.dims
 
 
+class _FakeLocator:
+    """A stand-in Playwright locator that records clicks and plot waits on its page."""
+
+    def __init__(self, page: _FakeHubPage, frames: tuple[str, ...], selector: str) -> None:
+        self.page = page
+        self.frames = frames
+        self.selector = selector
+
+    @property
+    def first(self) -> _FakeLocator:
+        return self
+
+    def click(self, timeout: int | None = None) -> None:  # noqa: ARG002
+        self.page.events.append("click")
+
+    def wait_for(self, state: str, timeout: int | None = None) -> None:  # noqa: ARG002
+        self.page.events.append(f"plot:{state}")
+        self.page.waits.append((self.frames, self.selector, state))
+        if self.page.wait_error is not None:
+            raise self.page.wait_error
+        if not self.page.drawn.pop(0):
+            raise PlaywrightTimeoutError("Timeout 30000ms exceeded.")
+
+
+class _FakeFrame:
+    """A stand-in frame locator carrying the chain of iframe selectors that led to it."""
+
+    def __init__(self, page: _FakeHubPage, frames: tuple[str, ...]) -> None:
+        self.page = page
+        self.frames = frames
+
+    def frame_locator(self, selector: str) -> _FakeFrame:
+        return _FakeFrame(self.page, (*self.frames, selector))
+
+    def locator(self, selector: str) -> _FakeLocator:
+        return _FakeLocator(self.page, self.frames, selector)
+
+
+class _FakeResponse:
+    """A stand-in Playwright ``APIResponse`` carrying only its status."""
+
+    def __init__(self, ok: bool, status: int) -> None:
+        self.ok = ok
+        self.status = status
+
+
+class _FakeRequest:
+    """A stand-in ``page.request`` that records the terminal-pool restart."""
+
+    def __init__(self, events: list[str], *, ok: bool = True, status: int = 200) -> None:
+        self.events = events
+        self.ok = ok
+        self.status = status
+
+    def post(self, url: str, headers: dict[str, str] | None = None) -> _FakeResponse:  # noqa: ARG002
+        self.events.append("restart")
+        return _FakeResponse(self.ok, self.status)
+
+
+class _FakeHubPage:
+    """A stand-in Playwright page for :func:`capture_hub_view`, recording its steps in order.
+
+    ``drawn`` holds one answer per plot wait: ``False`` makes that wait time out.
+    """
+
+    def __init__(
+        self,
+        *,
+        drawn: list[bool],
+        wait_error: Exception | None = None,
+        function_error: Exception | None = None,
+        restart_ok: bool = True,
+        restart_status: int = 200,
+    ) -> None:
+        self.events: list[str] = []
+        self.waits: list[tuple[tuple[str, ...], str, str]] = []
+        self.functions: list[tuple[str, object]] = []
+        self.drawn = list(drawn)
+        self.wait_error = wait_error
+        self.function_error = function_error
+        self.context = object()
+        self.request = _FakeRequest(self.events, ok=restart_ok, status=restart_status)
+
+    def add_init_script(self, script: str) -> None:
+        pass
+
+    def goto(self, url: str, **kwargs: object) -> None:  # noqa: ARG002
+        self.events.append("goto")
+
+    def wait_for_function(self, expression: str, **kwargs: object) -> None:
+        self.functions.append((expression, kwargs.get("arg")))
+        if self.function_error is not None:
+            raise self.function_error
+
+    def wait_for_timeout(self, ms: int) -> None:  # noqa: ARG002
+        self.events.append("settle")
+
+    def screenshot(self) -> bytes:
+        self.events.append("shot")
+        return b"png"
+
+    def close(self) -> None:
+        self.events.append("close")
+
+    def frame_locator(self, selector: str) -> _FakeFrame:
+        return _FakeFrame(self, (selector,))
+
+
+class _FakeBrowser:
+    """A stand-in Playwright browser that hands out one prepared page."""
+
+    def __init__(self, page: _FakeHubPage) -> None:
+        self.page = page
+
+    def new_page(self, viewport: object = None) -> _FakeHubPage:  # noqa: ARG002
+        return self.page
+
+
+_ARTIFACTS_PANEL = 'iframe.panel-iframe[data-panel-id="artifacts"]'
+
+
+def _drive(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    page: _FakeHubPage,
+    *,
+    mode: str = "expert",
+    stage: str | None = None,
+) -> None:
+    """Run :func:`capture_hub_view` against *page* with the live-hub waits stubbed out."""
+    from docs.screenshots import contact_sheet as cs
+
+    import osprey.interfaces._serving as serving
+
+    monkeypatch.setattr(cs, "_wait_for_resumed_session", lambda page, mode, *, variant: None)
+    monkeypatch.setattr(cs, "_read_fitted_cols", lambda page: None)
+    monkeypatch.setattr(serving, "authorize_browser_context", lambda context: None)
+    hub = HermeticHub("http://127.0.0.1:9", "http://127.0.0.1:9", tmp_path, tmp_path / "sessions")
+    capture_hub_view(_FakeBrowser(page), hub, "light", mode, tmp_path / "shot.png", stage=stage)
+
+
 def test_fitted_cols_reader_distinguishes_none_from_a_number() -> None:
     """``None`` (skip the wrap guard) and a number (enforce it) must stay distinct.
 
@@ -513,3 +665,206 @@ def test_accent_effective_variants_double_and_are_paired() -> None:
     names = [_variant_filename(t, m, a) for t, m, a in ab]
     assert len(names) == len(set(names))
     assert "web_terminal_dark_expert_teal.png" in names
+
+
+# ---------------------------------------------------------------------------
+# Hub capture: the plot is drawn before the shot (browser-free)
+# ---------------------------------------------------------------------------
+
+
+def test_plot_frame_selector_is_scoped_to_the_active_view() -> None:
+    """Each view's preview frame is named by that view's own container."""
+    assert _plot_frame_selector("simple") == "#simple-result-preview iframe"
+    assert _plot_frame_selector("expert") == "#preview-content iframe.preview-iframe-light"
+    assert _plot_frame_selector(None) == "#preview-content iframe.preview-iframe-light"
+
+
+def test_drawn_plot_selector_needs_a_drawn_trace() -> None:
+    """The selector matches only what Plotly creates, never the served markup."""
+    assert ".js-plotly-plot" in _PLOT_DRAWN_SELECTOR
+    assert "path.js-line" in _PLOT_DRAWN_SELECTOR
+    assert "plotly-graph-div" not in _PLOT_DRAWN_SELECTOR
+    served = _beam_current_plot_html()
+    assert "plotly-graph-div" in served
+    assert "js-plotly-plot" not in served
+    assert "js-line" not in served
+
+
+@pytest.mark.parametrize("mode", ["expert", "simple"])
+def test_plot_wait_asks_the_active_preview_for_a_visible_trace(mode: str) -> None:
+    """One wait, for a visible drawn trace, inside the active view's preview frame."""
+    page = _FakeHubPage(drawn=[True])
+    _wait_for_plot_drawn(page, mode, variant=f"theme=light, mode={mode}", moment="before the shot")
+    assert page.waits == [
+        ((_ARTIFACTS_PANEL, _plot_frame_selector(mode)), _PLOT_DRAWN_SELECTOR, "visible")
+    ]
+
+
+def test_plot_wait_names_the_variant_when_the_plot_never_draws() -> None:
+    """A timeout becomes a RuntimeError naming the variant and the moment."""
+    page = _FakeHubPage(drawn=[False])
+    with pytest.raises(RuntimeError) as info:
+        _wait_for_plot_drawn(
+            page, "expert", variant="theme=dark, mode=expert", moment="before the shot"
+        )
+    message = str(info.value)
+    assert "theme=dark, mode=expert" in message
+    assert "before the shot" in message
+    assert "did not draw" in message
+    assert isinstance(info.value.__cause__, PlaywrightTimeoutError)
+
+
+def test_plot_wait_does_not_swallow_other_errors() -> None:
+    """A Playwright error other than a timeout propagates unchanged."""
+    page = _FakeHubPage(drawn=[True], wait_error=PlaywrightError("frame detached"))
+    with pytest.raises(PlaywrightError, match="frame detached") as info:
+        _wait_for_plot_drawn(page, "expert", variant="theme=light", moment="before the shot")
+    assert not isinstance(info.value, RuntimeError)
+
+
+def test_hub_capture_writes_no_image_when_the_plot_never_draws(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A plot that never draws fails the capture, writes nothing, and still tears down."""
+    page = _FakeHubPage(drawn=[False])
+    with pytest.raises(RuntimeError, match="theme=light, mode=expert"):
+        _drive(monkeypatch, tmp_path, page)
+    assert "shot" not in page.events
+    assert not (tmp_path / "shot.png").exists()
+    assert "restart" in page.events
+    assert "close" in page.events
+
+
+def test_hub_capture_rechecks_the_plot_after_the_stage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The plot is checked again after the stage and settle, right before the shot."""
+    from docs.screenshots import contact_sheet as cs
+
+    monkeypatch.setitem(cs.STAGES, "probe", Stage("probe", lambda p: p.events.append("stage")))
+    page = _FakeHubPage(drawn=[True, False])
+    with pytest.raises(RuntimeError, match="stage=probe") as info:
+        _drive(monkeypatch, tmp_path, page, stage="probe")
+    assert "before the shot" in str(info.value)
+    steps = [e for e in page.events if e not in ("restart", "goto", "close")]
+    assert steps == ["click", "plot:visible", "stage", "settle", "plot:visible"]
+    assert "shot" not in page.events
+
+
+def test_hub_capture_shoots_after_both_plot_checks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """With the plot drawn at both checks, the shot follows the second one."""
+    from docs.screenshots import contact_sheet as cs
+
+    monkeypatch.setitem(cs.STAGES, "probe", Stage("probe", lambda p: p.events.append("stage")))
+    page = _FakeHubPage(drawn=[True, True])
+    _drive(monkeypatch, tmp_path, page, stage="probe")
+    assert (tmp_path / "shot.png").read_bytes() == b"png"
+    steps = [e for e in page.events if e not in ("restart", "goto", "close")]
+    assert steps == ["click", "plot:visible", "stage", "settle", "plot:visible", "shot"]
+
+
+# ---------------------------------------------------------------------------
+# Hub capture: the resumed session is read from the active view
+# ---------------------------------------------------------------------------
+
+
+def test_fake_session_opens_on_the_demo_prompt() -> None:
+    """The fake session's one user line is the prompt the Simple chat replays."""
+    assert json.loads(_fake_session_line())["message"]["content"] == DEMO_OPENING_PROMPT
+
+
+def test_resumed_session_wait_reads_the_chat_in_simple() -> None:
+    """Simple waits once, on the chat's replayed operator message, never on the terminal."""
+    page = _FakeHubPage(drawn=[])
+    _wait_for_resumed_session(page, "simple", variant="theme=light, mode=simple")
+    assert len(page.functions) == 1
+    expression, arg = page.functions[0]
+    assert ".op-entry.operator" in expression
+    assert ".op-entry-body" in expression
+    assert ".xterm-rows" not in expression
+    assert "terminal-label" not in expression
+    assert arg == DEMO_OPENING_PROMPT
+
+
+@pytest.mark.parametrize("mode", ["expert", None])
+def test_resumed_session_wait_reads_the_terminal_in_expert(mode: str | None) -> None:
+    """Expert waits for the sentinel in the terminal, then for the confirmed hex."""
+    page = _FakeHubPage(drawn=[])
+    _wait_for_resumed_session(page, mode, variant="theme=light")
+    assert len(page.functions) == 2
+    (first, first_arg), (second, second_arg) = page.functions
+    assert ".xterm-rows" in first
+    assert first_arg == TRANSCRIPT_SENTINEL
+    assert "terminal-label" in second
+    assert second_arg == DEMO_SESSION_ID[:8]
+
+
+@pytest.mark.parametrize(("mode", "view"), [("simple", "operator chat"), ("expert", "terminal")])
+def test_resumed_session_wait_names_the_variant_when_it_never_appears(mode: str, view: str) -> None:
+    """A session that never appears raises a RuntimeError naming the variant and view."""
+    timeout = PlaywrightTimeoutError("Timeout 30000ms exceeded.")
+    page = _FakeHubPage(drawn=[], function_error=timeout)
+    variant = f"theme=dark, mode={mode}"
+    with pytest.raises(RuntimeError) as info:
+        _wait_for_resumed_session(page, mode, variant=variant)
+    assert variant in str(info.value)
+    assert view in str(info.value)
+    assert info.value.__cause__ is timeout
+
+
+def test_resumed_session_wait_does_not_swallow_other_errors() -> None:
+    """A Playwright error other than a timeout propagates unchanged."""
+    page = _FakeHubPage(drawn=[], function_error=PlaywrightError("frame detached"))
+    with pytest.raises(PlaywrightError, match="frame detached") as info:
+        _wait_for_resumed_session(page, "simple", variant="theme=light, mode=simple")
+    assert not isinstance(info.value, RuntimeError)
+
+
+def test_hub_capture_empties_the_terminal_pool_before_the_page_loads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The capture empties the terminal pool once, before its page loads."""
+    page = _FakeHubPage(drawn=[True, True])
+    _drive(monkeypatch, tmp_path, page)
+    assert page.events.index("restart") < page.events.index("goto")
+    assert page.events.count("restart") == 1
+
+
+def test_hub_capture_stops_when_the_hub_keeps_its_terminal_pool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A refused restart stops the capture before the page loads and writes nothing."""
+    page = _FakeHubPage(drawn=[True, True], restart_ok=False, restart_status=403)
+    with pytest.raises(RuntimeError) as info:
+        _drive(monkeypatch, tmp_path, page)
+    assert "theme=light, mode=expert" in str(info.value)
+    assert "403" in str(info.value)
+    assert "goto" not in page.events
+    assert "shot" not in page.events
+    assert "close" in page.events
+    assert not (tmp_path / "shot.png").exists()
+
+
+@pytest.mark.browser
+def test_hub_capture_writes_every_mode_twice_in_one_hub(tmp_path: Path) -> None:
+    """Every mode captures in one hub, and a repeat Expert capture does not stall."""
+    from docs.screenshots.capture import ScreenshotSkip, chromium_context
+
+    sequence = [
+        ("dark", "expert"),
+        ("dark", "simple"),
+        ("light", "expert"),
+        ("light", "simple"),
+        ("dark", "expert"),
+    ]
+    try:
+        with chromium_context() as browser, hermetic_hub() as hub:
+            for index, (theme, mode) in enumerate(sequence):
+                dest = tmp_path / f"{index}_{theme}_{mode}.png"
+                capture_hub_view(browser, hub, theme, mode, dest)
+                assert dest.exists()
+                assert dest.read_bytes().startswith(b"\x89PNG")
+    except ScreenshotSkip as exc:
+        pytest.skip(str(exc))

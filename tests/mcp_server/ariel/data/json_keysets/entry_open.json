@@ -1,0 +1,8 @@
+{
+  "$": "dict",
+  "attachment_id": "str",
+  "entry_id": "str",
+  "message": "str",
+  "opened": "str",
+  "url": "str"
+}

@@ -1,6 +1,11 @@
 /* OSPREY Web Terminal — Hook Debug Toggle & Log Viewer */
 
 import { fetchJSON, apiRequest } from './api.js';
+import {
+  facilityZoneLabel,
+  formatFacilityTime,
+  viewerSharesFacilityClock,
+} from '/design-system/js/facility-time.js';
 
 /**
  * One row of the hook activity log, as returned by `/api/hooks/debug-log` (prefix-aware). All fields are optional because older log
@@ -173,7 +178,8 @@ async function _loadLogEntries(logBody) {
     // Thead
     const thead = document.createElement('thead');
     const headerRow = document.createElement('tr');
-    for (const col of ['Time', 'Hook', 'Tool', 'Status', 'Detail']) {
+    const timeHeader = viewerSharesFacilityClock() ? 'Time' : `Time (${facilityZoneLabel()})`;
+    for (const col of [timeHeader, 'Hook', 'Tool', 'Status', 'Detail']) {
       const th = document.createElement('th');
       th.textContent = col;
       headerRow.appendChild(th);
@@ -223,19 +229,20 @@ function _appendCell(tr, text, className) {
 }
 
 /**
+ * The time of day of a log stamp on the facility clock, to the millisecond.
+ * An unparseable stamp is shown as written.
  * @param {string} ts
  * @returns {string}
  */
 function _formatTimestamp(ts) {
   if (!ts) return '-';
-  try {
-    const d = new Date(ts);
-    if (isNaN(d.getTime())) return ts;
-    return d.toLocaleTimeString('en-US', { hour12: false }) +
-      '.' + String(d.getMilliseconds()).padStart(3, '0');
-  } catch {
-    return ts;
-  }
+  return formatFacilityTime(ts, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3,
+    hourCycle: 'h23',
+  }) || ts;
 }
 
 /**

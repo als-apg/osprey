@@ -142,7 +142,7 @@ async def submit_response(
             },
         )
         # Set unified fields on the entry
-        artifact = store.update_entry_metadata(
+        updated = store.update_entry_metadata(
             artifact.id,
             category=category,
             source_agent=agent,
@@ -153,8 +153,9 @@ async def submit_response(
                 "source_agent": agent,
             },
         )
-
-        response = artifact.to_tool_response()
+        if updated is None:
+            raise RuntimeError(f"artifact {artifact.id} left the index before its metadata was set")
+        response = updated.to_tool_response()
         response["gallery_url"] = gallery_url()
         return json.dumps(response, default=str)
 

@@ -743,6 +743,36 @@ def test_an_unstamped_process_with_no_record_is_fail_closed(tmp_path, monkeypatc
         posture_store.invalidate_cache()
 
 
+def test_an_unstamped_hook_and_the_store_derive_one_root_under_a_relocated_base_dir(
+    tmp_path, monkeypatch
+):
+    """With no stamp, the hook and the store both follow ``agent_data.base_dir``.
+
+    Paths are compared resolved: the framework side resolves its answer, and a
+    temporary directory can sit under a symlink.
+    """
+    from osprey_connectors.workspace import reset_config_cache
+
+    config = tmp_path / "config.yml"
+    config.write_text(f"project_root: {tmp_path}\nagent_data:\n  base_dir: relocated/agent_data\n")
+    monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    monkeypatch.setenv("OSPREY_CONFIG", str(config))
+    monkeypatch.setenv("CONFIG_FILE", str(config))
+    reset_config_cache()
+    posture_store.invalidate_cache()
+
+    try:
+        hook_root = Path(reader.agent_data_root({})).resolve()
+        expected = (tmp_path / "relocated/agent_data").resolve()
+
+        assert hook_root == posture_store.agent_data_root().resolve() == expected
+        assert Path(reader.resolve_state_dir({})).resolve().is_relative_to(expected)
+    finally:
+        reset_config_cache()
+        posture_store.invalidate_cache()
+
+
 def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path, monkeypatch):
     """The retry that succeeds: the same bare ``claude``, one server later.
 

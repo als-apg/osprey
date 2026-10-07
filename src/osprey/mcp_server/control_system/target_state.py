@@ -650,7 +650,6 @@ def applying_bound_s(
     spawn_timeout_s: float,
     probe_timeout_s: float,
     drain_timeout_s: float,
-    fallback_retry: bool = True,
 ) -> float:
     """How long the swap this server is running can legitimately take.
 
@@ -663,7 +662,7 @@ def applying_bound_s(
     A swap drains the old child once and then runs the spawn-and-probe pair;
     when the write gateway will not answer the probe, the manager retries the
     whole pair through the read-only gateway, which is why the pair counts
-    twice by default. Deliberately generous: a bound that expires early makes a
+    twice. Deliberately generous: a bound that expires early makes a
     healthy swap look stranded and lets other sessions launch into the middle
     of it, while a bound that expires late costs only a slower recovery from a
     server that died mid-swap.
@@ -672,15 +671,11 @@ def applying_bound_s(
         spawn_timeout_s: Bound on "spawned and answered its init frame".
         probe_timeout_s: Bound on the readiness probe.
         drain_timeout_s: Bound on draining the child being replaced.
-        fallback_retry: Whether a probe failure can be retried through the
-            read-only gateway — the doubling above. A first launch that cannot
-            retry passes ``False``.
 
     Returns:
         Seconds from the ``applying`` stamp to its ``expires_at``.
     """
-    attempts = 2 if fallback_retry else 1
-    return float(drain_timeout_s) + attempts * (float(spawn_timeout_s) + float(probe_timeout_s))
+    return float(drain_timeout_s) + 2 * (float(spawn_timeout_s) + float(probe_timeout_s))
 
 
 def _expires_at(stamp: str, expires_in_s: float) -> str:

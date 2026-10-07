@@ -198,6 +198,61 @@ def test_preset_ariel_standalone_renders_logbook_persona(runner: CliRunner, tmp_
     assert manifest["creation"]["claude_md_template"] == "CLAUDE.ariel.md.j2"
 
 
+def test_ariel_standalone_narrates_every_control_assistant_scenario(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """The standalone logbook is the control-assistant scenarios' narrative, by construction.
+
+    The packaged ariel_standalone template ships no logbook and no machine
+    corpus of its own (its data/ holds only a README); its ``shared_data.yml`` takes both from the
+    control-assistant template. So what a standalone deploy seeds is read off
+    the same files the control-assistant scenarios carry, and this pins that
+    it is ALL of them: every scenario's entries, in nominal-first order, each
+    with the very picture bytes the scenario attaches.
+    """
+    import osprey
+    from osprey.simulation.apply import demo_narrative_logbook
+    from osprey.simulation.machine import parse_machine, read_machine_json
+
+    templates = pathlib.Path(osprey.__file__).parent / "templates" / "apps"
+    own = sorted(
+        p.relative_to(templates / "ariel_standalone" / "data").as_posix()
+        for p in (templates / "ariel_standalone" / "data").rglob("*")
+    )
+    assert own == ["README.md"], (
+        "ariel_standalone ships data of its own again -- one copy of each file lives "
+        "in control_assistant and is taken through shared_data.yml"
+    )
+
+    result = _materialize(runner, str(tmp_path), "smoke", "ariel-standalone")
+    assert result.exit_code == 0, result.output
+    render = _project(tmp_path, "smoke")
+    ariel = _config_yaml(render)["ariel"]
+    assert "ingestion" not in ariel, "the demo narrative replaces the demo ingest"
+    seeded = demo_narrative_logbook(ariel, render)
+
+    machine_path = templates / "control_assistant" / "data" / "simulation" / "machine.json"
+    scenarios = parse_machine(read_machine_json(machine_path), machine_path).scenarios
+    order = sorted(scenarios, key=lambda name: (name != "nominal", name))
+    expected = [entry for name in order for entry in scenarios[name].logbook]
+
+    assert [e.entry_id for e in seeded] == [e.entry_id for e in expected]
+    assert [(e.title, e.text, e.when) for e in seeded] == [
+        (e.title, e.text, e.when) for e in expected
+    ]
+
+    def _pictures(entry):
+        """A shipped picture by its bytes, a plot spec by its parsed contents."""
+        return [item.read_bytes() if isinstance(item, pathlib.Path) else item for item in entry]
+
+    for got, want in zip(seeded, expected, strict=True):
+        assert _pictures(got.attachments) == _pictures(want.attachments), got.entry_id
+    assert sum(len(e.attachments) for e in seeded) == 3
+
+    corpus = templates / "control_assistant" / "data" / "demo_machine.ttl"
+    assert (render / "data" / "demo_machine.ttl").read_bytes() == corpus.read_bytes()
+
+
 def test_preset_control_assistant_ships_live_openobserve_telemetry(
     runner: CliRunner, tmp_path: Path
 ) -> None:
@@ -582,6 +637,72 @@ def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Pa
     assert servers["echo"]["args"] == ["hello"]
 
 
+def test_every_web_terminal_render_pins_the_mcp_health_address(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A web-terminal render probes each MCP server at the address the agent dials.
+
+    The terminals run on the host's network, where a compose service name does
+    not resolve, so every render the build writes (host, persona, image copy)
+    carries ``health.auto.mcp.url_key: host_url``. Inside a container, the
+    derived probe then dials exactly the URL the agent's ``.mcp.json`` names.
+    """
+    import json
+
+    from osprey.health.config import parse_health_config
+    from osprey.health.derive import derive_mcp_servers
+
+    repo = tmp_path / "pinned"
+    created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    assert created.exit_code == 0, created.output
+    profile_path = repo / "profile.yml"
+    with profile_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            "mcp_servers:\n"
+            "  facility_tools:\n"
+            "    port: 19910\n"
+            "    permissions:\n"
+            "      allow: [read_thing]\n"
+        )
+    assert list(_profile_yaml(repo)["mcp_servers"]) == ["facility_tools"]
+
+    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    assert result.exit_code == 0, result.output
+
+    personas = sorted(path.stem for path in (repo / "personas").glob("*.yml"))
+    assert personas
+    images = sorted((repo / "build" / ".image").iterdir())
+    assert images
+    renders = [
+        repo / "build",
+        *(_persona_project(repo, persona) for persona in personas),
+        *(image / "build" for image in images),
+    ]
+    for render in renders:
+        assert _config_yaml(render)["health"]["auto"]["mcp"]["url_key"] == "host_url", render
+
+    monkeypatch.setattr("osprey.health.derive._in_container", lambda: True)
+    agent_url = json.loads((repo / "build" / ".mcp.json").read_text())["mcpServers"][
+        "facility_tools"
+    ]["url"]
+    for render in (repo / "build", _persona_project(repo, personas[0])):
+        cfg = _config_yaml(render)
+        category = derive_mcp_servers(parse_health_config(cfg.get("health")), cfg)
+        assert category is not None and category.checks is not None
+        checks = category.checks
+        assert [check.params["url"] for check in checks] == ["http://localhost:19910/mcp"]
+        assert checks[0].params["url"] == agent_url
+
+
+def test_a_render_without_web_terminals_leaves_the_mcp_health_address_to_the_runtime(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A deployment that serves no web terminal renders no ``health.auto`` key."""
+    result = _materialize(runner, str(tmp_path), "smoke", "hello-world")
+    assert result.exit_code == 0, result.output
+    assert "auto" not in (_config_yaml(_project(tmp_path, "smoke")).get("health") or {})
+
+
 def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Path) -> None:
     """A profile's custom artifact categories land in the built config.yml."""
     profile = tmp_path / "repo" / "profile.yml"
@@ -832,8 +953,9 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     (``control_system.connector.mock``). The mock archiver derives its own copy
     from there, so a second declaration would be a divergence waiting to
     happen. No ``active_scenarios`` state file ships in ``data/``: the active
-    set is runtime state under ``_agent_data/simulation/``, and its absence
-    already means "nominal only".
+    set is runtime state under ``_agent_data/simulation/``, and the first deploy
+    writes it from the machine's ``default_scenarios`` (``rf-thermal``, the
+    incident the getting-started tutorial walks through).
     """
     import json
 
@@ -847,12 +969,15 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     machine = json.loads(machine_path.read_text(encoding="utf-8"))
     assert "channels" in machine
     assert "scenarios" not in machine, "scenarios moved to bundle tree, not the machine file"
+    assert machine["default_scenarios"] == ["rf-thermal"]
 
     # Self-contained scenario bundles (telemetry + optional logbook).
     for name in ("nominal", "vacuum-burst", "rf-thermal"):
         assert (sim_dir / "scenarios" / name / "scenario.json").exists(), f"{name} bundle missing"
     assert (sim_dir / "scenarios" / "nominal" / "logbook.json").exists()
     assert (sim_dir / "scenarios" / "rf-thermal" / "logbook.json").exists()
+    # The pictures and plot specs logbook entries attach ship with their bundles.
+    assert (sim_dir / "scenarios" / "rf-thermal" / "plots" / "cavity_temperatures.json").exists()
     # vacuum-burst is telemetry-only by design (no logbook narrative).
     assert not (sim_dir / "scenarios" / "vacuum-burst" / "logbook.json").exists()
 

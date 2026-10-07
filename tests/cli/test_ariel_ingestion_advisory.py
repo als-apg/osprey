@@ -59,9 +59,9 @@ def test_missing_deployed_services_key_is_silent() -> None:
 
 
 def test_local_file_source_is_silent() -> None:
-    """The bundled ARIEL app ingests a seed file from disk, not over the network."""
+    """A seed file read from disk is not fetched over the network."""
     config = _config(
-        source_url="data/logbook_seed/demo_logbook.json",
+        source_url="data/my_logbook.json",
         deployed=["postgresql", "ariel"],
     )
 

@@ -35,8 +35,10 @@ takes ``file_path`` and optional ``script_args`` in place of ``code``).
      - Human-readable description of what the code does.
    * - ``execution_mode``
      - ``"readonly"``
-     - ``"readonly"`` blocks detected write patterns; ``"readwrite"`` allows
-       them.
+     - ``"readonly"`` blocks detected write patterns. ``"readwrite"`` may write,
+       through ``osprey.runtime.write_channel()`` only; a raw client put is
+       refused (see
+       :ref:`python-executor-armed-block`).
    * - ``save_output``
      - ``True``
      - Save code and output to a workspace data file and artifact store.

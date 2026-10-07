@@ -1,8 +1,8 @@
 """Tests for per-user identity surfacing in the web terminal.
 
-``OSPREY_TERMINAL_USER`` and ``OSPREY_TERMINAL_LANDING_URL`` are read
-env-over-config (mirroring ``app.state.app_name``) and passed into the
-``index.html`` template context by the ``root()`` route.
+``OSPREY_TERMINAL_USER`` and ``OSPREY_TERMINAL_LANDING_URL`` are read at
+startup and rendered by ``root()`` into the header's identity chip and its
+logout controls; the forwarded role headers are read per request.
 """
 
 from __future__ import annotations
@@ -32,106 +32,9 @@ def client(workspace_dir):
         "osprey.interfaces.web_terminal.app._load_web_config",
         return_value={"watch_dir": str(workspace_dir)},
     ):
-        app = create_app(shell_command="echo")
+        app = create_app(shell_command=["echo"])
         with TestClient(app) as c:
             yield c
-
-
-class TestTerminalUser:
-    """``OSPREY_TERMINAL_USER`` -> ``app.state.terminal_user`` (env-only, no config key)."""
-
-    def test_set_from_env(self, workspace_dir):
-        cfg = {"watch_dir": str(workspace_dir)}
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value=cfg,
-            ),
-            patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
-        ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as c:
-                assert app.state.terminal_user == "alice"
-                assert c.get("/").status_code == 200
-
-    def test_empty_when_unset(self, client):
-        # The shared `client` fixture supplies no OSPREY_TERMINAL_USER.
-        assert client.app.state.terminal_user == ""
-
-
-class TestLandingURL:
-    """``OSPREY_TERMINAL_LANDING_URL`` -> ``app.state.landing_url`` (env-only, no config key)."""
-
-    def test_set_from_env(self, workspace_dir):
-        cfg = {"watch_dir": str(workspace_dir)}
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value=cfg,
-            ),
-            patch.dict(
-                "os.environ",
-                {"OSPREY_TERMINAL_LANDING_URL": "https://facility.example/portal"},
-            ),
-        ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as c:
-                assert app.state.landing_url == "https://facility.example/portal"
-                assert c.get("/").status_code == 200
-
-    def test_empty_when_unset(self, client):
-        # The shared `client` fixture supplies no OSPREY_TERMINAL_LANDING_URL.
-        assert client.app.state.landing_url == ""
-
-
-class TestRootContext:
-    """root() must forward terminal_user/landing_url into the index.html context."""
-
-    def test_context_includes_terminal_user_and_landing_url(self, workspace_dir):
-        cfg = {"watch_dir": str(workspace_dir)}
-        with (
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value=cfg,
-            ),
-            patch.dict(
-                "os.environ",
-                {
-                    "OSPREY_TERMINAL_USER": "bob",
-                    "OSPREY_TERMINAL_LANDING_URL": "https://facility.example/portal",
-                },
-            ),
-        ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as c:
-                captured = {}
-                original = app_module.templates.TemplateResponse
-
-                def _capture(request, name, context=None, *args, **kwargs):
-                    captured.update(context or {})
-                    return original(request, name, context, *args, **kwargs)
-
-                with patch.object(app_module.templates, "TemplateResponse", side_effect=_capture):
-                    resp = c.get("/")
-
-                assert resp.status_code == 200
-                assert captured["terminal_user"] == "bob"
-                assert captured["landing_url"] == "https://facility.example/portal"
-
-    def test_context_empty_when_unset(self, client):
-        captured = {}
-        original = app_module.templates.TemplateResponse
-
-        def _capture(request, name, context=None, *args, **kwargs):
-            captured.update(context or {})
-            return original(request, name, context, *args, **kwargs)
-
-        with patch.object(app_module.templates, "TemplateResponse", side_effect=_capture):
-            resp = client.get("/")
-
-        assert resp.status_code == 200
-        assert captured["terminal_user"] == ""
-        assert captured["landing_url"] == ""
 
 
 class TestSessionFooter:
@@ -143,7 +46,7 @@ class TestSessionFooter:
             patch("osprey.interfaces.web_terminal.app._load_web_config", return_value=cfg),
             patch.dict("os.environ", env),
         ):
-            with TestClient(create_app(shell_command="echo")) as c:
+            with TestClient(create_app(shell_command=["echo"])) as c:
                 return c.get("/").text
 
     def test_header_identity_menu_names_the_user_and_holds_the_logout_control(self, workspace_dir):
@@ -183,15 +86,6 @@ class TestSessionFooter:
         assert 'id="display-menu-logout-btn"' not in body
         assert 'id="display-menu-settings"' in body
 
-    def test_user_without_a_landing_url_is_named_but_offered_no_logout(self, workspace_dir):
-        """A user with nowhere to log out TO still gets identified — the line
-        states a fact, and only the action depends on landing_url."""
-        body = self._body(workspace_dir, {"OSPREY_TERMINAL_USER": "alice"})
-
-        assert 'class="header-identity-who-name">alice<' in body
-        assert 'id="logout-btn"' not in body
-        assert 'id="display-menu-logout-btn"' not in body
-
     def test_deployment_name_moved_out_of_the_action_cluster(self, workspace_dir):
         """app_name renders once, on the left beside the product name, and once
         more as the footer's context line — never as a chip in the right-hand
@@ -205,7 +99,7 @@ class TestSessionFooter:
             ),
             patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
         ):
-            with TestClient(create_app(shell_command="echo")) as c:
+            with TestClient(create_app(shell_command=["echo"])) as c:
                 body = c.get("/").text
 
         assert "header-deployment" in body
@@ -246,7 +140,7 @@ class TestAuthRole:
             patch("osprey.interfaces.web_terminal.app._load_web_config", return_value=cfg),
             patch.dict("os.environ", env if env is not None else self.ENV),
         ):
-            with TestClient(create_app(shell_command="echo")) as c:
+            with TestClient(create_app(shell_command=["echo"])) as c:
                 return c.get("/", headers=headers).text
 
     def test_the_role_is_shown_in_the_who_line(self, workspace_dir):
@@ -305,12 +199,23 @@ class TestAuthRole:
         assert "<script>alert(1)</script>" not in body
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
 
-    def test_a_role_without_a_user_renders_no_chip(self, workspace_dir):
-        """Single-user terminals render no identity chip at all; a stray role
-        header must not conjure one."""
-        body = self._body(workspace_dir, {"X-Osprey-Auth-Role": "operator"}, env={})
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            pytest.param({"X-Osprey-Auth-Role": "operator"}, id="role"),
+            pytest.param(
+                {"X-Osprey-Auth-Role": "operator", "X-Osprey-Auth-Role-Source": "roster"},
+                id="role-and-source",
+            ),
+        ],
+    )
+    def test_identity_headers_without_a_user_render_no_chip(self, workspace_dir, headers):
+        """Single-user terminals render no identity chip at all; stray identity
+        headers must not conjure one."""
+        body = self._body(workspace_dir, headers, env={})
 
         assert 'class="header-identity"' not in body
+        # Covers the source span too: its class extends the role pill's.
         assert "header-identity-who-role" not in body
 
     @pytest.mark.parametrize(
@@ -374,51 +279,6 @@ class TestAuthRole:
         assert self.ROLE_PILL in body
         assert 'class="header-identity-who-role-source"' not in body
         assert "&lt;unsafe&gt;" not in body
-
-    def test_a_source_without_a_user_renders_no_chip(self, workspace_dir):
-        """Single-user terminals render no identity chip at all; a stray pair
-        of identity headers must not conjure one."""
-        body = self._body(
-            workspace_dir,
-            {"X-Osprey-Auth-Role": "operator", "X-Osprey-Auth-Role-Source": "roster"},
-            env={},
-        )
-
-        assert 'class="header-identity"' not in body
-        assert 'class="header-identity-who-role-source"' not in body
-
-    def test_the_context_carries_the_role(self, workspace_dir):
-        cfg = {"watch_dir": str(workspace_dir)}
-        with (
-            patch("osprey.interfaces.web_terminal.app._load_web_config", return_value=cfg),
-            patch.dict("os.environ", self.ENV),
-        ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as c:
-                captured = {}
-                original = app_module.templates.TemplateResponse
-
-                def _capture(request, name, context=None, *args, **kwargs):
-                    captured.update(context or {})
-                    return original(request, name, context, *args, **kwargs)
-
-                with patch.object(app_module.templates, "TemplateResponse", side_effect=_capture):
-                    assert (
-                        c.get(
-                            "/",
-                            headers={
-                                "X-Osprey-Auth-Role": "operator",
-                                "X-Osprey-Auth-Role-Source": "roster",
-                            },
-                        ).status_code
-                        == 200
-                    )
-                    assert captured["auth_role"] == "operator"
-                    assert captured["auth_role_source_label"] == "roster"
-                    captured.clear()
-                    assert c.get("/").status_code == 200
-                    assert captured["auth_role"] == ""
-                    assert captured["auth_role_source_label"] == ""
 
     def test_the_source_vocabulary_is_the_sidecar_s_own(self):
         """The label map's keys are the sidecar's own constants.

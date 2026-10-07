@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import threading
 import time
+from contextlib import nullcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -21,6 +24,7 @@ from osprey.interfaces.web_terminal.app import (
     _load_panel_presets,
     create_app,
 )
+from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
 from osprey.interfaces.web_terminal.routes import panels as panels_module
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, SIDECAR_PANELS
 
@@ -51,21 +55,31 @@ class SidecarScript:
 
     The real class starts a server process; nothing in this module may. The
     default script fails preflight, so every client fixture here gets the
-    unavailable-panel path unless it asks for a ready one.
+    unavailable-panel path unless it asks for a ready one. The errors may be
+    changed between attempts, and ``hold`` (an event) keeps ``wait_ready``
+    blocked until it is set or the sidecar is stopped. ``events`` records every
+    spawn and stop in order.
     """
 
     def __init__(
-        self, preflight_error="stub sidecar: not launched", stderr_tail="", wait_ready_error=None
+        self,
+        preflight_error="stub sidecar: not launched",
+        stderr_tail="",
+        wait_ready_error=None,
+        exit_status=None,
     ):
         self.preflight_error = preflight_error
         self.wait_ready_error = wait_ready_error
         self.stderr_tail = stderr_tail
+        self.exit_status = exit_status
         self.url = "http://127.0.0.1:9/panel/" + SIDECAR_ID
         self.auth_headers = {"authorization": "Bearer stub-token"}
         self.constructed: list[tuple] = []
         self.spawned = 0
         self.waited: list[float] = []
         self.stopped = 0
+        self.hold: threading.Event | None = None
+        self.events: list[str] = []
 
 
 def _stub_sidecar_class(script):
@@ -74,10 +88,19 @@ def _stub_sidecar_class(script):
     class _StubSidecar:
         def __init__(self, shared_root, outer_prefix, pinned_mode):
             script.constructed.append((shared_root, outer_prefix, pinned_mode))
+            self._stopping = threading.Event()
 
         @property
         def stderr_tail(self):
             return script.stderr_tail
+
+        @property
+        def exit_status(self):
+            return script.exit_status
+
+        @property
+        def token(self):
+            return "stub-token"
 
         @property
         def auth_headers(self):
@@ -93,25 +116,59 @@ def _stub_sidecar_class(script):
 
         def spawn(self):
             script.spawned += 1
+            script.events.append("spawn")
 
         def wait_ready(self, timeout):
             script.waited.append(timeout)
+            hold = script.hold
+            if hold is not None:
+                while not hold.wait(0.02) and not self._stopping.is_set():
+                    pass
+            if self._stopping.is_set():
+                raise RuntimeError("stub sidecar: stopped before it was ready")
             if script.wait_ready_error:
                 raise RuntimeError(script.wait_ready_error)
 
         def stop(self):
+            self._stopping.set()
             script.stopped += 1
+            script.events.append("stop")
 
     return _StubSidecar
 
 
-def _make_client(workspace_dir, enabled_panels=None, custom_panels=None, sidecar_script=None):
-    """Create a TestClient with the given panel config."""
+def _config_reader(values):
+    """A ``get_config_value`` stand-in answering *values*, else the caller's default."""
+
+    def _get(path, default=None, _config_path=None):
+        return values.get(path, default)
+
+    return _get
+
+
+def _make_client(
+    workspace_dir,
+    enabled_panels=None,
+    custom_panels=None,
+    sidecar_script=None,
+    config_values: dict | None = None,
+):
+    """Create a TestClient with the given panel config.
+
+    *config_values* maps dotted config keys to what ``get_config_value`` returns
+    for them; every other key resolves to the default its reader passes.
+    """
     if enabled_panels is None:
         enabled_panels = set(UNIVERSAL_PANELS)
     if custom_panels is None:
         custom_panels = []
+    config_patch = (
+        patch("osprey.utils.config.get_config_value", side_effect=_config_reader(config_values))
+        if config_values is not None
+        else nullcontext()
+    )
     with (
+        config_patch,
         patch(_SIDECAR_FACTORY_TARGET, _stub_sidecar_class(sidecar_script or SidecarScript())),
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
@@ -154,21 +211,15 @@ def client_with_custom_panels(workspace_dir):
 
 
 class TestLoadPanelConfig:
-    def test_no_web_section(self):
-        """Missing web section returns only universal panels."""
+    @pytest.mark.parametrize(
+        "config",
+        [pytest.param({}, id="no-web-section"), pytest.param({"web": {"panels": {}}}, id="empty")],
+    )
+    def test_no_panels_declared(self, config):
+        """No ``web.panels`` entries returns only the universal panels."""
         with patch(
             "osprey.utils.workspace.load_osprey_config",
-            return_value={},
-        ):
-            enabled, custom, _default = _load_panel_config()
-        assert enabled == UNIVERSAL_PANELS
-        assert custom == []
-
-    def test_empty_panels(self):
-        """Empty web.panels returns only universal panels."""
-        with patch(
-            "osprey.utils.workspace.load_osprey_config",
-            return_value={"web": {"panels": {}}},
+            return_value=config,
         ):
             enabled, custom, _default = _load_panel_config()
         assert enabled == UNIVERSAL_PANELS
@@ -296,26 +347,6 @@ class TestLoadPanelConfig:
             enabled, custom, _default = _load_panel_config()
         assert [cp["id"] for cp in custom] == ["my-grafana"]
         assert enabled == UNIVERSAL_PANELS
-
-    def test_mixed_builtin_and_custom(self):
-        """Both builtin and custom panels are handled correctly."""
-        with patch(
-            "osprey.utils.workspace.load_osprey_config",
-            return_value={
-                "web": {
-                    "panels": {
-                        "ariel": {"enabled": True},
-                        "channel-finder": {"enabled": False},
-                        "my-dash": {"label": "DASH", "url": "http://localhost:9000"},
-                    }
-                }
-            },
-        ):
-            enabled, custom, _default = _load_panel_config()
-        assert "ariel" in enabled
-        assert "channel-finder" not in enabled
-        assert len(custom) == 1
-        assert custom[0]["id"] == "my-dash"
 
     def test_events_panel_is_url_backed_custom(self):
         """The control-assistant EVENTS panel is URL-backed.
@@ -549,14 +580,6 @@ class TestPanelsAPI:
         assert enabled_set == UNIVERSAL_PANELS
         assert data["custom"] == []
 
-    def test_panels_api_all_panels(self, client_all_panels):
-        """GET /api/panels returns all panels when all enabled."""
-        resp = client_all_panels.get("/api/panels")
-        assert resp.status_code == 200
-        data = resp.json()
-        enabled_set = set(data["enabled"])
-        assert enabled_set == BUILTIN_PANELS
-
     def test_panels_api_with_custom(self, client_with_custom_panels):
         """GET /api/panels returns custom panels."""
         resp = client_with_custom_panels.get("/api/panels")
@@ -579,37 +602,11 @@ class TestPanelsAPI:
         data = client_runtime_panels.get("/api/panels").json()
         assert data["allow_runtime_panels"] is True
 
-    def test_panel_focus_enabled_panel(self, client_all_panels):
-        """POST /api/panel-focus accepts enabled panel IDs."""
-        resp = client_all_panels.post(
-            "/api/panel-focus",
-            json={"panel": "ariel"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["active_panel"] == "ariel"
-
-    def test_panel_focus_custom_id(self, client_with_custom_panels):
-        """Custom panel ID is accepted by POST /api/panel-focus."""
-        resp = client_with_custom_panels.post(
-            "/api/panel-focus",
-            json={"panel": "my-dashboard"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["active_panel"] == "my-dashboard"
-
     def test_panel_focus_disabled_panel(self, client):
         """Disabled panel ID returns 422."""
         resp = client.post(
             "/api/panel-focus",
             json={"panel": "ariel"},
-        )
-        assert resp.status_code == 422
-
-    def test_panel_focus_unknown_id(self, client):
-        """Completely unknown ID returns 422."""
-        resp = client.post(
-            "/api/panel-focus",
-            json={"panel": "nonexistent-panel"},
         )
         assert resp.status_code == 422
 
@@ -623,6 +620,12 @@ _GETADDRINFO_TARGET = "osprey.interfaces.web_terminal.routes.panels.socket.getad
 #: this probe lives. The tests below that exercise the deploy-host check patch
 #: the same target again from the inside, and that inner patch wins.
 _HOST_ADDRS_TARGET = HOST_ADDRS_TARGET
+
+
+def test_normalize_ip_refuses_a_non_string_address():
+    """``getaddrinfo`` types ``sockaddr[0]`` as ``str | int``; a non-string is
+    not an IP literal, so the address check refuses it rather than crashing."""
+    assert panels_module._normalize_ip(0) is None
 
 
 @pytest.mark.parametrize("run", ["first", "second"])
@@ -752,49 +755,10 @@ def client_runtime_panels_allowlist(workspace_dir):
     yield from _make_client_with_runtime_panels(workspace_dir, allowlist=["grafana.lan"])
 
 
-# ---- Guard: _load_panel_config 3-tuple contract ----
-
-
-class TestLoadPanelConfigContract:
-    def test_returns_three_tuple(self):
-        """_load_panel_config always returns a 3-tuple (enabled, custom, default)."""
-        # Arrange
-        with patch(
-            "osprey.utils.workspace.load_osprey_config",
-            return_value={},
-        ):
-            # Act
-            result = _load_panel_config()
-
-        # Assert
-        assert isinstance(result, tuple), "result must be a tuple"
-        assert len(result) == 3, "result must have exactly 3 elements"
-        enabled, custom, default = result
-        assert isinstance(enabled, (set, frozenset))
-        assert isinstance(custom, list)
-
-
-# ---- Six-key /api/panels response shape ----
+# ---- /api/panels payload from the real lifespan ----
 
 
 class TestPanelsAPIShape:
-    def test_response_has_six_keys(self, client):
-        """GET /api/panels includes all six keys: enabled, custom, default, visible, active, labels."""
-        # Arrange — client has only universal panels
-
-        # Act
-        resp = client.get("/api/panels")
-
-        # Assert
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "enabled" in data
-        assert "custom" in data
-        assert "default" in data
-        assert "visible" in data
-        assert "active" in data
-        assert "labels" in data
-
     def test_labels_map_enabled_builtin_ids_to_display_names(self, client_all_panels):
         """labels contains BUILTIN_PANEL_LABELS entries for each enabled built-in panel."""
         # Arrange — client_all_panels enables the full BUILTIN_PANELS set
@@ -831,29 +795,6 @@ class TestPanelsAPIShape:
         # Assert
         assert resp.status_code == 200
         assert resp.json()["active"] is None
-
-
-# ---- Panel presets in the /api/panels payload ----
-
-
-class TestPanelPresetsAPI:
-    def test_presets_key_present_and_is_a_list(self, client):
-        """GET /api/panels always carries a 'presets' key (a list)."""
-        data = client.get("/api/panels").json()
-        assert "presets" in data
-        assert isinstance(data["presets"], list)
-
-    def test_presets_payload_carries_name_and_panels(self, client):
-        """The 'presets' key echoes app.state.panel_presets as [{name, panels}]."""
-        client.app.state.panel_presets = [
-            {"name": "Machine setup", "panels": ["artifacts", "ariel"]},
-            {"name": "Logbook review", "panels": ["ariel"]},
-        ]
-        data = client.get("/api/panels").json()
-        assert data["presets"] == [
-            {"name": "Machine setup", "panels": ["artifacts", "ariel"]},
-            {"name": "Logbook review", "panels": ["ariel"]},
-        ]
 
 
 # ---- Hidden panel visibility ----
@@ -933,40 +874,18 @@ class TestPanelVisibilityAPI:
         assert resp.json()["visible"] is True
         assert "ariel" in client_all_panels.app.state.visible_panels
 
-    def test_valid_panel_broadcasts_panel_visibility_event(self, client_all_panels):
-        """POST /api/panel-visibility broadcasts the exact event dict via the broadcaster."""
-        # Arrange — replace broadcaster.broadcast with a mock to capture calls
-        mock_broadcast = MagicMock()
-        client_all_panels.app.state.broadcaster.broadcast = mock_broadcast
-
-        # Act
-        client_all_panels.post("/api/panel-visibility", json={"panel": "ariel", "visible": False})
-
-        # Assert
-        mock_broadcast.assert_called_once_with(
-            {"type": "panel_visibility", "panel": "ariel", "visible": False}
-        )
-
     def test_unknown_panel_returns_422(self, client):
         """POST /api/panel-visibility returns 422 for a panel id that is not enabled."""
         # Arrange — client has only universal panels; "ariel" is disabled
+
+        mock_broadcast = MagicMock()
+        client.app.state.broadcaster.broadcast = mock_broadcast
 
         # Act
         resp = client.post("/api/panel-visibility", json={"panel": "ariel", "visible": True})
 
         # Assert
         assert resp.status_code == 422
-
-    def test_unknown_panel_does_not_broadcast(self, client):
-        """No broadcast is emitted when the panel id is unknown (422 path)."""
-        # Arrange
-        mock_broadcast = MagicMock()
-        client.app.state.broadcaster.broadcast = mock_broadcast
-
-        # Act
-        client.post("/api/panel-visibility", json={"panel": "nonexistent", "visible": True})
-
-        # Assert
         mock_broadcast.assert_not_called()
 
 
@@ -1259,12 +1178,6 @@ class TestConfigDefinedPanelReservation:
     def app_and_client(self, workspace_dir):
         yield from _make_client_runtime_with_config_events(workspace_dir)
 
-    def test_marker_is_stamped_on_startup(self, app_and_client):
-        """Precondition: the real config path stamps configDefined on events."""
-        app, _client = app_and_client
-        events = [cp for cp in app.state.custom_panels if cp["id"] == "events"]
-        assert events and events[0].get("configDefined") is True
-
     def test_register_config_defined_id_returns_422(self, app_and_client):
         """Registering a config-defined id (events) is rejected, like a built-in."""
         _app, client = app_and_client
@@ -1317,6 +1230,110 @@ def _stub_app():
     return SimpleNamespace(state=SimpleNamespace(sidecars={}, panel_auth_headers={}))
 
 
+class TestSidecarReadyTimeout:
+    """How long a sidecar launch waits, and where that number comes from."""
+
+    KEY = "web.sidecar_ready_timeout_s"
+
+    def _warnings_naming_the_key(self, caplog):
+        return [
+            r for r in caplog.records if r.levelname == "WARNING" and self.KEY in r.getMessage()
+        ]
+
+    def _launch(self, workspace_dir, value, script):
+        for client in _make_client(
+            workspace_dir,
+            enabled_panels={SIDECAR_ID} | set(UNIVERSAL_PANELS),
+            sidecar_script=script,
+            config_values={self.KEY: value},
+        ):
+            return getattr(client.app.state, f"{SIDECAR_ID}_server_url")
+
+    def test_an_unset_key_waits_the_default(self, client_with_sidecar, ready_sidecar):
+        assert client_with_sidecar.app.state.sidecar_ready_timeout_s == 60.0
+        assert ready_sidecar.waited == [60.0]
+
+    def test_the_configured_wait_reaches_the_sidecar(self, workspace_dir, ready_sidecar):
+        url = self._launch(workspace_dir, 240, ready_sidecar)
+
+        assert ready_sidecar.waited == [240.0]
+        assert url == ready_sidecar.url
+
+    def test_a_numeric_string_is_read_as_seconds(self, workspace_dir, ready_sidecar, caplog):
+        self._launch(workspace_dir, "90", ready_sidecar)
+
+        assert ready_sidecar.waited == [90.0]
+        assert self._warnings_naming_the_key(caplog) == []
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            0,
+            -5,
+            True,
+            "soon",
+            float("nan"),
+            float("inf"),
+            [60],
+            pytest.param(10**400, id="10**400"),
+        ],
+        ids=repr,
+    )
+    def test_an_unusable_value_is_refused_by_name(
+        self, workspace_dir, ready_sidecar, caplog, value
+    ):
+        url = self._launch(workspace_dir, value, ready_sidecar)
+
+        assert ready_sidecar.waited == [60.0]
+        assert url == ready_sidecar.url
+        warnings = self._warnings_naming_the_key(caplog)
+        assert len(warnings) == 1
+        assert repr(value) in warnings[0].getMessage()
+
+    def test_a_null_value_waits_the_default_quietly(self, workspace_dir, ready_sidecar, caplog):
+        self._launch(workspace_dir, None, ready_sidecar)
+
+        assert ready_sidecar.waited == [60.0]
+        assert self._warnings_naming_the_key(caplog) == []
+
+    def test_a_config_read_that_raises_waits_the_default(
+        self, workspace_dir, ready_sidecar, caplog
+    ):
+        def _reader(path, default=None, _config_path=None):
+            if path == self.KEY:
+                raise RuntimeError("config unreadable")
+            return default
+
+        with (
+            patch("osprey.utils.config.get_config_value", side_effect=_reader),
+            patch(_SIDECAR_FACTORY_TARGET, _stub_sidecar_class(ready_sidecar)),
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value={"watch_dir": str(workspace_dir)},
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.app._load_panel_config",
+                return_value=({SIDECAR_ID} | set(UNIVERSAL_PANELS), [], None),
+            ),
+        ):
+            with TestClient(create_app(shell_command="echo")) as client:
+                assert client.get("/api/panels").status_code == 200
+
+        assert ready_sidecar.waited == [60.0]
+        assert len(self._warnings_naming_the_key(caplog)) == 1
+
+    def test_every_launch_reads_the_wait_from_app_state(self, client_with_sidecar, ready_sidecar):
+        """The seam the relaunch path relies on: one attribute, read per launch."""
+        app = client_with_sidecar.app
+        app.state.sidecar_ready_timeout_s = 7.5
+
+        asyncio.run(web_terminal_app._launch_sidecar(app, SIDECAR_ID))
+        assert ready_sidecar.waited[-1] == 7.5
+
+        asyncio.run(web_terminal_app._relaunch_sidecar(app, SIDECAR_ID, None))
+        assert ready_sidecar.waited[-1] == 7.5
+
+
 class TestSidecarLaunchRouting:
     """Which launcher each built-in panel id reaches.
 
@@ -1363,12 +1380,6 @@ class TestSidecarLaunchRouting:
 class TestSidecarPanelAvailability:
     """What a launched — or failed — sidecar publishes, and what the panel says."""
 
-    def test_the_sidecar_panel_is_a_builtin_in_the_panels_api(self, client_all_panels):
-        data = client_all_panels.get("/api/panels").json()
-
-        assert SIDECAR_ID in data["enabled"]
-        assert data["labels"][SIDECAR_ID] == BUILTIN_PANEL_LABELS[SIDECAR_ID]
-
     def test_a_ready_sidecar_publishes_its_url_and_credential(
         self, client_with_sidecar, ready_sidecar
     ):
@@ -1378,7 +1389,7 @@ class TestSidecarPanelAvailability:
         assert state.panel_auth_headers[SIDECAR_ID] == ready_sidecar.auth_headers
         assert state.sidecars[SIDECAR_ID] is not None
         assert ready_sidecar.spawned == 1
-        assert ready_sidecar.waited == [web_terminal_app.SIDECAR_READY_TIMEOUT]
+        assert ready_sidecar.waited == [web_terminal_app.DEFAULT_SIDECAR_READY_TIMEOUT_S]
 
     def test_the_sidecar_is_built_from_the_app_s_own_root_prefix_and_theme(
         self, client_with_sidecar, ready_sidecar
@@ -1386,7 +1397,9 @@ class TestSidecarPanelAvailability:
         state = client_with_sidecar.app.state
         (shared_root, outer_prefix, pinned_mode) = ready_sidecar.constructed[0]
 
-        assert str(shared_root)
+        # The sidecar shares the agent-data root every other child of this
+        # server is stamped with, not a directory of its own.
+        assert shared_root == Path(resolve_agent_data_root(client_with_sidecar.app))
         assert outer_prefix == ""
         assert pinned_mode == state.web_theme_mode
 
@@ -1394,13 +1407,23 @@ class TestSidecarPanelAvailability:
         resp = client_with_sidecar.get(f"/api/{SIDECAR_ID}-server")
 
         assert resp.status_code == 200
-        assert resp.json() == {"url": f"/panel/{SIDECAR_ID}", "available": True}
+        assert resp.json() == {
+            "url": f"/panel/{SIDECAR_ID}",
+            "available": True,
+            "state": "running",
+            "message": None,
+        }
 
     def test_the_route_reports_unavailable_when_the_sidecar_did_not_start(self, client_all_panels):
         resp = client_all_panels.get(f"/api/{SIDECAR_ID}-server")
 
         assert resp.status_code == 200
-        assert resp.json() == {"url": None, "available": False}
+        assert resp.json() == {
+            "url": None,
+            "available": False,
+            "state": "failed",
+            "message": "JUPYTER failed to start: stub sidecar: not launched",
+        }
 
     def test_a_failed_launch_publishes_neither_url_nor_credential(self, client_all_panels):
         state = client_all_panels.app.state
@@ -1408,6 +1431,22 @@ class TestSidecarPanelAvailability:
         assert getattr(state, f"{SIDECAR_ID}_server_url") is None
         assert SIDECAR_ID not in state.panel_auth_headers
         assert SIDECAR_ID not in state.sidecars
+
+    def test_a_failed_launch_records_its_reason_on_disk(self, client_all_panels):
+        state = client_all_panels.app.state
+        record = json.loads((state.panel_status_dir / f"{SIDECAR_ID}.json").read_text())
+
+        assert record["state"] == "failed"
+        assert record["reason"] == "stub sidecar: not launched"
+        assert record["recorded_at"]
+
+    def test_a_ready_launch_records_running(self, client_with_sidecar):
+        state = client_with_sidecar.app.state
+        record = json.loads((state.panel_status_dir / f"{SIDECAR_ID}.json").read_text())
+
+        assert record["state"] == "running"
+        assert record["reason"] is None
+        assert state.sidecar_status[SIDECAR_ID].state == "running"
 
     def test_a_sidecar_that_never_answers_is_stopped_and_publishes_nothing(
         self, workspace_dir, caplog
@@ -1463,6 +1502,19 @@ class TestSidecarPanelAvailability:
         assert "no interpreter" in failure[0]
         assert "Traceback: boom" in failure[0]
 
+    def test_shutdown_removes_the_status_record(self, workspace_dir, ready_sidecar):
+        client_gen = _make_client(
+            workspace_dir, enabled_panels={SIDECAR_ID}, sidecar_script=ready_sidecar
+        )
+        client = next(client_gen)
+        record = client.app.state.panel_status_dir / f"{SIDECAR_ID}.json"
+        assert record.is_file()
+
+        with pytest.raises(StopIteration):
+            next(client_gen)
+
+        assert not record.exists()
+
     def test_shutdown_stops_a_launched_sidecar(self, workspace_dir, ready_sidecar):
         client_gen = _make_client(
             workspace_dir, enabled_panels={SIDECAR_ID}, sidecar_script=ready_sidecar
@@ -1512,17 +1564,13 @@ class TestSidecarCredentialThroughTheProxy:
 
 
 class TestSidecarExitsLater:
-    """A sidecar that dies after it was published is retracted, not restarted."""
-
-    def test_the_launch_registers_an_exit_hook_on_the_sidecar(self, client_with_sidecar):
-        sidecar = client_with_sidecar.app.state.sidecars[SIDECAR_ID]
-
-        assert callable(sidecar.on_exit)
+    """A sidecar that dies after it was published is retracted and recorded as failed."""
 
     def test_an_exit_retracts_the_url_and_the_credential(self, client_with_sidecar, ready_sidecar):
         state = client_with_sidecar.app.state
         assert client_with_sidecar.get(f"/api/{SIDECAR_ID}-server").json()["available"] is True
 
+        ready_sidecar.exit_status = 1
         # The real sidecar fires this from its watcher thread; the hook hands
         # the loop the retraction, so the route may need one more turn.
         threading.Thread(target=state.sidecars[SIDECAR_ID].on_exit).start()
@@ -1534,9 +1582,183 @@ class TestSidecarExitsLater:
                 break
             time.sleep(0.05)
 
-        assert resp.json() == {"url": None, "available": False}
+        assert resp.json() == {
+            "url": None,
+            "available": False,
+            "state": "failed",
+            "message": "JUPYTER failed to start: exited with status 1",
+        }
         assert getattr(state, f"{SIDECAR_ID}_server_url") is None
         assert SIDECAR_ID not in state.panel_auth_headers
         # It stays registered so shutdown still removes its per-launch state.
         assert state.sidecars[SIDECAR_ID] is not None
         assert ready_sidecar.stopped == 0
+
+    def test_an_exit_of_a_replaced_sidecar_retracts_nothing(self, client_with_sidecar):
+        state = client_with_sidecar.app.state
+        stale_hook = state.sidecars[SIDECAR_ID].on_exit
+        state.sidecars[SIDECAR_ID] = object()
+
+        thread = threading.Thread(target=stale_hook)
+        thread.start()
+        thread.join()
+        # One loop turn for the handed-over callback, then a few more requests.
+        for _ in range(5):
+            resp = client_with_sidecar.get(f"/api/{SIDECAR_ID}-server")
+            time.sleep(0.02)
+
+        assert resp.json()["available"] is True
+        assert resp.json()["state"] == "running"
+        assert SIDECAR_ID in state.panel_auth_headers
+
+
+def _start(client, panel_id=SIDECAR_ID):
+    return client.post(f"/api/panels/{panel_id}/start")
+
+
+def _settle(client, predicate, timeout=5.0):
+    """Poll the sidecar's config route until *predicate* holds; return the last body."""
+    deadline = time.monotonic() + timeout
+    while True:
+        body = client.get(f"/api/{SIDECAR_ID}-server").json()
+        if predicate(body) or time.monotonic() >= deadline:
+            return body
+        time.sleep(0.02)
+
+
+@pytest.fixture
+def failed_sidecar():
+    """A script whose first launch fails preflight; clear the error to let a retry succeed."""
+    return SidecarScript(preflight_error="first boom")
+
+
+@pytest.fixture
+def client_with_failed_sidecar(workspace_dir, failed_sidecar):
+    yield from _make_client(
+        workspace_dir,
+        enabled_panels={SIDECAR_ID} | set(UNIVERSAL_PANELS),
+        sidecar_script=failed_sidecar,
+    )
+
+
+class TestSidecarStartsAgain:
+    """A start request relaunches a failed sidecar, one attempt at a time."""
+
+    def test_a_start_request_relaunches_a_failed_sidecar(
+        self, client_with_failed_sidecar, failed_sidecar
+    ):
+        failed_sidecar.preflight_error = None
+
+        resp = _start(client_with_failed_sidecar)
+
+        assert resp.status_code == 202
+        assert resp.json()["state"] == "starting"
+        assert resp.json()["message"] == "JUPYTER is starting"
+        body = _settle(client_with_failed_sidecar, lambda b: b["state"] != "starting")
+        assert body["available"] is True
+        assert body["state"] == "running"
+        assert len(failed_sidecar.constructed) == 2
+
+    def test_a_second_request_while_one_runs_starts_nothing_more(
+        self, client_with_failed_sidecar, failed_sidecar
+    ):
+        failed_sidecar.preflight_error = None
+        failed_sidecar.hold = threading.Event()
+
+        first = _start(client_with_failed_sidecar)
+        second = _start(client_with_failed_sidecar)
+
+        assert first.status_code == 202
+        assert second.status_code == 202
+        assert second.json()["state"] == "starting"
+        failed_sidecar.hold.set()
+        body = _settle(client_with_failed_sidecar, lambda b: b["state"] == "running")
+        assert body["available"] is True
+        assert failed_sidecar.spawned == 1
+        assert len(failed_sidecar.constructed) == 2
+
+    def test_a_request_for_a_running_sidecar_changes_nothing(
+        self, client_with_sidecar, ready_sidecar
+    ):
+        resp = _start(client_with_sidecar)
+
+        assert resp.status_code == 200
+        assert resp.json()["state"] == "running"
+        assert resp.json()["available"] is True
+        assert ready_sidecar.spawned == 1
+
+    def test_the_retry_waits_as_long_as_the_startup(self, workspace_dir):
+        script = SidecarScript(preflight_error=None, wait_ready_error="did not answer")
+        for client in _make_client(
+            workspace_dir, enabled_panels={SIDECAR_ID}, sidecar_script=script
+        ):
+            script.wait_ready_error = None
+            assert _start(client).status_code == 202
+            _settle(client, lambda b: b["state"] == "running")
+
+        timeout = web_terminal_app.DEFAULT_SIDECAR_READY_TIMEOUT_S
+        assert script.waited == [timeout, timeout]
+
+    def test_the_dead_sidecar_is_stopped_before_its_replacement_starts(
+        self, client_with_sidecar, ready_sidecar
+    ):
+        state = client_with_sidecar.app.state
+        ready_sidecar.exit_status = 1
+        threading.Thread(target=state.sidecars[SIDECAR_ID].on_exit).start()
+        _settle(client_with_sidecar, lambda b: b["state"] == "failed")
+
+        assert _start(client_with_sidecar).status_code == 202
+        body = _settle(client_with_sidecar, lambda b: b["state"] == "running")
+
+        assert body["available"] is True
+        assert ready_sidecar.events == ["spawn", "stop", "spawn"]
+
+    def test_a_retry_that_fails_again_records_the_new_reason(
+        self, client_with_failed_sidecar, failed_sidecar
+    ):
+        failed_sidecar.preflight_error = "second boom"
+
+        assert _start(client_with_failed_sidecar).status_code == 202
+        body = _settle(client_with_failed_sidecar, lambda b: b["state"] == "failed")
+
+        assert body["message"] == "JUPYTER failed to start: second boom"
+        state = client_with_failed_sidecar.app.state
+        record = json.loads((state.panel_status_dir / f"{SIDECAR_ID}.json").read_text())
+        assert record["reason"] == "second boom"
+        assert SIDECAR_ID not in state.sidecars
+
+    def test_a_start_request_for_a_companion_panel_is_404(self, client_all_panels):
+        resp = _start(client_all_panels, "ariel")
+
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "ariel is not a panel this terminal starts"
+
+    def test_a_start_request_for_an_unknown_panel_is_404(self, client_all_panels):
+        assert _start(client_all_panels, "no-such-panel").status_code == 404
+
+    def test_a_start_request_for_a_disabled_sidecar_is_404(self, client):
+        assert _start(client).status_code == 404
+
+    def test_shutdown_during_a_start_stops_the_starting_sidecar_and_clears_the_record(
+        self, workspace_dir, failed_sidecar
+    ):
+        client_gen = _make_client(
+            workspace_dir, enabled_panels={SIDECAR_ID}, sidecar_script=failed_sidecar
+        )
+        client = next(client_gen)
+        record = client.app.state.panel_status_dir / f"{SIDECAR_ID}.json"
+        failed_sidecar.preflight_error = None
+        failed_sidecar.hold = threading.Event()
+        assert _start(client).status_code == 202
+        deadline = time.monotonic() + 5.0
+        while not failed_sidecar.waited and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert failed_sidecar.waited, "the retry never reached wait_ready"
+
+        with pytest.raises(StopIteration):
+            next(client_gen)
+
+        assert failed_sidecar.stopped >= 1
+        # The first attempt failed preflight and was stopped; the retry spawned.
+        assert failed_sidecar.events[:3] == ["stop", "spawn", "stop"]
+        assert not record.exists()

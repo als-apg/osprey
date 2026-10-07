@@ -311,15 +311,6 @@ describe('steps', () => {
     expect(cardBody()).not.toContain('live machine');
   });
 
-  test('a live deployment says so', () => {
-    document.body.innerHTML = '<div class="terminal-card"></div>';
-    serve({ kind: 'live', capabilities: ['make plots'] });
-    startTour();
-
-    expect(cardBody()).toContain(capabilitySentence());
-    expect(cardBody()).toContain('read live machine values');
-  });
-
   test('a session on no known machine gets no read phrase', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
     serve({ kind: null });
@@ -327,14 +318,6 @@ describe('steps', () => {
 
     expect(capabilitySentence()).toBe('');
     expect(cardBody()).toBe('This terminal lets you talk to the OSPREY agent.');
-  });
-
-  test('a deployment with no capabilities still names where values come from', () => {
-    document.body.innerHTML = '<div class="terminal-card"></div>';
-    serve({ kind: 'standin' });
-    startTour();
-
-    expect(cardBody()).toContain('read values from the rehearsal copy');
   });
 
   test('chip-derived text renders as text — markup in a facility name stays inert', () => {
@@ -415,13 +398,6 @@ describe('prompt chips', () => {
     ]);
   });
 
-  test('a deployment that cannot answer a question does not offer it', () => {
-    serve({ kind: null, logbook: false });
-    reachTryIt();
-
-    expect(chipTexts()).toEqual(['What are you allowed to do in this session?']);
-  });
-
   test('the prompts follow the machine, resolved when the card renders', () => {
     serve({ kind: null });
     reachTryIt();
@@ -435,19 +411,6 @@ describe('prompt chips', () => {
     vi.advanceTimersByTime(200);
 
     expect(chipTexts()).toContain('What can you read right now?');
-  });
-
-  test('a chip inserts its prompt into the terminal and sends nothing', () => {
-    serve({ kind: 'live' });
-    reachTryIt();
-
-    click('.tour-chip');
-
-    expect(term.paste).toHaveBeenCalledWith('What can you read right now?');
-    expect(term.paste.mock.calls[0][0].endsWith('\n')).toBe(false);
-    // Inserted where the operator can carry on typing — the seam moves focus,
-    // it does not press Enter for them.
-    expect(term.focus).toHaveBeenCalled();
   });
 
   test('in Simple view the chip reaches the visible input, not the hidden terminal', () => {

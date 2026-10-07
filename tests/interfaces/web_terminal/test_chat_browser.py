@@ -20,16 +20,19 @@ markdown/sanitiser globals and the SSE transport against a live event stream:
  10. the view taking the session over shows the transitional state while the
      outgoing agent finishes: ended by "Stop and switch now" on either side,
      and by the turn's own idle edge on the Simple side;
- 11. a second tab holding the session gets the refusal in words.
+ 11. a second tab holding the session gets the refusal in words;
+ 12. a panel citation in a streamed answer opens the KNOWLEDGE tile on the
+     cited concept — the one companion panel this module serves for real, the
+     okf panel over its own fixture bundle.
 
 Harness: the panels-browser ``_live_server`` machinery (a real uvicorn server on
 a background thread, with ``_load_web_config``/``_load_panel_config``/
 ``_launch_artifact_server`` patched so no companion backends are needed), plus
-the Claude Agent SDK faked at the ``operator_session`` seam. The fake
-``ClaudeSDKClient`` replays a per-prompt *plan* of the same ``Fake*`` SDK message
-objects the ``operator_session`` unit tests use, so the real
-``_message_to_events`` converter and the real ``routes/chat.py`` SSE branch run
-end to end — only the SDK subprocess is replaced. A handful of ``/__test__/*``
+the Claude Agent SDK client faked where the agent runner constructs it. The
+fake ``ClaudeSDKClient`` replays a per-prompt *plan* of real SDK messages built
+by the helpers the ``operator_session`` unit tests use, so the agent runner's
+translation, the real ``_event_to_wire`` converter and the real
+``routes/chat.py`` SSE branch run end to end — only the SDK subprocess is replaced. A handful of ``/__test__/*``
 routes give each scenario a server-loop control channel (release a held turn,
 force an eviction, read turn-guard state and what each SDK client was launched
 with) without cross-thread event juggling.
@@ -60,26 +63,24 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import pytest
 import requests
+from claude_agent_sdk import TextBlock, ThinkingBlock, ToolUseBlock
 from fastapi import Request
 
 from osprey.agent_runner.project_paths import claude_project_dir
 from tests.interfaces._browser import wait_for_dock_settled
-from tests.interfaces._panel_launch import publish_artifact_url
+from tests.interfaces._panel_launch import publish_panel_urls
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
-# The Fake* SDK-message doubles live with the operator_session unit tests; reuse
-# them so isinstance() inside _message_to_events matches what the fake yields.
-from tests.interfaces.web_terminal.test_operator_session import (
-    FakeAssistantMessage,
-    FakeResultMessage,
-    FakeSystemMessage,
-    FakeTextBlock,
-    FakeThinkingBlock,
-    FakeToolResultBlock,
-    FakeToolUseBlock,
+# The shared SDK-message builders, so the fake yields the real messages the
+# agent runner translates.
+from tests.interfaces.web_terminal._fakes import (
+    assistant_message,
+    result_message,
+    system_message,
 )
 
 # ---------------------------------------------------------------------------
@@ -97,6 +98,8 @@ except ImportError:  # pragma: no cover
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 _SEAM = "osprey.interfaces.web_terminal.operator_session"
+#: The name the agent runner constructs its client under.
+_CLIENT = "osprey.agent_runner.session.ClaudeSDKClient"
 _OP = "#operator-container"
 
 
@@ -131,6 +134,10 @@ _DEFAULT_PLAN: list[tuple] = [("text", "ok"), ("result",)]
 # decided by the door and spelled on the command line, nowhere else.
 _PTY_SPAWNS: list[list[str]] = []
 
+# Every fake client constructed on the current server, in order; each records
+# itself here so the options a chat session was launched with stay readable.
+_CLIENTS: list[_FakeSDKClient] = []
+
 
 def _reset_fake_state() -> None:
     """Clear per-server fake state; called at each server launch (test thread)."""
@@ -138,15 +145,16 @@ def _reset_fake_state() -> None:
     _PLANS.clear()
     _OBSERVED_PROMPTS.clear()
     _PTY_SPAWNS.clear()
+    _CLIENTS.clear()
     _RELEASE_GATE = asyncio.Event()
 
 
 class _FakeSDKClient:
-    """Stand-in for ``ClaudeSDKClient`` wired at the operator_session seam.
+    """Stand-in for ``ClaudeSDKClient``, patched where the agent runner builds it.
 
     ``receive_response`` replays the plan registered for the most recent prompt,
-    yielding the ``Fake*`` SDK message objects the real ``_message_to_events``
-    converts into chat events. Step vocabulary:
+    yielding the real SDK messages the agent runner translates into the records
+    ``_event_to_wire`` turns into chat events. Step vocabulary:
 
       ("text", md)      one text block (markdown) → a ``text`` event
       ("thinking",)     one thinking block        → drives the activity line
@@ -157,23 +165,26 @@ class _FakeSDKClient:
       ("await_interrupt") block until interrupt() (Stop → clean terminal)
       ("result",)       a terminal ResultMessage
 
-    The options the client was constructed with are kept as ``options``: with
-    ``ClaudeAgentOptions`` faked to a plain mapping, they are what
-    ``OperatorSession.start`` chose between ``resume=<transcript>`` and
-    ``session_id=<key>``, and the ``/__test__/chat-state`` route serves them
-    back per live chat session.
+    The real ``ClaudeAgentOptions`` the client was constructed with are kept as
+    ``options``: they are what ``OperatorSession.start`` chose between
+    ``resume=<transcript>`` and ``session_id=<key>``, and the
+    ``/__test__/chat-state`` route serves them back for every client still open.
     """
 
     def __init__(self, *args, **kwargs) -> None:
         self._prompts: list[str] = []
         self.options = kwargs.get("options")
+        self.open = False
         # Bound to the server loop (constructed inside session.start()).
         self._interrupted = asyncio.Event()
+        _CLIENTS.append(self)
 
     async def __aenter__(self):
+        self.open = True
         return self
 
     async def __aexit__(self, *exc):
+        self.open = False
         return False
 
     async def query(self, prompt: str) -> None:
@@ -189,13 +200,14 @@ class _FakeSDKClient:
         for step in plan:
             kind = step[0]
             if kind == "text":
-                yield FakeAssistantMessage([FakeTextBlock(step[1])])
+                yield assistant_message([TextBlock(step[1])])
             elif kind == "thinking":
-                yield FakeAssistantMessage([FakeThinkingBlock(step[1] if len(step) > 1 else "…")])
+                thinking = step[1] if len(step) > 1 else "…"
+                yield assistant_message([ThinkingBlock(thinking, "sig")])
             elif kind == "tool_use":
-                yield FakeAssistantMessage([FakeToolUseBlock(step[1], "tu_1", {})])
+                yield assistant_message([ToolUseBlock("tu_1", step[1], {})])
             elif kind == "system":
-                yield FakeSystemMessage(step[1])
+                yield system_message(step[1])
             elif kind == "gate":
                 await _RELEASE_GATE.wait()
             elif kind == "hang":
@@ -203,7 +215,7 @@ class _FakeSDKClient:
             elif kind == "await_interrupt":
                 await self._interrupted.wait()
             elif kind == "result":
-                yield FakeResultMessage(is_error=(step[1] if len(step) > 1 else False))
+                yield result_message(is_error=(step[1] if len(step) > 1 else False))
 
 
 # ---------------------------------------------------------------------------
@@ -237,9 +249,13 @@ def _install_test_routes(app) -> None:
         return {
             "n": len(chats),
             "in_flight": any(s.in_flight for s in chats),
-            # What each live chat's SDK client was launched with — the identity
-            # half is the whole question a hand-off answers.
-            "options": [getattr(getattr(s, "_client", None), "options", None) for s in chats],
+            # The identity each open chat client was launched with — the
+            # question a hand-off answers.
+            "options": [
+                {"resume": c.options.resume, "session_id": c.options.session_id}
+                for c in _CLIENTS
+                if c.open and c.options is not None
+            ],
         }
 
     async def _pty_spawns(request: Request):  # noqa: ARG001 - Request required by FastAPI
@@ -368,13 +384,19 @@ def _record_pty_spawns(app) -> None:
 
 
 @contextmanager
-def _live_chat_server(tmp_path, ui_mode: str = "simple"):
+def _live_chat_server(
+    tmp_path,
+    ui_mode: str = "simple",
+    *,
+    enabled_panels: frozenset[str] = frozenset({"artifacts"}),
+    panel_urls: dict[str, str] | None = None,
+):
     """Launch a real web terminal with the SDK faked at the operator_session seam.
 
     Mirrors the panels-browser ``_live_server`` patch set (web/panel config +
-    artifact-server bypass) and adds the SDK seam: ``CLAUDE_SDK_AVAILABLE`` on
-    both the session and route modules, the fake client, and the ``Fake*`` type
-    globals so ``_message_to_events``'s isinstance checks match. ``ui_mode``
+    artifact-server bypass) and adds the SDK seam: ``HAS_SDK`` on both the
+    session and route modules, and the fake client where the agent runner
+    constructs it. ``ui_mode``
     is applied post-startup (root() re-reads it per request), the same
     app.state seam the ui-mode browser suite uses.
 
@@ -383,6 +405,13 @@ def _live_chat_server(tmp_path, ui_mode: str = "simple"):
     or reads through — Claude's config directory (transcripts) and the
     agent-data root (posture and transcript-map stores) — are pinned beside it,
     so a run neither reads nor writes developer state.
+
+    Args:
+        enabled_panels: The builtin panel ids the hub enables.
+        panel_urls: The address each companion server is published at, by
+            registry key, for a panel a test serves itself. A panel not named
+            is published unlaunched, so by default no companion tab is
+            advertised.
 
     Yields:
         (base_url, app) — live server address and the FastAPI app. The project
@@ -409,24 +438,16 @@ def _live_chat_server(tmp_path, ui_mode: str = "simple"):
         ),
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
+            return_value=(set(enabled_panels), [], None),
         ),
         patch(
             "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(None),
+            side_effect=publish_panel_urls(panel_urls or {}),
         ),
         # ---- Claude Agent SDK seam ----
-        patch(f"{_SEAM}.CLAUDE_SDK_AVAILABLE", True),
-        patch("osprey.interfaces.web_terminal.routes.chat.CLAUDE_SDK_AVAILABLE", True),
-        patch(f"{_SEAM}.ClaudeSDKClient", _FakeSDKClient),
-        patch(f"{_SEAM}.ClaudeAgentOptions", lambda **kw: kw),
-        patch(f"{_SEAM}.AssistantMessage", FakeAssistantMessage),
-        patch(f"{_SEAM}.ResultMessage", FakeResultMessage),
-        patch(f"{_SEAM}.SystemMessage", FakeSystemMessage),
-        patch(f"{_SEAM}.TextBlock", FakeTextBlock),
-        patch(f"{_SEAM}.ThinkingBlock", FakeThinkingBlock),
-        patch(f"{_SEAM}.ToolUseBlock", FakeToolUseBlock),
-        patch(f"{_SEAM}.ToolResultBlock", FakeToolResultBlock),
+        patch(f"{_SEAM}.HAS_SDK", True),
+        patch("osprey.interfaces.web_terminal.routes.chat.HAS_SDK", True),
+        patch(_CLIENT, _FakeSDKClient),
         patch(
             f"{_SEAM}.build_system_prompt",
             return_value={"type": "preset", "preset": "claude_code"},
@@ -747,11 +768,16 @@ def test_streamed_markdown_renders_in_chat_card(tmp_path, chromium_browser):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.flaky(
-    reruns=2, only_rerun=["AssertionError"]
-)  # browser timing under load; passes in isolation
 def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
-    """A second prompt in the same page-load reuses the session; both show."""
+    """A second prompt sent the moment the input comes back reaches the same session.
+
+    The input is re-enabled when the turn's terminal frame arrives, so that is
+    the moment the operator may type again — and the server must already
+    accept the next turn then, not a beat later. The second prompt is sent
+    with no server-side barrier in between: a guard still held when the
+    browser says the turn is over answers 409, and the operator reads "a turn
+    is already running" for a turn that has finished.
+    """
     with _live_chat_server(tmp_path) as (base_url, _app):
         _PLANS["first question"] = [("text", "first answer"), ("result",)]
         _PLANS["second question"] = [("text", "second answer"), ("result",)]
@@ -761,7 +787,6 @@ def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
         expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
             "first answer", timeout=10_000
         )
-        # Turn must end (input re-enabled) before the second turn is submitted.
         expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_enabled()
 
         _send(page, "second question")
@@ -769,10 +794,13 @@ def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
             "second answer", timeout=10_000
         )
 
-        # Both exchanges are on screen...
+        # Both exchanges are on screen, and nothing was refused on the way.
         expect(page.locator(f"{_OP} .op-entry.operator")).to_have_count(2)
         expect(page.locator(f"{_OP} .op-entry.assistant")).to_have_count(2)
-        # ...and the SDK seam saw both prompts, in order (one reused session).
+        expect(page.locator(f"{_OP} .op-system")).to_have_count(0)
+        # One chat session held both turns, and it saw both prompts in order.
+        state = requests.get(f"{base_url}/__test__/chat-state").json()
+        assert state["n"] == 1, state
         assert _OBSERVED_PROMPTS == ["first question", "second question"]
 
         page.close()
@@ -981,14 +1009,16 @@ def test_hostile_markdown_renders_inert(tmp_path, chromium_browser):
 
 
 def test_session_expiry_divider_after_eviction(tmp_path, chromium_browser):
-    """An eviction with nothing to resume makes the next turn show the divider.
+    """No divider after a fresh first turn; exactly one after an unresumable eviction.
 
     What paints the divider is the conversation ending, not the process dying.
-    The evicted key has no transcript on disk here — the faked SDK writes none
-    — so the re-created session has nothing to continue and starts a
-    conversation of its own, which is what re-emits ``session_reset`` while
-    prior turns are on screen. Its counterpart is the resume below, where the
-    same eviction draws nothing.
+    A fresh page's first turn also opens with ``session_reset`` (the chat has
+    no transcript to continue), and the operator's own prompt is not prior
+    history, so nothing is drawn there. The evicted key has no transcript on
+    disk either — the faked SDK writes none — so the re-created session starts
+    a conversation of its own, and that ``session_reset``, arriving with prior
+    turns on screen, is the one that paints. Its counterpart is the resume
+    below, where the same eviction draws nothing.
     """
     with _live_chat_server(tmp_path) as (base_url, _app):
         _PLANS["turn one"] = [("text", "answer one"), ("result",)]
@@ -1001,11 +1031,9 @@ def test_session_expiry_divider_after_eviction(tmp_path, chromium_browser):
         )
         expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_enabled()
 
-        # Count dividers BEFORE the eviction and assert the eviction adds exactly
-        # one more. Measuring the delta keeps this test correct whether or not the
-        # separate first-turn-divider bug is present.
+        # The first turn opened a conversation; it did not lose one.
         divider = page.locator(f"{_OP} .op-system").filter(has_text="session reset")
-        before = divider.count()
+        expect(divider).to_have_count(0)
 
         _wait_chat_idle(base_url)
         resp = requests.post(f"{base_url}/__test__/evict-all")
@@ -1013,7 +1041,7 @@ def test_session_expiry_divider_after_eviction(tmp_path, chromium_browser):
 
         _send(page, "turn two")
         # The eviction's session_reset paints a fresh divider (prior turns present).
-        expect(divider).to_have_count(before + 1, timeout=10_000)
+        expect(divider).to_have_count(1, timeout=10_000)
         expect(page.locator(f"{_OP} .op-entry.assistant").last).to_contain_text("answer two")
 
         page.close()
@@ -1057,28 +1085,6 @@ def test_no_divider_when_the_recreated_session_resumes(tmp_path, chromium_browse
         # The re-created session resumed rather than started.
         options = _wait_for_chat_options(base_url)
         assert [entry.get("resume") for entry in options] == [key]
-        expect(page.locator(f"{_OP} .op-system").filter(has_text="session reset")).to_have_count(0)
-
-        page.close()
-
-
-def test_no_session_reset_divider_on_fresh_first_turn(tmp_path, chromium_browser):
-    """A fresh page's very first turn must NOT show a "session reset" divider.
-
-    The renderer's ``hasPriorExchange`` gate suppresses the first turn's
-    ``session_reset`` even though the controller renders the user message before
-    the stream starts — so no spurious divider paints under the operator's very
-    first prompt. (Regression guard for the first-turn-divider fix.)
-    """
-    with _live_chat_server(tmp_path) as (base_url, _app):
-        _PLANS["hello there"] = [("text", "hi back"), ("result",)]
-        page = _open_chat_page(chromium_browser, base_url)
-
-        _send(page, "hello there")
-        expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
-            "hi back", timeout=10_000
-        )
-        # No session-reset divider should exist after a fresh first turn.
         expect(page.locator(f"{_OP} .op-system").filter(has_text="session reset")).to_have_count(0)
 
         page.close()
@@ -1365,3 +1371,55 @@ def test_handoff_refused_while_another_tab_holds_the_session(tmp_path, chromium_
         second.close()
         holder.close()
         context.close()
+
+
+# ---------------------------------------------------------------------------
+# 12. A panel citation in an answer opens the KNOWLEDGE tile on that concept
+# ---------------------------------------------------------------------------
+
+#: The knowledge bundle the okf panel's own suite serves; ``devices/bpm`` is in it.
+_OKF_BUNDLE = Path(__file__).resolve().parents[1] / "okf_panel" / "fixtures" / "bundle"
+
+
+def test_panel_citation_opens_the_knowledge_tile_on_the_concept(tmp_path, chromium_browser):
+    """A citation in a streamed answer is a click that opens KNOWLEDGE on that concept.
+
+    The whole path runs for real: the fake SDK streams the markdown, the browser
+    renders it through the vendored marked and DOMPurify, the hub classifies the
+    click and navigates the okf panel's iframe to the linked URL, fragment
+    included, and the panel — served here from its fixture bundle — follows the
+    fragment to the concept. The Simple view boots chat-only on an empty
+    workspace, so the click is also what reveals the dock.
+    """
+    from osprey.interfaces.okf_panel.app import create_app as create_okf_app
+
+    with (
+        _run_app_server(create_okf_app(str(_OKF_BUNDLE))) as okf_url,
+        _live_chat_server(
+            tmp_path, enabled_panels=frozenset({"artifacts", "okf"}), panel_urls={"okf": okf_url}
+        ) as (base_url, _app),
+    ):
+        _PLANS["where is the bpm documented"] = [
+            ("text", "The monitor is described under [BPM](panel/okf#devices/bpm)."),
+            ("result",),
+        ]
+        page = _open_chat_page(chromium_browser, base_url)
+        _send(page, "where is the bpm documented")
+
+        citation = page.locator(f"{_OP} .op-entry.assistant .osprey-md-rendered a")
+        expect(citation).to_have_attribute("href", "panel/okf#devices/bpm", timeout=10_000)
+        citation.click()
+
+        tile = page.locator('.dock-iframe-overlay iframe[data-panel-id="okf"]')
+        expect(tile).to_be_visible(timeout=10_000)
+        # The tile was navigated to the linked URL, fragment included (the hub
+        # adds its own embed query on the way).
+        src = urlsplit(tile.get_attribute("src") or "")
+        assert (src.path, src.fragment) == ("/panel/okf", "devices/bpm"), src
+        reader = page.frame_locator('.dock-iframe-overlay iframe[data-panel-id="okf"]')
+        expect(reader.locator("#reader-content h1.concept-title")).to_have_text(
+            "Beam Position Monitor", timeout=10_000
+        )
+        # The hub itself never navigated away.
+        assert page.url.startswith(base_url), page.url
+        page.close()

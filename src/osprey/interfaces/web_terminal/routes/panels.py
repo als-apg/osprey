@@ -14,7 +14,7 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from osprey.interfaces.common_middleware import (
@@ -27,8 +27,10 @@ from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
+    SIDECAR_PANELS,
     panel_id_refusal,
 )
+from osprey.registry.web import panel_url_state_attr
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +49,12 @@ def _prefix_path(path: str) -> str:
 
 @router.get("/health")
 async def health(request: Request):
-    """Health check endpoint."""
+    """Health check endpoint, with the card's control-identity fields.
+
+    See :func:`osprey.deployment.control_identity.health_fields`.
+    """
     from osprey import __version__
+    from osprey.deployment.control_identity import health_fields
 
     session_id = getattr(request.app.state, "server_session_id", None)
     return {
@@ -56,6 +62,7 @@ async def health(request: Request):
         "service": "web_terminal",
         "session_id": session_id,
         "version": __version__,
+        **health_fields(),
     }
 
 
@@ -124,12 +131,55 @@ async def lattice_server_config(request: Request):
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
+def _sidecar_panel_config(request: Request, panel_id: str) -> dict:
+    """The config body of a sidecar panel: its proxy URL and its start outcome.
+
+    ``url``/``available`` follow the published backend URL, exactly as for a
+    companion panel. ``state`` is what the terminal recorded for the sidecar
+    (``None`` when it was never launched), and ``message`` the operator-facing
+    sentence for it, spelled once in :mod:`~osprey.interfaces.web_terminal.sidecar_status`.
+    """
+    from osprey.interfaces.web_terminal.sidecar_status import status_message
+
+    state = request.app.state
+    url = getattr(state, panel_url_state_attr(panel_id), None)
+    proxy_url = f"{compute_url_prefix()}/panel/{panel_id}" if url else None
+    status = getattr(state, "sidecar_status", {}).get(panel_id)
+    return {
+        "url": proxy_url,
+        "available": proxy_url is not None,
+        "state": status.state if status is not None else None,
+        "message": status_message(panel_id, status),
+    }
+
+
 @router.get("/api/jupyter-server")
 async def jupyter_server_config(request: Request):
-    """Return the notebook sidecar URL for iframe embedding."""
-    url = getattr(request.app.state, "jupyter_server_url", None)
-    proxy_url = f"{compute_url_prefix()}/panel/jupyter" if url else None
-    return {"url": proxy_url, "available": proxy_url is not None}
+    """Return the notebook sidecar URL for iframe embedding, and its start outcome."""
+    return _sidecar_panel_config(request, "jupyter")
+
+
+@router.post("/api/panels/{panel_id}/start")
+async def start_sidecar_panel(panel_id: str, request: Request):
+    """Start a panel sidecar again, one attempt at a time.
+
+    The operator's retry for a sidecar that failed to start or stopped later.
+    A request while an attempt is in flight joins it; a request for a running
+    sidecar changes nothing. Answers the sidecar's config body: 200 once it
+    runs, 202 while it is starting or after it failed.
+    """
+    from osprey.interfaces.web_terminal.app import request_sidecar_start
+
+    enabled: set[str] = getattr(request.app.state, "enabled_panels", set())
+    if panel_id not in SIDECAR_PANELS or panel_id not in enabled:
+        raise HTTPException(
+            status_code=404, detail=f"{panel_id} is not a panel this terminal starts"
+        )
+    status = await request_sidecar_start(request.app, panel_id)
+    return JSONResponse(
+        _sidecar_panel_config(request, panel_id),
+        status_code=200 if status.state == "running" else 202,
+    )
 
 
 @router.get("/api/okf-server")
@@ -161,10 +211,7 @@ def _browser_panel_url(cp: dict) -> str:
     """
     prefix = compute_url_prefix()
     if cp.get("discovered"):
-        url = cp.get("url")
-        if isinstance(url, str) and url:
-            return f"{prefix}{url}"
-        return f"{prefix}/panel-static/{cp['id']}/"
+        return f"{prefix}{cp['url']}"
     return f"{prefix}/panel/{cp['id']}"
 
 
@@ -332,16 +379,16 @@ async def get_panels(request: Request):
     # so this payload must not advertise the panel in any form: the client reads
     # the flag to decide whether to render the Config tab at all, and a tab
     # rendered against a refusing surface is a dead control, not a gated one.
-    # Default True mirrors app.coerce_config_flag's default for the key — a
-    # literal here for the same routes->app import-cycle reason as ui_mode.
-    config_panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", True))
+    # An app whose state carries no flag has refused the surface, as the
+    # routes behind it do, so absence reads as False.
+    config_panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", False))
     # Whether the scaffold gallery's write surface is live
     # (web.scaffold_gallery.write_enabled). `false` means every write/delete
     # verb under /api/scaffold answers 403, so the browser must stop painting
     # the create/claim/save/delete/register controls that reach for them; the
     # gallery reads this flag to do that (static/js/scaffold/write-gate.js).
-    # Default True mirrors the routes' own getattr default, as above.
-    scaffold_write_enabled = bool(getattr(request.app.state, "scaffold_write_enabled", True))
+    # Absent reads as False, as the routes' own gate does.
+    scaffold_write_enabled = bool(getattr(request.app.state, "scaffold_write_enabled", False))
     if not config_panel_enabled:
         # Belt and braces for the id itself. ``config`` is not a built-in panel
         # (it is a drawer tab, not a dock tile), so nothing puts it in these
@@ -437,6 +484,11 @@ async def get_panels(request: Request):
         "feedback_escalation_url": feedback_escalation_url,
         "config_panel_enabled": config_panel_enabled,
         "scaffold_write_enabled": scaffold_write_enabled,
+        # The config file that exists but could not be read, which closed both
+        # gates above; the browser names the file from this key and invents nothing.
+        "config_unreadable_path": (
+            str(p) if (p := getattr(request.app.state, "config_unreadable_path", None)) else None
+        ),
         "tour": tour,
     }
 
@@ -697,10 +749,10 @@ class PanelArrangeRequest(BaseModel):
 def _resolve_preset_tiles(request: Request, name: str, known: set[str]) -> list[str]:
     """Resolve a preset name to its member panel ids, fail-safe filtered.
 
-    Mirrors ``computePresetDiff`` in ``panel-presets.js``: members are filtered
-    to the known ids (and the terminal id is dropped) so a typo'd or disabled
-    member in config is skipped rather than breaking the whole layout. Config
-    order is preserved — it is the left-to-right tile order clients apply.
+    Members are filtered to the known ids (and the terminal id is dropped) so a
+    typo'd or disabled member in config is skipped rather than breaking the
+    whole layout. Config order is preserved — it is the left-to-right tile order
+    clients apply.
 
     Args:
         request: Incoming request carrying ``app.state.panel_presets``.
@@ -1026,7 +1078,7 @@ def _allowlist_matches(host: str, port: int | None, scheme: str, allowlist: list
     return False
 
 
-def _normalize_ip(raw_addr: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+def _normalize_ip(raw_addr: str | int) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """Parse one resolved address into a comparable :mod:`ipaddress` object.
 
     A scope id (``fe80::1%en0``, as ``getsockname`` reports it on a link-local
@@ -1035,11 +1087,15 @@ def _normalize_ip(raw_addr: str) -> ipaddress.IPv4Address | ipaddress.IPv6Addres
     they meet.
 
     Args:
-        raw_addr: The address string from a ``sockaddr``.
+        raw_addr: The address from a ``sockaddr``, typed ``str | int`` as
+            ``getaddrinfo`` reports it.
 
     Returns:
-        The parsed address, or ``None`` when the string is not an IP literal.
+        The parsed address, or ``None`` when the value is not a string or the
+        string is not an IP literal.
     """
+    if not isinstance(raw_addr, str):
+        return None
     try:
         ip = ipaddress.ip_address(raw_addr.split("%", 1)[0])
     except ValueError:
@@ -1061,6 +1117,16 @@ _HOST_ADDRS_TTL_SECONDS = 60.0
 _host_addrs_cache: tuple[float, frozenset[ipaddress.IPv4Address | ipaddress.IPv6Address]] | None = (
     None
 )
+
+
+def reset_host_addrs_cache() -> None:
+    """Forget the last probe, so the next validation probes the interfaces again.
+
+    The memo is process-wide: without a reset, one probe's answer stands for
+    every panel validation in the process until the TTL runs out.
+    """
+    global _host_addrs_cache
+    _host_addrs_cache = None
 
 
 def _host_interface_addresses() -> frozenset[ipaddress.IPv4Address | ipaddress.IPv6Address]:
@@ -1085,12 +1151,11 @@ def _host_interface_addresses() -> frozenset[ipaddress.IPv4Address | ipaddress.I
     name resolution with no timeout of its own — on a host whose resolver is
     slow or unreachable it blocks for however long the system resolver takes —
     and running that unconditionally on every registration would put an
-    unbounded stall in the request path. The cache lives INSIDE this function
-    rather than around it so that tests, which patch this module attribute
-    wholesale, replace the caching along with the probing.
+    unbounded stall in the request path. :func:`reset_host_addrs_cache` forgets
+    the memo.
 
     Blocking (it resolves and opens sockets), so callers on the event loop run
-    it in a thread pool. It is a module attribute so tests patch it directly.
+    it in a thread pool.
 
     Returns:
         The discovered addresses, normalized by :func:`_normalize_ip`.

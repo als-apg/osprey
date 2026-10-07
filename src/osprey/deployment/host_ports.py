@@ -55,6 +55,7 @@ from osprey.deployment.graphdb_service import (
     GRAPHDB_PORT_CONFIG_KEY,
     GRAPHDB_SERVICE_NAME,
 )
+from osprey.deployment.host_binding import host_binding_of
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
 from osprey.deployment.qmd_service import dial_host
 from osprey.deployment.runtime_helper import get_ps_command, runtime_env
@@ -187,19 +188,6 @@ _WORKER_SERVICE_PREFIX = "dispatch-worker"
 # Label compose stamps with the project a container belongs to. Two checkouts of
 # one deployment share it, which is why :data:`REPO_ID_LABEL` is read as well.
 _COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
-
-# Bundled services that legitimately run host-mode WITHOUT binding a port:
-# outbound-only bridges and pollers with no listening socket (their templates
-# say so) — nextcloud_bridge and gchat_bridge push notifications out,
-# teams_bridge pulls its queue and posts through the Bot Framework connector,
-# ariel_sync polls ARIEL's API on an interval rather than listening for
-# inbound connections, and archive copies volumes and dials only the telemetry
-# store. Exempt from the "host-mode service escapes the
-# preflight" warning, which exists for services that DO bind something the
-# framework cannot derive.
-_HOST_MODE_PORTLESS_SERVICES = frozenset(
-    {"nextcloud_bridge", "gchat_bridge", "teams_bridge", "ariel_sync", "archive"}
-)
 
 # Config values the host-mode templates fall back on that are NOT ports. The
 # two port fallbacks the templates also carry (the dispatcher's own port and the
@@ -593,9 +581,10 @@ def derive_host_network_bindings(config):
       template is free to bind something the framework cannot know about, so a
       host-mode block with no usable ``port`` key is *announced* as escaping
       the preflight rather than silently skipped: the whole failure mode this
-      derivation exists for is a port that appears in no ``ports:`` block. The
-      bundled outbound-only bridges (:data:`_HOST_MODE_PORTLESS_SERVICES`)
-      bind nothing and are exempt from both the derivation and the warning.
+      derivation exists for is a port that appears in no ``ports:`` block. A
+      service declaring ``listens: false`` on its block opens no socket and is
+      exempt from both the derivation and the warning; OSPREY's outbound-only
+      services carry that declaration from the build.
 
     Derived bindings are labeled with the service's CONFIG key (``my_ioc_gw``),
     not a compose service name: the binding comes from the rendered config, and
@@ -674,11 +663,11 @@ def derive_host_network_bindings(config):
         for name, block in services.items():
             if name in ("event_dispatcher", "dispatch_worker", GRAPHDB_SERVICE_NAME):
                 continue  # specialized above (bind override / fan-out / two ports)
-            if name in _HOST_MODE_PORTLESS_SERVICES:
-                continue  # outbound-only: nothing bound, nothing to preflight
             block = block if isinstance(block, dict) else {}
             if not _on_host_network(block):
                 continue
+            if not host_binding_of(block).listens:
+                continue  # opens no listening socket: nothing to preflight
             try:
                 port = int(block.get("port"))
             except (TypeError, ValueError):
@@ -686,7 +675,9 @@ def derive_host_network_bindings(config):
                     f"Service {name!r} runs on the host network but declares no integer "
                     f"`services.{name}.port`, so whatever it binds is NOT covered by "
                     "the host-port preflight or the deploy summary. A collision there "
-                    'will surface as the runtime\'s bare "address already in use".'
+                    'will surface as the runtime\'s bare "address already in use". '
+                    f"A service that opens no listening socket says so with "
+                    f"`services.{name}.listens: false`."
                 )
                 continue
             bindings.append(

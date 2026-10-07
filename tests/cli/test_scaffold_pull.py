@@ -29,6 +29,7 @@ from osprey.cli.scaffold_pull import (
 )
 from osprey.cli.templates.manager import TemplateManager
 from osprey.errors import BuildProfileError
+from osprey.services.facility_knowledge.okf.index import check_indexes
 
 # The forward check the emitted CI files already get, borrowed rather than
 # rewritten: one extraction and one resolver, so a verb named in help text and a
@@ -164,9 +165,13 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/simulation/",
     "data/simulation/scenarios/",
     "data/simulation/scenarios/bpm-polarity/",
+    "data/simulation/scenarios/bpm-polarity/plots/",
     "data/simulation/scenarios/nominal/",
+    "data/simulation/scenarios/nominal/plots/",
     "data/simulation/scenarios/orm-dual-fault/",
+    "data/simulation/scenarios/rf-thermal-live/",
     "data/simulation/scenarios/rf-thermal/",
+    "data/simulation/scenarios/rf-thermal/plots/",
     "data/simulation/scenarios/vacuum-burst/",
     "web-terminal-context/",
     "data/README.md",
@@ -221,11 +226,15 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/simulation/lattice.json",
     "data/simulation/machine.json",
     "data/simulation/scenarios/bpm-polarity/logbook.json",
+    "data/simulation/scenarios/bpm-polarity/plots/corrector_bump_test.png",
     "data/simulation/scenarios/bpm-polarity/scenario.json",
     "data/simulation/scenarios/nominal/logbook.json",
+    "data/simulation/scenarios/nominal/plots/orbit_rms.json",
     "data/simulation/scenarios/nominal/scenario.json",
     "data/simulation/scenarios/orm-dual-fault/scenario.json",
+    "data/simulation/scenarios/rf-thermal-live/scenario.json",
     "data/simulation/scenarios/rf-thermal/logbook.json",
+    "data/simulation/scenarios/rf-thermal/plots/cavity_temperatures.json",
     "data/simulation/scenarios/rf-thermal/scenario.json",
     "data/simulation/scenarios/vacuum-burst/scenario.json",
     "data/simulation/va_bindings.json",
@@ -684,6 +693,23 @@ def test_apply_pull_leaves_no_demo_document_title_in_a_pulled_index(
         assert f"[{subdirectory}](/{subdirectory}/)" in root_index
 
 
+def test_a_skeleton_pull_leaves_indexes_that_validate(
+    control_assistant_root: Path, tmp_path: Path
+) -> None:
+    """A skeleton pull leaves every index as regen-index would write it."""
+    plan = plan_pull(
+        control_assistant_root,
+        tmp_path,
+        "data/facility_knowledge",
+        force=False,
+        with_content=False,
+    )
+    apply_pull(plan, repo_root=tmp_path, with_content=False)
+
+    knowledge_target = tmp_path / "data" / "facility_knowledge"
+    assert check_indexes(knowledge_target) == []
+
+
 def test_apply_pull_with_content_writes_the_packaged_knowledge_base_verbatim(
     control_assistant_root: Path, tmp_path: Path
 ) -> None:
@@ -704,6 +730,7 @@ def test_apply_pull_with_content_writes_the_packaged_knowledge_base_verbatim(
     for path in written:
         relative = path.relative_to(tmp_path)
         assert path.read_bytes() == (control_assistant_root / relative).read_bytes()
+    assert check_indexes(tmp_path / "data" / "facility_knowledge") == []
 
 
 def test_apply_pull_writes_nothing_when_the_plan_holds_a_refusal(

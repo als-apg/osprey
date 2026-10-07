@@ -5,13 +5,16 @@ matching to determine which expected PVs appear anywhere in the agent's
 response text. Returns ``(found, missing)``. Cheap, deterministic, no API
 call.
 
-Stage 2 (opt-in via ``use_llm_judge=True``) — LLM coverage judge: uses the
-judge provider's default model (via LiteLLM) with structured output to decide which
-expected channels the agent's FINAL answer covers — counting both literal
-mentions AND unambiguous shorthand (e.g. "all 96 BPMs", "BPM:01 through
-BPM:96"). Also returns any channels the agent recommended outside the
-expected set, so precision can be measured. Runs whenever the caller opts
-in, regardless of whether Stage 1 found everything.
+Stage 2 (opt-in by passing a ``judge``) — LLM coverage judge: a model with
+structured output decides which expected channels the agent's FINAL answer
+covers — counting both literal mentions AND unambiguous shorthand (e.g. "all
+96 BPMs", "BPM:01 through BPM:96"). Also returns any channels the agent
+recommended outside the expected set, so precision can be measured. Runs
+whenever the caller opts in, regardless of whether Stage 1 found everything.
+
+The judge runs on a provider the project configures under ``api.providers``,
+resolved once by :func:`resolve_judge`. A judge that cannot run is an error
+(:class:`CoverageJudgeError`), never a silent fallback to Stage 1.
 
 The opt-in default keeps single-paradigm benchmark runs free of upstream
 LLM-judge cost; cross-paradigm research that wants shorthand-tolerant
@@ -19,6 +22,8 @@ scoring opts in explicitly.
 
 Public API:
     programmatic_recall_check  — stage 1 only
+    JudgeRoute                 — the provider, endpoint, key and model the judge calls
+    resolve_judge              — a JudgeRoute from a project's configuration
     llm_judge_coverage         — stage 2 only
     evaluate_response          — pipeline (stage 1 default, stage 2 opt-in)
     compute_f1                 — precision / recall / F1 from predicted vs expected
@@ -26,10 +31,21 @@ Public API:
 
 from __future__ import annotations
 
-import os
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
+
+from osprey.models.config import main_model_id
+from osprey.models.provider_registry import get_provider_registry
+from osprey.services.channel_finder.benchmarks.project_env import (
+    expand_api_providers,
+    project_config,
+    project_env,
+)
+from osprey.services.channel_finder.core.exceptions import ConfigurationError, CoverageJudgeError
+from osprey_connectors.config import is_unresolved_placeholder
 
 # ---------------------------------------------------------------------------
 # Stage 1 — Programmatic recall
@@ -73,35 +89,158 @@ class ChannelExtractionResult(BaseModel):
     reasoning: str
 
 
+@dataclass(frozen=True)
+class JudgeRoute:
+    """The provider, endpoint, key and model the coverage judge calls.
+
+    Attributes:
+        provider: The registered provider adapter's name.
+        model_id: The model id the provider serves.
+        base_url: The endpoint, or ``None`` for a provider that needs none.
+        api_key: The key to send; kept out of ``repr`` so it never reaches a log.
+        extra_body: Provider-specific request fields from ``api.providers``.
+    """
+
+    provider: str
+    model_id: str
+    base_url: str | None
+    api_key: str | None = field(default=None, repr=False)
+    extra_body: dict[str, Any] | None = field(default=None, repr=False)
+
+    @property
+    def label(self) -> str:
+        """``provider/model_id``, naming the judge in messages and metadata."""
+        return f"{self.provider}/{self.model_id}"
+
+
+def resolve_judge(
+    project_dir: Path, provider: str, *, judge_model: str | None = None
+) -> JudgeRoute:
+    """Resolve the coverage judge from the project's ``api.providers``.
+
+    ``${VAR}`` references expand against the process environment over the
+    project's ``.env``; the provider's registered adapter then resolves the
+    endpoint (its override variable wins) and the key (a keyless adapter gets
+    its placeholder).
+
+    Args:
+        project_dir: The benchmarked project's directory, holding ``config.yml``.
+        provider: The provider to judge on; must be configured and registered.
+        judge_model: The judge's model id. Omitted, the deployment's main model
+            when ``claude_code.provider`` is this provider, else the entry's
+            ``default_model``.
+
+    Returns:
+        The route :func:`llm_judge_coverage` calls.
+
+    Raises:
+        CoverageJudgeError: When the project's configuration cannot run the judge;
+            the message names the provider and the config path.
+    """
+    config_path = project_dir / "config.yml"
+    try:
+        config = project_config(project_dir)
+    except ConfigurationError as exc:
+        raise CoverageJudgeError(f"The coverage judge on '{provider}' cannot run: {exc}") from exc
+    if config is None:
+        raise CoverageJudgeError(
+            f"The coverage judge on '{provider}' needs {config_path}, and it does not exist."
+        )
+
+    env = project_env(project_dir)
+    providers = expand_api_providers(config, env)
+
+    registry = get_provider_registry()
+    adapter = registry.get_provider(provider)
+    if adapter is None:
+        known = ", ".join(sorted(registry.list_providers()))
+        raise CoverageJudgeError(
+            f"No provider adapter is registered under '{provider}', named for the coverage "
+            f"judge by {config_path}. Name one of {known}."
+        )
+
+    entry = providers.get(provider)
+    if not isinstance(entry, dict):
+        configured = ", ".join(sorted(providers)) or "none"
+        raise CoverageJudgeError(
+            f"The coverage judge's provider '{provider}' is not configured under "
+            f"api.providers in {config_path}. Configured: {configured}."
+        )
+
+    raw_key = entry.get("api_key")
+    if is_unresolved_placeholder(raw_key):
+        raise CoverageJudgeError(
+            f"api.providers.{provider}.api_key in {config_path} is {raw_key}, and that "
+            f"variable is set neither in the environment nor in {project_dir / '.env'}."
+        )
+    api_key = adapter.effective_api_key(raw_key or None)
+    if api_key is None:
+        raise CoverageJudgeError(
+            f"api.providers.{provider}.api_key in {config_path} names no key, and the "
+            f"'{provider}' provider requires one for the coverage judge."
+        )
+
+    raw_url = entry.get("base_url")
+    try:
+        base_url = adapter.resolve_base_url(raw_url)
+    except ValueError as exc:
+        quoted = (
+            f" is {raw_url}, which is not set, and" if is_unresolved_placeholder(raw_url) else ""
+        )
+        raise CoverageJudgeError(
+            f"api.providers.{provider}.base_url in {config_path}{quoted} names no endpoint "
+            f"for the coverage judge: {exc}"
+        ) from exc
+
+    if judge_model:
+        model_id = judge_model
+    else:
+        try:
+            model_id = main_model_id(
+                {"claude_code": config.get("claude_code") or {}, "api": {"providers": providers}},
+                provider,
+            )
+        except ValueError as exc:
+            raise CoverageJudgeError(
+                f"The coverage judge on '{provider}' has no model in {config_path}: {exc}"
+            ) from exc
+
+    extra_body = entry.get("extra_body")
+    return JudgeRoute(
+        provider=provider,
+        model_id=model_id,
+        base_url=base_url,
+        api_key=api_key,
+        extra_body=extra_body if isinstance(extra_body, dict) else None,
+    )
+
+
 def llm_judge_coverage(
-    response_text: str, expected: list[str], *, judge_model: str | None = None
+    response_text: str, expected: list[str], *, judge: JudgeRoute
 ) -> tuple[list[str], list[str]]:
     """Judge which expected channels the agent's final answer covers.
 
-    Calls the judge model via OSPREY's LiteLLM adapter with structured output. The
-    judge decides coverage based on the agent's FINAL answer only — both
-    literal enumeration and unambiguous shorthand ("all 96 BPMs",
-    "BPM:01 through BPM:96") count as coverage. It also returns any
-    channels the agent recommended outside the expected set, so precision
-    can be measured.
+    Calls the judge's provider adapter with structured output. The judge
+    decides coverage based on the agent's FINAL answer only — both literal
+    enumeration and unambiguous shorthand ("all 96 BPMs", "BPM:01 through
+    BPM:96") count as coverage. It also returns any channels the agent
+    recommended outside the expected set, so precision can be measured.
 
     Args:
         response_text: Full agent response text.
         expected: Expected channel names — the canonical naming the judge
             scores coverage against.
-        judge_model: A model id the judge's provider serves. Omitted, the
-            provider's ``default_model`` from the packaged catalog.
+        judge: The route resolved by :func:`resolve_judge`.
 
     Returns:
         Tuple of (covered_expected, extra_recommended). ``covered_expected``
         is a subset of ``expected``. ``extra_recommended`` is anything the
-        agent named in its final answer that's not in ``expected``. Both
-        empty on structured-output parse failure.
-    """
-    from osprey.models.providers.litellm_adapter import (
-        execute_litellm_completion,
-    )
+        agent named in its final answer that's not in ``expected``.
 
+    Raises:
+        CoverageJudgeError: When the judge call fails, or its reply carries no
+            structured verdict.
+    """
     # Number the expected list so the judge can refer to entries by index.
     expected_numbered = "\n".join(f"{i}: {ch}" for i, ch in enumerate(expected))
     prompt = (
@@ -118,55 +257,33 @@ def llm_judge_coverage(
         f"Agent response:\n{response_text}"
     )
 
-    # Resolve provider. Preference order: direct Anthropic, then ALS-APG
-    # (works off-VPN), then CBORG (LBLnet/VPN-only — last resort because
-    # off-VPN traffic gets IP-blocked). This lane names the ALS-APG gateway
-    # explicitly rather than relying on the shipped one, so ALS-APG is a
-    # candidate only when its URL is exported alongside its key.
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    provider = "anthropic"
-    base_url = None
+    adapter = get_provider_registry().get_provider(judge.provider)
+    if adapter is None:
+        raise CoverageJudgeError(
+            f"The coverage judge {judge.label} failed: no provider adapter is registered "
+            f"under '{judge.provider}'."
+        )
+    extra: dict[str, Any] = {"extra_body": judge.extra_body} if judge.extra_body else {}
+    try:
+        result = adapter().execute_completion(
+            message=prompt,
+            model_id=judge.model_id,
+            api_key=judge.api_key,
+            base_url=judge.base_url,
+            max_tokens=2048,
+            temperature=0.0,
+            output_format=ChannelExtractionResult,
+            **extra,
+        )
+    except Exception as exc:
+        raise CoverageJudgeError(f"The coverage judge {judge.label} failed: {exc}") from exc
 
-    if not api_key:
-        als_apg_key = os.environ.get("ALS_APG_API_KEY")
-        als_apg_base_url = os.environ.get("ALS_APG_BASE_URL")
-        if als_apg_key and als_apg_base_url:
-            provider = "als-apg"
-            api_key = als_apg_key
-            base_url = als_apg_base_url
-        else:
-            cborg_key = os.environ.get("CBORG_API_KEY")
-            auth_token = os.environ.get("ANTHROPIC_AUTH_TOKEN")
-            if cborg_key or auth_token:
-                provider = "cborg"
-                api_key = cborg_key or auth_token
-                base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.cborg.lbl.gov/v1")
-
-    if judge_model:
-        model_id = judge_model
-    else:
-        from osprey.models.config import main_model_id
-        from osprey.profiles.providers import load_provider_catalog
-
-        catalog = load_provider_catalog(None).entries
-        model_id = main_model_id({"api": {"providers": catalog}}, provider)
-
-    result = execute_litellm_completion(
-        provider=provider,
-        message=prompt,
-        model_id=model_id,
-        api_key=api_key,
-        base_url=base_url,
-        max_tokens=2048,
-        temperature=0.0,
-        output_format=ChannelExtractionResult,
-    )
-
-    if isinstance(result, ChannelExtractionResult):
-        covered = [expected[i] for i in result.covered_expected_indices if 0 <= i < len(expected)]
-        return covered, result.extra_recommended
-    # Fallback: if structured output didn't parse, return empty lists.
-    return [], []
+    if not isinstance(result, ChannelExtractionResult):
+        raise CoverageJudgeError(
+            f"The coverage judge {judge.label} returned no structured verdict."
+        )
+    covered = [expected[i] for i in result.covered_expected_indices if 0 <= i < len(expected)]
+    return covered, result.extra_recommended
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +295,7 @@ def evaluate_response(
     response_text: str,
     expected: list[str],
     *,
-    use_llm_judge: bool = False,
-    judge_model: str | None = None,
+    judge: JudgeRoute | None = None,
 ) -> tuple[list[str], dict]:
     """Evaluate a channel finder response.
 
@@ -187,7 +303,7 @@ def evaluate_response(
     appear literally in the response text.
 
     Stage 2 (opt-in): LLM coverage judge — resolves shorthand to coverage
-    and detects over-recommendation. Runs whenever ``use_llm_judge=True``
+    and detects over-recommendation. Runs whenever a ``judge`` is given
     and there is something to evaluate (``expected`` non-empty). Replaces
     Stage 1's literal-only signal with the judge's semantic coverage
     decision.
@@ -195,20 +311,23 @@ def evaluate_response(
     Args:
         response_text: Full agent response text (plain string).
         expected: List of expected channel names.
-        use_llm_judge: When True, run the Stage 2 LLM judge. Default False —
-            pure programmatic evaluation, no upstream LLM call.
-        judge_model: The judge's model id; omitted, its provider's default.
+        judge: The route of the Stage 2 LLM judge. Omitted — pure
+            programmatic evaluation, no upstream LLM call.
 
     Returns:
         Tuple of (predicted_channels, metadata_dict). ``predicted_channels``
         is what should be fed to :func:`compute_f1`. With the judge it is
         ``covered_expected + extra_recommended``, so precision and recall
         both reflect the judge's decision.
+
+    Raises:
+        CoverageJudgeError: When the judge cannot score the response; the
+            query is not rescored another way.
     """
     found, missing = programmatic_recall_check(response_text, expected)
     meta: dict[str, Any] = {"stage": 1, "found": found, "missing": missing}
 
-    if not use_llm_judge:
+    if judge is None:
         meta["evaluation"] = (
             "programmatic_recall_only" if not missing else "programmatic_recall_fail"
         )
@@ -222,19 +341,12 @@ def evaluate_response(
     # Stage 2: judge runs whether or not Stage 1 found everything, so
     # shorthand-only answers ("all 96 BPMs") can still earn coverage.
     meta["stage"] = 2
-    try:
-        covered, extras = llm_judge_coverage(response_text, expected, judge_model=judge_model)
-        predicted = covered + extras
-        meta["evaluation"] = "llm_judge"
-        meta["llm_covered"] = covered
-        meta["llm_extras"] = extras
-    except Exception as exc:
-        # If the judge fails, fall back to Stage 1's literal found list.
-        meta["evaluation"] = "llm_judge_error"
-        meta["llm_error"] = str(exc)
-        predicted = found
-
-    return predicted, meta
+    meta["judge"] = judge.label
+    covered, extras = llm_judge_coverage(response_text, expected, judge=judge)
+    meta["evaluation"] = "llm_judge"
+    meta["llm_covered"] = covered
+    meta["llm_extras"] = extras
+    return covered + extras, meta
 
 
 # ---------------------------------------------------------------------------

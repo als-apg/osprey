@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 # Invoked by a source for each detected event. Returns the dispatch_id of the
 # queued run, or None when the trigger was skipped (e.g. disabled). Raises
 # osprey.dispatch.pool.QueueFullError when the dispatch pool is saturated.
+# An instant in the payload is a timezone-aware datetime. The dispatcher stores
+# it as given and shows it to the agent in the facility zone, while a value
+# carried as text reaches the agent unchanged.
 FireCallback = Callable[["TriggerConfig", dict[str, Any]], Awaitable[str | None]]
 
 

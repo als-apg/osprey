@@ -14,13 +14,14 @@ declared above the ``{path:path}`` catch-all), and its path containment.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
+from osprey.interfaces.web_terminal.routes import proxy
+
+from ._proxy_fakes import panel_app
 
 DESIGN_SYSTEM_DIR = (
     Path(__file__).resolve().parents[3]
@@ -47,21 +48,8 @@ def app_and_client(workspace_dir):
     escapes the intercept and reaches the generic proxy fails loudly with a
     502 instead of quietly succeeding.
     """
-    enabled = set(UNIVERSAL_PANELS)
     custom = [{"id": "my-dash", "label": "DASH", "url": "http://localhost:9"}]
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(enabled, custom, None),
-        ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield app, c
+    yield from panel_app(workspace_dir, custom)
 
 
 class TestDesignSystemIntercept:
@@ -92,7 +80,7 @@ class TestDesignSystemIntercept:
 
         # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
         # and the body asserts on the ones this test is about.
-        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
+        async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
             forwarded.append(str(url))
             return httpx.Response(200, text="from-sidecar", headers={"content-type": "text/css"})
 
@@ -107,30 +95,54 @@ class TestDesignSystemIntercept:
         assert other.text == "from-sidecar"
         assert len(forwarded) == 1
 
-    def test_binary_asset_served_with_guessed_type(self, app_and_client):
-        """Non-text assets pass through as bytes rather than being rewritten."""
-        _, client = app_and_client
-        fonts = list(DESIGN_SYSTEM_DIR.rglob("*.woff2"))
-        if not fonts:
-            pytest.skip("no binary asset in the design-system tree to exercise")
-        rel = fonts[0].relative_to(DESIGN_SYSTEM_DIR).as_posix()
+    def test_binary_asset_served_with_guessed_type(self, app_and_client, tmp_path, monkeypatch):
+        """Non-text assets pass through as bytes rather than being decoded or rewritten.
 
-        resp = client.get(f"/panel/my-dash/design-system/{rel}")
+        The shipped tree holds only text today, so the tree is swapped for one
+        that carries an image; a font or image later added to the design system
+        takes this same branch.
+        """
+        _, client = app_and_client
+        payload = bytes(range(256))
+        (tmp_path / "img").mkdir()
+        (tmp_path / "img" / "x.png").write_bytes(payload)
+        monkeypatch.setattr(proxy, "_DESIGN_SYSTEM_DIR", tmp_path)
+
+        resp = client.get("/panel/my-dash/design-system/img/x.png")
+
         assert resp.status_code == 200
-        assert resp.content == fonts[0].read_bytes()
+        assert resp.content == payload
+        assert resp.headers["content-type"].startswith("image/png")
 
     @pytest.mark.parametrize(
-        "attack",
+        ("attack", "target"),
         [
-            "../../web_terminal/app.py",
-            "../../../../../../etc/passwd",
-            "css/../../../__init__.py",
+            pytest.param(
+                "%2e%2e/%2e%2e/web_terminal/app.py",
+                "../../web_terminal/app.py",
+                id="encoded-traversal",
+            ),
+            pytest.param(
+                "css/%2e%2e/%2e%2e/%2e%2e/__init__.py",
+                "../../__init__.py",
+                id="encoded-traversal-mid-path",
+            ),
+            pytest.param("%2Fetc%2Fpasswd", "/etc/passwd", id="absolute"),
         ],
     )
-    def test_path_traversal_is_contained(self, app_and_client, attack):
-        """A traversal out of the static root 404s instead of leaking a file."""
+    def test_path_traversal_is_contained(self, app_and_client, attack, target):
+        """A path out of the static root 404s instead of leaking a file.
+
+        Percent-encoded, because a client normalises literal dot segments
+        before sending and the request would never reach this route; ASGI
+        hands the route the decoded path. Each target is asserted to exist, so
+        the refusal cannot pass on a missing file.
+        """
         _, client = app_and_client
+        assert (DESIGN_SYSTEM_DIR / target).resolve().is_file(), f"{target} moved; repoint"
+
         resp = client.get(f"/panel/my-dash/design-system/{attack}")
+
         assert resp.status_code == 404
 
     def test_missing_asset_404s(self, app_and_client):

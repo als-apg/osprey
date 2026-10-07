@@ -47,7 +47,6 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals import render as render_module
-from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.services.auth_sidecar.app import (
     ENV_ROSTER_ACCESS_PREFIX,
@@ -56,6 +55,7 @@ from osprey.services.auth_sidecar.app import (
     WHOLE_ROSTER,
     AuthSettings,
 )
+from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.services.auth_sidecar.routes.oidc import ENV_ROLE_CLAIM, ENV_ROLE_MAP, RoleBinding
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX, RosterRoles
 
@@ -101,8 +101,8 @@ def _config(
         "facility": {
             "name": "Demo Light Source",
             "prefix": "dls",
-            "timezone": "America/Los_Angeles",
         },
+        "system": {"timezone": "America/Los_Angeles"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
         "modules": {"web_terminals": web_terminals},

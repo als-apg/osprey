@@ -18,10 +18,12 @@ lifespan:
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from osprey.cli.templates.manager import TemplateManager
@@ -72,7 +74,7 @@ def _run_lifespan(project):
         "osprey.interfaces.web_terminal.app._load_web_config",
         return_value={"watch_dir": str(project / "_agent_data")},
     ):
-        app = create_app(shell_command="echo", project_dir=str(project))
+        app = create_app(shell_command=["echo"], project_dir=str(project))
         with TestClient(app):
             pass
     return app
@@ -151,11 +153,80 @@ def test_marker_absent_regenerates_and_restores_as_before(project, startup_spies
     assert startup_spies["dry_run"] == []
 
 
-@pytest.mark.usefixtures("startup_spies")
-def test_marker_absent_state_flag_is_readable_via_getattr(project, monkeypatch):
-    """Downstream routes read the flag defensively; it is always present."""
+def test_regen_failure_does_not_block_startup(project, monkeypatch, caplog):
+    """A regen that raises is logged and the server still comes up."""
     monkeypatch.delenv("OSPREY_RENDER_ZONE_READONLY", raising=False)
 
-    app = _run_lifespan(project)
+    # ``TemplateManager.regen_if_drift``'s signature; the body raises first.
+    def boom(self, pd):  # noqa: ARG001
+        raise RuntimeError("regen exploded")
 
-    assert getattr(app.state, "render_zone_readonly", False) is False
+    monkeypatch.setattr(TemplateManager, "regen_if_drift", boom)
+    monkeypatch.setattr(
+        "osprey.interfaces.web_terminal.scaffold_gallery_service.restore_scaffold_bodies",
+        lambda pd: None,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        app = _run_lifespan(project)
+
+    assert "Claude Code artifact regen on launch failed" in caplog.text
+    assert app.state.render_zone_readonly is False
+    # Set after the regen step: the lifespan ran past the failure.
+    assert app.state.workspace_dir == (project / "_agent_data").resolve()
+
+
+@pytest.mark.usefixtures("startup_spies")
+class TestLifespanOspreyConfig:
+    """The lifespan points ``OSPREY_CONFIG`` at the project and reads it fresh."""
+
+    def test_lifespan_sets_osprey_config_env(self, project):
+        config_file = project / "config.yml"
+        config_file.write_text(yaml.dump({"hooks": {"debug": True}}))
+
+        with patch(
+            "osprey.interfaces.web_terminal.app._load_web_config",
+            return_value={"watch_dir": str(project / "_agent_data")},
+        ):
+            app = create_app(shell_command=["echo"], project_dir=str(project))
+            with TestClient(app):
+                assert os.environ.get("OSPREY_CONFIG") == str(config_file)
+
+    def test_lifespan_does_not_override_existing_osprey_config(
+        self,
+        project,
+        monkeypatch,
+    ):
+        (project / "config.yml").write_text(yaml.dump({}))
+        monkeypatch.setenv("OSPREY_CONFIG", "/custom/config.yml")
+
+        with patch(
+            "osprey.interfaces.web_terminal.app._load_web_config",
+            return_value={"watch_dir": str(project / "_agent_data")},
+        ):
+            app = create_app(shell_command=["echo"], project_dir=str(project))
+            with TestClient(app):
+                assert os.environ.get("OSPREY_CONFIG") == "/custom/config.yml"
+
+    def test_lifespan_reads_config_fresh_after_setting_osprey_config(
+        self,
+        project,
+        monkeypatch,
+    ):
+        """A config read cached before startup does not answer the lifespan.
+
+        ``osprey web`` reads the project config before the server starts; an
+        edit between that read and the lifespan must be what the page renders.
+        """
+        from osprey.utils.workspace import load_osprey_config
+
+        config_file = project / "config.yml"
+        config_file.write_text(yaml.dump({"web": {"ui_mode": "expert"}}))
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+        assert load_osprey_config()["web"]["ui_mode"] == "expert"
+        config_file.write_text(yaml.dump({"web": {"ui_mode": "simple"}}))
+        monkeypatch.delenv("OSPREY_CONFIG")
+
+        app = _run_lifespan(project)
+
+        assert app.state.web_ui_mode == "simple"

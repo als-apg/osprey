@@ -17,6 +17,8 @@ Tests cover:
 - Provider override scenarios
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from osprey.models.provider_registry import get_provider_registry, reset_provider_registry
@@ -194,6 +196,76 @@ class AppProvider(RegistryConfigProvider):
         # Custom provider should still be in config
         provider_modules = [p.module_path for p in manager.config.providers]
         assert "app.providers.only" in provider_modules
+
+    _CONFIGURED = "osprey.registry.initializers._get_configured_provider_names"
+
+    def _excluding(self, tmp_path, names: list[str]):
+        registry_file = tmp_path / "app" / "registry.py"
+        registry_file.parent.mkdir(parents=True, exist_ok=True)
+        registry_file.write_text(
+            f"""
+from osprey.registry import RegistryConfigProvider, extend_framework_registry
+
+class AppProvider(RegistryConfigProvider):
+    def get_registry_config(self):
+        return extend_framework_registry(
+            exclude_providers={names!r}
+        )
+"""
+        )
+        return registry_file
+
+    def _initialize(self, registry_file) -> RegistryManager:
+        manager = RegistryManager(registry_path=str(registry_file))
+        with patch(self._CONFIGURED, return_value={"openai", "anthropic"}):
+            manager.initialize(silent=True)
+        return manager
+
+    def test_an_excluded_builtin_is_gone_from_the_provider_registry(self, tmp_path):
+        manager = self._initialize(self._excluding(tmp_path, ["openai"]))
+
+        pr = get_provider_registry()
+        assert pr.get_provider("openai") is None
+        assert "openai" not in pr.list_providers()
+        assert set(manager.list_providers()) == {"anthropic"}
+        assert manager.get_provider("openai") is None
+
+    def test_an_excluded_provider_fails_closed_at_completion(self, tmp_path):
+        from osprey.models.completion import get_chat_completion
+
+        self._initialize(self._excluding(tmp_path, ["openai"]))
+
+        with pytest.raises(ValueError, match="Unknown provider: openai"):
+            get_chat_completion(
+                message="hi",
+                provider="openai",
+                model_id="gpt-4o",
+                provider_config={"api_key": "k"},
+            )
+
+    def test_an_exclusion_that_names_no_builtin_warns(self, tmp_path, caplog):
+        import logging
+
+        from osprey.models.provider_registry import _BUILTIN_PROVIDERS
+
+        registry_file = self._excluding(tmp_path, ["no-such-provider"])
+        with caplog.at_level(logging.WARNING):
+            self._initialize(registry_file)
+
+        assert "no-such-provider" in caplog.text
+        assert "not a built-in provider" in caplog.text
+        pr = get_provider_registry()
+        for name in _BUILTIN_PROVIDERS:
+            assert name in pr.list_providers()
+
+    def test_reset_registry_drops_the_exclusion(self, tmp_path):
+        from osprey.registry import reset_registry
+
+        self._initialize(self._excluding(tmp_path, ["openai"]))
+
+        reset_registry()
+
+        assert get_provider_registry().get_provider("openai") is not None
 
 
 class TestHelperFunctionProviderSupport:
@@ -457,6 +529,7 @@ class AppProvider(RegistryConfigProvider):
             assert provider_class is not None
             # The app's class, not the framework's.
             assert provider_class.__name__ == "HouseOpenAIProvider"
+            assert "openai" in pr.list_providers()
         finally:
             sys.path.remove(str(tmp_path))
 

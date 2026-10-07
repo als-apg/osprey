@@ -18,6 +18,7 @@ import json
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests._control_context_fixtures import pin_identity, state_dir_under
 
 # ---------------------------------------------------------------------------
@@ -521,7 +522,7 @@ def test_paths_anchor_on_repo_root_and_agent_data(monkeypatch, tmp_path):
     monkeypatch.setattr(reader, "get_repo_root", lambda hook_input=None: str(tmp_path))
     identity = pin_identity(monkeypatch)
 
-    expected = tmp_path / reader._AGENT_DATA_BASE_DIR / "control_target" / identity
+    expected = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "control_target" / identity
     assert reader.resolve_state_dir() == str(expected)
     assert reader.record_path() == str(expected / "control_context.json")
     assert reader.STATE_DIR_NAME == "control_target"

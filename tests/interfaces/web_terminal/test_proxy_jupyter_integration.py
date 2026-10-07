@@ -21,20 +21,15 @@ import urllib.error
 import urllib.request
 import uuid
 from collections.abc import Iterator
-from concurrent.futures import Future
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 from urllib.parse import urljoin
 
 import httpx
 import pytest
-import websockets
 from fastapi.testclient import TestClient
-from starlette.testclient import WebSocketTestSession
-from starlette.websockets import WebSocketDisconnect
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.common_middleware import compute_url_prefix
@@ -43,7 +38,9 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
     STARTER_NOTEBOOK_NAME,
     JupyterSidecar,
+    kernel_notebook_path,
 )
+from osprey.interfaces.web_terminal.routes import proxy as proxy_module
 
 #: Both halves of every test here spawn a process: the sidecar, then a kernel.
 pytestmark = pytest.mark.slow
@@ -209,9 +206,8 @@ def sidecar_stderr_on_failure(request: pytest.FixtureRequest) -> Iterator[None]:
     failure report. Printing it here puts that account in the test's own log.
 
     The sidecar is looked up through ``request`` instead of taken as a
-    parameter so that this autouse fixture does not itself pull one in: the
-    helper unit tests at the bottom of the module talk to a fake socket and
-    must not spawn a server to do it.
+    parameter so that this autouse fixture does not itself pull one in: a
+    test that never asked for a sidecar must not spawn one to print its tail.
     """
     yield
     if "sidecar" not in request.fixturenames:
@@ -387,10 +383,10 @@ def _run_cell(socket: Any, code: str, session_id: str) -> str:
 
 
 class _RecordingConnect:
-    """``websockets.connect``, wrapped to record the handshake it then performs."""
+    """A websocket connect type, wrapped to record the handshake it then performs."""
 
-    def __init__(self) -> None:
-        self._connect = websockets.connect
+    def __init__(self, connect: Any) -> None:
+        self._connect = connect
         self.target: str | None = None
         self.headers: dict[str, str] = {}
 
@@ -454,9 +450,97 @@ def test_no_backend_cookie_reaches_the_browser(
     assert "set-cookie" not in {name.lower() for name in through_proxy.headers}
 
 
-def test_a_session_starts_on_the_osprey_kernelspec(started_session: httpx.Response) -> None:
+def test_a_session_starts_on_the_osprey_kernelspec(
+    started_session: httpx.Response, sidecar: JupyterSidecar, kernel_id: str
+) -> None:
+    """The session is on the one kernelspec, and the switch refusal can name it.
+
+    ``kernel_notebook_path`` is how a refused control-target switch names the
+    notebook whose kernel holds the target; this asks the real sidecar with the
+    URL and credential the terminal publishes.
+    """
     assert started_session.status_code == 201
     assert started_session.json()["kernel"]["name"] == KERNELSPEC_NAME
+    assert (
+        kernel_notebook_path(sidecar.url, sidecar.auth_headers, kernel_id) == STARTER_NOTEBOOK_NAME
+    )
+
+
+#: A kernelspec every sidecar can resolve unless something refuses it: ``ipykernel``
+#: ships it with the sidecar's own interpreter.
+UNLISTED_KERNEL = "python3"
+
+
+def _running_kernel_names(proxied: TestClient) -> list[str]:
+    response = proxied.get(f"{PANEL}/api/kernels")
+    assert response.status_code == 200
+    return sorted(kernel["name"] for kernel in response.json())
+
+
+def test_the_default_kernel_is_the_osprey_kernelspec(proxied: TestClient) -> None:
+    kernelspecs = proxied.get(f"{PANEL}/api/kernelspecs")
+
+    assert kernelspecs.status_code == 200
+    assert kernelspecs.json()["default"] == KERNELSPEC_NAME
+
+
+def test_a_kernel_outside_the_allow_list_is_refused(proxied: TestClient) -> None:
+    """A start naming an unlisted kernelspec fails, and no such kernel runs."""
+    response = proxied.post(f"{PANEL}/api/kernels", json={"name": UNLISTED_KERNEL})
+    try:
+        assert response.status_code != 201
+        assert UNLISTED_KERNEL not in _running_kernel_names(proxied)
+    finally:
+        if response.status_code == 201:
+            proxied.delete(f"{PANEL}/api/kernels/{response.json()['id']}")
+
+
+def test_a_kernel_started_without_a_name_is_the_osprey_kernel(proxied: TestClient) -> None:
+    response = proxied.post(f"{PANEL}/api/kernels", json={})
+    try:
+        assert response.status_code == 201
+        assert response.json()["name"] == KERNELSPEC_NAME
+    finally:
+        if response.status_code == 201:
+            proxied.delete(f"{PANEL}/api/kernels/{response.json()['id']}")
+
+
+def test_a_session_outside_the_allow_list_is_refused(proxied: TestClient) -> None:
+    """Both ways JupyterLab picks a kernel: a new session, and a switch of a running one."""
+    created = proxied.post(
+        f"{PANEL}/api/sessions",
+        json={
+            "path": "unlisted.ipynb",
+            "name": "unlisted.ipynb",
+            "type": "notebook",
+            "kernel": {"name": UNLISTED_KERNEL},
+        },
+    )
+    running = proxied.post(
+        f"{PANEL}/api/sessions",
+        json={
+            "path": "switched.ipynb",
+            "name": "switched.ipynb",
+            "type": "notebook",
+            "kernel": {"name": KERNELSPEC_NAME},
+        },
+    )
+    try:
+        assert running.status_code == 201
+        switched = proxied.patch(
+            f"{PANEL}/api/sessions/{running.json()['id']}",
+            json={"kernel": {"name": UNLISTED_KERNEL}},
+        )
+        after = proxied.get(f"{PANEL}/api/sessions/{running.json()['id']}")
+
+        assert created.status_code == 501
+        assert switched.status_code == 501
+        assert after.json()["kernel"]["name"] == KERNELSPEC_NAME
+        assert UNLISTED_KERNEL not in _running_kernel_names(proxied)
+    finally:
+        for response in (created, running):
+            if response.status_code == 201:
+                proxied.delete(f"{PANEL}/api/sessions/{response.json()['id']}")
 
 
 # ---------------------------------------------------------------------------
@@ -470,9 +554,11 @@ def test_a_kernel_answers_over_the_proxied_socket(
 ) -> None:
     """A kernel_info round trip, and the upstream handshake that carried it."""
     session_id = uuid.uuid4().hex
-    recorded = _RecordingConnect()
+    # The handshake carries the sidecar's credential, so the proxy opens it
+    # through its redirect-refusing connect type; that is the one recorded.
+    recorded = _RecordingConnect(proxy_module._RedirectRefusingConnect)
 
-    with patch("websockets.connect", recorded):
+    with patch.object(proxy_module, "_RedirectRefusingConnect", recorded):
         with proxied.websocket_connect(
             f"{PANEL}/api/kernels/{kernel_id}/channels?session_id={session_id}"
         ) as socket:
@@ -486,7 +572,7 @@ def test_a_kernel_answers_over_the_proxied_socket(
         f"{PANEL}/api/kernels/{kernel_id}/channels?session_id={session_id}"
     )
     handshake = {name.lower(): value for name, value in recorded.headers.items()}
-    assert handshake["authorization"] == f"Bearer {sidecar.token}"
+    assert handshake["authorization"] == sidecar.auth_headers["authorization"]
 
 
 @pytest.mark.timeout(KERNEL_TIMEOUT, func_only=True)
@@ -698,14 +784,6 @@ def test_the_relayed_lab_csp_says_nothing_about_scripts(proxied: TestClient) -> 
     assert "default-src" not in csp
 
 
-def test_the_panels_own_json_is_not_injected(proxied: TestClient) -> None:
-    """The gate reads the body's type, and the sidecar's API is not a document."""
-    status = proxied.get(f"{PANEL}/api/status")
-
-    assert status.status_code == 200
-    assert LAB_BAR_MODULE not in status.text
-
-
 def test_a_users_own_html_file_is_served_untouched(proxied: TestClient, notebook_env: Path) -> None:
     """The finding a content-type gate could not see.
 
@@ -776,79 +854,3 @@ def test_the_stylesheets_the_bar_addresses_answer_on_the_panels_paths(
         response = proxied.get(url)
         assert response.status_code == 200, url
         assert response.headers["content-type"].startswith("text/css"), url
-
-
-# ---------------------------------------------------------------------------
-# The bounded receive helpers themselves
-# ---------------------------------------------------------------------------
-#
-# These need no kernel: what they pin is what the helpers do when a frame does
-# NOT arrive, which is exactly the case the sidecar tests above can never stage
-# on purpose. The stand-in below is socket-shaped only where the helpers reach
-# -- the portal, the receive stream, and the close check -- and the close check
-# is the session's REAL one, so a close frame is asserted through the same code
-# a live socket would run.
-
-
-class _StuckPortal:
-    """A ``BlockingPortal`` whose ``start_task_soon`` future never resolves."""
-
-    def __init__(self, message: Any | None = None) -> None:
-        self._message = message
-
-    def start_task_soon(self, _func: Any, *args: Any) -> Future[Any]:
-        future: Future[Any] = Future()
-        if self._message is not None:
-            future.set_result(self._message)
-        return future
-
-
-class _FakeSocket:
-    """The three attributes ``_receive_message`` touches, and nothing else."""
-
-    #: The session's own close check, bound here as a method. Its close branch
-    #: reads only the message, so it needs no live session behind it.
-    _raise_on_close = WebSocketTestSession._raise_on_close
-
-    def __init__(self, message: Any | None = None) -> None:
-        self.portal = _StuckPortal(message)
-        self._send_rx = SimpleNamespace(receive=lambda: None)
-
-
-def test_receive_json_names_the_frame_budget_and_the_last_frame() -> None:
-    """A frame that never arrives inside its own budget says which frame stalled."""
-    socket = _FakeSocket()
-
-    with pytest.raises(AssertionError) as stalled:
-        _receive_json(socket, 0.05, last="kernel_info_request")
-
-    assert "loop budget" not in str(stalled.value)
-    assert "last was kernel_info_request" in str(stalled.value)
-
-
-def test_receive_json_names_the_loop_budget_when_the_clamp_binds() -> None:
-    """A nearly spent loop deadline shortens the wait, and says so.
-
-    The frame budget here is the full ``FRAME_TIMEOUT``; the deadline is 50 ms
-    away. If the clamp did not bind, this test would sit for half a minute.
-    """
-    socket = _FakeSocket()
-
-    with pytest.raises(AssertionError) as stalled:
-        _receive_json(
-            socket,
-            FRAME_TIMEOUT,
-            deadline=time.monotonic() + 0.05,
-            last="status",
-        )
-
-    assert f"no frame within the {LOOP_DEADLINE:.0f} s loop budget" in str(stalled.value)
-    assert "last was status" in str(stalled.value)
-
-
-def test_receive_bytes_still_disconnects_on_a_close_frame() -> None:
-    """The bound is added around the close check, not in place of it."""
-    socket = _FakeSocket({"type": "websocket.close", "code": 1000})
-
-    with pytest.raises(WebSocketDisconnect):
-        _receive_bytes(socket, FRAME_TIMEOUT)

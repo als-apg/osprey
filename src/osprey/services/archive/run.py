@@ -1,8 +1,8 @@
 """One pass of the agent-record archive: copy what changed from a sources tree into a day.
 
 The sources tree is ``<sources>/<kind>/<name>/…`` (``audit`` has no ``<name>``
-level); :data:`SOURCE_TABLE` is the only thing that decides what is copied from
-each kind. The destination is ``<dest>/<YYYY-MM-DD>/<kind>/<name>/<relpath>``,
+level); :data:`SOURCE_TABLE` and :data:`SOURCE_EXCLUDES` together decide what is
+copied from each kind. The destination is ``<dest>/<YYYY-MM-DD>/<kind>/<name>/<relpath>``,
 the date being the UTC date the pass started. Every file is copied into
 ``<dest>/.incoming/`` first, hashed while it is copied, and moved to its final
 path only when whole, so a day directory never holds a torn copy.
@@ -58,6 +58,15 @@ SOURCE_TABLE: dict[str, tuple[str, ...]] = {
     "bluesky": ("appendonlydir/**", "dump.rdb"),
     # The audit ledger tree; its own first level is the identity.
     "audit": ("**",),
+}
+
+#: Kind → globs that are never copied even when :data:`SOURCE_TABLE` includes
+#: them. A dot-named ``.json`` file in the audit tree is a service's own working
+#: state, such as the login service's revoked-session file, and a dot-named
+#: ``.tmp`` file is one of its atomic-write temporaries. Neither is a ledger: a
+#: ledger always ends ``.jsonl``, which no pattern here matches.
+SOURCE_EXCLUDES: dict[str, tuple[str, ...]] = {
+    "audit": (".*.json", ".*.tmp", "**/.*.json", "**/.*.tmp"),
 }
 
 #: Kinds mounted as one tree rather than one directory per name.
@@ -303,9 +312,12 @@ def _sources_of(sources: Path, result: PassResult) -> Iterator[tuple[str, str, P
 
 
 def _files_of(
-    root: Path, includes: _Includes, prefix: str, result: PassResult
+    root: Path, includes: _Includes, excludes: _Includes, prefix: str, result: PassResult
 ) -> Iterator[tuple[str, Path]]:
-    """Every included regular file under *root*, as ``(relpath, path)``; symlinks skipped."""
+    """Every included, not excluded regular file under *root*, as ``(relpath, path)``.
+
+    Symlinks are skipped.
+    """
 
     def _onerror(exc: OSError) -> None:
         result.errors.append({"source": prefix, "error": f"{exc.filename}: {exc.strerror}"})
@@ -325,7 +337,7 @@ def _files_of(
         dirnames[:] = kept
         for f in sorted(filenames):
             rel = f"{reldir}/{f}" if reldir else f
-            if includes.matches(rel):
+            if includes.matches(rel) and not excludes.matches(rel):
                 yield rel, Path(dirpath) / f
 
 
@@ -412,7 +424,8 @@ def _run_locked(
 
     for kind, prefix, root in _sources_of(sources, result):
         includes = _Includes(SOURCE_TABLE[kind])
-        for relpath, path in _files_of(root, includes, prefix, result):
+        excludes = _Includes(SOURCE_EXCLUDES.get(kind, ()))
+        for relpath, path in _files_of(root, includes, excludes, prefix, result):
             source_key = f"{prefix}/{relpath}"
             try:
                 _copy_one(tree, state, source_key, path, result)

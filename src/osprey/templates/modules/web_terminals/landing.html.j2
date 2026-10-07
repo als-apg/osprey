@@ -57,6 +57,12 @@
       a session cookie, so the link is a real return path). Operator-supplied
       `landing.groups` items carry no such key, and the same `Undefined`-is-falsy
       reading that governs `sublabel` leaves them rendering as they always did.
+      `sign_in` is present, and true, only on the one item a `names: hidden`
+      users section carries. That item renders as a button labelled with its
+      `label` and linking to its `url`, with no url line, no persona badge and
+      no token badge, because it names no one. Operator link items and user
+      cards carry no such key, and the same `Undefined`-is-falsy reading leaves
+      them rendering as cards.
 
       A group whose `items` list is empty renders nothing — no heading, no empty
       section. This is the ONLY suppression rule, and it is generic to every group:
@@ -381,6 +387,33 @@
       font-size: 0.78rem;
       text-align: center;
     }
+    {#- The sign-in button's rule is emitted only when a button is on the page,
+       so a page without one carries not one extra byte. #}
+    {%- set sign_in = namespace(present=false) %}
+    {%- for group in groups|default([]) %}{% for item in group["items"] %}{% if item["sign_in"] %}{% set sign_in.present = true %}{% endif %}{% endfor %}{% endfor %}
+    {%- if sign_in.present %}
+    .landing-sign-in {
+      display: inline-block;
+      padding: 0.75rem 1.4rem;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-accent);
+      border-radius: 10px;
+      box-shadow: var(--shadow-dropdown);
+      color: var(--color-accent);
+      font-weight: 600;
+      text-decoration: none;
+      transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
+    }
+    .landing-sign-in:hover,
+    .landing-sign-in:focus-visible {
+      border-color: var(--color-accent);
+      transform: translateY(-1px);
+    }
+    .landing-sign-in:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+    {%- endif %}
   </style>
 </head>
 <body>
@@ -427,7 +460,9 @@
           {% set is_relative = raw_url.startswith("/") and not raw_url.startswith("//") %}
           {% set is_http = raw_url.startswith("http://") or raw_url.startswith("https://") %}
           {% set safe_url = raw_url if (is_http or is_relative) else "" %}
-          {% if safe_url %}
+          {% if safe_url %}{% if item["sign_in"] %}
+          <a class="landing-sign-in" href="{{ safe_url|e }}">{{ item["label"]|e }}</a>
+          {%- else %}
           <a class="landing-card" href="{{ safe_url|e }}">
             <span class="landing-card-label">{{ item["label"]|e }}</span>
             {%- if item["sublabel"] %}
@@ -458,6 +493,7 @@
             {%- endif %}
             <span class="landing-card-url">{{ safe_url|e }}</span>
           </a>
+          {%- endif %}
           {% else %}
           <div class="landing-card landing-card-inert" title="Unsupported link scheme">
             <span class="landing-card-label">{{ item["label"]|e }}</span>

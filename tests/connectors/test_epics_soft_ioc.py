@@ -231,7 +231,7 @@ async def _connector():
     }
     await connector.connect(
         {
-            "timeout": CA_TIMEOUT_S,
+            "timeout_s": CA_TIMEOUT_S,
             "gateways": {"read_only": dict(endpoint), "write_access": dict(endpoint)},
         }
     )

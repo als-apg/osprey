@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from osprey.services.ariel_search.config import (
+    NO_EMBEDDING_FALLBACK_MODULES,
     ARIELConfig,
+    AttachmentsConfig,
     DatabaseConfig,
     EmbeddingConfig,
     EnhancementModuleConfig,
@@ -16,6 +18,10 @@ from osprey.services.ariel_search.config import (
     WatchConfig,
 )
 from osprey.services.ariel_search.exceptions import ConfigurationError, VocabularyError
+from osprey.services.ariel_search.models import (
+    DEFAULT_LISTING_TEXT_CHARS,
+    DEFAULT_READ_TEXT_CHARS,
+)
 from osprey.services.ariel_search.search.keyword import KeywordSearchSettings
 
 
@@ -169,6 +175,48 @@ class TestIngestionConfig:
             IngestionConfig.from_dict({"source_url": "https://als.example.com/api"})
 
         assert "ariel.ingestion.adapter is required" in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [float("inf"), float("nan"), 10**400, True, 0, -60, "hourly"],
+        ids=["inf", "nan", "10**400", "True", "zero", "negative", "word"],
+    )
+    @pytest.mark.parametrize(
+        ("make_block", "config_key"),
+        [
+            (lambda v: {"poll_interval_seconds": v}, "ingestion.poll_interval_seconds"),
+            (
+                lambda v: {"watch": {"max_interval_seconds": v}},
+                "ingestion.watch.max_interval_seconds",
+            ),
+        ],
+        ids=["poll", "watch-max"],
+    )
+    def test_an_interval_that_is_not_positive_finite_seconds_is_refused(
+        self, make_block, config_key, value
+    ) -> None:
+        with pytest.raises(ConfigurationError) as exc_info:
+            IngestionConfig.from_dict({"adapter": "als_logbook", **make_block(value)})
+
+        assert exc_info.value.config_key == config_key
+        assert f"ariel.{config_key}" in str(exc_info.value)
+
+    def test_a_numeric_string_interval_is_read_as_seconds(self) -> None:
+        config = IngestionConfig.from_dict(
+            {"adapter": "als_logbook", "poll_interval_seconds": "1800"}
+        )
+        assert config.poll_interval_seconds == 1800.0
+
+    def test_an_empty_interval_takes_the_default(self) -> None:
+        config = IngestionConfig.from_dict(
+            {
+                "adapter": "als_logbook",
+                "poll_interval_seconds": None,
+                "watch": {"max_interval_seconds": None},
+            }
+        )
+        assert config.poll_interval_seconds == 3600.0
+        assert config.watch.max_interval_seconds == 3600.0
 
     def test_the_refusal_lists_the_registered_adapters(self) -> None:
         """An operator who meets it is told what to write instead."""
@@ -947,6 +995,67 @@ class TestKeywordPatternSettings:
         assert not [error for error in errors if "patterns_enabled" in error]
 
 
+class TestKeywordFuzzyThreshold:
+    """Tests for ``fuzzy_threshold`` resolution."""
+
+    def test_defaults_when_block_absent(self) -> None:
+        """No settings block yields the documented default."""
+        settings = KeywordSearchSettings.from_ariel_config(_keyword_config())
+        assert settings.fuzzy_threshold == 0.3
+
+    def test_defaults_without_a_config(self) -> None:
+        """``from_ariel_config(None)`` yields the default."""
+        assert KeywordSearchSettings.from_ariel_config(None).fuzzy_threshold == 0.3
+
+    def test_reads_the_configured_value(self) -> None:
+        """A well-formed value is read verbatim."""
+        settings = KeywordSearchSettings.from_ariel_config(
+            _keyword_config({"fuzzy_threshold": 0.55})
+        )
+        assert settings.fuzzy_threshold == 0.55
+
+    @pytest.mark.parametrize("bound", [0, 1])
+    def test_accepts_both_bounds_as_integers(self, bound: int) -> None:
+        """Both ends of the closed range are accepted and resolve as floats."""
+        settings = KeywordSearchSettings.from_ariel_config(
+            _keyword_config({"fuzzy_threshold": bound})
+        )
+        assert settings.fuzzy_threshold == float(bound)
+        assert isinstance(settings.fuzzy_threshold, float)
+
+    def test_rejects_a_value_above_one(self) -> None:
+        """A similarity above 1 is refused, never clamped."""
+        with pytest.raises(ValueError) as exc_info:
+            KeywordSearchSettings.from_ariel_config(_keyword_config({"fuzzy_threshold": 1.5}))
+        assert (
+            str(exc_info.value)
+            == "search_modules.keyword.settings.fuzzy_threshold must be a number in [0, 1], got 1.5"
+        )
+
+    @pytest.mark.parametrize("bad", [-0.1, "0.3", True, None])
+    def test_rejects_every_other_spelling(self, bad: object) -> None:
+        """Negative numbers, strings, booleans and nulls are refused by name."""
+        with pytest.raises(ValueError) as exc_info:
+            KeywordSearchSettings.from_ariel_config(_keyword_config({"fuzzy_threshold": bad}))
+        assert str(exc_info.value) == (
+            f"search_modules.keyword.settings.fuzzy_threshold must be a number in [0, 1], "
+            f"got {bad!r}"
+        )
+
+    def test_error_surfaces_from_validate(self) -> None:
+        """validate() reports the refusal, naming the key."""
+        errors = _keyword_config({"fuzzy_threshold": 2}).validate()
+        assert (
+            "search_modules.keyword.settings.fuzzy_threshold must be a number in [0, 1], got 2"
+            in errors
+        )
+
+    def test_is_not_validated_when_keyword_is_disabled(self) -> None:
+        """A disabled module's settings reach no reader, so validate() stays quiet."""
+        errors = _keyword_config({"fuzzy_threshold": 2}, enabled=False).validate()
+        assert not [error for error in errors if "fuzzy_threshold" in error]
+
+
 def _hybrid_config(
     settings: dict[str, object] | None = None, *, enabled: bool = True
 ) -> ARIELConfig:
@@ -1053,3 +1162,316 @@ class TestSemanticSettingsValidation:
         """No block is the normal case: the defaults resolve and nothing is reported."""
         errors = _semantic_config().validate()
         assert not [error for error in errors if "search_modules.semantic.settings" in error]
+
+
+def _entry_text_config(entry_text: object) -> ARIELConfig:
+    return ARIELConfig.from_dict(
+        {"database": {"uri": "postgresql://localhost:5432/ariel"}, "entry_text": entry_text}
+    )
+
+
+class TestEntryTextConfig:
+    """Tests for the ``ariel.entry_text`` budgets."""
+
+    def test_absent_block_gives_the_shipped_defaults(self) -> None:
+        config = ARIELConfig.from_dict({"database": {"uri": "postgresql://localhost:5432/ariel"}})
+        assert config.entry_text.listing_chars == 500 == DEFAULT_LISTING_TEXT_CHARS
+        assert config.entry_text.read_chars == 1000 == DEFAULT_READ_TEXT_CHARS
+
+    def test_values_are_read(self) -> None:
+        config = _entry_text_config({"listing_chars": 800, "read_chars": 4000})
+        assert config.entry_text.listing_chars == 800
+        assert config.entry_text.read_chars == 4000
+
+    @pytest.mark.parametrize("value", [True, "500", 500.0, 0, -1, None])
+    def test_a_value_that_is_not_a_positive_integer_is_refused_by_name(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.entry_text\.listing_chars"):
+            _entry_text_config({"listing_chars": value})
+
+    def test_read_below_listing_is_refused(self) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            _entry_text_config({"listing_chars": 2000})
+        message = str(excinfo.value)
+        assert "ariel.entry_text.read_chars" in message
+        assert "ariel.entry_text.listing_chars" in message
+
+    def test_block_must_be_a_mapping(self) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.entry_text must be a mapping"):
+            _entry_text_config(500)
+
+    def test_listing_attachments_defaults_to_five(self) -> None:
+        config = ARIELConfig.from_dict({"database": {"uri": "postgresql://localhost:5432/ariel"}})
+        assert config.entry_text.listing_attachments == 5
+
+    @pytest.mark.parametrize("value", [0, 1, 12])
+    def test_listing_attachments_accepts_a_non_negative_count(self, value: int) -> None:
+        config = _entry_text_config({"listing_attachments": value})
+        assert config.entry_text.listing_attachments == value
+
+    @pytest.mark.parametrize("value", [-1, True, False, "5", 5.0, None])
+    def test_listing_attachments_refuses_anything_else_by_name(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.entry_text\.listing_attachments"):
+            _entry_text_config({"listing_attachments": value})
+
+    def test_listing_chars_still_refuses_zero(self) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.entry_text\.listing_chars"):
+            _entry_text_config({"listing_chars": 0, "listing_attachments": 0})
+
+
+def _attachments_config(attachments: object) -> ARIELConfig:
+    return ARIELConfig.from_dict(
+        {"database": {"uri": "postgresql://localhost:5432/ariel"}, "attachments": attachments}
+    )
+
+
+class TestAttachmentsConfig:
+    """Tests for the ``ariel.attachments`` block."""
+
+    def test_absent_block_gives_the_defaults(self) -> None:
+        config = ARIELConfig.from_dict({"database": {"uri": "postgresql://localhost:5432/ariel"}})
+        assert config.attachments == AttachmentsConfig()
+        assert config.attachments.copy_on_ingest == "images"
+        assert config.attachments.max_file_mb == 10
+        assert config.attachments.allowed_origins == ()
+        assert config.attachments.view_enabled is True
+
+    def test_values_are_read(self) -> None:
+        config = _attachments_config(
+            {
+                "copy_on_ingest": "all",
+                "max_file_mb": 50,
+                "allowed_origins": ["https://elog.example.org"],
+                "view": {"enabled": False},
+            }
+        )
+        assert config.attachments.copy_on_ingest == "all"
+        assert config.attachments.max_file_mb == 50
+        assert config.attachments.allowed_origins == (("https", "elog.example.org", 443),)
+        assert config.attachments.view_enabled is False
+
+    @pytest.mark.parametrize("mode", ["images", "all", "none"])
+    def test_every_copy_mode_is_accepted(self, mode: str) -> None:
+        assert AttachmentsConfig.from_dict({"copy_on_ingest": mode}).copy_on_ingest == mode
+
+    @pytest.mark.parametrize("mode", ["bogus", "Images", "", None, True, 1])
+    def test_an_invalid_copy_mode_is_refused_by_name(self, mode: object) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.attachments\.copy_on_ingest"):
+            AttachmentsConfig.from_dict({"copy_on_ingest": mode})
+
+    def test_block_must_be_a_mapping(self) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.attachments must be a mapping"):
+            _attachments_config(10)
+
+    def test_an_invalid_mode_is_refused_through_arielconfig(self) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.attachments\.copy_on_ingest"):
+            _attachments_config({"copy_on_ingest": "bogus"})
+
+    # max_file_mb keeps its lenient reading: warned and defaulted, never refused.
+
+    @pytest.mark.parametrize("value", [1, 10, 50, 500])
+    def test_max_file_mb_is_read(self, value: int) -> None:
+        assert AttachmentsConfig.from_dict({"max_file_mb": value}).max_file_mb == value
+
+    @pytest.mark.parametrize("value", ["x", "10", 0, -1, True, 2.5])
+    def test_an_unusable_max_file_mb_warns_and_keeps_the_default(
+        self, value: object, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("WARNING"):
+            config = AttachmentsConfig.from_dict({"max_file_mb": value})
+        assert config.max_file_mb == 10
+        assert "ariel.attachments.max_file_mb" in caplog.text
+
+    def test_a_null_max_file_mb_is_the_default_without_a_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("WARNING"):
+            config = AttachmentsConfig.from_dict({"max_file_mb": None})
+        assert config.max_file_mb == 10
+        assert "max_file_mb" not in caplog.text
+
+    # allowed_origins: validated and normalised to (scheme, host, effective port).
+
+    @pytest.mark.parametrize("value", ["https://elog.example.org", {"a": 1}, 5, True])
+    def test_a_non_list_allowed_origins_is_refused(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.attachments\.allowed_origins"):
+            AttachmentsConfig.from_dict({"allowed_origins": value})
+
+    def test_a_null_allowed_origins_is_empty(self) -> None:
+        assert AttachmentsConfig.from_dict({"allowed_origins": None}).allowed_origins == ()
+
+    def test_a_bare_host_is_refused_naming_the_index(self) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.attachments\.allowed_origins\[1\]"):
+            AttachmentsConfig.from_dict(
+                {"allowed_origins": ["https://ok.example.org", "elog.example.org"]}
+            )
+
+    @pytest.mark.parametrize(
+        "origin",
+        [
+            "ftp://elog.example.org",
+            "https://",
+            "https://elog.example.org/attachments",
+            "https://elog.example.org/?a=1",
+            "https://user:pw@elog.example.org",
+            "https://user@elog.example.org",
+            "https://elog.example.org#frag",
+            "https://elog.example.org:notaport",
+            "https://elog.example.org:99999",
+            5,
+            None,
+        ],
+    )
+    def test_an_origin_that_is_not_a_bare_origin_is_refused(self, origin: object) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.attachments\.allowed_origins\[0\]"):
+            AttachmentsConfig.from_dict({"allowed_origins": [origin]})
+
+    def test_default_port_is_made_explicit(self) -> None:
+        implicit = AttachmentsConfig.from_dict({"allowed_origins": ["https://h"]})
+        explicit = AttachmentsConfig.from_dict({"allowed_origins": ["https://h:443"]})
+        assert implicit.allowed_origins == explicit.allowed_origins == (("https", "h", 443),)
+
+    def test_origins_are_normalised(self) -> None:
+        config = AttachmentsConfig.from_dict(
+            {"allowed_origins": ["HTTP://Elog.Example.ORG/", "https://h:8443"]}
+        )
+        assert config.allowed_origins == (
+            ("http", "elog.example.org", 80),
+            ("https", "h", 8443),
+        )
+
+    def test_http_and_https_on_one_host_are_different_origins(self) -> None:
+        config = AttachmentsConfig.from_dict({"allowed_origins": ["http://h", "https://h"]})
+        assert config.allowed_origins == (("http", "h", 80), ("https", "h", 443))
+
+    # view.enabled: the attachment_view switch.
+
+    def test_view_absent_is_enabled(self) -> None:
+        assert AttachmentsConfig.from_dict({}).view_enabled is True
+        assert AttachmentsConfig.from_dict({"view": {}}).view_enabled is True
+
+    def test_view_disabled_is_read(self) -> None:
+        assert AttachmentsConfig.from_dict({"view": {"enabled": False}}).view_enabled is False
+
+    @pytest.mark.parametrize("value", ["no", 1, 0, "false", None])
+    def test_a_non_bool_view_enabled_is_refused_by_name(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.attachments\.view\.enabled"):
+            AttachmentsConfig.from_dict({"view": {"enabled": value}})
+
+    def test_a_non_mapping_view_is_refused_by_name(self) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.attachments\.view must be a mapping"):
+            AttachmentsConfig.from_dict({"view": False})
+
+
+class TestAttachmentViewEnabledLeaf:
+    """``osprey.ariel_attachment_view``: the one rule the build and the runtime share."""
+
+    def test_absent_blocks_are_enabled(self) -> None:
+        from osprey.ariel_attachment_view import attachment_view_enabled
+
+        assert attachment_view_enabled({}) is True
+        assert attachment_view_enabled({"attachments": None}) is True
+        assert attachment_view_enabled({"attachments": {"view": None}}) is True
+
+    def test_the_value_is_read(self) -> None:
+        from osprey.ariel_attachment_view import attachment_view_enabled
+
+        assert attachment_view_enabled({"attachments": {"view": {"enabled": False}}}) is False
+        assert attachment_view_enabled({"attachments": {"view": {"enabled": True}}}) is True
+
+    @pytest.mark.parametrize("value", ["no", 1])
+    def test_a_non_bool_is_refused_by_name(self, value: object) -> None:
+        from osprey.ariel_attachment_view import VIEW_ENABLED_KEY, attachment_view_enabled
+
+        assert VIEW_ENABLED_KEY == "ariel.attachments.view.enabled"
+        with pytest.raises(ValueError, match=r"ariel\.attachments\.view\.enabled"):
+            attachment_view_enabled({"attachments": {"view": {"enabled": value}}})
+
+    def test_the_leaf_imports_nothing_from_services(self) -> None:
+        import ast
+        import inspect
+
+        import osprey.ariel_attachment_view as leaf
+
+        tree = ast.parse(inspect.getsource(leaf))
+        imported = [
+            node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+        ] + [
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        ]
+        assert not [name for name in imported if name.startswith("osprey")], imported
+
+    def test_attachments_config_and_the_leaf_agree(self) -> None:
+        from osprey.ariel_attachment_view import attachment_view_enabled
+
+        for block in ({}, {"view": {"enabled": False}}, {"view": {"enabled": True}}):
+            assert AttachmentsConfig.from_dict(block).view_enabled is attachment_view_enabled(
+                {"attachments": block}
+            )
+
+
+_DB = {"uri": "postgresql://localhost:5432/test"}
+
+
+def _module_config(name: str, module: dict, embedding: dict | None) -> dict:
+    """Resolve one enhancement module's configure() dict from a raw ariel block."""
+    raw: dict = {"database": _DB, "enhancement_modules": {name: module}}
+    if embedding is not None:
+        raw["embedding"] = embedding
+    resolved = ARIELConfig.from_dict(raw).get_enhancement_module_config(name)
+    assert resolved is not None
+    return resolved
+
+
+class TestNoEmbeddingFallbackModules:
+    """The embedding provider is never substituted for non-embedding modules."""
+
+    def test_set_is_exactly_the_three_modules(self) -> None:
+        assert NO_EMBEDDING_FALLBACK_MODULES == frozenset(
+            {"semantic_processor", "image_caption", "image_embedding"}
+        )
+
+    @pytest.mark.parametrize("name", ["semantic_processor", "image_caption", "image_embedding"])
+    def test_module_without_provider_does_not_inherit_embedding_provider(self, name: str) -> None:
+        resolved = _module_config(name, {"enabled": True}, {"provider": "openai"})
+        assert resolved["provider"] is None
+
+    def test_text_embedding_inherits_embedding_provider(self) -> None:
+        resolved = _module_config("text_embedding", {"enabled": True}, {"provider": "openai"})
+        assert resolved["provider"] == "openai"
+
+    @pytest.mark.parametrize("name", ["semantic_processor", "image_caption", "image_embedding"])
+    def test_explicit_module_provider_is_kept(self, name: str) -> None:
+        resolved = _module_config(
+            name, {"enabled": True, "provider": "anthropic"}, {"provider": "openai"}
+        )
+        assert resolved["provider"] == "anthropic"
+
+
+class TestEnhancementProviderKey:
+    """``provider_key`` names the config key an operator adds or edits."""
+
+    def test_explicit_module_provider_names_module_key(self) -> None:
+        resolved = _module_config(
+            "text_embedding", {"enabled": True, "provider": "openai"}, {"provider": "ollama"}
+        )
+        assert resolved["provider"] == "openai"
+        assert resolved["provider_key"] == "ariel.enhancement_modules.text_embedding.provider"
+
+    def test_explicit_embedding_provider_names_embedding_key(self) -> None:
+        resolved = _module_config("text_embedding", {"enabled": True}, {"provider": "openai"})
+        assert resolved["provider"] == "openai"
+        assert resolved["provider_key"] == "ariel.embedding.provider"
+
+    @pytest.mark.parametrize("embedding", [None, {}])
+    def test_default_provider_names_module_key(self, embedding: dict | None) -> None:
+        resolved = _module_config("text_embedding", {"enabled": True}, embedding)
+        assert resolved["provider"] == "ollama"
+        assert resolved["provider_key"] == "ariel.enhancement_modules.text_embedding.provider"
+
+    @pytest.mark.parametrize("name", ["semantic_processor", "image_caption", "image_embedding"])
+    def test_no_fallback_module_names_module_key(self, name: str) -> None:
+        resolved = _module_config(name, {"enabled": True}, {"provider": "openai"})
+        assert resolved["provider_key"] == f"ariel.enhancement_modules.{name}.provider"

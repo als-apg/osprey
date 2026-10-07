@@ -4,8 +4,9 @@ Compiles the declarative ``health.categories.<name>`` YAML into the runtime
 data structures the runner executes, and centralizes the framework's health
 policy: cost classes, per-check and per-category timeout defaults, metadata
 overrides for built-in and plugin categories, collision rules, ``requires:``
-validation, and the scalar suite settings (``suite_timeout_s``,
-``on_demand_timeout_s``, ``interval_s``).
+validation, the scalar suite settings (``suite_timeout_s``,
+``on_demand_timeout_s``, ``interval_s``), and the ``health.disk`` thresholds
+of the ``file_system.disk_space`` row.
 
 The configuration is read through the standard loader (``ConfigBuilder.get``),
 which has already resolved ``${VAR}`` placeholders — this module performs no
@@ -49,6 +50,14 @@ DEFAULT_SUITE_TIMEOUT_S: float = 30.0
 #: item, for item-looping callables such as ``model_chat``).
 DEFAULT_ON_DEMAND_CALLABLE_TIMEOUT_S: float = 60.0
 
+#: Default free-space floor of the ``disk_space`` row, in GB as the row prints
+#: it (1024³ bytes): the row warns while free space is strictly below it.
+DEFAULT_DISK_MIN_FREE_GB: float = 1.0
+
+#: Default fill ceiling of the ``disk_space`` row, in percent: the row warns
+#: once usage is at or above it.
+DEFAULT_DISK_MAX_USED_PERCENT: float = 90.0
+
 #: Default per-check ``timeout_s`` by probe ``type``. Also the authoritative v1
 #: probe vocabulary — an unknown ``type`` is a load-time error.
 DEFAULT_PROBE_TIMEOUTS: dict[str, float] = {
@@ -73,6 +82,9 @@ _RESERVED_CHECK_KEYS = frozenset({"name", "type", "timeout_s", "timeout_status",
 #: Valid values for ``health.auto.mcp.url_key`` — which server connection URL the
 #: auto-derived ``mcp_servers`` probes target.
 _AUTO_MCP_URL_KEYS: frozenset[str] = frozenset({"host_url", "docker_url"})
+
+#: The only keys accepted under ``health.disk``.
+_DISK_KEYS: frozenset[str] = frozenset({"min_free_gb", "max_used_percent"})
 
 
 class Cost(StrEnum):
@@ -162,6 +174,23 @@ class AutoMcpSettings:
     url_key_explicit: bool = False
 
 
+@dataclass(frozen=True)
+class DiskThresholds:
+    """Thresholds the ``file_system.disk_space`` row grades against.
+
+    Parsed from ``health.disk``. The row warns when free space is strictly
+    below ``min_free_gb`` or when usage is at or above ``max_used_percent``.
+
+    Attributes:
+        min_free_gb: Free-space floor in GB (1024³ bytes).
+        max_used_percent: Fill ceiling in percent, greater than 0 and at most
+            100.
+    """
+
+    min_free_gb: float = DEFAULT_DISK_MIN_FREE_GB
+    max_used_percent: float = DEFAULT_DISK_MAX_USED_PERCENT
+
+
 @dataclass
 class HealthSettings:
     """Parsed ``health:`` configuration.
@@ -180,6 +209,8 @@ class HealthSettings:
         auto: Settings for the auto-derived ``mcp_servers`` category
             (``health.auto.mcp``); the default instance when the section is
             absent.
+        disk: Thresholds of the ``file_system.disk_space`` row
+            (``health.disk``); the default instance when the section is absent.
     """
 
     suite_timeout_s: float
@@ -190,6 +221,7 @@ class HealthSettings:
     overrides: dict[str, CategoryOverride] = field(default_factory=dict)
     plugins: list[str] = field(default_factory=list)
     auto: AutoMcpSettings = field(default_factory=AutoMcpSettings)
+    disk: DiskThresholds = field(default_factory=DiskThresholds)
 
 
 # --- Timeout resolution helpers ---------------------------------------------
@@ -390,12 +422,14 @@ def parse_health_config(health: Mapping[str, Any] | None) -> HealthSettings:
 
     Returns:
         The parsed settings with declarative categories, metadata overrides,
-        plugins, and validated scalar suite settings.
+        plugins, validated scalar suite settings, and the ``health.disk``
+        thresholds.
 
     Raises:
         ConfigurationError: On any invalid value — bad types, unknown probe
             type, ``checks:`` under a core name, duplicate/unknown/forward
-            ``requires`` targets, or ``interval_s <= suite_timeout_s``.
+            ``requires`` targets, ``interval_s <= suite_timeout_s``, or an
+            invalid ``health.disk`` threshold.
     """
     if health is None:
         health = {}
@@ -430,6 +464,8 @@ def parse_health_config(health: Mapping[str, Any] | None) -> HealthSettings:
 
     auto = _parse_auto(health.get("auto"))
 
+    disk = parse_disk_thresholds(health.get("disk"))
+
     categories: dict[str, CategoryRecord] = {}
     overrides: dict[str, CategoryOverride] = {}
     categories_raw = health.get("categories") or {}
@@ -451,6 +487,7 @@ def parse_health_config(health: Mapping[str, Any] | None) -> HealthSettings:
         overrides=overrides,
         plugins=plugins,
         auto=auto,
+        disk=disk,
     )
 
 
@@ -510,3 +547,48 @@ def _parse_auto(value: Any) -> AutoMcpSettings:
         url_key = "host_url"
 
     return AutoMcpSettings(enabled=enabled, url_key=url_key, url_key_explicit=url_key_explicit)
+
+
+def parse_disk_thresholds(value: Any) -> DiskThresholds:
+    """Parse the ``health.disk`` value into :class:`DiskThresholds`.
+
+    The ``file_system`` category calls this on the config mapping it is handed,
+    and :func:`parse_health_config` calls it so a bad value is refused at load
+    time. Unknown keys are refused: a misspelled threshold would otherwise be
+    dropped without a word.
+
+    Args:
+        value: The ``health.disk`` value, or ``None`` when absent.
+
+    Returns:
+        The thresholds; absent keys take the module defaults.
+
+    Raises:
+        ConfigurationError: On a non-mapping value, an unknown key, a value
+            that is not a positive number, or ``max_used_percent`` above 100.
+    """
+    if value is None:
+        return DiskThresholds()
+    if not isinstance(value, Mapping):
+        raise ConfigurationError(f"health.disk must be a mapping, got {value!r}")
+
+    unknown = sorted(str(key) for key in value if key not in _DISK_KEYS)
+    if unknown:
+        raise ConfigurationError(
+            f"health.disk.{unknown[0]} is not a disk threshold; use min_free_gb or max_used_percent"
+        )
+
+    min_free_gb = DEFAULT_DISK_MIN_FREE_GB
+    if "min_free_gb" in value:
+        min_free_gb = _positive_float(value["min_free_gb"], "disk.min_free_gb")
+
+    max_used_percent = DEFAULT_DISK_MAX_USED_PERCENT
+    if "max_used_percent" in value:
+        result = _positive_float(value["max_used_percent"], "disk.max_used_percent")
+        if result > 100:
+            raise ConfigurationError(
+                f"health.disk.max_used_percent must be at most 100, got {result}"
+            )
+        max_used_percent = result
+
+    return DiskThresholds(min_free_gb=min_free_gb, max_used_percent=max_used_percent)

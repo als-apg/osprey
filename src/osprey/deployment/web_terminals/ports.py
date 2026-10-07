@@ -11,7 +11,8 @@ one.
 from collections.abc import Mapping
 from typing import Any
 
-from osprey.port_layout import INDEX_MAX, default_port, resolve_port_base
+from osprey.docs_links import PERIMETER_LIMITS_URL
+from osprey.port_layout import INDEX_MAX, PORT_BASE_CONFIG_KEY, default_port, resolve_port_base
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
 
@@ -157,24 +158,28 @@ def resolve_nginx_port(config: Mapping[str, Any] | None) -> int:
 
 
 def _index_refusal(index: Any) -> str:
-    """Compose the message for a user index past the end of every family band.
+    """Compose the message for a user index outside every family band.
 
     Args:
         index: The user index that was asked for.
 
     Returns:
-        A message naming the band, the family whose band the index would run
-        into, and the ``<family>_base_port`` escape that moves a family out of
-        the block.
+        For a whole number past :data:`osprey.port_layout.INDEX_MAX`, a message
+        naming the deployment's user ceiling, the second deployment that serves
+        more users, and the documented perimeter limits. For anything else (a
+        negative number, a ``bool``, a non-integer), a plain out-of-range message.
     """
-    escapes = ", ".join(f"modules.web_terminals.{field}" for field in FAMILY_BASE_FIELDS)
+    if isinstance(index, int) and not isinstance(index, bool) and index > INDEX_MAX:
+        return (
+            f"user index {index} is past this deployment's ceiling of {INDEX_MAX + 1} users "
+            f"(indices 0..{INDEX_MAX}). Every per-user port family holds one port per user, "
+            f"so user {index} would take a port in the next family's band, and moving a "
+            f"family's base port does not raise the ceiling. Serve more users from a second "
+            f"deployment on its own {PORT_BASE_CONFIG_KEY}. See {PERIMETER_LIMITS_URL}"
+        )
     return (
-        f"user index {index!r} is out of range: each port family holds indices "
-        f"0..{INDEX_MAX}, so every family — {', '.join(_PORT_FAMILIES)} — would take a "
-        f"port belonging to the next family's band. A deployment's block holds "
-        f"{INDEX_MAX + 1} users; run a second deployment on its own "
-        f"deployment.port_base, or move a family out of the block by setting its base "
-        f"port to an absolute value ({escapes})."
+        f"user index {index!r} is out of range: a user index is a whole number "
+        f"from 0 to {INDEX_MAX}."
     )
 
 

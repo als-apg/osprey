@@ -168,10 +168,10 @@ class RecordingConnector:
         self.calls: list[tuple[str, str, str, dict[str, Any]]] = []
         self.fail_with = fail_with
         self.members = members
-        self.member_calls: list[tuple[str, str, int]] = []
+        self.member_calls: list[tuple[str, str, int | None]] = []
 
     def list_members(
-        self, service_url: str, conversation_id: str, *, limit: int
+        self, service_url: str, conversation_id: str, *, limit: int | None
     ) -> tuple[list[dict[str, Any]], bool]:
         self.member_calls.append((service_url, conversation_id, limit))
         if isinstance(self.members, BaseException):

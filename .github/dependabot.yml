@@ -65,6 +65,12 @@ updates:
       default-days: 7
       include:
         - "*"
+    # marked and dompurify are the builds src/osprey/interfaces/vendor_manifest.json
+    # pins, and the JS suite proves node_modules holds exactly those builds, so a
+    # bump here alone goes red. Both move by hand, manifest first.
+    ignore:
+      - dependency-name: "marked"
+      - dependency-name: "dompurify"
     groups:
       js-toolchain:
         patterns:

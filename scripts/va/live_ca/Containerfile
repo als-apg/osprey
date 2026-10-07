@@ -2,7 +2,7 @@
 #
 # tests/va/test_record_factory.py and tests/va/test_apply_fault.py assert the
 # serving write contract from the far side of a real CA wire: a real pcaspy
-# server, the real write path, and a real pvapy client, all in one process.
+# server, the real write path, and a real pyepics client, all in one process.
 # They need pcaspy, which publishes no loadable macOS arm64 wheel, so on a
 # developer's Mac they skip -- loudly, but they skip, and a skipped live suite
 # proves nothing. This image is where they are not allowed to skip.
@@ -17,8 +17,14 @@
 #
 # python3.11 matches CI's oldest unit-test lane, which is the lane that must
 # not silently stop exercising Channel Access.
+#
+# uv is pinned rather than floating: which workspace projects `uv sync` builds
+# is uv's behaviour, not the lockfile's, so an unpinned uv could change what
+# this image installs without any change to the repo. 0.9.30 is the last
+# release published on bookworm (later ones are trixie-only), and is what the
+# unversioned tag still resolves to -- pinning it changed nothing but the name.
 ARG BASE_PLATFORM=linux/amd64
-FROM --platform=${BASE_PLATFORM} ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+FROM --platform=${BASE_PLATFORM} ghcr.io/astral-sh/uv:0.9.30-python3.11-bookworm-slim
 
 # Dependencies come from the repo's own lockfile via the repo's own extras --
 # the same `uv sync --extra dev --extra virtual-accelerator` CI runs, on the
@@ -30,18 +36,25 @@ FROM --platform=${BASE_PLATFORM} ghcr.io/astral-sh/uv:python3.11-bookworm-slim
 #
 # Only the dependency closure is installed (--no-install-workspace, which skips
 # the root project AND every workspace member). The osprey source is
-# bind-mounted at /work and put on PYTHONPATH at run time, so editing a test or
-# a module never invalidates this layer -- it is rebuilt only when a pyproject
-# or uv.lock changes.
+# bind-mounted at /work and put on the path at run time, so editing a test or a
+# module never invalidates this layer -- it is rebuilt only when a pyproject or
+# uv.lock changes.
 #
-# osprey-connectors is a uv workspace member (the root pyproject's
-# [tool.uv.workspace]), and uv refuses to resolve the workspace at all unless
-# the member's pyproject.toml is present at its declared path -- "Distribution
-# not found: packages/osprey-connectors" otherwise. So the member's metadata is
-# staged too, but never its source: like osprey's own, that arrives over the
-# mount and goes on PYTHONPATH below. Installing either project for real is not
-# an option here, not merely a slower one: both version from git tags via
-# hatch-vcs, and the context deliberately holds no .git/.
+# --no-install-project is not enough since osprey-connectors became a uv
+# workspace member (the root pyproject's [tool.uv.workspace]): it skips only
+# the root project, and uv still installs the member as an editable. With the
+# member's directory absent that fails as "Distribution not found at:
+# file:///opt/osprey/packages/osprey-connectors"; with it present, the build
+# fails instead, because the member versions from git tags via hatch-vcs and
+# the context holds no .git/.
+#
+# Every member's pyproject.toml (and README.md) is staged anyway, though the
+# sync above does not need them: they are a few kilobytes, and keep the
+# workspace resolvable should a later uv read member metadata during a frozen
+# sync. A member's source is never staged: like osprey's own, it arrives over
+# the mount. Installing the projects for real would mean passing a version in,
+# as docker/virtual-accelerator/Containerfile does, and rebuilding this layer
+# on every source edit.
 #
 # The build context is therefore just those files, staged by run_live_ca.sh --
 # NOT the repo root, which also holds .git/, .venv/ and the worktrees and would
@@ -50,9 +63,17 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_LINK_MODE=copy
 WORKDIR /opt/osprey
 COPY pyproject.toml uv.lock README.md /opt/osprey/
-COPY packages/osprey-connectors/pyproject.toml packages/osprey-connectors/README.md \
-     /opt/osprey/packages/osprey-connectors/
+COPY packages/ /opt/osprey/packages/
 RUN uv sync --frozen --no-install-workspace --extra dev --extra virtual-accelerator
+
+# Each staged member's src/ on the mount goes on the path through a .pth file,
+# generated from the staged directory names rather than spelled out in ENV, so
+# a new member under packages/ needs no edit here.
+# tests/va/test_live_ca_venue_staging.py pins that every member lives there.
+RUN site="$(/opt/venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" \
+ && for member in /opt/osprey/packages/*/; do \
+        echo "/work/packages/$(basename "${member}")/src"; \
+    done > "${site}/osprey-workspace-members.pth"
 
 # Channel Access stays inside this container: the server and the client share
 # this process and this network namespace, so nothing is published and no host
@@ -65,7 +86,7 @@ RUN uv sync --frozen --no-install-workspace --extra dev --extra virtual-accelera
 # can run), so the ports are deliberately left unset here. Only the loopback
 # discipline is pinned, which is what stops a stray broadcast search.
 ENV PATH=/opt/venv/bin:$PATH \
-    PYTHONPATH=/work/src:/work/packages/osprey-connectors/src \
+    PYTHONPATH=/work/src \
     PYTHONDONTWRITEBYTECODE=1 \
     EPICS_CA_ADDR_LIST=127.0.0.1 \
     EPICS_CA_AUTO_ADDR_LIST=NO

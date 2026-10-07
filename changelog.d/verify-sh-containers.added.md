@@ -1,0 +1,1 @@
+The health check `osprey scaffold ci` emits at `scripts/verify.sh` now lists every container of the deployment and flags any that is not running or reports an unhealthy healthcheck, beside its endpoint probes. It still exits 0; `./scripts/verify.sh --strict` exits 1 when anything is flagged, for a job that should fail on it.

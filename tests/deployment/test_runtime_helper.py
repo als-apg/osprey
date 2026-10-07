@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 from osprey.deployment import runtime_helper
 from osprey.deployment.runtime_helper import (
     get_container_image_id,
     get_image_id,
     runtime_env,
+    runtime_reports_absent,
 )
 
 
@@ -232,3 +235,29 @@ def test_inspect_id_returns_none_for_empty_output(monkeypatch) -> None:
         lambda cmd, **kwargs: _FakeCompletedProcess(returncode=0, stdout="\n"),
     )
     assert get_image_id("podman", "reg/web-terminal:latest") is None
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "Error response from daemon: get x: no such volume",
+        "Error response from daemon: No such image: x:local",
+        "Error: no such container: x",
+        "Error: volume x not found",
+    ],
+)
+def test_runtime_reports_absent_on_the_runtimes_own_absence_wording(stderr: str) -> None:
+    """A removal that found nothing to remove is classified as absent."""
+    assert runtime_reports_absent(stderr)
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "Error response from daemon: remove x: volume is in use - [abc]",
+        "",
+    ],
+)
+def test_runtime_reports_absent_is_false_for_a_refusal(stderr: str) -> None:
+    """A refusal, and an empty stderr, are failures and never an absence."""
+    assert not runtime_reports_absent(stderr)

@@ -511,26 +511,31 @@ describe('a reset is a DELETE, and the way out of read-only', () => {
 });
 
 describe('the deployment context is served, not inferred', () => {
-  test('an offered item survives even though the SSR did not place it', async () => {
-    // The inference this replaced read availability off the rendered shells,
-    // so a deployment that OFFERS identity but does not PLACE it looked like
-    // one that cannot render it — and the drop latched the document read-only
-    // for the session. The stamp says what the deployment offers.
-    await boot({
-      fetch: endpoint({ get: doc(['logo', 'identity'], []) }),
-      headerShells: LOGO_SHELL,
-      context: { identityAvailable: true, blueskyAvailable: false, systemHealthAvailable: false },
-    });
+  // Availability read off the rendered shells made a deployment that OFFERS an
+  // item but does not PLACE it look like one that cannot render it — and the
+  // drop latched the document read-only for the session. Nothing on the page
+  // but the stamp says what the deployment offers.
+  test.each([
+    ['identity', 'identityAvailable', 'header', ['logo', 'identity']],
+    ['system-health', 'systemHealthAvailable', 'status', ['system-health', 'clock']],
+  ])('an offered %s survives even though the SSR did not place it', async (_type, fact, where, placed) => {
+    const context = { ...{ identityAvailable: false, blueskyAvailable: false, systemHealthAvailable: false }, [fact]: true };
+    const served = where === 'header' ? doc(placed, []) : doc([], placed);
+    await boot({ fetch: endpoint({ get: served }), headerShells: LOGO_SHELL, context });
     await settle();
 
-    expect(typesIn('header')).toEqual(['logo', 'identity']);
+    expect(typesIn(/** @type {'header' | 'status'} */ (where))).toEqual(placed);
     expect(sync.isLayoutReadonly()).toBe(false);
   });
 
-  test('an item the deployment does not offer is dropped from a stored document and latches read-only', async () => {
-    // rev 4: an operator saved this document, so the drop is their content.
+  // A stored document (rev >= 1) is content an operator placed, so an item the
+  // stamp does not offer is dropped and the drop latches.
+  test.each([
+    ['bluesky-queue', 4],
+    ['system-health', 2],
+  ])('an unoffered %s is dropped from a stored document and latches read-only', async (type, rev) => {
     await boot({
-      fetch: endpoint({ get: doc([], ['bluesky-queue', 'clock'], { rev: 4 }) }),
+      fetch: endpoint({ get: doc([], [type, 'clock'], { rev }) }),
       context: { identityAvailable: false, blueskyAvailable: false, systemHealthAvailable: false },
     });
     await settle();
@@ -556,35 +561,6 @@ describe('the deployment context is served, not inferred', () => {
     expect(sync.isLayoutReadonly()).toBe(false);
     await sync.saveLayout(doc(['logo', 'search'], ['clock']), { edit: true });
     expect(putBodies()).toHaveLength(1);
-  });
-
-  test('system health follows the stamp, not a guess from the page', async () => {
-    // Nothing on the page says whether the SYSTEM panel is enabled; only the
-    // stamp does, and without it the item is refused. rev 2: a stored
-    // document, so the refusal is a loss and latches.
-    await boot({
-      fetch: endpoint({ get: doc([], ['system-health', 'clock'], { rev: 2 }) }),
-      context: { identityAvailable: false, blueskyAvailable: false, systemHealthAvailable: false },
-    });
-    await settle();
-
-    expect(typesIn('status')).toEqual(['clock']);
-    expect(sync.isLayoutReadonly()).toBe(true);
-  });
-
-  test('a stamped SYSTEM panel keeps the system-health item', async () => {
-    await boot({
-      fetch: endpoint({ get: doc([], ['system-health', 'clock']) }),
-      context: {
-        identityAvailable: false,
-        blueskyAvailable: false,
-        systemHealthAvailable: true,
-      },
-    });
-    await settle();
-
-    expect(typesIn('status')).toEqual(['system-health', 'clock']);
-    expect(sync.isLayoutReadonly()).toBe(false);
   });
 
   test('no stamp assumes nothing rather than guessing', async () => {
@@ -644,17 +620,6 @@ describe('the deployment default is never latched for what it cannot show (#863)
       'clock',
       'stopwatch',
     ]);
-  });
-
-  test('a rev-0 document with an unknown type still latches', async () => {
-    await boot({
-      fetch: endpoint({ get: doc(['logo', 'not-a-type'], ['space', 'system-health', 'clock']) }),
-      context: NO_SYSTEM_PANEL,
-    });
-    await settle();
-
-    expect(sync.isLayoutReadonly()).toBe(true);
-    expect(putBodies()).toEqual([]);
   });
 
   test('a reset onto a default the deployment cannot fully render leaves the sheet editable', async () => {

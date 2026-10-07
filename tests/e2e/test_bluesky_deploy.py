@@ -47,6 +47,11 @@ Asserts, against the REAL deployed containers:
     exercises the bluesky/queueserver stack, which must be present for the
     manager's worker.
   * ``/health`` reports a browse-only capability, and enqueue is refused.
+  * the RE manager's root resolves to the lane's control identity
+    (``getent passwd 0`` names ``osprey-bluesky``), while ``root`` itself still
+    resolves by name, so every write the manager makes names the lane.
+  * the roster lint's list of base-image accounts covers every account the
+    bluesky image ships, so no roster name can collide with one at boot.
 
 CONTAINER SAFETY: every docker/podman invocation below names an exact
 container/image — never a wildcard, never ``system prune``/``--volumes``.
@@ -79,7 +84,9 @@ from typing import Any
 
 import pytest
 
+from osprey.bluesky_bridge_connection import LANE_ONE, lane_control_identity
 from osprey.deployment.compose_generator import resolve_project_name
+from osprey.deployment.control_identity import BASE_IMAGE_ACCOUNTS
 from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
@@ -521,4 +528,77 @@ def test_plans_are_browsable_but_unqueueable() -> None:
     assert status == 200, f"GET /queue failed: {status} {queue}"
     assert queue["status"]["items_in_queue"] == 0, (
         f"a browse-only deployment is holding queue items: {queue}"
+    )
+
+
+def _passwd_names(passwd_text: str) -> list[str]:
+    """The account names of every passwd record in *passwd_text*, in file order."""
+    return [
+        fields[0]
+        for fields in (line.split(":") for line in passwd_text.splitlines())
+        if len(fields) == 7
+    ]
+
+
+@pytest.mark.usefixtures("deployed_bridge")
+def test_queueserver_root_resolves_to_the_lane_identity() -> None:
+    """uid 0 in the RE manager is the lane's control identity, and root survives.
+
+    The manager runs as root, so the name uid 0 resolves to is the name every
+    write it makes carries. The compose command renames root to the lane's
+    identity before the manager starts; ``getent passwd 0`` returns the FIRST
+    record for the uid, the same lookup (``getpwuid``) a process makes to name
+    the user it runs as. ``root`` must still resolve by name to uid 0, or
+    anything in the image that looks root up by name would break.
+    """
+    identity = lane_control_identity(LANE_ONE)
+
+    by_uid = subprocess.run(
+        ["docker", "exec", QUEUESERVER_CONTAINER, "getent", "passwd", "0"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert by_uid.returncode == 0, f"getent passwd 0 failed: {by_uid.stderr}"
+    assert by_uid.stdout.split(":", 1)[0] == identity, (
+        f"uid 0 in {QUEUESERVER_CONTAINER} must resolve to {identity!r} first: {by_uid.stdout!r}"
+    )
+
+    by_name = subprocess.run(
+        ["docker", "exec", QUEUESERVER_CONTAINER, "getent", "passwd", "root"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert by_name.returncode == 0, f"getent passwd root failed: {by_name.stderr}"
+    assert by_name.stdout.split(":")[2] == "0", (
+        f"root must still resolve to uid 0 after the rename: {by_name.stdout!r}"
+    )
+
+
+@pytest.mark.usefixtures("deployed_bridge")
+def test_base_image_accounts_cover_the_bluesky_image() -> None:
+    """Every account the bluesky image ships is in ``BASE_IMAGE_ACCOUNTS``.
+
+    The roster lint refuses a control identity named after a base-image account,
+    because such a name would collide with an existing passwd record and the
+    rename would fail at boot. The list is only as good as its coverage, so it
+    is checked against the image's own pristine ``/etc/passwd`` (read from the
+    IMAGE, not the running container, whose passwd the rename has edited).
+    ``root`` and ``osprey`` are the two canonical accounts the rename acts on,
+    not collisions.
+    """
+    proc = subprocess.run(
+        ["docker", "run", "--rm", "--entrypoint", "cat", BRIDGE_IMAGE, "/etc/passwd"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert proc.returncode == 0, f"reading /etc/passwd from {BRIDGE_IMAGE} failed: {proc.stderr}"
+    names = _passwd_names(proc.stdout)
+    assert "root" in names, f"no root record in {BRIDGE_IMAGE}'s /etc/passwd: {names}"
+    uncovered = sorted(set(names) - {"root", "osprey"} - BASE_IMAGE_ACCOUNTS)
+    assert not uncovered, (
+        f"{BRIDGE_IMAGE} ships accounts BASE_IMAGE_ACCOUNTS does not list, so the "
+        f"roster lint would let a card take one of these names: {uncovered}"
     )

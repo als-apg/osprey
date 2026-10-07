@@ -16,10 +16,12 @@
  * on a surface the operator cannot see. Everything else — settings search, the
  * panel verbs including "Open … in a new tile", the Layouts group, popping a
  * panel out to its own browser tab, Customize bars, rail placement, the drawer
- * tabs, the safety reference — is the same in both views.
+ * tabs, the safety reference, opening the activity log in a new tab — is the
+ * same in both views.
  */
 
-import { restartTerminal, startTerminal } from './terminal.js';
+import { getCurrentSessionId, restartTerminal, startTerminal } from './terminal.js';
+import { openActivityLog } from './activity-log-link.js';
 import {
   getHiddenPanels,
   getVisiblePanels,
@@ -31,6 +33,7 @@ import {
   popoutPanel,
 } from './panel-manager.js';
 import { openPanelBeside } from './panel-placement.js';
+import { resetDockLayout } from './dock-workspace.js';
 import { openDrawerTab, revealSetting } from './settings.js';
 import { CONFIG_TAB_ID } from './config-tab.js';
 import { startNewSession } from './sessions.js';
@@ -125,6 +128,13 @@ function buildPaletteDeps() {
   actions.push({ label: 'Open Prompt gallery', run: () => { openDrawerTab('tab-behavior'); } });
   // On-demand tour entry — works regardless of the web.tour invite policy.
   actions.push({ label: 'Take the tour', run: () => startTour() });
+  // The activity shown is the agent's, not the terminal's, so the row stays in
+  // Simple. It opens on the session the card is on when picked.
+  actions.push({
+    label: 'Open activity log',
+    detail: 'new tab',
+    run: () => openActivityLog(getCurrentSessionId),
+  });
   // Logout only exists in multi-user deployments: the server stamps the
   // landing URL on <html> when it renders a logout at all. Read from there,
   // not from either logout button — both are bar items the operator may have
@@ -163,6 +173,7 @@ function buildPaletteDeps() {
   deps.openPanelBeside = openPanelBeside;
   deps.getPresets = getPresets;
   deps.applyPreset = applyMenuPreset;
+  deps.resetLayout = resetDockLayout;
 
   return deps;
 }

@@ -558,8 +558,8 @@ def merge_env_preserving_existing(
     a fragment rather than the build's own full render.
     """
     existing = _dotenv_raw_lines(existing_text)
-    for key in build_derived_keys:
-        existing.pop(key, None)
+    for derived in build_derived_keys:
+        existing.pop(derived, None)
     consumed: set[str] = set()
     out_lines: list[str] = []
     for line in rendered_text.splitlines():

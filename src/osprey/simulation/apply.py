@@ -15,29 +15,30 @@ on demand via ``osprey sim apply``.
 from __future__ import annotations
 
 import asyncio
-import json
 import math
 import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from osprey.connectors.types import MOCK
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation.engine import (
-    ACTIVE_SCENARIO_FILENAME,
     ACTIVE_SCENARIOS_FILENAME,
+    DEFAULT_SCENARIO,
     SimulationEngine,
     resolve_active_scenarios,
     resolve_state_dir,
 )
-from osprey.simulation.machine import parse_machine
+from osprey.simulation.machine import load_narratives, parse_machine, read_machine_json
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
+from osprey_connectors.simulation.engine import resolve_simulation_file
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
@@ -45,9 +46,15 @@ if TYPE_CHECKING:
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
     from osprey.simulation.archiver_seed import SeedKnobs
-    from osprey.simulation.machine import BpmErrorSpec, Scenario, ScenarioLogEntry
+    from osprey.simulation.machine import BpmErrorSpec, PlotSpec, Scenario, ScenarioLogEntry
 
 logger = get_logger("simulation_apply")
+
+#: The ``ariel:`` key naming a directory of scenario narratives a deployment
+#: with no simulation seeds into its empty logbook.
+DEMO_NARRATIVE_KEY = "demo_narrative"
+
+_T = TypeVar("_T")
 
 
 def _config_file(project_dir: Path) -> Path:
@@ -65,44 +72,6 @@ def _config_file(project_dir: Path) -> Path:
 
     rendered = rendered_config_path(project_dir)
     return rendered if rendered.is_file() else project_dir / "config.yml"
-
-
-def resolve_simulation_file(config: dict, project_dir: Path) -> tuple[Path | None, str, str, str]:
-    """Resolve the simulation-model file for the active control-system type.
-
-    Looks up ``control_system.connector.<type>.simulation_file`` for the active
-    ``control_system.type`` (defaulting to ``mock`` when unset). Non-mock types
-    fall back to ``connector.mock.simulation_file`` when their own key is unset;
-    for the mock type itself this fallback is a no-op (it's the same key it
-    already tried), so mock resolution is unaffected by the fallback.
-
-    Shared by :func:`apply_scenarios` and the ``sim`` CLI so the two call sites
-    agree on exactly which config keys back a simulation-backed project.
-
-    Returns:
-        A 4-tuple ``(path, active_type, type_key, mock_key)``. ``path`` is the
-        resolved file path (made absolute against ``project_dir`` if relative),
-        or ``None`` if neither key had a value. ``type_key``/``mock_key`` are
-        the dotted config paths that were tried, for error messages.
-    """
-    control_system = config.get("control_system", {})
-    active_type = control_system.get("type", MOCK)
-    connector = control_system.get("connector", {})
-
-    type_key = f"control_system.connector.{active_type}.simulation_file"
-    mock_key = "control_system.connector.mock.simulation_file"
-
-    sim_file = connector.get(active_type, {}).get("simulation_file")
-    if not sim_file and active_type != MOCK:
-        sim_file = connector.get(MOCK, {}).get("simulation_file")
-
-    if not sim_file:
-        return None, active_type, type_key, mock_key
-
-    machine_path = Path(sim_file)
-    if not machine_path.is_absolute():
-        machine_path = Path(project_dir) / machine_path
-    return machine_path, active_type, type_key, mock_key
 
 
 def _require_simulation_file(config: dict, project_dir: Path, scope: str) -> Path:
@@ -127,7 +96,7 @@ def _require_simulation_file(config: dict, project_dir: Path, scope: str) -> Pat
     return machine_path
 
 
-def _run_coro(make_coro: Callable[[], Coroutine]):
+def _run_coro(make_coro: Callable[[], Coroutine[Any, Any, _T]]) -> _T:
     """Run an async coroutine to completion from this sync function.
 
     ``apply_scenarios`` is a sync API (the CLI calls it directly), but it is also
@@ -276,8 +245,8 @@ def apply_scenarios(
     if seed_logbook:
         ariel_config = config.get("ariel")
         if ariel_config:
-            entries = [_to_enhanced_entry(e, t0) for e in engine.active_logbook()]
-            seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries))
+            with seed_payload(engine.active_logbook(), t0) as (entries, pictures):
+                seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries, pictures))
             logger.info(f"Seeded {seeded} logbook entries (logbook purged and reseeded)")
         else:
             logger.info("No 'ariel' config in project; skipped logbook seeding")
@@ -322,6 +291,45 @@ _WRITE_CHUNK = 1000
 _SPIKE_WINDOW_SIGMAS = 4.0
 
 
+def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[str, ...]:
+    """Activate the machine's ``default_scenarios`` on a deployment that never chose a set.
+
+    A deployment with no scenario state has never been told which world to run,
+    and the machine model it ships names the one it should start in. That set is
+    activated exactly as ``osprey sim apply`` would, physics block and anchor
+    included, but without seeding: the deploy seeds the archive and the logbook
+    in their own stages, each of which reads the set written here. Once any set
+    has been activated -- by this, or by ``osprey sim apply`` naming any set at
+    all -- the state file exists and this does nothing again.
+
+    Args:
+        config: The project's loaded ``config.yml``.
+        project_dir: The deployment repo root.
+
+    Returns:
+        The activated set (``nominal`` first), or ``()`` when nothing was
+        activated: the project is not simulation-backed, a set is already
+        active, or the machine names no defaults.
+
+    Raises:
+        ValueError: If a default names a scenario the bundle does not define, or
+            the defaults do not compose -- the refusals ``osprey sim apply``
+            gives the same set.
+    """
+    project_dir = Path(project_dir)
+    machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
+    if machine_path is None or not machine_path.is_file():
+        return ()
+    if (resolve_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME).is_file():
+        return ()
+    defaults = parse_machine(read_machine_json(machine_path), machine_path).default_scenarios
+    if not defaults:
+        return ()
+    render_scenario_physics_env(project_dir, defaults)
+    result = apply_scenarios(project_dir, defaults, seed_logbook=False, seed_archive=False)
+    return result.active
+
+
 def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogbookEntry]:
     """The logbook entries the project's ALREADY-active scenarios narrate.
 
@@ -340,15 +348,29 @@ def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogb
         project with no machine model narrates nothing, which is a normal
         configuration and not a fault.
     """
+    logbook, anchor = _active_narrative(config, project_dir)
+    return [_to_enhanced_entry(entry, anchor) for entry in logbook]
+
+
+def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLogEntry], datetime]:
+    """The ALREADY-active scenarios' bundle entries and the anchor they resolve against.
+
+    See :func:`active_logbook_entries`; the entries are empty when the project
+    is not simulation-backed.
+    """
     machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
     if machine_path is None or not machine_path.is_file():
-        return []
+        return [], datetime.now(get_facility_timezone())
 
     engine = SimulationEngine.from_file(
         machine_path, state_dir=resolve_state_dir(config, project_dir)
     )
-    anchor = persisted_scenario_anchor(config, project_dir) or datetime.now(get_facility_timezone())
-    return [_to_enhanced_entry(entry, anchor) for entry in engine.active_logbook()]
+    # Read in the facility zone, as the engine reads the same anchor: a logbook
+    # entry's ``days_ago`` and an ``at_when`` event's count the same calendar days.
+    zone = get_facility_timezone()
+    persisted = persisted_scenario_anchor(config, project_dir)
+    anchor = persisted.astimezone(zone) if persisted is not None else datetime.now(zone)
+    return engine.active_logbook(), anchor
 
 
 async def _export_qmd_mirror(ariel_config: dict) -> None:
@@ -376,16 +398,84 @@ async def _export_qmd_mirror(ariel_config: dict) -> None:
     await run_qmd_resync(ariel_config, rebuild=True)
 
 
+def demo_narrative_logbook(
+    ariel_config: Mapping[str, Any], config_dir: Path | None = None
+) -> list[ScenarioLogEntry]:
+    """Every entry of the scenario narratives ``ariel.demo_narrative`` names.
+
+    The key names a directory laid out like a simulation ``scenarios/`` tree:
+    one subdirectory per scenario, each with a ``logbook.json`` and the pictures
+    its entries attach. Only the narratives are read (see
+    :func:`~osprey.simulation.machine.load_narratives`), so a deployment with no
+    simulation can document the same incidents a simulated one does. ``nominal``
+    comes first and the rest follow by name, the order a composed active set
+    narrates in.
+
+    Args:
+        ariel_config: The ``ariel:`` config section.
+        config_dir: Directory holding the ``config.yml`` the section came from;
+            the relative path resolves against its project root (see
+            :func:`~osprey.utils.config_paths.resolve_config_relative_path`).
+
+    Returns:
+        The entries, or ``[]`` when the key is unset.
+
+    Raises:
+        ValueError: If the directory is missing or a narrative in it is malformed.
+    """
+    from osprey.utils.config_paths import resolve_config_relative_path
+
+    raw = ariel_config.get(DEMO_NARRATIVE_KEY)
+    if not raw:
+        return []
+    directory = resolve_config_relative_path(str(raw), config_dir)
+    if not directory.is_dir():
+        raise ValueError(f"ariel.{DEMO_NARRATIVE_KEY} names {directory}, which is not a directory")
+    narratives = load_narratives(directory)
+    order = sorted(narratives, key=lambda name: (name != DEFAULT_SCENARIO, name))
+    return [entry for name in order for entry in narratives[name]]
+
+
+async def seed_narrative_if_empty(
+    ariel_config: dict, logbook: Sequence[ScenarioLogEntry], anchor: datetime
+) -> int:
+    """Seed ``logbook``, with its pictures, into a logbook that has no entries yet.
+
+    Strictly additive: a logbook with anything in it is left exactly as it is,
+    because a deploy or a setup command has no licence to delete entries anyone
+    wrote. The markdown mirror is rewritten after a seed (see
+    :func:`_export_qmd_mirror`).
+
+    Args:
+        ariel_config: ARIEL config section with its DSN resolved.
+        logbook: The entries to seed.
+        anchor: The instant their relative timestamps resolve against.
+
+    Returns:
+        The number of entries seeded; ``0`` when the logbook already held entries.
+    """
+    from osprey.services.ariel_search import cli_operations
+
+    if await cli_operations.logbook_entry_count(ariel_config) > 0:
+        return 0
+    with seed_payload(logbook, anchor) as (entries, pictures):
+        seeded = await cli_operations.seed_logbook_entries(ariel_config, entries, pictures=pictures)
+    await _export_qmd_mirror(ariel_config)
+    return seeded
+
+
 def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> int:
-    """Write the active narrative into a logbook that has none. Returns entries seeded.
+    """Write the deployment's narrative into a logbook that has none. Returns entries seeded.
 
     The counterpart of :func:`seed_archiver` for the other half of a simulated
     world: a deployment whose archive is full while its logbook is empty documents
-    a machine nobody can read about. Called by the deploy, which is why it is
-    strictly additive where :func:`apply_scenarios`' own seeding purges first — an
-    operator asking for a scenario is asking for that narrative and no other, but
-    a deploy is asking for the stack to come up and has no licence to delete
-    entries anyone wrote.
+    a machine nobody can read about. A simulation-backed project narrates its
+    active scenarios; any other project narrates ``ariel.demo_narrative``
+    (:func:`demo_narrative_logbook`) when it names one. Called by the deploy,
+    which is why it is strictly additive where :func:`apply_scenarios`' own
+    seeding purges first — an operator asking for a scenario is asking for that
+    narrative and no other, but a deploy is asking for the stack to come up and
+    has no licence to delete entries anyone wrote.
 
     So it writes only into an EMPTY logbook. A logbook with anything in it is left
     exactly as it is; the operator's route to a clean reseed remains
@@ -400,20 +490,12 @@ def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> 
         The number of entries seeded; ``0`` when the project narrates none, or
         when the logbook already holds entries.
     """
-    entries = active_logbook_entries(config, project_dir)
-    if not entries:
+    logbook, anchor = _active_narrative(config, project_dir)
+    if not logbook:
+        logbook = demo_narrative_logbook(ariel_config, _config_file(project_dir).parent)
+    if not logbook:
         return 0
-
-    async def _seed_if_empty() -> int:
-        from osprey.services.ariel_search import cli_operations
-
-        if await cli_operations.logbook_entry_count(ariel_config) > 0:
-            return 0
-        seeded = await cli_operations.seed_logbook_entries(ariel_config, entries)
-        await _export_qmd_mirror(ariel_config)
-        return seeded
-
-    return _run_coro(_seed_if_empty)
+    return _run_coro(lambda: seed_narrative_if_empty(ariel_config, logbook, anchor))
 
 
 def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
@@ -430,21 +512,33 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
         config: The project's loaded ``config.yml``.
         project_dir: Root of the built project; supplies the ``.env``.
 
+    A store named by ``url`` is one this deployment reads, never one it writes.
+
     Returns:
         The parameters, or ``None`` when the project declares no MongoDB
         archive — a project whose history is synthesized at read time has
-        nothing to rewrite, which is a normal configuration, not a fault.
+        nothing to rewrite, which is a normal configuration, not a fault — or
+        names its store by ``url``.
     """
     archiver = config.get("archiver") or {}
     store = archiver.get(ARCHIVER_CONFIG_PREFIX)
-    if not isinstance(store, dict) or not store.get("host"):
+    if not isinstance(store, dict) or not store.get("host") or store.get("url"):
         return None
 
     from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.connection import read_connection_settings
 
     env_path = Path(project_dir) / ".env"
     env = parse_dotenv_file(env_path) if env_path.is_file() else {}
-    password_env = str(store.get("password_env") or "MONGO_ROOT_PASSWORD")
+    connection = read_connection_settings(
+        store,
+        where=f"archiver.{ARCHIVER_CONFIG_PREFIX}",
+        logins=frozenset({"password"}),
+        unsupported_because="the archive store takes a username and auth.password_env",
+        extra_auth_keys=frozenset({"source"}),
+    )
+    auth = store.get("auth") or {}
+    password_env = str(auth.get("password_env") or "MONGO_ROOT_PASSWORD")
 
     return {
         "host": store["host"],
@@ -455,11 +549,12 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
         "port": int(store.get("port", default_port("mongo", base=resolve_port_base(config)))),
         "database": str(store.get("name") or "osprey_archiver"),
         "collection": str(store.get("collection") or "pv_history"),
-        "auth_database": str(store.get("auth") or "admin"),
-        "username": str(store.get("username") or "osprey"),
+        "auth_source": str(auth.get("source") or "admin"),
+        "username": str(auth.get("username") or "osprey"),
         "password": env.get(password_env),
         "password_env": password_env,
-        "timeout_s": int(store.get("timeout", 5)),
+        "timeout_s": connection.timeout_or(5),
+        "ca_bundle": str(connection.ca_bundle) if connection.ca_bundle is not None else None,
     }
 
 
@@ -485,19 +580,16 @@ def persisted_scenario_anchor(config: dict, project_dir: Path) -> datetime | Non
         anchor is the right answer.
     """
     state_dir = resolve_state_dir(config, project_dir)
-    for name in (ACTIVE_SCENARIOS_FILENAME, ACTIVE_SCENARIO_FILENAME):
-        path = state_dir / name
-        if not path.is_file():
-            continue
-        # The engine's own parser, not a second one: the anchor line's format
-        # (and its naive-value timezone rule) is the engine's to define, and a
-        # copy here would be free to drift from the file the engine actually
-        # reads. Private only because nothing outside the engine needed it
-        # before.
-        _names, anchor_epoch = SimulationEngine._parse_state(path.read_text(encoding="utf-8"))
-        if anchor_epoch is not None:
-            return datetime.fromtimestamp(anchor_epoch, UTC)
+    path = state_dir / ACTIVE_SCENARIOS_FILENAME
+    if not path.is_file():
         return None
+    # The engine's own parser, not a second one: the anchor line's format
+    # (and its naive-value timezone rule) is the engine's to define, and a
+    # copy here would be free to drift from the file the engine actually
+    # reads. This is the one reader of it outside the engine.
+    _names, anchor_epoch = SimulationEngine._parse_state(path.read_text(encoding="utf-8"))
+    if anchor_epoch is not None:
+        return datetime.fromtimestamp(anchor_epoch, UTC)
     return None
 
 
@@ -519,13 +611,19 @@ def archiver_collection(store: dict):
     _require_pymongo()
     from pymongo import MongoClient
 
+    from osprey.connectors.archiver.mongodb_archiver_connector import mongo_client_kwargs
+
     client: Any = MongoClient(
-        host=store["host"],
-        port=store["port"],
-        username=store["username"],
-        password=store["password"],
-        authSource=store["auth_database"],
-        serverSelectionTimeoutMS=store["timeout_s"] * 1000,
+        **mongo_client_kwargs(
+            url=None,
+            host=store["host"],
+            port=store["port"],
+            username=store["username"],
+            password=store["password"],
+            auth_source=store["auth_source"],
+            ca_bundle=store.get("ca_bundle"),
+            timeout_s=store["timeout_s"],
+        )
     )
     try:
         yield client[store["database"]][store["collection"]]
@@ -542,8 +640,7 @@ def active_archiver_events(machine_path: Path, names: Sequence[str]) -> dict[str
     user what is about to change while an abort still leaves the project
     untouched.
     """
-    with open(machine_path) as handle:
-        model = parse_machine(json.load(handle), machine_path)
+    model = parse_machine(read_machine_json(machine_path), machine_path)
 
     resolved = resolve_active_scenarios(names)
     unknown = [name for name in resolved if name not in model.scenarios]
@@ -564,7 +661,8 @@ def _refuse_window_fraction(event: Mapping[str, Any]) -> None:
             f"Archiver event {event!r} is positioned by window fraction ('at'), which "
             f"has no place in stored history — a fraction names a position in the "
             f"reader's window, not an instant. Use 'at_offset' (seconds relative to "
-            f"the activation anchor) instead."
+            f"the activation anchor) or 'at_when' (days and time of day before it) "
+            f"instead."
         )
 
 
@@ -579,7 +677,11 @@ def _require_events(events: Sequence[dict]) -> None:
 
 
 def event_window(
-    events: Sequence[dict], anchor: float, horizon_start: float
+    events: Sequence[dict],
+    anchor: float,
+    horizon_start: float,
+    *,
+    tz: ZoneInfo | None = None,
 ) -> tuple[float, float]:
     """The absolute span one channel's events can affect, in epoch seconds.
 
@@ -603,6 +705,8 @@ def event_window(
         anchor: T0 in epoch seconds.
         horizon_start: Oldest instant the archive covers; clamps a span whose
             event is anchored further back than the archive reaches.
+        tz: Timezone ``at_when`` calendar days are counted in. Defaults to the
+            facility zone, matching where the engine places them.
 
     Returns:
         ``(start, end)`` in epoch seconds. ``end`` is ``anchor`` for anything
@@ -623,7 +727,7 @@ def event_window(
             # A daily time-of-day recurs on every date the archive covers, so
             # the span its values reach over is the archive.
             return horizon_start, anchor
-        at = anchor + float(event["at_offset"])
+        at = _anchored_instant(event, anchor, tz)
         if event["shape"] == "spike":
             width = float(event["width"]) * _SPIKE_WINDOW_SIGMAS
             start, end = min(start, at - width), max(end, at + width)
@@ -658,8 +762,9 @@ def event_subwindows(
         horizon_start: Oldest instant the archive covers. Occurrences are
             clamped to ``[horizon_start, anchor]``, and one that falls entirely
             outside it contributes nothing.
-        tz: Timezone daily ``at_time`` occurrences are placed in. Defaults to
-            the facility zone, matching where the engine places them.
+        tz: Timezone daily ``at_time`` occurrences and ``at_when`` calendar
+            days are placed in. Defaults to the facility zone, matching where
+            the engine places them.
 
     Returns:
         Disjoint ``(start, end)`` pairs, ascending. Empty when every occurrence
@@ -696,7 +801,14 @@ def _event_instants(
         if tz is None:
             tz = get_facility_timezone()
         return daily_occurrences(str(event["at_time"]), _np_array([horizon_start, anchor]), tz)
-    return [anchor + float(event["at_offset"])]
+    return [_anchored_instant(event, anchor, tz)]
+
+
+def _anchored_instant(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None) -> float:
+    """An ``at_offset`` or ``at_when`` event's instant, in the facility zone by default."""
+    from osprey.simulation.series import anchored_instant
+
+    return anchored_instant(dict(event), anchor, tz if tz is not None else get_facility_timezone())
 
 
 def _merge_intervals(windows: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -808,7 +920,8 @@ def seed_archiver(
         horizon_start = _archive_start(collection, manifest, anchor_s, knobs)
         previous = _ledger_windows(manifest)
         current = {
-            pv: event_window(script, anchor_s, horizon_start) for pv, script in events.items()
+            pv: event_window(script, anchor_s, horizon_start, tz=tz)
+            for pv, script in events.items()
         }
         live = {
             pv: event_subwindows(script, anchor_s, horizon_start, tz=tz)
@@ -1435,9 +1548,7 @@ def compute_scenario_physics_env(
         project_dir,
         "physics-fault rendering only applies to simulation-backed projects.",
     )
-    with open(machine_path) as f:
-        machine = json.load(f)
-    model = parse_machine(machine, machine_path)
+    model = parse_machine(read_machine_json(machine_path), machine_path)
 
     resolved = resolve_active_scenarios(names)
     unknown = [n for n in resolved if n not in model.scenarios]
@@ -1694,6 +1805,8 @@ def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogboo
     Mirrors ``GenericJSONAdapter._convert_entry`` field mapping so seeded entries
     are indistinguishable from ingested ones: ``raw_text`` is title + body, and
     title/tags/categories/loto_tag plus any ``extra`` ride in ``metadata``.
+    ``attachments`` starts empty: the entry's pictures are stored and linked by
+    the seeder once the row exists (see :func:`seed_payload`).
     """
     timestamp = resolve_relative_timestamp(entry.when, now)
     if entry.title and entry.text:
@@ -1725,13 +1838,64 @@ def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogboo
     }
 
 
+@contextmanager
+def seed_payload(
+    logbook: Sequence[ScenarioLogEntry], anchor: datetime
+) -> Iterator[tuple[list[EnhancedLogbookEntry], dict[str, tuple[Path, ...]]]]:
+    """What seeding writes for bundle entries: the rows, and each row's picture files.
+
+    A shipped picture is handed over as its bundle file. A plot spec is drawn
+    (:func:`~osprey.simulation.plots.render_plot_spec`) with its last point at
+    the entry's resolved timestamp, so its time axis shows that entry's dates,
+    and is handed over as a file named by the spec's ``filename`` in a
+    temporary directory that lives exactly as long as this context. Seed
+    inside the ``with`` block.
+
+    Args:
+        logbook: Bundle entries, in the order they are seeded.
+        anchor: The instant their relative timestamps resolve against.
+
+    Yields:
+        The converted entries, and the picture files keyed by entry id, in each
+        entry's own order (entries without pictures are absent from the mapping).
+    """
+    entries = [_to_enhanced_entry(entry, anchor) for entry in logbook]
+    with tempfile.TemporaryDirectory(prefix="osprey-seed-pictures-") as scratch:
+        pictures: dict[str, tuple[Path, ...]] = {}
+        for index, (entry, row) in enumerate(zip(logbook, entries, strict=True)):
+            if entry.attachments:
+                drawn = Path(scratch) / str(index)
+                pictures[entry.entry_id] = tuple(
+                    _picture_file(item, row["timestamp"], drawn) for item in entry.attachments
+                )
+        yield entries, pictures
+
+
+def _picture_file(item: Path | PlotSpec, timestamp: datetime, directory: Path) -> Path:
+    """A shipped picture as is; a plot spec drawn at ``timestamp`` into ``directory``."""
+    if isinstance(item, Path):
+        return item
+    from osprey.simulation.plots import render_plot_spec
+
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / item.filename
+    path.write_bytes(render_plot_spec(item, timestamp))
+    return path
+
+
 async def _seed_logbook(
-    ariel_config: dict, entries: list[EnhancedLogbookEntry]
+    ariel_config: dict,
+    entries: list[EnhancedLogbookEntry],
+    pictures: Mapping[str, Sequence[Path]],
 ) -> tuple[int, bool]:
-    """Migrate, purge, then seed the ARIEL logbook. Returns (seeded, purged).
+    """Migrate, purge, migrate again, then seed the ARIEL logbook. Returns (seeded, purged).
 
     Migrate first so the schema exists before the purge truncates it; purge so
     the seeded narrative is the only narrative (no stale incident bleed-through).
+    The purge drops the text and image embedding tables, and a running ingest
+    watcher only re-migrates while it has busy migrations to retry, so a second
+    migrate recreates them here: picture and vector search work on the reseeded
+    logbook without a manual ``osprey ariel migrate``.
     """
     from osprey.services.ariel_search.cli_operations import (
         execute_purge,
@@ -1741,6 +1905,7 @@ async def _seed_logbook(
 
     await run_migrate(ariel_config)
     await execute_purge(ariel_config, embeddings_only=False)
-    seeded = await seed_logbook_entries(ariel_config, entries)
+    await run_migrate(ariel_config)
+    seeded = await seed_logbook_entries(ariel_config, entries, pictures=pictures)
     await _export_qmd_mirror(ariel_config)
     return seeded, True

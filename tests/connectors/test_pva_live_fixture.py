@@ -317,7 +317,7 @@ async def _connector(port: int, timeout: float = READ_TIMEOUT_S):
     connector = EPICSConnector()
     await connector.connect(
         {
-            "timeout": timeout,
+            "timeout_s": timeout,
             "pva_channels": [PVA_GLOB],
             "pva_gateway": {
                 "address": "127.0.0.1",

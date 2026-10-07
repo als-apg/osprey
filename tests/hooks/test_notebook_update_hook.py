@@ -400,3 +400,32 @@ def test_activity_request_targets_the_configured_web_port(hook_module, monkeypat
     request = hook._activity_request("scan.ipynb")
 
     assert request.full_url == "http://127.0.0.1:10999/api/agent-activity"
+
+
+def test_notebooks_edit_under_a_relocated_root_posts_one_activity_frame(
+    tmp_path, monkeypatch, run_notebook_update_hook, activity_server
+):
+    """The badge follows a relocated ``agent_data.base_dir``."""
+    port, received = activity_server
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(port))
+    (tmp_path / "config.yml").write_text("agent_data:\n  base_dir: relocated/agent_data\n")
+    nb_path = tmp_path / "relocated/agent_data" / NOTEBOOKS_SUBDIR / "scan.ipynb"
+    nb_path.parent.mkdir(parents=True)
+    nb_path.write_text("{}")
+
+    run_notebook_update_hook({"notebook_path": str(nb_path)}, cwd=tmp_path)
+
+    assert len(received) == 1
+    assert received[0]["body"]["target"]["detail"] == "scan.ipynb"
+
+
+def test_guard_and_badge_resolve_one_notebooks_tree(tmp_path, hook_module):
+    """The memory guard and the badge answer the same notebooks tree."""
+    (tmp_path / "config.yml").write_text("agent_data:\n  base_dir: relocated/agent_data\n")
+    hi = {"cwd": str(tmp_path)}
+
+    guard = hook_module("osprey_memory_guard").resolve_agent_data_subdirs(hi, "notebooks")
+    badge = hook_module("osprey_notebook_update").resolve_notebooks_dirs(hi)
+
+    assert guard == badge
+    assert guard == [(tmp_path / "relocated/agent_data/notebooks").resolve()]

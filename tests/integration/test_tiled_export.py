@@ -37,6 +37,7 @@ from __future__ import annotations
 import io
 import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import httpx
@@ -430,6 +431,9 @@ def test_the_read_path_keeps_a_waveform_a_waveform_through_the_client() -> None:
     Driven both ways against the real catalog so the claim is a measurement and
     not a citation: with the option on, the cell is text; with it off — which is
     how `_primary_table` reads — it is the array the run wrote.
+
+    Both reads compute on a pool this test owns and closes, so dask's
+    process-wide default pool is never started.
     """
     import dask
 
@@ -439,11 +443,12 @@ def test_the_read_path_keeps_a_waveform_a_waveform_through_the_client() -> None:
         "internal"
     ]
 
-    with dask.config.set({"dataframe.convert-string": True}):
-        assert part.read(["det_wave"])["det_wave"].iloc[0] == str(WAVEFORM)
+    with ThreadPoolExecutor(thread_name_prefix="dask-read") as pool, dask.config.set(pool=pool):
+        with dask.config.set({"dataframe.convert-string": True}):
+            assert part.read(["det_wave"])["det_wave"].iloc[0] == str(WAVEFORM)
 
-    with dask.config.set({"dataframe.convert-string": False}):
-        kept = part.read(["det_wave"])["det_wave"].iloc[0]
+        with dask.config.set({"dataframe.convert-string": False}):
+            kept = part.read(["det_wave"])["det_wave"].iloc[0]
     assert np.array_equal(kept, WAVEFORM)
 
 

@@ -1,0 +1,1 @@
+The build's warning about unrecognized repo-root entries no longer says nothing copies them: it says they stay out of the rendered project and still travel in every container image. The repository's own `CLAUDE.md` and `CLAUDE.local.md` no longer trigger it.

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from osprey.services.ariel_search.search._offload import run_search_call
 from osprey.services.ariel_search.search.base import (
     ModuleOutput,
     ParameterDescriptor,
@@ -20,7 +21,7 @@ from osprey.services.ariel_search.search.base import (
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from osprey.models.embeddings.base import BaseEmbeddingProvider
+    from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
@@ -32,6 +33,100 @@ DEFAULT_SIMILARITY_THRESHOLD = 0.5
 
 #: Config block the semantic knobs are read from.
 _SETTINGS_PREFIX = "search_modules.semantic.settings"
+
+#: Config keys a query's embedding provider can come from, highest precedence first.
+SEMANTIC_PROVIDER_KEY = "ariel.search_modules.semantic.provider"
+TEXT_EMBEDDING_PROVIDER_KEY = "ariel.enhancement_modules.text_embedding.provider"
+EMBEDDING_PROVIDER_KEY = "ariel.embedding.provider"
+
+
+def semantic_provider(config: ARIELConfig) -> tuple[str | dict[str, Any], str]:
+    """Name the provider that embeds a semantic-search query, and where it came from.
+
+    A query must be embedded by the provider that built the table it searches,
+    so the text-embedding module's provider outranks the deployment-wide
+    default: ``search_modules.semantic.provider`` >
+    ``enhancement_modules.text_embedding.provider`` > ``embedding.provider``
+    (which defaults to ``ollama``).
+
+    Args:
+        config: The loaded ARIEL configuration.
+
+    Returns:
+        ``(provider, config key it came from)``; the provider is a name or an
+        inline ``{name, base_url, api_key}`` mapping, as configured. The key is
+        what an operator edits to change the provider, so errors about the
+        provider name it. :func:`semantic_provider_class` resolves its class.
+    """
+    semantic = config.search_modules.get("semantic")
+    if semantic is not None and semantic.provider:
+        return semantic.provider, SEMANTIC_PROVIDER_KEY
+    text_embedding = config.enhancement_modules.get("text_embedding")
+    if text_embedding is not None and text_embedding.provider:
+        return text_embedding.provider, TEXT_EMBEDDING_PROVIDER_KEY
+    return config.embedding.provider, EMBEDDING_PROVIDER_KEY
+
+
+def semantic_provider_class(config: ARIELConfig) -> type[BaseProvider]:
+    """The adapter class of the provider :func:`semantic_provider` names.
+
+    Class resolution only: no configuration file read and no network I/O.
+
+    Raises:
+        ModuleConfigError: If the provider is unknown or serves no embeddings;
+            the message names the config key the provider came from.
+    """
+    from osprey.services.ariel_search.enhancement.provider_resolver import (
+        resolve_provider_class,
+    )
+
+    provider, key = semantic_provider(config)
+    return resolve_provider_class(provider, provider_key=key, default="ollama")
+
+
+def _embed_query(
+    embedder: BaseProvider,
+    text: str,
+    model_name: str,
+    configured_base_url: str | None,
+    api_key: str | None,
+    embed_kwargs: dict[str, Any],
+) -> list[list[float]]:
+    """Find the reachable server, then embed *text*; blocking, run on the search pool."""
+    from osprey.services.ariel_search.enhancement.provider_resolver import (
+        resolve_reachable_base_url,
+    )
+
+    base_url = configured_base_url
+    if base_url is not None:
+        base_url = resolve_reachable_base_url(type(embedder), base_url)
+    return embedder.execute_embedding(
+        texts=[text],
+        model_id=model_name,
+        base_url=base_url,
+        api_key=api_key,
+        **embed_kwargs,
+    )
+
+
+def _query_dimension(config: ARIELConfig, model_name: str) -> int | None:
+    """The vector length stored in the table *model_name* searches.
+
+    Read from the ``text_embedding`` model entry of that name, else from
+    ``search_modules.semantic.settings.embedding_dimension``.
+    """
+    text_embedding = config.enhancement_modules.get("text_embedding")
+    if text_embedding is not None:
+        for model in text_embedding.models or []:
+            if model.name == model_name:
+                return model.dimension
+    semantic = config.search_modules.get("semantic")
+    settings = semantic.settings if semantic is not None else None
+    if isinstance(settings, dict):
+        dimension = settings.get("embedding_dimension")
+        if isinstance(dimension, int) and not isinstance(dimension, bool):
+            return dimension
+    return None
 
 
 @dataclass(frozen=True)
@@ -91,8 +186,9 @@ async def semantic_search(
     query: str,
     repository: ARIELRepository,
     config: ARIELConfig,
-    embedder: BaseEmbeddingProvider,
+    embedder: BaseProvider,
     *,
+    provider_config: dict[str, Any] | None = None,
     max_results: int = 10,
     similarity_threshold: float | None = None,
     start_date: datetime | None = None,
@@ -111,7 +207,11 @@ async def semantic_search(
         query: Natural language query
         repository: ARIEL database repository
         config: ARIEL configuration
-        embedder: Embedding provider (Ollama or other)
+        embedder: The embedding provider adapter instance. Its class supplies
+            the base-URL rule and whether vectors are cut to the table's length.
+        provider_config: The provider's ``api.providers`` entry (``api_key``,
+            ``base_url``). ``None`` resolves it from the provider
+            :func:`semantic_provider` names.
         max_results: Maximum entries to return (default: 10)
         similarity_threshold: Minimum similarity score (default: 0.5).
             Can be overridden per-query, then falls back to config,
@@ -154,32 +254,33 @@ async def semantic_search(
         logger.warning("No semantic search model configured")
         return module_result([], query_expansion)
 
-    # Priority: search module provider > embedding provider > default
-    provider_name = (
-        (semantic_config.provider if semantic_config else None)
-        or config.embedding.provider
-        or "ollama"
-    )
+    if provider_config is None:
+        from osprey.services.ariel_search.enhancement.provider_resolver import (
+            provider_settings,
+        )
 
-    try:
-        from osprey.models.config import get_provider_config
+        provider, provider_key = semantic_provider(config)
+        _, raw_base_url, api_key = provider_settings(
+            provider, provider_key=provider_key, default="ollama"
+        )
+    else:
+        raw_base_url = provider_config.get("base_url")
+        api_key = provider_config.get("api_key")
 
-        provider_config = get_provider_config(provider_name)
-    except FileNotFoundError:
-        logger.debug(f"No config.yml found, using empty provider config for '{provider_name}'")
-        provider_config = {}
-
-    base_url = provider_config.get("base_url") or embedder.default_base_url
-    api_key = provider_config.get("api_key")
+    provider_cls = type(embedder)
+    base_url = provider_cls.effective_base_url(raw_base_url)
 
     embed_text = query_expansion.flattened_text if query_expansion else query
 
+    embed_kwargs: dict[str, Any] = {}
+    if provider_cls.truncates_to_dimensions:
+        dimension = _query_dimension(config, model_name)
+        if dimension is not None:
+            embed_kwargs["dimensions"] = dimension
+
     try:
-        embeddings = embedder.execute_embedding(
-            texts=[embed_text],
-            model_id=model_name,
-            base_url=base_url,
-            api_key=api_key,
+        embeddings = await run_search_call(
+            _embed_query, embedder, embed_text, model_name, base_url, api_key, embed_kwargs
         )
         if not embeddings or not embeddings[0]:
             logger.error("Failed to generate query embedding")

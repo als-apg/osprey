@@ -29,12 +29,16 @@ from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_M
 _SRC = str(Path(__file__).resolve().parents[1] / "src")
 
 
-def _fresh_import_modules(module: str, allowed: set[str]) -> list[str]:
+def _fresh_import_modules(
+    module: str, allowed: set[str], *, already_imported: tuple[str, ...] = ()
+) -> list[str]:
     """Return the non-stdlib ``osprey`` modules a fresh import of ``module`` adds.
 
     Args:
         module: Dotted name to import in a child interpreter.
         allowed: Module names the import may add without being reported.
+        already_imported: Modules the child imports before it takes the baseline,
+            so their own import graph is not counted against ``module``.
 
     Returns:
         The offending module names, sorted — empty when the import stays
@@ -43,8 +47,10 @@ def _fresh_import_modules(module: str, allowed: set[str]) -> list[str]:
     Raises:
         AssertionError: If the child interpreter fails to import the module.
     """
+    preload = "".join(f"import {name};" for name in already_imported)
     code = (
         "import json, sys;"
+        f"{preload}"
         "before = set(sys.modules);"
         f"import {module};"
         f"allowed = {sorted(allowed)!r};"
@@ -71,13 +77,14 @@ def test_defaults_are_the_documented_pair():
 def test_the_leaf_imports_nothing_from_osprey():
     """Importing the defaults costs the package ``__init__`` and nothing more.
 
-    The parent package ``__init__`` runs for any submodule import and pulls in
-    ``osprey`` and ``osprey.version``; those two and the module itself are the
-    only ``osprey`` names the import may add.
+    The parent package ``__init__`` runs for any submodule import, and what it
+    imports is the package's own cost. The child imports ``osprey`` before the
+    baseline, so the module itself is the only name the import may add.
     """
     offenders = _fresh_import_modules(
         "osprey.dispatch_pool_defaults",
-        {"osprey", "osprey.version", "osprey.dispatch_pool_defaults"},
+        {"osprey.dispatch_pool_defaults"},
+        already_imported=("osprey",),
     )
     assert offenders == []
 

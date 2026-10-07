@@ -547,6 +547,96 @@ class TestDeleteEntry:
             unregister_artifact_delete_listener(received.append)
 
 
+class TestDeleteEntries:
+    """Tests for ArtifactStore.delete_entries()."""
+
+    @staticmethod
+    def _three(store):
+        return [
+            store.save_file(
+                file_content=f"<p>{i}</p>".encode(),
+                filename=f"e{i}.html",
+                artifact_type="html",
+                title=f"Entry {i}",
+                mime_type="text/html",
+                tool_source="test",
+            )
+            for i in range(3)
+        ]
+
+    def test_deletes_only_the_listed_ids(self, tmp_path):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        a, b, c = self._three(store)
+        paths = {e.id: store.get_file_path(e.id) for e in (a, b, c)}
+
+        removed = store.delete_entries([a.id, c.id])
+
+        assert [e.id for e in removed] == [a.id, c.id]
+        assert store.get_entry(a.id) is None
+        assert store.get_entry(c.id) is None
+        assert store.get_entry(b.id) is not None
+        assert paths[b.id].exists()
+        assert not paths[a.id].exists()
+        assert not paths[c.id].exists()
+
+    def test_unknown_ids_are_ignored(self, tmp_path):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        a, b, _ = self._three(store)
+
+        removed = store.delete_entries([a.id, "nope"])
+
+        assert [e.id for e in removed] == [a.id]
+        assert store.get_entry(b.id) is not None
+
+    def test_fires_the_delete_listener_once_per_entry(self, tmp_path):
+        from osprey.stores.artifact_store import (
+            ArtifactStore,
+            register_artifact_delete_listener,
+            unregister_artifact_delete_listener,
+        )
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        a, b, _ = self._three(store)
+
+        received: list = []
+        register_artifact_delete_listener(received.append)
+        try:
+            store.delete_entries([a.id, b.id])
+            assert sorted(e.id for e in received) == sorted([a.id, b.id])
+        finally:
+            unregister_artifact_delete_listener(received.append)
+
+    def test_rewrites_the_index_once(self, tmp_path, monkeypatch):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        a, b, _ = self._three(store)
+
+        calls = []
+        original = store._save_index
+
+        def counting(*args, **kwargs):
+            calls.append(1)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(store, "_save_index", counting)
+        store.delete_entries([a.id, b.id])
+        assert len(calls) == 1
+
+    def test_empty_list_deletes_nothing(self, tmp_path):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        self._three(store)
+
+        assert store.delete_entries([]) == []
+        assert len(store.list_entries()) == 3
+
+
 class TestUpdateEntryMetadata:
     """Tests for BaseStore.update_entry_metadata()."""
 

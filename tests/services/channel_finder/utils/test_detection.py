@@ -16,7 +16,10 @@ import pytest
 
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
-from osprey.services.channel_finder.utils.detection import detect_pipeline_config
+from osprey.services.channel_finder.utils.detection import (
+    configured_database,
+    detect_pipeline_config,
+)
 
 #: The paradigms whose store is a database file, so the ones auto-detection can
 #: probe and the ones an explicit mode resolves to a ``database`` config block.
@@ -200,3 +203,18 @@ class TestUnknownPipelineMode:
         cfg["channel_finder"]["pipeline_mode"] = mode
         ptype, _db_cfg = detect_pipeline_config(cfg)
         assert ptype == other
+
+
+class TestConfiguredDatabase:
+    """``configured_database`` reads one paradigm's block whatever the mode says."""
+
+    @pytest.mark.parametrize("paradigm", FILE_PARADIGMS)
+    def test_returns_the_named_paradigms_block(self, paradigm):
+        cfg = _cfg(**{p: _db(f"/data/{p}.json") for p in FILE_PARADIGMS})
+        cfg["channel_finder"]["pipeline_mode"] = "graph"
+        assert configured_database(cfg, paradigm) == {"path": f"/data/{paradigm}.json"}
+
+    def test_unset_paradigm_is_an_empty_block(self):
+        cfg = _cfg(in_context=_db("/data/ctx.json"))
+        assert configured_database(cfg, "hierarchical") == {}
+        assert configured_database({}, "hierarchical") == {}

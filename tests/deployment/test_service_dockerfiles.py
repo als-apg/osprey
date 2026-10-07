@@ -498,7 +498,7 @@ def test_event_dispatcher_has_no_third_party_node_apt_repo():
 def test_event_dispatcher_keeps_npm_in_the_final_image():
     """npm is a runtime dependency, not a build-time convenience: the worker
     launches the agent as ``npx -y @anthropic-ai/claude-code@<version>``
-    (claude_launcher.py). The deps layer's own toolchain purge is asserted
+    (agent_runner/launcher.py). The deps layer's own toolchain purge is asserted
     elsewhere; what must not appear is a purge in *this* layer."""
     text = _dockerfile("event_dispatcher")
     node = _run_instruction_source(text, "nodejs")

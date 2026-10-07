@@ -502,8 +502,8 @@ def test_a_kernel_follows_a_switch_between_two_iocs_and_exits_promptly(tmp_path)
                         "type": "epics",
                         "writes_enabled": True,
                         "connector": {
-                            "epics": {"timeout": 5.0, "gateways": gateways(machine.port)},
-                            "live_standin": {"timeout": 5.0, "gateways": gateways(standin.port)},
+                            "epics": {"timeout_s": 5.0, "gateways": gateways(machine.port)},
+                            "live_standin": {"timeout_s": 5.0, "gateways": gateways(standin.port)},
                         },
                     }
                 }

@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 
+from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.interfaces import common_middleware
 from osprey.interfaces.common_middleware import (
     EXEMPT_PATHS,
@@ -782,6 +783,29 @@ def test_an_origin_refusal_names_both_origins_in_the_log(middleware, app_stub, m
     assert "PATCH" in message
     assert "/api/config" in message
     assert OPERATOR_SECRET not in message
+
+
+@pytest.mark.usefixtures("credentials")
+def test_an_origin_refusal_names_the_one_origin_limit_and_links_it(
+    middleware, app_stub, monkeypatch, caplog
+):
+    """The refusal enforces a documented limit, so the log line names it and
+    links where it is stated."""
+    monkeypatch.setenv(EXTERNAL_ORIGIN_ENV, "https://osprey.example.org")
+    headers = {
+        OPERATOR_SECRET_HEADER: OPERATOR_SECRET,
+        "host": "web-terminal-alice:10100",
+        "origin": "https://evil.test",
+    }
+    with caplog.at_level(logging.WARNING, logger=MIDDLEWARE_LOGGER):
+        sent = drive(middleware, http_scope("/api/config", "PATCH", headers, app=app_stub))
+
+    assert status_of(sent) == 403
+    records = [record for record in caplog.records if record.name == MIDDLEWARE_LOGGER]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert "one origin only" in message
+    assert PERIMETER_LIMITS_URL in message
 
 
 def test_an_absent_origin_refusal_names_sec_fetch_site(
