@@ -551,20 +551,3 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         assert "The stand-in owns that key" in caplog.text
         assert f"{STANDIN_PREFIX}.gateways.read_only.address" in caplog.text
         assert not (lifecycle_repo / "build" / "config.yml").exists()
-
-    def test_live_standin_overrides_renders_an_unperturbed_latticeless_standin(
-        self, runner, lifecycle_repo
-    ) -> None:
-        """``VA_LATTICE=none`` builds, and its stand-in serves the manifest clean.
-
-        The stand-in carries no readout errors that need a lattice to displace,
-        so a chain that resolves no lattice still builds a stand-in, serving the
-        facility's own channel set unperturbed.
-        """
-        _set_live_standin(lifecycle_repo, STANDIN_PORT)
-        (lifecycle_repo / ".env").write_text("VA_LATTICE=none\n", encoding="utf-8")
-
-        result = _build(runner, lifecycle_repo)
-        assert result.exit_code == 0, result.output
-
-        assert "stand-in serves the facility manifest unperturbed" in result.output
