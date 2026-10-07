@@ -11,8 +11,8 @@
 # model RPC on PVAccess.
 #
 # Build context MUST be a staging directory containing exactly:
-#   pyproject.toml, README.md, src/, docker/virtual-accelerator/Containerfile
-# (see scripts/va/run_va.sh / build_and_boot_check.sh, which stage it) --
+#   pyproject.toml, README.md, src/, packages/, docker/virtual-accelerator/Containerfile
+# (see scripts/va/build_and_boot_check.sh, which stages it) --
 # NOT the repo root, which also contains .venv/.git/worktrees and would
 # make every build re-tar gigabytes of unrelated content.
 #
@@ -44,9 +44,7 @@ RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
 # package, so no separate COPY of a docker/virtual-accelerator source tree
 # is needed. Built from the source copied in below -- never from PyPI -- so
 # the image always matches whatever checkout produced it (this feature may
-# not be released yet). manifest/paths.py locates the channel-finder DB JSON
-# files via the installed ``osprey.templates`` package location, so this
-# works with this plain (non-editable) install.
+# not be released yet).
 WORKDIR /opt/osprey
 COPY pyproject.toml README.md /opt/osprey/
 COPY src/ /opt/osprey/src/

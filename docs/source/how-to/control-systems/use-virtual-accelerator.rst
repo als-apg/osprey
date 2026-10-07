@@ -348,35 +348,6 @@ without a build, so no deploy rebuilds it from OSPREY's recipe.
 image has to be on the host or pullable where it is named;
 :ref:`deployment-image-builds` says when each start builds.
 
-Running from a source checkout
-==============================
-
-If you are working from an OSPREY **source checkout** rather than a generated
-project — developing the Virtual Accelerator itself, or running it without
-deploying a stack — launch the container directly:
-
-.. code-block:: bash
-
-   ./scripts/va/run_va.sh [DATA_DIR]
-
-The image is defined under ``docker/virtual-accelerator/``; see its
-``README.md`` for build details. The script builds the image if it is missing
-(``OSPREY_VA_REBUILD=1`` forces a rebuild) and runs in the foreground.
-
-.. warning::
-
-   ``DATA_DIR`` is the ``data/simulation`` **directory** (never a single file)
-   that the container mounts read-only. It defaults to the *packaged preset's*
-   copy, **not** your project — so with no argument, ``osprey sim apply`` in
-   your project writes a scenario file the running IOC never sees. Pass your
-   project's directory explicitly to use its scenarios (the script then also
-   mounts the project's ``var/agent_data/simulation`` state directory, which is what
-   makes scenario switches reach the IOC):
-
-   .. code-block:: bash
-
-      ./scripts/va/run_va.sh ~/my-project/data/simulation
-
 Scenarios
 =========
 
@@ -392,8 +363,7 @@ values are reset.)
 The container mounts two of the project's directories: ``data/simulation`` for
 the machine model (rebuilt from your profile on every build) and
 ``var/agent_data/simulation`` for that scenario state (written while the system
-runs). Both are automatic for the deployed service; if you launched the
-container by hand, see the warning under `Running from a source checkout`_.
+runs). Both are automatic for the deployed service.
 
 What a scenario may contain, how scenarios compose, and what ``osprey sim
 apply`` refuses is in :doc:`/how-to/run-scenarios`.
