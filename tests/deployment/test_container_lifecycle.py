@@ -3910,9 +3910,10 @@ def test_reapply_anchors_on_the_persisted_t0_not_a_fresh_one(monkeypatch, tmp_pa
 def _active_in_the_view(monkeypatch, names: list[str]) -> None:
     """A render whose simulator view exists and whose state file records ``names``."""
     from osprey.simulation import apply as apply_mod
+    from osprey_connectors.simulation import state as state_mod
 
     monkeypatch.setattr(apply_mod, "view_scenarios", lambda project_dir: {})
-    monkeypatch.setattr(apply_mod, "_active_state", lambda config, project_dir: (names, None))
+    monkeypatch.setattr(state_mod, "read_active_state", lambda state_dir: (names, None))
 
 
 def test_seed_inputs_are_the_archive_composite_of_the_render_s_simulator_view(tmp_path):

@@ -415,9 +415,10 @@ screen-capture-linux = [
 # must therefore stay marked together; marking one alone does nothing.
 #
 # The cost of the marker is that `import lume_pva_apg` is unavailable on a Mac
-# too. That costs nothing real: `serving/runner.py` imports pcaspy first, so it
-# is unimportable on those hosts regardless of what else is installed, and the
-# suites that reach it already treat all three server roots the same way.
+# too. That costs nothing real: `serving/runner.py` imports `lume_pva_apg.runner`,
+# which imports pcaspy, so it is unimportable on those hosts regardless of what
+# else is installed, and the suites that reach it already treat all three server
+# roots the same way.
 virtual-accelerator = [
     "pcaspy>=0.8.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "lume-pva-apg[ca,pva]==0.1.5; sys_platform == 'linux' and platform_machine == 'x86_64'",

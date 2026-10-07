@@ -1,7 +1,8 @@
-"""Core of ``osprey scaffold pull`` — copying packaged app-template content out.
+"""Core of ``osprey scaffold pull`` — copying a preset's packaged content out.
 
-A deployment starts from a packaged app template, and everything in that
-template is a starting point rather than a fixture: a facility replaces the
+A deployment starts from a preset's packaged content — the app template's
+``data/`` and the facility the preset names, landing under ``data/facility/`` —
+and all of it is a starting point rather than a fixture: a facility replaces the
 example knowledge base with its own, keeps the channel-database examples as a
 shape reference, and adds to the web-terminal context. ``scaffold pull`` is how
 that content leaves the installation and lands in a deployment repo where it can

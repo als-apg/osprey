@@ -1421,9 +1421,13 @@ build** and prints the valid set:
        into a successful one.
    * - ``settle_tolerance``
      - How close the readback must come to the demand to count as settled, as
-       an absolute difference (default ``1e-9``). The default is a float-noise
-       bound, right for a setpoint a controller echoes back exactly and far
-       too strict for a magnet or a gap.
+       an absolute difference (default ``1e-9``). This is the floor for every
+       device. A device whose readback declares motion in the facility file
+       (``noise``, ``drift``) settles within that motion's band,
+       ``|drift.amplitude| + 6 × |noise|``, whenever the band is wider than the
+       floor; the build writes the band into the device file. The default is a
+       float-noise bound, right for a readback with no declared motion that a
+       controller echoes back exactly.
    * - ``live_max_runs``
      - How many runs' live data the bridge keeps in memory, oldest dropped
        first (default 50). This is what decides how long a finished run stays

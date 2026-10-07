@@ -162,10 +162,13 @@ until it reaches the demand. Two profile keys bound that wait:
 ``bluesky.settle_timeout_s`` (default 5.0 seconds) is how long the poll runs
 before the move fails and the plan aborts, and ``bluesky.settle_tolerance``
 (default ``1e-9``) is how close the readback must come, as an absolute
-difference. The defaults suit a setpoint a controller echoes back exactly; a
-device that physically moves — a magnet, an insertion-device gap — needs both
-raised. Running out of budget always fails the plan: neither key can turn an
-unsettled move into a successful one.
+difference. The tolerance is a floor: a device whose readback declares motion
+in the facility file settles within that motion's band
+(``|drift.amplitude| + 6 × |noise|``), which the build writes into the device
+file, so only a device whose readback declares no motion and still physically
+moves needs ``settle_tolerance`` raised, and a slow device needs
+``settle_timeout_s`` raised. Running out of budget always fails the plan:
+neither key can turn an unsettled move into a successful one.
 
 A deployment pointed at the ``mock`` control system drives no channels, so its
 queue server comes up able to browse and describe plans and to run none of

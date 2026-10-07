@@ -24,7 +24,6 @@ from __future__ import annotations
 import inspect
 import json
 import os
-import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -629,8 +628,8 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 # view lists every scenario with its blocks in ``data/simulator/scenarios.json``
 # and copies its attached files under ``data/simulator/scenarios/<name>/``. Left alone, the cheapest route to a correct
 # answer is to search the tree and read the answer key, which produces a right
-# answer by a route that proves nothing about the capability under test. The two
-# helpers below close that route from both ends.
+# answer by a route that proves nothing about the capability under test. The
+# disallowed-tools list below closes the search route.
 # ---------------------------------------------------------------------------
 
 # Generic filesystem-search tools, forbidden at the SDK level for the duration
@@ -645,89 +644,9 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 #
 # ``Read`` is deliberately NOT in this list: ``data-visualizer`` and
 # ``pyat-specialist`` declare it for agent-data artifacts, and disallowing
-# a tool strips it from subagents too. Concealing the answer key (below) is what
-# makes a bare ``Read`` harmless; this list is what stops the agent from finding
-# anything worth reading in the first place.
+# a tool strips it from subagents too. This list is what stops the agent from
+# finding anything worth reading in the first place.
 SCENARIO_INTEGRITY_DISALLOWED_TOOLS = ["Bash", "Glob", "Grep"]
-
-
-def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
-    """Delete the named scenarios' definitions from the deployment repo.
-
-    Takes the REPO ROOT and scrubs every copy of a scenario's answer key: the
-    facility's ``<name>.yaml`` and ``<name>/`` under ``<repo>/data/facility/
-    scenarios`` and the render's ``build/data/facility/scenarios``, the
-    simulator view's ``build/data/simulator/scenarios/<name>/`` files, and the
-    scenario's entry in the view's ``scenarios.json``. Leaving any would leave
-    the answer key one ``Read`` away.
-
-    Call AFTER every setup step that consumes the scenario (``activate_scenarios``
-    for logbook seeding, ``osprey up`` for a stack whose containers carry their
-    own copy of the view) and BEFORE the agent session starts. Also drops the
-    names from the live ``var/agent_data/simulation/active_scenarios`` state
-    file (the location :func:`activate_scenario` writes), since the name itself
-    is a hint.
-
-    ONLY valid for a scenario whose runtime effect is already materialized
-    somewhere the host's render is not, such as a running container's own view.
-    A mock-connector scenario reads the host's view on every tick, so deleting
-    it would delete the symptom. Those suites rely on
-    :data:`SCENARIO_INTEGRITY_DISALLOWED_TOOLS` alone.
-
-    Raises:
-        AssertionError: if a named scenario is not listed in the view (template
-            drift — the caller believes it concealed something it did not).
-    """
-    facility_dirs = (
-        Path(repo) / "data" / "facility" / "scenarios",
-        render_dir(repo) / "data" / "facility" / "scenarios",
-    )
-    view = render_dir(repo) / "data" / "simulator"
-    listing = view / "scenarios.json"
-    document = json.loads(listing.read_text(encoding="utf-8"))
-    listed = {str(entry["name"]) for entry in document["scenarios"]}
-    for name in scenarios:
-        assert name in listed, (
-            f"no scenario {name!r} in {listing} to conceal — the view layout may have "
-            "changed; the benchmark's answer key would stay readable by the agent"
-        )
-    document["scenarios"] = [
-        entry for entry in document["scenarios"] if str(entry["name"]) not in scenarios
-    ]
-    listing.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    for name in scenarios:
-        for directory in (*facility_dirs, view / "scenarios"):
-            (directory / f"{name}.yaml").unlink(missing_ok=True)
-            shutil.rmtree(directory / name, ignore_errors=True)
-
-    # The live state file activate_scenario writes. It must EXIST — a silent
-    # skip here is how a state-file relocation once left the answer key
-    # agent-readable while this helper reported success.
-    state_dir = agent_data_dir(repo) / "simulation"
-    live_state = state_dir / "active_scenarios"
-    assert live_state.is_file(), (
-        f"no active-scenarios state file at {live_state} — the state-file "
-        "location moved again; update this helper or the answer key stays "
-        "readable by the agent"
-    )
-    kept = [
-        line
-        for line in live_state.read_text(encoding="utf-8").splitlines()
-        if line.strip() not in scenarios
-    ]
-    live_state.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
-
-    # Self-check: prove the concealment rather than assume it. The state dir is
-    # included because Read is deliberately allowed for agent-data artifacts.
-    trees = [tree for tree in (*facility_dirs, view, state_dir) if tree.is_dir()]
-    for name in scenarios:
-        leaked = [
-            p
-            for tree in trees
-            for p in tree.rglob("*")
-            if p.is_file() and name in p.read_text(encoding="utf-8", errors="ignore")
-        ]
-        assert not leaked, f"scenario {name!r} still readable from the agent's tree: {leaked}"
 
 
 def promote_ask_to_allow(repo: Path, *tools: str) -> None:
