@@ -92,6 +92,7 @@ import yaml
 
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._motion_bands import served_settle_bands
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
@@ -184,11 +185,10 @@ NUM_POINTS = 2
 AXIS_START_FRACTION = 0.6
 AXIS_STOP_FRACTION = 0.8
 
-#: Tolerance for comparing two CA reads of the same unmoved channel. The VA
-#: serves doubles and nothing writes between the two reads, so this is float
-#: formatting slack, not a physics tolerance (same value the sibling proofs
-#: use for their sp-echo equality assertions).
-READ_TOLERANCE = 1e-6
+#: The floor under a readback's settle band. A reading whose seed declares no
+#: motion has a band of 0.0, and the VA serves doubles over CA, so this is
+#: float formatting slack, not a physics tolerance.
+FLOAT_FORMAT_SLACK = 1e-6
 
 _QUEUE_CLIENT_ID = "preflight-probe-e2e"
 
@@ -446,9 +446,14 @@ def test_a_plan_naming_an_unserved_channel_is_refused_before_motion(
     )
 
     start, stop = preflight_stack.axis()
-    before = _host_read(preflight_stack.repo, preflight_stack.corrector_readback)
-    assert min(abs(before - start), abs(before - stop)) > READ_TOLERANCE, (
-        f"{preflight_stack.corrector_readback} already reads {before}, which is one of the "
+    readback = preflight_stack.corrector_readback
+    # The readback serves the value it holds plus the motion its seed declares:
+    # one read lies within `band` of that value, two reads within `2 * band` of
+    # each other.
+    band = max(served_settle_bands(preflight_stack.repo, [readback])[readback], FLOAT_FORMAT_SLACK)
+    before = _host_read(preflight_stack.repo, readback)
+    assert min(abs(before - start), abs(before - stop)) > band, (
+        f"{readback} already reads {before}, within its settle band {band} of one of the "
         f"points this sweep would command ({start}, {stop}) -- 'it did not move' would then "
         f"be true whether or not the gate fired"
     )
@@ -509,11 +514,11 @@ def test_a_plan_naming_an_unserved_channel_is_refused_before_motion(
     )
     # ...and the corrector the sweep would have driven never moved. Read by an
     # independent host-side CA client, not by the bridge under test.
-    after = _host_read(preflight_stack.repo, preflight_stack.corrector_readback)
-    assert abs(after - before) <= READ_TOLERANCE, (
-        f"{preflight_stack.corrector_readback} moved from {before} to {after} across a REFUSED "
-        f"run -- the plan was stopped after it had already applied a setpoint, which is the "
-        f"partially-executed run this gate exists to prevent"
+    after = _host_read(preflight_stack.repo, readback)
+    assert abs(after - before) <= 2 * band, (
+        f"{readback} moved from {before} to {after}, more than twice its settle band {band}, "
+        f"across a REFUSED run -- the plan was stopped after it had already applied a "
+        f"setpoint, which is the partially-executed run this gate exists to prevent"
     )
 
 
