@@ -258,15 +258,20 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # but the profile states a different value, so the staleness advisory
     # firing on already-deployed projects is the correct signal. Every other
     # preset stands still.
+    # The thirty-fifth move, and four presets: control-assistant lists
+    # `lattice` in `web_panels:`, so a rebuilt project serves the LATTICE tab,
+    # and the readonly, readwrite and admin children inherit it. The knowledge
+    # and logbook children exclude the panel, so their resolved content and
+    # their digests stand still, as do the other three presets.
     "ariel-standalone": ("sha256:31c1eace09974cac6b8dbfc744685b7d8e6f5b9cd58431b04659c79c93d3bb23"),
     "channel-finder-standalone": (
         "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
     ),
     "control-assistant": (
-        "sha256:917738c962e6359206a0f148fd5321169780fcb1bb70d3db7372680d00a9a6b6"
+        "sha256:b4cf0f373a1c95b7a2b50edc393acc3a625cc5f31706222b627bb273439c17b2"
     ),
     "control-assistant-admin": (
-        "sha256:c6dd4d3169d4a7596dae0191971671b179b306a2fb1670fb26c5dae2c196a397"
+        "sha256:473affb7c507fc5f01a20411b04dc66218ebe42dcd322a865529b24adce7e683"
     ),
     "control-assistant-knowledge": (
         "sha256:51b78c4003548ad41b7c84bcb96b8775c90a082ac471dc7a37cc72a753e657f2"
@@ -275,10 +280,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:4bf519a68f0ebc09bf2db4bea7da603bd3ef25f2f6df9f782e0dcbfd9f1c5d17"
     ),
     "control-assistant-readonly": (
-        "sha256:ab5b2ed25a927e7b606038d94d7986f79cf4227e98a700c0486c10b2fff3b3dd"
+        "sha256:0a8716e6c32e0d3107c83a397bb3051f29c1f39134ac23798bb575e5a1a24a6a"
     ),
     "control-assistant-readwrite": (
-        "sha256:3f5e006966c8b9c202f2b449626245178218dbe72015ff32514ea1d50a5db67f"
+        "sha256:2fa39866e02af49b3563e9e5b13100f86815e8ec2bef04b00e288c7216eb102b"
     ),
     "hello-world": ("sha256:d9328877c94d4e066e6bb98e54f38f9bb2918025928ed37f598141c91082c5d7"),
 }

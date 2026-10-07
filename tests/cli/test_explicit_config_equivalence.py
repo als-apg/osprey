@@ -547,6 +547,26 @@ def _picture_module_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _lattice_panel_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The LATTICE tab the control-assistant preset ships.
+
+    The host profile lists ``lattice`` in ``web_panels:``, so the build writes
+    ``web.panels.lattice.enabled: true`` into the root document and every
+    persona that inherits the list without excluding it. The fixtures were
+    frozen before the preset carried the panel.
+
+    Args:
+        documents: The rendered documents that carry the tab.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="web.panels.lattice.enabled", fixture=ABSENT, live=True)
+        for document in documents
+    )
+
+
 def _mcp_health_address_deltas(*documents: str) -> tuple[Delta, ...]:
     """The MCP probe address a render that serves web terminals carries.
 
@@ -1369,6 +1389,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
     + _in_context_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
@@ -1400,6 +1421,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
     + _hierarchical_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
@@ -1431,6 +1453,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
     + _middle_layer_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
@@ -1462,6 +1485,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas(),
 }

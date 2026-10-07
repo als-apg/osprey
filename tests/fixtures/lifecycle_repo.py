@@ -238,13 +238,12 @@ output_styles:
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
+  - lattice         # LATTICE tab, optics of the simulator's served models
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
   - system-health   # SYSTEM tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
   # The events and bluesky panels are declared by the write-armed personas
   # (readwrite and admin) instead, so the read-only login is built without them.
-  # Available — uncomment to enable:
-  # - lattice  # Lattice dashboard
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
@@ -1082,8 +1081,8 @@ config:
   # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
   artifact_server.example_artifact: true
   # osprey:panel-port lattice_dashboard
-  # The LATTICE tab never auto-launches here: it needs this section and
-  # `lattice` in `web_panels:` above.
+  # The LATTICE tab needs no section: with `lattice` in `web_panels:` it
+  # binds its slot. Uncomment only to move it or switch it off.
   # lattice_dashboard.host: 127.0.0.1
   # lattice_dashboard.port: <a port outside this deployment's block>
   # lattice_dashboard.auto_launch: true
@@ -1697,6 +1696,7 @@ exclude:
     - logbook-deep-research
   web_panels:
     - channel-finder
+    - lattice         # Simulator optics belong to the control room
     - okf
     - system-health
     - jupyter         # Notebook kernels read and write through the control target
@@ -1832,6 +1832,7 @@ exclude:
     - pyat-specialist         # Lattice computation needs the Python sandbox
   web_panels:
     - ariel
+    - lattice         # Simulator optics belong to the control room
     - system-health
     - jupyter         # Notebook kernels read and write through the control target
 # The `safety` rule is deliberately NOT excluded. Its tools are gone, so the

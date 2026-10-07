@@ -194,6 +194,14 @@ _RETIRED_PER_DOCUMENT: Mapping[str, frozenset[str]] = {
 }
 
 
+#: Panel switches a preset's selection renders that the frozen renders lack.
+#: ``control-assistant`` lists ``lattice`` in ``web_panels:``, so its root
+#: render carries ``web.panels.lattice.enabled`` and the freeze does not; the
+#: difference is pinned in ``test_explicit_config_equivalence.CELL_DELTAS`` by
+#: ``_lattice_panel_deltas``.
+_PANELS_GAINED_SINCE_THE_FREEZE = frozenset({"web.panels.lattice.enabled"})
+
+
 #: The ARIEL picture-module leaves the presets state; the freeze predates them.
 _PICTURE_MODULE_KEYS = (
     "ariel.attachments.copy_on_ingest",
@@ -354,8 +362,10 @@ def test_root_render_is_partitioned_between_its_sources(
     assert sum(len(members) for members in sets.values()) == len(render)
 
     # The panel-switch term is exactly the field's selection: every selected
-    # panel renders its switch, and nothing else renders one there.
-    assert sets["Panels"] == _panel_switches(document), directory
+    # panel renders its switch, and nothing else renders one there. A panel
+    # the preset gained after the freeze is selected but absent from the render.
+    expected_panels = _panel_switches(document) - _PANELS_GAINED_SINCE_THE_FREEZE
+    assert sets["Panels"] == expected_panels, directory
     assert not {key for key in config if key in sets["Panels"]}
 
     # Every key the preset states reaches the render, save the ones the

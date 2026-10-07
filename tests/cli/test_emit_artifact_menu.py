@@ -21,10 +21,11 @@ def test_catalog_covers_the_six_profile_list_keys() -> None:
     assert "lattice" in panel_names
 
 
-def test_menu_offers_unselected_panels_in_control_assistant() -> None:
-    # control-assistant selects ariel/channel-finder/okf/system-health; lattice is the gap.
-    text = _emit("control-assistant")
-    assert "# - lattice" in text
+def test_menu_offers_unselected_panels() -> None:
+    # ariel-standalone selects only ariel; every other built-in panel is offered.
+    text = _emit("ariel-standalone")
+    for panel in ("channel-finder", "jupyter", "lattice", "okf", "system-health"):
+        assert f"# - {panel}" in text
 
 
 def test_menu_dedupes_against_preset_comment_mentions() -> None:

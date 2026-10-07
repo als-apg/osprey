@@ -271,7 +271,7 @@ def test_the_panels_row_is_the_union_across_personas(exemplar_lines: list[str]) 
     # the order it lists them, then whatever the persona deltas add. JUPYTER
     # follows SYSTEM because the profile lists `jupyter` after `system-health`.
     panels = line_with(exemplar_lines, "panels")
-    assert "ARIEL · CHANNELS · KNOWLEDGE · SYSTEM · JUPYTER · EVENTS · BLUESKY" in panels
+    assert "ARIEL · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · EVENTS · BLUESKY" in panels
 
 
 def test_the_agent_group_names_servers_and_counts_its_toolkit(
