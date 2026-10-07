@@ -333,14 +333,11 @@ def _corrector_sweep_setpoints(params: ORMParams, working_point: float = 0.0) ->
     points followed by the restore in the `finally`.
 
     Driven by a real `RunEngine` with a `msg_hook`, NOT by iterating the
-    generator by hand. The plan's working-point read, walked by hand, runs in
-    bluesky's "list-ify" mode: nothing answers its `read`, so `bps.read`
-    answers `None` and the fallback `bps.rd` silently returns its
-    `default_value` of 0 instead of the device's real value. A hand-walked
-    stream would therefore report a sweep centred on zero no matter what the
-    plan does — it would keep passing against an absolute sweep and pin
-    nothing. The `msg_hook` gets the identical `Msg` stream with a live
-    device on the other end of it.
+    generator by hand. Walked by hand, nothing answers the plan's
+    working-point read: a hand-walked `bps.locate` answers `None`, so the
+    plan cannot even index a working point, let alone sweep about the
+    device's real one. The `msg_hook` gets the identical `Msg` stream with a
+    live device on the other end of it.
     """
     corrector = MockSettable("hcm1", initial_value=working_point)
     devices = asyncio.run(connect_all({"hcm1": corrector, "bpm1": MockReadable("bpm1")}))
@@ -1103,10 +1100,9 @@ def _bump_restore_writes() -> list[tuple[str, float]]:
 def _record_writes(commands: list[tuple[str, float]]) -> Callable[[Any], None]:
     """A `msg_hook` collecting every `(device, value)` the plan commands.
 
-    A `msg_hook` on a live `RunEngine`, not a hand-walked generator: the
-    plan's working-point read, walked by hand, answers from `bps.rd`'s
-    `default_value` of 0 instead of the device, so a hand-walked stream would report working points of zero no
-    matter what the correctors hold — see `_corrector_sweep_setpoints` above.
+    A `msg_hook` on a live `RunEngine`, not a hand-walked generator: a
+    hand-walked `bps.locate` answers `None`, so the plan cannot even index a
+    working point — see `_corrector_sweep_setpoints` above.
     """
 
     def _record(msg: Any) -> None:
@@ -1282,9 +1278,7 @@ def test_bump_plan_restores_every_corrector_when_the_run_is_aborted() -> None:
         if msg.command == "locate":
             return {"setpoint": value, "readback": value}
         if msg.command == "read":
-            return {
-                field: {"value": value, "timestamp": 0.0} for field in msg.obj.hints["fields"]
-            }
+            return {field: {"value": value, "timestamp": 0.0} for field in msg.obj.hints["fields"]}
         return None
 
     reply: Any = None
