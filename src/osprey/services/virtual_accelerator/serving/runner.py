@@ -43,6 +43,7 @@ from osprey.services.virtual_accelerator.serving.model_rpc import (
 )
 from osprey.services.virtual_accelerator.serving.model_surface import ModelSurface
 from osprey.services.virtual_accelerator.serving.runner_config import (
+    HEALTH_KEYS,
     apply_safety,
     chromaticity_addresses,
 )
@@ -175,7 +176,8 @@ class ModelRunner(Runner):
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
     composite as it was. The model RPC's write verbs reply only after a
     publishing pass has run. Every pass that fails is recorded for
-    ``status``.
+    ``status``. Every publishing pass's outcome, success or failure, is
+    recorded in the surface's health record, which ``status`` reports.
     """
 
     def __init__(
@@ -187,6 +189,7 @@ class ModelRunner(Runner):
         model_write_token: str | None,
         tick_interval_s: float | None = None,
         instance: str | None = None,
+        failed_pass_tolerance: int | None = None,
     ) -> None:
         """Serve ``composite``, built from the simulator view ``view`` describes.
 
@@ -200,6 +203,10 @@ class ModelRunner(Runner):
                 ``None`` for none.
             instance: the instance name the model RPC's ``status`` reports,
                 or ``None`` for the host this server answers as.
+            failed_pass_tolerance: how many consecutive failed publishing
+                passes the health record still counts as ``degraded``, or
+                ``None`` for the default of
+                :data:`~osprey.services.virtual_accelerator.serving.runner_config.HEALTH_KEYS`.
         """
         self._addresses_json = addresses_json
         self._instance = instance
@@ -213,6 +220,11 @@ class ModelRunner(Runner):
         config = apply_safety(Runner.generate_config(composite, prefix=""), view)
         if tick_interval_s is not None:
             config["tick_interval_s"] = tick_interval_s
+        config["failed_pass_tolerance"] = (
+            failed_pass_tolerance
+            if failed_pass_tolerance is not None
+            else HEALTH_KEYS["failed_pass_tolerance"]
+        )
         super().__init__(model=composite, config=config)
 
     def first_pass(self) -> str | None:
@@ -248,8 +260,7 @@ class ModelRunner(Runner):
         if self._passes_run == 0:
             self._first_pass_error = error
         self._passes_run += 1
-        if error is not None:
-            self._surface.record_pass_failure(error)
+        self._surface.record_pass(error)
 
     def _cycle_output_names(self) -> list[str]:
         """The roster read after ``model.set``; a write pass leaves the chromaticity out."""
@@ -273,6 +284,7 @@ class ModelRunner(Runner):
             instance=self._instance if self._instance is not None else _instance_name(),
             endpoint=_pva_endpoint(),
             model_write_token=self._model_write_token,
+            failed_pass_tolerance=self.config["failed_pass_tolerance"],
         )
         channel = SharedPV(initial=REPLY_TYPE.wrap(""))
         channel.rpc(self._rpc)

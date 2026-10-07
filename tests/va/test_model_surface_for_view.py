@@ -159,6 +159,7 @@ def _surface(
     token: str | None = TOKEN,
     settings: Mapping[str, Any] | None = None,
     clock: Iterable[float] = (10.0, 12.5),
+    failed_pass_tolerance: int = 3,
 ) -> tuple[ModelSurface, Composite]:
     view, addresses = _view(tmp_path, settings)
     composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: T0)
@@ -168,6 +169,7 @@ def _surface(
         instance="va-1",
         endpoint="va-1:5075",
         model_write_token=token,
+        failed_pass_tolerance=failed_pass_tolerance,
         clock=iter(clock).__next__,
     )
     return surface, composite
@@ -219,17 +221,42 @@ def test_status_carries_the_view_keyset(tmp_path: Path) -> None:
         "uptime_s": 2.5,
         "last_refused_write": None,
         "last_failed_pass": None,
+        "health": {
+            "state": "serving",
+            "last_pass": None,
+            "passes_ok": 0,
+            "passes_failed": 0,
+            "consecutive_failed": 0,
+            "failed_pass_tolerance": 3,
+            "last_failed_pass": None,
+        },
     }
 
 
 def test_a_recorded_pass_failure_is_reported_with_its_uptime(tmp_path: Path) -> None:
     surface, _ = _surface(tmp_path, clock=(10.0, 11.5, 14.0))
-    surface.record_pass_failure("the deck has no stable orbit")
+    surface.record_pass("the deck has no stable orbit")
 
     status = surface.status()
 
     assert status["last_failed_pass"] == {"error": "the deck has no stable orbit", "uptime_s": 1.5}
     assert status["uptime_s"] == 4.0
+
+
+def test_status_answers_from_the_health_record(tmp_path: Path) -> None:
+    surface, _ = _surface(tmp_path, clock=(10.0, 11.0, 12.0, 13.0, 14.0), failed_pass_tolerance=1)
+    surface.record_pass("first")
+    document = surface.record_pass("second")
+    surface.record_pass(None)
+
+    status = surface.status()
+
+    assert document["state"] == "failed"
+    assert status["health"] == surface.health.document()
+    assert status["health"]["state"] == "serving"
+    assert (status["health"]["passes_ok"], status["health"]["passes_failed"]) == (1, 2)
+    assert status["last_failed_pass"] == status["health"]["last_failed_pass"]
+    assert status["last_failed_pass"] == {"error": "second", "uptime_s": 2.0}
 
 
 def test_get_reads_a_served_address_and_a_model_variable(tmp_path: Path) -> None:
