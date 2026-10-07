@@ -15,10 +15,9 @@ this file locks each of them:
 
 * **Baseline anchoring.** The baseline is whatever the Virtual Accelerator
   boots the channel at, drawn from the same two sources the VA itself uses.
-  The per-partition test below reads the shipped channel manifest and machine
-  model and checks the generator against the VA's own serving layer, so a
-  divergence between the two worlds fails here rather than as a phantom step in
-  a deployed archive.
+  The tests below read the shipped machine model and check the generator
+  against the boot values it seeds, so a divergence between the two worlds
+  fails here rather than as a phantom step in a deployed archive.
 
 * **A bounded, noise-scaled envelope.** Seeded history and recorded reality
   meet at a seam; the step across it has to be attributable to noise, not read
@@ -39,7 +38,6 @@ import pytest
 
 from osprey.connectors.channel_taxonomy import classify_channel
 from osprey.services.virtual_accelerator.manifest.loaders import load_machine_json_channels
-from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
 from osprey.simulation.procedural import (
     DEFAULT_NOISE_LEVEL,
     KIND_SHAPES,
@@ -51,7 +49,6 @@ from osprey.simulation.series import epoch_seconds_array
 from tests.simulation.conftest import TEMPLATE_SIM
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = REPO_ROOT / "src/osprey/services/virtual_accelerator/manifest/channel_manifest.json"
 MACHINE = TEMPLATE_SIM / "machine.json"
 
 # A fixed instant, so a failure is reproducible rather than time-of-day
@@ -245,58 +242,13 @@ class TestBaselineAnchoring:
     """
 
     @staticmethod
-    def _manifest_channels() -> list[dict]:
-        return json.loads(MANIFEST.read_text())["channels"]
-
-    @staticmethod
     def _boot_values() -> dict[str, float]:
-        """The map the VA entrypoint derives for ``build_serving_pvdb``."""
+        """The boot values the shipped machine model seeds, by address."""
         return {
             address: entry["value"]
             for address, entry in load_machine_json_channels(MACHINE).items()
             if "value" in entry
         }
-
-    @staticmethod
-    def _va_value(channel: dict, boot_values: dict, served: dict) -> float:
-        """What the VA settles this channel at, by its own three rules.
-
-        Written as the VA's rules rather than as the generator's, so agreement
-        is evidence and not a tautology. ``served`` is the record database the
-        VA builds at boot; it is the authority for the undriven channels, whose
-        boot value is also their steady value. The static-noisy partition is
-        *not* read from it: those records are overwritten by ``EngineSource``
-        within one poll tick, so their boot spec is a value nobody observes.
-        """
-        address = channel["address"]
-        if address in boot_values:
-            return float(boot_values[address])
-        if channel["subfield"] in ("SP", "RB"):
-            return float(served[address]["value"])
-        return classify_channel(address).base_value
-
-    @pytest.mark.parametrize("partition", ["pyat-coupled", "sp-echo", "static-noisy"])
-    def test_baseline_equals_the_value_the_va_settles_the_channel_at(self, partition):
-        """Every analog channel of the partition, not a sample of them.
-
-        The manifest is the deployed channel universe and it is cheap to sweep
-        whole; a sampled version of this test would pass while leaving a
-        fabricated baseline on any channel it skipped.
-        """
-        channels = [c for c in self._manifest_channels() if c["partition"] == partition]
-        assert channels, f"no {partition} channels in the shipped manifest"
-
-        boot_values = self._boot_values()
-        served = build_serving_pvdb(self._manifest_channels(), boot_values=boot_values).pvdb
-
-        analog = [c for c in channels if c["record_type"] == "ai"]
-        assert analog, f"no analog {partition} channels in the shipped manifest"
-
-        for channel in analog:
-            address = channel["address"]
-            assert baseline_value(address, boot_values) == pytest.approx(
-                self._va_value(channel, boot_values, served)
-            ), f"{address} ({partition}) starts somewhere the VA does not"
 
     def test_an_unseeded_setpoint_is_not_given_a_taxonomy_guess(self):
         """The rule the sweep above would let through if it were sampled.
@@ -332,7 +284,7 @@ class TestBaselineAnchoring:
         assert baseline_value(address) == classify_channel(address).base_value
 
     def test_an_unseeded_channel_falls_back_to_the_taxonomy(self):
-        """What the VA's own ``EngineSource`` serves for a modelless channel."""
+        """A channel the machine model does not seed is anchored on its taxonomy value."""
         pv = "BR:DIAG:BPM:01:POSITION:X"
         assert baseline_value(pv, {}) == classify_channel(pv).base_value
         assert baseline_value(pv, None) == classify_channel(pv).base_value
@@ -491,16 +443,3 @@ class TestKindShapes:
         assert abs(profile[0] - profile[-1]) < 0.5 * sigma
         separation = abs(int(np.argmax(profile)) - int(np.argmin(profile)))
         assert abs(separation - bins // 2) <= 2, "extremes are not half a period apart"
-
-
-def test_default_noise_level_matches_what_the_va_serves():
-    """The two halves of a deployed world must assume the same noise.
-
-    The constant is duplicated rather than imported (``osprey.simulation`` must
-    load without the VA service package), so nothing but this assertion keeps
-    the two from drifting apart — and a drift would show up as a seam step
-    between seeded history and recorded reality.
-    """
-    from osprey.services.virtual_accelerator.ioc.engine_source import DEFAULT_NOISE_LEVEL as VA
-
-    assert DEFAULT_NOISE_LEVEL == VA

@@ -134,7 +134,7 @@ class TestStateFileIsReplacedAtomically:
     """The IOC polls this file from a bind mount once a second.
 
     A truncate-in-place write is visible to the reader mid-write; an atomic
-    rename is not. The VA's ``EngineSource`` detects the swap by content, and
+    rename is not. A reader polling the file sees either the old or the new content, and
     the run contract in ``docker/virtual-accelerator/README.md`` promises the
     inode swap is what reaches the container.
     """

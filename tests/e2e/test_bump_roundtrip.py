@@ -4,9 +4,7 @@
 *solves* for what it writes: it measures each corrector's own response, then
 computes the corrector currents that displace the beam at the target BPMs while
 leaving the closure BPMs on the reference orbit. Every other proof of it runs
-in-process — the unit tests against fake devices, and ``tests/va/
-test_bump_crosscheck.py``'s cross-check of ``bump_analysis`` against the
-``lattice/response.py`` model oracle. This is the one that runs it on a
+in-process, in the unit tests against fake devices. This is the one that runs it on a
 deployed stack: the same plan file, loaded by the bridge's shipped-tier
 catalog, driving real correctors over Channel Access through the queueserver,
 with the orbit read back off a live soft IOC.
@@ -208,12 +206,10 @@ HEALTH_TIMEOUT_SEC = 300.0
 #
 # Positions within the staged view's device lists, not device names -- the
 # build's view of the facility file owns which devices exist.
-# Both sides read the same population -- the bindings document's kick and
-# monitor bindings -- but they key it differently: the crosscheck in
-# `tests/va/test_bump_crosscheck.py` orders by ring position, and this lane
-# takes the selectors' address-ordered output. Position i therefore names the
-# same magnet in both only on a tree whose address order follows the ring, as
-# the demo tree's does. The positions are picked for CONDITIONING rather than
+# The population is the bindings document's kick and monitor bindings, in
+# the selectors' address-ordered output. Position i therefore follows ring
+# order only on a tree whose address order follows the ring, as the demo
+# tree's does. The positions are picked for CONDITIONING rather than
 # for aesthetics.
 #
 # The three correctors are clustered inside one sixth of the ring with enough
@@ -238,9 +234,7 @@ SPAN_MONITOR_BPM_INDEX = 14
 #: A monitor BPM OUTSIDE the corrector span that the solve was never told to
 #: hold. Closure at the six constrained BPMs is something the least-squares
 #: solve was asked for; closure here is not, so it is the honest test of
-#: whether the bump is local -- the same thing
-#: ``test_bump_crosscheck.test_bump_closes_outside_the_corrector_span`` asserts
-#: over every unconstrained BPM, applied here to one, because every device
+#: whether the bump is local. One such BPM is checked, because every device
 #: named in this test is one more Channel Access connection the deployed worker
 #: environment has to open before the queue can accept a plan.
 CLOSURE_MONITOR_BPM_INDEX = 65
@@ -257,8 +251,7 @@ CLOSURE_MONITOR_BPM_INDEX = 65
 PROBE_AMPLITUDE_A = 5.0
 
 #: The displacement asked for at the target BPM, in meters -- the units the
-#: deployed VA's BPM records carry (`serving/pvdb.py`'s analog channels serve
-#: the full double; the six-digit `prec` there is display metadata only).
+#: deployed VA's BPM records carry.
 #: Sized so the solve lands at single-digit amps: measured in-process against
 #: the same lattice, this corrector set needs at most 3.7 A for it.
 TARGET_BUMP_M = 20e-6
@@ -318,10 +311,7 @@ EXPECTED_ROWS = BASELINE_READS + len(EXPECTED_SCALES)
 #: tolerable share of the bump that the ring's own non-idealities may account
 #: for at these currents, the dispersive term ``CLOSURE_BOUND`` describes and
 #: sextupole feed-down under it; every consumer of this bound clears it by
-#: more than an order of magnitude. The same form
-#: ``tests/va/test_bump_crosscheck.py`` holds its oracle comparison to,
-#: tighter here because a deployed run compares the machine with itself
-#: rather than with a superposition of single-corrector predictions. The rows
+#: more than an order of magnitude. The rows
 #: the solve was asked for are held to ``TOLERANCE_M``, the band the run
 #: itself was given.
 RELATIVE_BOUND = 1e-2
@@ -814,8 +804,7 @@ class _Measured:
         """The magnitude-agreement bound at *device*:
         ``max(fraction * peak, NOISE_SIGMAS * sigma)``.
 
-        The same form ``tests/va/test_bump_crosscheck.py`` uses: a share of the
-        bump the ring may account for on its own, floored at what the BPM can
+        A share of the bump the ring may account for on its own, floored at what the BPM can
         actually be read to. *fraction* is ``RELATIVE_BOUND`` for the magnitude
         checks (the span monitor's excursion, a corrector's return to its
         working point) and ``CLOSURE_BOUND`` for the closure monitor's leak.

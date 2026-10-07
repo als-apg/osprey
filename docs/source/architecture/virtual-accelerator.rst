@@ -27,7 +27,7 @@ The service lives at ``src/osprey/services/virtual_accelerator/``:
    :file: ../_diagrams/va-layer-map.html
 
 ``serving/`` is typed against ``lume.model.LUMEModel`` and never imports
-``ioc/`` or ``model/``; ``entrypoint.py`` joins the halves. That boundary under
+``model/``; ``entrypoint.py`` joins the halves. That boundary under
 ``model/`` is the one that matters: everything downstream reaches the ring only
 through a ``LUMEModel``'s public ``set()`` and ``get()``, which is what makes
 the physics replaceable (see `Bringing your own model`_).
