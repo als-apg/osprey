@@ -107,6 +107,16 @@ def armed_installs(monkeypatch):
     return calls
 
 
+@pytest.fixture(autouse=True)
+def pool_routing(monkeypatch):
+    """Whether the runtime routes through the pool, put back after the test.
+
+    ``main()`` opts the process in, and that choice is process-global: without
+    this, one test's ``main()`` would route every later test's connector.
+    """
+    monkeypatch.setattr(runtime, "_pool_routing", False)
+
+
 def detail_tokens(detail: str | None) -> dict[str, str]:
     """A record's ``detail`` read as its ``key=value`` tokens."""
     return dict(token.split("=", 1) for token in (detail or "").split())
@@ -466,6 +476,11 @@ class TestInstallingTheHook:
             lambda shell_stream: order.append("install_shell_stream_rearm"),
         )
         monkeypatch.setattr("ipykernel.kernelapp.IPKernelApp", StubKernelApp)
+        monkeypatch.setattr(
+            runtime,
+            "_route_connector_through_pool",
+            lambda: order.append("route_connector_through_pool"),
+        )
 
         jupyter_kernel.main([])
 
@@ -474,6 +489,7 @@ class TestInstallingTheHook:
             "prepare",
             "install:armed",
             "initialize_registry",
+            "route_connector_through_pool",
             "install_shell_stream_rearm",
             "initialize",
             "set_custom_exc",
@@ -549,6 +565,18 @@ def _stub_main(monkeypatch) -> list[str]:
     monkeypatch.setattr(jupyter_kernel, "install_shell_stream_rearm", lambda shell_stream: None)
     monkeypatch.setattr("ipykernel.kernelapp.IPKernelApp", app)
     return order
+
+
+class TestTheConnectorRoute:
+    """The kernel takes its connector from the connector-host pool."""
+
+    def test_main_routes_the_connector_through_the_pool(self, monkeypatch):
+        """A kernel outlives every switch, so its connector must follow the stamp."""
+        _stub_main(monkeypatch)
+
+        jupyter_kernel.main([])
+
+        assert runtime._pool_routing is True
 
 
 class TestTheRawPutBlock:

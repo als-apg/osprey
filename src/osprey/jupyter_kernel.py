@@ -819,7 +819,10 @@ def main(argv: list[str] | None = None) -> None:
     The raw-put block goes on straight after the preparation, before anything
     else loads a client library, and a failure to install it stops the start.
     The write observer is registered in the same window, so every write a
-    cell makes files its record.
+    cell makes files its record, and the runtime is routed through the
+    connector-host pool there too: a kernel outlives every switch made under
+    it, so each stamp it carries is served by a connector-host child of its
+    own rather than by a client this process already bound to another target.
 
     The kernel statements are separate rather than one chained call because
     things go between them: the shell stream re-arm is installed before
@@ -838,9 +841,10 @@ def main(argv: list[str] | None = None) -> None:
     _install_raw_put_block()
     _initialize_registry()
 
-    from osprey.runtime import _register_write_observer
+    from osprey.runtime import _register_write_observer, _route_connector_through_pool
 
     _register_write_observer(_record_write)
+    _route_connector_through_pool()
 
     from ipykernel.kernelapp import IPKernelApp
 
