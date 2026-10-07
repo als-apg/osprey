@@ -298,11 +298,13 @@ What the container keeps the same for every engine:
   ``value_range`` the view's limits records give it before anything else
   happens to the value. The connector's own ``limits_checking`` is separate
   and unchanged.
-- **The ready line.** Once serving, the entrypoint prints one line starting
-  with ``osprey.services.virtual_accelerator.entrypoint.READY_MARKER``
+- **The ready line.** Once the first publishing pass has published, the
+  entrypoint prints one line starting with
+  ``osprey.services.virtual_accelerator.entrypoint.READY_MARKER``
   (``virtual accelerator IOC serving PVs``), followed by ``: <N> channels``.
   The image boot check and the container test fixtures wait on that line and
-  read the count out of it.
+  read the count out of it. A first pass that fails exits non-zero without
+  it.
 - **SIGTERM.** The image's command ``exec``\ s Python, so the entrypoint is
   the container's first process and receives ``docker stop``'s SIGTERM
   itself; it handles SIGTERM as it handles SIGINT and leaves through the

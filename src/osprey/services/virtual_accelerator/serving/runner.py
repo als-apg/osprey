@@ -218,6 +218,19 @@ class ModelRunner(Runner):
             config["tick_interval_s"] = tick_interval_s
         super().__init__(model=composite, config=config)
 
+    def first_pass(self) -> str | None:
+        """Run the start-up publishing pass; the error it failed on, or ``None``.
+
+        Call it before :meth:`run`, on the thread that will call :meth:`run`,
+        so every model access stays on one thread. It runs queued items until
+        one has run a publishing pass. The start-up item is always queued, and
+        a jobs-only item ahead of it runs no pass, so it returns once that item
+        has run.
+        """
+        while self._passes_run < 1:
+            self._run_cycle(self.queue.get())
+        return self._first_pass_error
+
     def _run_cycle(self, item: dict[str, Any]) -> None:
         """Note whether this pass carries input values, then run it and record its outcome."""
         self._write_pass = bool(item["values"])

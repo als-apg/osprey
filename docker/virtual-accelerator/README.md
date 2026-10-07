@@ -86,6 +86,9 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
 - The container reports readiness by printing `virtual accelerator IOC
   serving PVs: <N> channels` to stdout — the whole line, with nothing after
   the count, where `<N>` is the number of channels `addresses.json` lists.
+  The line is printed once the first publishing pass has published every
+  served channel. A first pass that fails exits the container non-zero
+  without it.
 
 ## What it serves
 
