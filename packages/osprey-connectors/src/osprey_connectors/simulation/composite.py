@@ -19,6 +19,8 @@ child's own variables that no channel names (faults, optics) are reached as
 t)``, passed through the child's ``readout`` when the engine exports one, then
 clamped; the readout always sees both readings of a monitor, so a read of one
 plane reads its partner too. A texture channel reads as the texture serves it.
+:meth:`Composite.get` returns each value as its variable declares it, a
+waveform as an array of the variable's dtype and shape.
 :meth:`Composite.held` reads every channel without motion or readout.
 
 **Writes.** :meth:`Composite.set` coerces each value to its channel's
@@ -198,9 +200,9 @@ def _plain(value: Any) -> Any:
 
 
 def _for_variable(variable: Variable, value: Any) -> Any:
-    """A stored value as ``variable`` takes it: a waveform reshaped to the variable's shape."""
+    """A stored value as ``variable`` takes it: a waveform as an array of its dtype and shape."""
     if isinstance(variable, NDVariable):
-        return np.asarray(value, dtype=np.float64).reshape(variable.shape)
+        return np.asarray(value, dtype=variable.dtype).reshape(variable.shape)
     return value
 
 
@@ -537,7 +539,7 @@ class Composite(LUMEModel):
         return list(self._active)
 
     def get(self, names: list[str] | str) -> dict[str, Any] | Any:
-        """Read channels; a waveform reads as a flat list.
+        """Read channels, each as its variable declares it; a waveform as an array of its shape.
 
         Args:
             names: One address or a list of addresses.
@@ -551,7 +553,10 @@ class Composite(LUMEModel):
         single = isinstance(names, str)
         wanted = [names] if isinstance(names, str) else list(names)
         self._require(wanted)
-        outputs = self._get(wanted)
+        outputs = {
+            name: _for_variable(self._variables[name], value)
+            for name, value in self._get(wanted).items()
+        }
         return outputs[wanted[0]] if single else outputs
 
     def _require(self, names: Sequence[str]) -> None:
