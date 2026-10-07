@@ -15,14 +15,10 @@ lattice subpackage; no EPICS / softioc / MATLAB / network.
 from __future__ import annotations
 
 import dataclasses
-import re
-from collections import Counter
 
-import at
 import pytest
 
 from osprey.simulation.facility_spec import ALS_U_AR
-from osprey.simulation.lattice import build_ring
 
 # Expected per-family counts, mirrored verbatim from the spec declaration.
 EXPECTED_COUNTS = {
@@ -38,9 +34,6 @@ EXPECTED_COUNTS = {
     "HCM": 72,
     "VCM": 72,
 }
-
-# Matches the flat ``{fam}{id:02d}`` device-naming scheme.
-_NAME_RE = re.compile(r"^(HCM|VCM|QF|QD|QFA|DIPOLE|SF|SD|SHF|SHD|BPM)(\d{2,})$")
 
 
 # ── Accessor tests (task 1.1: pytest tests/simulation/test_facility_spec.py) ──
@@ -75,26 +68,3 @@ def test_family_missing_raises_keyerror():
 def test_spec_is_frozen():
     with pytest.raises(dataclasses.FrozenInstanceError):
         ALS_U_AR.name = "mutated"  # type: ignore[misc]
-
-
-# ── Ring↔spec consistency (task 3.2: pytest ... -k consistency) ──────────────
-
-
-def test_ring_spec_consistency():
-    """The built ring's scheme-named elements tally to the declared counts,
-    and every ``at.Monitor`` is a properly named BPM."""
-    ring = build_ring()
-
-    tally: Counter[str] = Counter()
-    monitors = 0
-    for element in ring:
-        match = _NAME_RE.match(getattr(element, "FamName", ""))
-        if match is not None:
-            tally[match.group(1)] += 1
-        if isinstance(element, at.Monitor):
-            monitors += 1
-            assert match is not None, f"Monitor {element.FamName!r} is not scheme-named"
-            assert match.group(1) == "BPM", f"Monitor {element.FamName!r} is not a BPM"
-
-    assert dict(tally) == ALS_U_AR.counts()
-    assert monitors == 72

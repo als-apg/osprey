@@ -8,11 +8,8 @@ following the import discipline of
 no control-system imports) and the catalog-lookup shape of
 :mod:`osprey.agent_runner.build_artifacts.catalog`.
 
-The spec is the authority on families / counts / names, and the hand-ported
-ring (:func:`osprey.simulation.lattice.ring.build_ring`) is its *first
-consumer*. A drift-guard test binds the ring's actual per-family element counts
-and assigned naming to this declaration
-(``tests/simulation/test_facility_spec.py``).
+The spec is the authority on families / counts / names; the accessor tests in
+``tests/simulation/test_facility_spec.py`` pin the declaration.
 """
 
 from __future__ import annotations

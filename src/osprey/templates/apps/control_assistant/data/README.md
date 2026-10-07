@@ -25,7 +25,6 @@ data/
 ├── facility/                              # The facility's authored sources
 │   ├── knowledge/                         # Markdown knowledge bundle
 │   └── scenarios/                         # Simulation scenarios
-├── lattice/                               # Accelerator lattice files
 └── simulation/                            # Mock-connector machine model
 ```
 

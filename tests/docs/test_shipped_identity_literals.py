@@ -219,13 +219,9 @@ DENIED: tuple[Denied, ...] = (
                 "src/osprey/services/virtual_accelerator/model/bindings.py",
                 "src/osprey/simulation/channel_schema.py",
                 "src/osprey/simulation/facility_spec.py",
-                "src/osprey/simulation/lattice/__init__.py",
-                "src/osprey/simulation/lattice/artifact.py",
-                "src/osprey/simulation/lattice/ring.py",
                 # The suites that exercise those packages: the ring is what they
                 # are a test of.
                 "tests/simulation/matlab_reference.py",
-                "tests/simulation/test_artifact.py",
                 "tests/simulation/test_facility_spec.py",
             }
         ),
@@ -250,9 +246,6 @@ DENIED: tuple[Denied, ...] = (
                 "src/osprey/services/virtual_accelerator/model/bindings.py",
                 "src/osprey/simulation/channel_schema.py",
                 "src/osprey/simulation/facility_spec.py",
-                "src/osprey/simulation/lattice/__init__.py",
-                "src/osprey/simulation/lattice/artifact.py",
-                "src/osprey/simulation/lattice/ring.py",
                 # The shipped reference ingestion format, and the places that
                 # quote the ``source_system`` values its adapter returns —
                 # rewriting those would name a value no adapter produces.
@@ -272,7 +265,6 @@ DENIED: tuple[Denied, ...] = (
                 # The suites that exercise the bundled demo ring, whose name carries
                 # the abbreviation.
                 "tests/simulation/matlab_reference.py",
-                "tests/simulation/test_artifact.py",
                 "tests/simulation/test_facility_spec.py",
                 # The suites for the shipped reference ingestion adapter, which
                 # returns "ALS eLog": an expectation spelled any other way would
