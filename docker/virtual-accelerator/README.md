@@ -88,7 +88,13 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   the count, where `<N>` is the number of channels `addresses.json` lists.
   The line is printed once the first publishing pass has published every
   served channel. A first pass that fails exits the container non-zero
-  without it.
+  without it. The ready line is the boot-time view only.
+- After every publishing pass the runner rewrites its health record to
+  `/run/osprey-va/health.json` inside the container. The compose healthcheck
+  reads that file: it passes while `state` is `serving` or `degraded` and
+  fails once more than `failed_pass_tolerance` (default 3) passes in a row
+  have failed, or when the file is missing or not JSON. The image itself
+  declares no `HEALTHCHECK`.
 
 ## What it serves
 
