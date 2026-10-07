@@ -29,6 +29,7 @@ import asyncio
 import logging
 import math
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -43,6 +44,7 @@ from pydantic import ValidationError
 
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.devices._connect import connect_all
+from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
 from osprey.services.bluesky_bridge.devices.mock import (
     MockReadable,
     MockSettable,
@@ -318,9 +320,9 @@ def _corrector_sweep_setpoints(params: ORMParams, working_point: float = 0.0) ->
     points followed by the restore in the `finally`.
 
     Driven by a real `RunEngine` with a `msg_hook`, NOT by iterating the
-    generator by hand. The plan reads each corrector's pre-plan working point
-    with `bps.rd`, and `bps.rd` walked by hand runs in bluesky's "list-ify"
-    mode: nothing answers its `read`, so it silently returns its
+    generator by hand. The plan's working-point read, walked by hand, runs in
+    bluesky's "list-ify" mode: nothing answers its `read`, so `bps.read`
+    answers `None` and the fallback `bps.rd` silently returns its
     `default_value` of 0 instead of the device's real value. A hand-walked
     stream would therefore report a sweep centred on zero no matter what the
     plan does — it would keep passing against an absolute sweep and pin
@@ -546,6 +548,83 @@ def test_orm_plan_restores_every_corrector_to_its_own_pre_scan_working_point() -
 
     for name, value in working_points.items():
         assert asyncio.run(devices[name].readback.get_value()) == value
+
+
+#: How far the double's readback channel sits from its setpoint channel: a
+#: readback that carries drift and noise reports a 0 A demand as 0.00196 A.
+_READBACK_OFFSET = 0.00196
+
+
+class _OffsetReadbackConnector:
+    """An async connector double whose readback channels sit a fixed
+    `_READBACK_OFFSET` above their setpoint channels.
+
+    `read_channel("<n>:RB")` answers the `<n>:SP` value plus the offset;
+    `write_channel_checked` stores the demand on `<n>:SP`, records it, and
+    answers with a `confirmed` result. A `ConnectorSettable` built on it is the
+    production device with a distinct readback, settling inside its own band.
+    """
+
+    def __init__(self, setpoints: dict[str, float]) -> None:
+        self.setpoints = {f"{name}:SP": value for name, value in setpoints.items()}
+        self.writes: list[tuple[str, float]] = []
+
+    async def read_channel(self, channel_address: str, timeout: float | None = None) -> Any:  # noqa: ARG002 - the connector read signature
+        if channel_address.endswith(":RB"):
+            value = self.setpoints[channel_address.removesuffix(":RB") + ":SP"] + _READBACK_OFFSET
+        else:
+            value = self.setpoints[channel_address]
+        return SimpleNamespace(value=value, timestamp=0.0)
+
+    async def write_channel_checked(self, channel_address: str, value: float, **kwargs: Any) -> Any:
+        self.setpoints[channel_address] = value
+        self.writes.append((channel_address, value))
+        return SimpleNamespace(
+            channel_address=channel_address,
+            value_written=value,
+            outcome="confirmed",
+            observed_value=value,
+        )
+
+    def devices(self) -> dict[str, ConnectorSettable]:
+        """One `ConnectorSettable` per setpoint, reading back `<n>:RB`."""
+        return {
+            address.removesuffix(":SP"): ConnectorSettable(
+                self,
+                address,
+                readback_pv=address.removesuffix(":SP") + ":RB",
+                name=address.removesuffix(":SP"),
+                settle_tolerance=0.01,
+            )
+            for address in self.setpoints
+        }
+
+
+def test_orm_plan_reads_its_working_point_from_the_setpoint_not_the_readback() -> None:
+    """A corrector with its own readback channel is swept about, and restored
+    to, the setpoint it reports — never the readback sample beside it.
+
+    The restore is a setpoint write, so the value it writes must be one the
+    setpoint held: a readback carries the channel's drift and noise, and a
+    plan that recorded it would end the run with the corrector shifted by
+    exactly that offset.
+    """
+    fake = _OffsetReadbackConnector({"hcm1": 0.0})
+    devices = asyncio.run(connect_all({**fake.devices(), "bpm1": MockReadable("bpm1")}))
+    params = ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=3)
+
+    setpoints: list[float] = []
+
+    def _record(msg: Any) -> None:
+        if msg.command == "set" and msg.obj is devices["hcm1"]:
+            setpoints.append(msg.args[0])
+
+    RE = RunEngine(context_managers=[])
+    RE.msg_hook = _record
+    RE(orm_plan(devices, params))
+
+    assert setpoints == [-2.0, 0.0, 2.0, 0.0]
+    assert fake.setpoints["hcm1:SP"] == 0.0
 
 
 # =========================================================================
@@ -1011,9 +1090,9 @@ def _bump_restore_writes() -> list[tuple[str, float]]:
 def _record_writes(commands: list[tuple[str, float]]) -> Callable[[Any], None]:
     """A `msg_hook` collecting every `(device, value)` the plan commands.
 
-    A `msg_hook` on a live `RunEngine`, not a hand-walked generator: `bps.rd`
-    walked by hand answers from its `default_value` of 0 instead of the
-    device, so a hand-walked stream would report working points of zero no
+    A `msg_hook` on a live `RunEngine`, not a hand-walked generator: the
+    plan's working-point read, walked by hand, answers from `bps.rd`'s
+    `default_value` of 0 instead of the device, so a hand-walked stream would report working points of zero no
     matter what the correctors hold — see `_corrector_sweep_setpoints` above.
     """
 
@@ -1074,7 +1153,7 @@ class _NegativeZeroSettable(MockSettable):
     Signed zero is the one float where `value + 0.0` is not `value`, which is
     what makes "commanded verbatim" distinguishable from "commanded through the
     arithmetic" at all. It has to be reported from `read()` — the call the
-    plan's `bps.rd` makes — because `MockSettable`'s soft signal normalizes `-0.0`
+    plan's working-point read makes — because `MockSettable`'s soft signal normalizes `-0.0`
     to `+0.0` on the way in.
     """
 
@@ -1467,6 +1546,7 @@ def test_bump_plan_does_not_trim_the_terminal_restore_step() -> None:
     assert after_arming[-3:] == _bump_restore_writes()
     for name, working_point in _BUMP_WORKING_POINTS.items():
         assert asyncio.run(devices[name].readback.get_value()) == working_point
+
 
 
 def _arm_after_baseline(bpm: _ArmableBpm, baseline_reads: int) -> Callable[[Any], None]:
