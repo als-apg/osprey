@@ -9,8 +9,7 @@ server launch. Narrowing the parser to "known" keys would silently break those
 references, so the full-passthrough contract is tested explicitly here.
 
 ``merge_env_preserving_existing`` is the write side of ``osprey build``
-and template ``.env`` shipping: rendered structure, existing values win — with
-one exception, ``BUILD_DERIVED_KEYS``, which the build owns outright.
+and template ``.env`` shipping: rendered structure, existing values win.
 """
 
 from __future__ import annotations
@@ -19,15 +18,11 @@ from pathlib import Path
 
 import pytest
 
-import osprey_connectors.dotenv
 from osprey.utils.dotenv import (
-    BUILD_DERIVED_KEYS,
-    VA_LATTICE_DEFAULT,
     _dotenv_raw_lines,
     env_lock_path,
     merge_env_preserving_existing,
     parse_dotenv_file,
-    resolved_va_lattice,
 )
 
 
@@ -234,116 +229,6 @@ class TestMergeEnvPreservingExisting:
         out.write_text(merged, encoding="utf-8")
         parsed = parse_dotenv_file(out)
         assert parsed == {"A": "user_a", "B": "r", "C": "r", "D": "user_d"}
-
-
-class TestBuildDerivedKeys:
-    """The exemption: keys the build derives from project content, not the user.
-
-    ``VA_CHANNELS_FILE`` names a manifest ``osprey build`` generates from the
-    project's own channel databases. Preserving it like a user secret would
-    latch it on: a rebuild that can no longer generate the manifest (the data
-    tree changed, the databases now disagree) would leave the virtual
-    accelerator pointed at a file with no drive limits beside it.
-    """
-
-    def test_the_keys_are_the_va_wiring(self):
-        assert BUILD_DERIVED_KEYS == {"VA_CHANNELS_FILE", "VA_LATTICE"}
-
-    def test_rendered_value_wins_over_existing(self):
-        rendered = "VA_CHANNELS_FILE=channel_manifest.json\n"
-        existing = "VA_CHANNELS_FILE=stale_manifest.json\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "VA_CHANNELS_FILE=channel_manifest.json" in merged
-        assert "stale_manifest.json" not in merged
-
-    def test_key_absent_from_render_is_dropped_not_preserved(self):
-        """The un-write: a build that skipped generation clears the wiring."""
-        rendered = "API_KEY=k\n"
-        existing = "API_KEY=k\nVA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=ring.mat\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "VA_CHANNELS_FILE" not in merged
-        assert "VA_LATTICE" not in merged
-        assert "# Preserved from existing .env" not in merged
-
-    def test_user_keys_are_still_preserved_alongside(self):
-        rendered = "VA_LATTICE=ring.mat\n"
-        existing = "VA_LATTICE=none\nMY_SECRET=keep-me\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "VA_LATTICE=ring.mat" in merged
-        assert "MY_SECRET=keep-me" in merged
-
-    def test_empty_exemption_restores_preserving_behavior(self):
-        """For a merge whose rendered side is a fragment, not the full render."""
-        rendered = "API_KEY=k\n"
-        existing = "VA_CHANNELS_FILE=channel_manifest.json\n"
-        merged = merge_env_preserving_existing(rendered, existing, build_derived_keys=frozenset())
-        assert "VA_CHANNELS_FILE=channel_manifest.json" in merged
-
-
-class TestResolvedVaLattice:
-    """``resolved_va_lattice`` — the one answer to "which lattice will it boot with".
-
-    Read by the build's stand-in default
-    (``osprey.cli.build_profile_va_faults.effective_standin_bpm_errors``) and by
-    the deployment layer that renders and probes the same containers, which is
-    the whole reason it is one function: two readings of these files for one
-    deployment are worse than either reading alone.
-    """
-
-    def test_an_empty_chain_serves_no_lattice(self, tmp_path):
-        """A chain naming no lattice file names no lattice to serve."""
-        assert resolved_va_lattice(tmp_path) == VA_LATTICE_DEFAULT == "none"
-
-    def test_a_pinned_file_name_wins_over_the_default(self, tmp_path):
-        (tmp_path / ".env").write_text("VA_LATTICE=ring.mat\n")
-        assert resolved_va_lattice(tmp_path) == "ring.mat"
-
-    def test_the_local_file_wins_over_the_shared_defaults(self, tmp_path):
-        """The chain's own precedence, not a second ordering invented here."""
-        (tmp_path / ".env.shared").write_text("VA_LATTICE=none\n")
-        (tmp_path / ".env").write_text("VA_LATTICE=ring.mat\n")
-        assert resolved_va_lattice(tmp_path) == "ring.mat"
-
-    def test_the_shared_defaults_answer_alone_when_local_is_silent(self, tmp_path):
-        (tmp_path / ".env.shared").write_text("VA_LATTICE=ring.mat\n")
-        (tmp_path / ".env").write_text("OTHER=1\n")
-        assert resolved_va_lattice(tmp_path) == "ring.mat"
-
-    def test_a_quoted_value_is_read_as_written(self, tmp_path):
-        """A file name keeps its case: the served tree is searched for it verbatim."""
-        (tmp_path / ".env").write_text('VA_LATTICE="  SR_Ring.mat  "\n')
-        assert resolved_va_lattice(tmp_path) == "SR_Ring.mat"
-
-    def test_an_empty_pin_falls_back_to_the_default(self, tmp_path):
-        """``VA_LATTICE=`` names no file, so it is the unset case."""
-        (tmp_path / ".env").write_text("VA_LATTICE=\n")
-        assert resolved_va_lattice(tmp_path) == VA_LATTICE_DEFAULT
-
-    def test_a_build_dir_chain_wins_over_the_repo_s(self, tmp_path):
-        """The published render is the tree the containers are handed."""
-        repo = tmp_path / "repo"
-        build = tmp_path / "repo" / "build"
-        build.mkdir(parents=True)
-        (repo / ".env").write_text("VA_LATTICE=none\n")
-        (build / ".env").write_text("VA_LATTICE=ring.mat\n")
-        assert resolved_va_lattice(repo, build) == "ring.mat"
-
-    def test_a_build_dir_that_says_nothing_leaves_the_repo_s_answer(self, tmp_path):
-        repo = tmp_path / "repo"
-        build = tmp_path / "repo" / "build"
-        build.mkdir(parents=True)
-        (repo / ".env").write_text("VA_LATTICE=ring.mat\n")
-        assert resolved_va_lattice(repo, build) == "ring.mat"
-
-    def test_the_module_knows_no_builtin_lattice(self):
-        """``VA_LATTICE`` names a file in the served tree, or ``none`` — nothing else.
-
-        A source-level pin rather than a value one: the spelling is what a
-        reader copies into a chain file, so a stray one in a comment or a
-        docstring is as misleading as one in the code.
-        """
-        source = Path(osprey_connectors.dotenv.__file__).read_text(encoding="utf-8")
-        assert "builtin" not in source
 
 
 class TestEnvLockPath:
