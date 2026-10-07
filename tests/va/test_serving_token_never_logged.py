@@ -11,14 +11,13 @@ from pathlib import Path
 
 import pytest
 
-RUNNER = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/services/virtual_accelerator/serving/runner.py"
-)
+SERVING = Path(__file__).resolve().parents[2] / "src/osprey/services/virtual_accelerator/serving"
 
-#: A reference to the model write token, by either of the names it has in
-#: the runner: the constructor argument and the attribute it is kept on.
-_TOKEN_NAMES = frozenset({"model_write_token", "_model_write_token"})
+#: A reference to the model write token, by every name it has in the serving
+#: package: the runner's constructor argument and the attribute it is kept
+#: on, the attribute the surface keeps it on, and the name a write receives
+#: it under.
+_TOKEN_NAMES = frozenset({"model_write_token", "_model_write_token", "_write_token", "token"})
 
 #: Calls whose arguments reach a log, a terminal or a warning.
 _OUTPUT_METHODS = frozenset(
@@ -59,15 +58,21 @@ def _token_leaks(tree: ast.AST) -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def tree() -> ast.Module:
-    return ast.parse(RUNNER.read_text(encoding="utf-8"))
+def serving_modules() -> list[Path]:
+    modules = sorted(SERVING.glob("*.py"))
+    assert modules
+    return modules
 
 
-def test_the_model_write_token_is_never_logged(tree: ast.Module) -> None:
-    """Nor printed, warned, formatted into text or raised: the token is the
-    one thing that gates a model write, and a log is readable by far more
-    people than the write is allowed to."""
-    assert _token_leaks(tree) == []
+def test_the_model_write_token_is_never_logged(serving_modules: list[Path]) -> None:
+    """Nor printed, warned, formatted into text or raised, by any module of
+    the serving package: the token is the one thing that gates a model write,
+    and a log is readable by far more people than the write is allowed to."""
+    leaks = {
+        module.name: _token_leaks(ast.parse(module.read_text(encoding="utf-8")))
+        for module in serving_modules
+    }
+    assert {name: found for name, found in leaks.items() if found} == {}
 
 
 @pytest.mark.parametrize(
@@ -79,6 +84,7 @@ def test_the_model_write_token_is_never_logged(tree: ast.Module) -> None:
         "text = 'token %s' % self._model_write_token",
         "raise ValueError(model_write_token)",
         "text = '{}'.format(self._model_write_token)",
+        "LOG.info('got %s', request.token)",
     ],
 )
 def test_the_leak_check_catches_a_leak(leak: str) -> None:
