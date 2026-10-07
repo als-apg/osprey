@@ -77,7 +77,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +91,7 @@ from tests.e2e._deploy_diagnostics import (
     dead_container_logs,
     queue_stack_logs,
 )
+from tests.e2e._motion_bands import served_settle_bands
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -182,11 +183,6 @@ MODEL_QUIET_TOL = 1e-7
 # close to the axis to scale one from. Four orders of magnitude above the
 # quiet floor above, so the shift it produces cannot be mistaken for one.
 MODEL_OFFSET_FLOOR = 1e-3
-# Gaussian headroom on a served reading's declared noise (see
-# `_monitor_motion_bands`). Each reading is compared across a handful of
-# snapshots, so a per-draw miss rate near 1e-9 keeps the whole machine's
-# comparisons far from a false alarm.
-MODEL_MOTION_SIGMAS = 6.0
 # How far the written displacement must clear the loosest "did not move"
 # threshold, so the one reading it moves cannot be confused with motion.
 MODEL_OFFSET_OVER_MOTION = 100.0
@@ -278,30 +274,16 @@ def _numeric_gaps(diff: dict[str, dict[str, Any]]) -> dict[str, float]:
     }
 
 
-def _monitor_motion_bands(repo: Path, addresses: Iterable[str]) -> dict[str, float]:
-    """How far each served reading's declared motion can carry it from the model's truth.
-
-    The virtual accelerator serves a lattice-bound monitor as the solved orbit
-    plus the motion its seed declares -- a slow drift and white noise -- drawn
-    afresh at every read, while the model's truth stays motion-free. So the
-    served/truth gap of such a reading is that motion, and this is its bound:
-    the drift amplitude, which is structural, plus ``MODEL_MOTION_SIGMAS`` of
-    the noise. Read from the seeds of the simulator view the build rendered,
-    the same bytes the container serves; a reading whose seed declares no
-    motion gets 0.0, so it is held to the exact tolerances.
-    """
+def _seed_nominal(repo: Path, address: str) -> float:
+    """The value ``address`` starts at: its seed's ``nominal`` in the render's
+    simulator view, the bytes the container serves; 0.0 when the seed names
+    none, the zero of a float channel."""
     from osprey.facility.views.simulator import SEEDS_FILE, simulator_view
 
     seeds_json = simulator_view(repo) / SEEDS_FILE
     assert seeds_json.is_file(), f"the deployment at {repo} rendered no seeds at {seeds_json}"
-    seeds = json.loads(seeds_json.read_text(encoding="utf-8"))["seeds"]
-    bands: dict[str, float] = {}
-    for address in addresses:
-        seed = seeds.get(address) or {}
-        drift = seed.get("drift") or {}
-        amplitude = abs(float(drift.get("amplitude") or 0.0))
-        bands[address] = amplitude + MODEL_MOTION_SIGMAS * abs(float(seed.get("noise") or 0.0))
-    return bands
+    seed = json.loads(seeds_json.read_text(encoding="utf-8"))["seeds"].get(address) or {}
+    return float(seed.get("nominal") or 0.0)
 
 
 def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
@@ -713,6 +695,7 @@ def _host_ca_op_spec(
     read: str,
     write: dict[str, Any] | None = None,
     settle_read: bool = False,
+    settle_tolerance: float | None = None,
 ) -> dict[str, Any]:
     """Build the JSON spec for one out-of-process host CA op (``_va_host_ca_op.py``).
 
@@ -760,8 +743,10 @@ def _host_ca_op_spec(
         "read": read,
         "write": write,
         # sp-echo SP->RB propagation is async; poll the readback until it
-        # reflects the write rather than race the echo (see _va_host_ca_op.py).
+        # reflects the write, within the readback's declared motion, rather
+        # than race the echo (see _va_host_ca_op.py).
         "settle_read": settle_read,
+        "settle_tolerance": settle_tolerance,
     }
 
 
@@ -898,6 +883,8 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     sp, rb = deployed_stack.pairs["p3"]
     lo, hi = deployed_stack.bounds(sp)
     value = lo + 0.5 * (hi - lo)
+    # The readback serves the written value plus the motion its seed declares.
+    band = served_settle_bands(deployed_stack.repo, [rb])[rb]
 
     # Host side (pyepics), isolated in its own process: arrange a known,
     # non-default state (rather than comparing two never-written 0.0 defaults,
@@ -912,12 +899,14 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
             read=rb,
             write={"address": sp, "value": value},
             settle_read=True,
+            settle_tolerance=band,
         )
     )
     assert host["write_outcome"] == "confirmed", f"setup write to {sp} was not confirmed: {host}"
     assert host["read_settled"], (
-        f"host read of {rb} never settled to the written setpoint {value} "
-        f"(last read {host['read_value']}) — sp-echo SP->RB propagation did not complete"
+        f"host read of {rb} never settled to within {band:g} of the written setpoint "
+        f"{value} (last read {host['read_value']}) — sp-echo SP->RB propagation did not "
+        f"complete"
     )
     host_read = host["read_value"]
 
@@ -953,14 +942,15 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     bridge_value = data["rows"][0][col]
     assert bridge_value is not None, f"no value recorded for {rb}: {data}"
 
-    # sp-echo is a plain software copy — the host write should be exactly
-    # reflected in both readers.
-    assert abs(host_read - value) <= 1e-6, (
-        f"host read of {rb} ({host_read}) does not match the written setpoint "
-        f"({value}) — sp-echo should be an exact copy"
+    # An sp-echo readback serves the written value plus its declared motion, so
+    # each reader, at its own instant, lands within that motion's band of it.
+    assert abs(host_read - value) <= band, (
+        f"host (pyepics) read of {rb} ({host_read}) is not within {band:g} (its seed's "
+        f"noise and drift) of the written setpoint {value}"
     )
-    assert abs(host_read - bridge_value) <= 1e-6, (
-        f"host (pyepics) read of {rb} = {host_read} != bridge (ophyd-async) read = {bridge_value}"
+    assert abs(bridge_value - value) <= band, (
+        f"bridge (ophyd-async) read of {rb} ({bridge_value}) is not within {band:g} (its "
+        f"seed's noise and drift) of the written setpoint {value}"
     )
 
 
@@ -976,6 +966,11 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     start = lo + 0.25 * (hi - lo)
     stop = lo + 0.75 * (hi - lo)
     num = 4
+    band = served_settle_bands(deployed_stack.repo, [rb])[rb]
+    # Where the readback sits before any point of this run: its setpoint's seed
+    # nominal, which the echo starts at.
+    level = _seed_nominal(deployed_stack.repo, sp)
+    grid_targets = [start + index * (stop - start) / (num - 1) for index in range(num)]
 
     # Driven step by step rather than through `_run_scan`: the host read below
     # has to be spawned between the armed start and the first poll, so this
@@ -1052,15 +1047,28 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
         f"incomplete {rb} column: {row_values}"
     )
 
+    # Every row was read once its point settled, so each lies within the
+    # readback's declared motion of its own commanded point: the run visited
+    # every point of the grid.
+    misses = [
+        (target, row)
+        for target, row in zip(grid_targets, row_values, strict=True)
+        if abs(row - target) > band
+    ]
+    assert not misses, (
+        f"{rb} rows not within {band:g} (its seed's noise and drift) of their commanded "
+        f"points, as (target, row): {misses}"
+    )
+
     # The concurrent host read landed either before the first point settled
-    # (the pristine 0.0 default) or during the settled window of whichever
-    # point had most recently completed (sp-echo is a discrete, immediate
-    # step -- never interpolated, never noisy) -- so it MUST match one of
-    # these, never a value outside that set.
-    candidates = [0.0, *row_values]
-    assert any(abs(concurrent_value - c) <= 1e-6 for c in candidates), (
-        f"concurrent host read of {rb} ({concurrent_value}) matched neither the "
-        f"pristine default nor any row from the run {row_values}"
+    # (the starting level) or during the settled window of whichever point
+    # had most recently completed (sp-echo is a discrete, immediate step that
+    # carries the readback's declared motion) -- so it MUST lie within the
+    # band of one of these, never outside that set.
+    candidates = [level, *grid_targets]
+    assert any(abs(concurrent_value - c) <= band for c in candidates), (
+        f"concurrent host read of {rb} ({concurrent_value}) is within {band:g} of neither "
+        f"the starting level {level} nor any commanded point {grid_targets}"
     )
 
 
@@ -1167,7 +1175,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
         write and disagree by exactly the written offset after it, so neither
         half can be satisfied by a divergence that was already there. "Agree"
         and "exactly" are to within the motion the seeds declare for
-        that reading (`_monitor_motion_bands`), which the served reading
+        that reading (`served_settle_bands`), which the served reading
         carries and the truth does not; the offset is sized far above it.
 
     No address is hardcoded, as everywhere else in this module: the fault to
@@ -1233,7 +1241,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
         assert gaps_before, (
             "diff reports no numeric channel at all, so there is nowhere to observe a model write"
         )
-        bands = _monitor_motion_bands(deployed_stack.repo, gaps_before)
+        bands = served_settle_bands(deployed_stack.repo, gaps_before)
         # Two snapshots of one reading each carry an independent draw of its
         # motion, so a reading counts as moved only past twice its band.
         quiet = {address: 2.0 * band + MODEL_QUIET_TOL for address, band in bands.items()}

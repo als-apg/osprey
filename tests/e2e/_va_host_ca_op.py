@@ -28,7 +28,9 @@ Protocol -- ``argv[1]`` is a JSON spec::
      "config_overrides": {...},          # osprey.utils.config.get_config_value overrides
      "read": "<address>",                # the readback address to return
      "write": {"address": "<addr>", "value": <float>} | null,
-     "settle_read": <bool>}              # poll the read until it == write.value (sp-echo)
+     "settle_read": <bool>,              # poll the read until it is within
+                                         # settle_tolerance of write.value
+     "settle_tolerance": <float>}        # required when settle_read is true
 
 On success, emits exactly one stdout line::
 
@@ -43,8 +45,11 @@ from a re-read that failed, and ``write_error_message`` carries the reason the
 outcome came with (``null`` for the outcomes that carry none).
 
 ``read_settled`` is ``true`` when ``settle_read`` was not requested, or when the
-readback reached the written value within the settle deadline; ``false`` means
-the asynchronous echo never propagated in time (the caller should fail loudly).
+readback came within ``settle_tolerance`` of the written value within the settle
+deadline; ``false`` means the asynchronous echo never propagated in time (the
+caller should fail loudly). ``settle_tolerance`` is the band of the motion the
+readback's seed declares, which a served readback carries on top of the value
+it holds.
 
 Exit 0 on success; a non-zero exit (or a native SIGBUS) means the host CA op
 failed and the caller must surface it -- never silently pass.
@@ -66,10 +71,17 @@ RESULT_MARKER = "__HOST_CA_RESULT__"
 # on_update fires on the IOC's own loop AFTER the caput that write_channel
 # confirms against the SP), so an immediate readback read can beat the echo.
 # When a caller sets settle_read, poll the readback until it reflects the
-# written value rather than guess a fixed delay (condition-based waiting).
-_SETTLE_TOL = 1e-6
+# written value, within the spec's settle_tolerance, rather than guess a fixed
+# delay (condition-based waiting).
 _SETTLE_TIMEOUT_SEC = 10.0
 _SETTLE_POLL_SEC = 0.05
+
+
+def _settle_tolerance(spec: dict[str, Any]) -> float:
+    """The spec's ``settle_tolerance``, which a settling read cannot go without."""
+    if spec.get("settle_tolerance") is None:
+        raise ValueError("a spec with settle_read must carry settle_tolerance")
+    return float(spec["settle_tolerance"])
 
 
 async def _do(spec: dict[str, Any]) -> dict[str, Any]:
@@ -126,14 +138,15 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
         # asks (settle_read) -- see the module constants above. Without a write,
         # or without settle_read, this is a single immediate read.
         settle_to = write["value"] if (write is not None and spec.get("settle_read")) else None
+        tolerance = _settle_tolerance(spec) if settle_to is not None else 0.0
         read_value = float((await connector.read_channel(spec["read"])).value)
-        settled = settle_to is None or abs(read_value - float(settle_to)) <= _SETTLE_TOL
+        settled = settle_to is None or abs(read_value - float(settle_to)) <= tolerance
         if settle_to is not None and not settled:
             deadline = time.monotonic() + _SETTLE_TIMEOUT_SEC
             while not settled and time.monotonic() < deadline:
                 await asyncio.sleep(_SETTLE_POLL_SEC)
                 read_value = float((await connector.read_channel(spec["read"])).value)
-                settled = abs(read_value - float(settle_to)) <= _SETTLE_TOL
+                settled = abs(read_value - float(settle_to)) <= tolerance
         result["read_value"] = read_value
         result["read_settled"] = settled
 
