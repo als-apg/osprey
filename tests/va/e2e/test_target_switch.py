@@ -26,11 +26,12 @@ endpoint under the harness's control*, which is the property every scenario here
 actually rests on. Nothing in this file claims to have touched hardware, and
 nothing here is a statement about a real facility's gateways.
 
-The two are told apart on the wire rather than by configuration. Container L is
-booted with one BPM's readout error seeded (``VA_BPM_ERRORS``) and container V is
-not, so :data:`SEEDED_BPM` reads a different number on each — with no client
-write anywhere, from a machine at rest, and reproducibly. A round trip that
-reported the same value at both ends would be a switch that moved nothing.
+The two are told apart on the wire rather than by configuration. Container L
+boots with a scenario readout fault active -- an offset and a gain on one BPM --
+and container V boots with none, so :data:`SEEDED_BPM` reads a different number
+on each, by an exactly predicted amount -- with no client write anywhere, from
+a machine at rest, and reproducibly. A round trip that reported the same value
+at both ends would be a switch that moved nothing.
 
 Ports, names and 5064
 ---------------------
@@ -133,14 +134,14 @@ MIN_COLLECTED_TESTS = 18
 VA_PROBE = "SR:MAG:HCM:01:CURRENT:RB"
 LIVE_PROBE = VA_PROBE
 
-#: The channel that tells the two containers apart. Container L is booted with
-#: this BPM's readout error seeded and container V is not, so the two serve
-#: different numbers for a machine in the same (quiescent) state.
-SEEDED_BPM = "SR:DIAG:BPM:11:POSITION:X"
-SEEDED_DEVICE = "BPM11"
-SEEDED_OFFSET_X = 50e-6
-SEEDED_GAIN_X = 1.05
-VA_BPM_ERRORS = f"{SEEDED_DEVICE}:offset_x={SEEDED_OFFSET_X},gain_x={SEEDED_GAIN_X}"
+#: The channel that tells the two containers apart. Container L boots with the
+#: scenario readout fault on this BPM active and container V boots with none,
+#: so the two serve different numbers for a machine in the same (quiescent)
+#: state.
+SEEDED_BPM = e2e_conftest.SEEDED_READOUT_BPM
+
+#: The ``active_scenarios`` file container L boots with.
+SEEDED_ACTIVE_SCENARIOS = f"nominal\n{e2e_conftest.SEEDED_READOUT_SCENARIO_NAME}\n"
 
 #: The one setpoint this module ever writes -- in the executor scenario, and
 #: restored to zero by that test before it returns. Listed in the shipped
@@ -266,11 +267,13 @@ def _served(port: int) -> bool:
 
 
 @contextlib.contextmanager
-def _serving(prefix: str, *, seeded: bool):
+def _serving(prefix: str, *, state_dir: Path | None):
     """Boot one virtual accelerator container and wait until it serves.
 
     The published port and the server's own port are the same number by
-    construction, and that number also names the container.
+    construction, and that number also names the container. ``state_dir``,
+    when given, is the directory holding the ``active_scenarios`` file the
+    container boots with; ``None`` serves ``nominal`` alone.
     """
     port = _free_port()
     name = f"{prefix}-{port}"
@@ -292,8 +295,13 @@ def _serving(prefix: str, *, seeded: bool):
         # than picking the framework's demo channels on its own.
         *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
     ]
-    if seeded:
-        arguments += ["-e", f"VA_BPM_ERRORS={VA_BPM_ERRORS}"]
+    if state_dir is not None:
+        arguments += [
+            "-v",
+            f"{state_dir}:/state/simulation:ro",
+            "-e",
+            "VA_STATE_DIR=/state/simulation",
+        ]
     started = _docker(*arguments, IMAGE)
     if started.returncode != 0:
         raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
@@ -324,15 +332,22 @@ class Endpoints:
 
 
 @pytest.fixture(scope="module")
-def endpoints():
+def endpoints(tmp_path_factory: pytest.TempPathFactory):
     """Both machines, up and serving, for the life of this module.
 
-    Container L carries the seeded BPM readout error and container V does not,
-    which is what makes ``SEEDED_BPM`` distinguish them on the wire.
+    Container L boots with the scenario readout fault on ``SEEDED_BPM`` active
+    and container V boots with none, which is what makes ``SEEDED_BPM``
+    distinguish them on the wire.
     """
     _require_image()
-    with _serving(CONTAINER_VA, seeded=False) as va_port:
-        with _serving(CONTAINER_LIVE, seeded=True) as live_port:
+    state_dir = tmp_path_factory.mktemp("live-state")
+    active = state_dir / "active_scenarios"
+    active.write_text(SEEDED_ACTIVE_SCENARIOS, encoding="utf-8")
+    # The container's user is not this process's.
+    state_dir.chmod(0o755)
+    active.chmod(0o644)
+    with _serving(CONTAINER_VA, state_dir=None) as va_port:
+        with _serving(CONTAINER_LIVE, state_dir=state_dir) as live_port:
             yield Endpoints(va=va_port, live=live_port)
 
 
@@ -575,9 +590,9 @@ class TestALiveVaRoundTrip:
 
     The values compared are read with no client write anywhere in the module up
     to this point: both containers serve the same lattice at rest, and the only
-    thing that separates their readings is the readout error seeded into one of
-    them at boot. That is what makes "the wire moved" an observation rather than
-    an inference from the switch's own report.
+    thing that separates their readings is the scenario readout fault one of
+    them boots with. That is what makes "the wire moved" an observation rather
+    than an inference from the switch's own report.
     """
 
     async def test_a_round_trip_serves_a_different_machine_at_each_end(self, make_manager):
@@ -593,11 +608,15 @@ class TestALiveVaRoundTrip:
             "both ends served the same value for the seeded BPM, so the switch "
             "moved the session between two indistinguishable machines"
         )
-        # The unseeded machine at rest has an identically zero closed orbit, and
-        # the seeded one puts a fixed offset on that zero. Neither is asserted
-        # to a literal here -- what is asserted is that the difference is the
-        # seeded offset's order and not float noise.
-        assert abs(live_reading - va_reading) > SEEDED_OFFSET_X / 2
+        # Both containers serve the same stilled view at the same operating
+        # point, with no write before this test, so they solve the same orbit
+        # x at the BPM. V reads x through the identity readout; L reads it
+        # through the fault's offset and gain with roll, calibration and noise
+        # at identity, which is (x - offset) * gain.
+        assert live_reading == pytest.approx(
+            (va_reading - e2e_conftest.SEEDED_READOUT_OFFSET) * e2e_conftest.SEEDED_READOUT_GAIN,
+            rel=1e-9,
+        ), "the live end does not read the seeded readout fault of the va end's orbit"
         assert live_again == live_reading, (
             "coming home read a different value than leaving did, so something "
             "other than the switch moved the machine"

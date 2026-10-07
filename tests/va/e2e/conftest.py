@@ -174,6 +174,8 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
       physics model's closed-orbit solve fails;
     * the kick scenario (:data:`KICK_SCENARIO_NAME`), which puts a nonzero
       closed orbit at :data:`KICK_MONITOR`;
+    * the seeded-readout scenario (:data:`SEEDED_READOUT_SCENARIO_NAME`),
+      which gives :data:`SEEDED_READOUT_BPM` a readout offset and gain;
     * a string channel (:data:`STRING_CHANNEL`) seeded with
       :data:`STRING_NOMINAL`, so the served view holds a string channel the
       texture owns beside the physics model's status channel.
@@ -219,6 +221,24 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
                 yaml.safe_dump({"description": description, "overrides": overrides}),
                 encoding="utf-8",
             )
+        (facility / "scenarios" / f"{SEEDED_READOUT_SCENARIO_NAME}.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "description": "e2e-only synthetic scenario: one monitor's readout offset "
+                    "and gain, so a container booted with it reads that monitor differently "
+                    "from one booted without it.",
+                    "faults": {
+                        "SR": {
+                            SEEDED_READOUT_BPM: {
+                                "offset": SEEDED_READOUT_OFFSET,
+                                "gain": SEEDED_READOUT_GAIN,
+                            }
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
         with (facility / "records" / "channels.yaml").open("a", encoding="utf-8") as records:
             records.write(
                 yaml.safe_dump(
@@ -309,6 +329,15 @@ KICK_SCENARIO_NAME = "va-e2e-kick"
 KICK_CORRECTOR = "SR:MAG:VCM:05:CURRENT:SP"
 KICK_CURRENT = 1.0
 KICK_MONITOR = "SR:DIAG:BPM:17:POSITION:Y"
+
+#: Synthetic scenario that gives one monitor a readout offset and gain, so a
+#: container booted with it active reads that monitor as
+#: ``(x - SEEDED_READOUT_OFFSET) * SEEDED_READOUT_GAIN`` of the position ``x`` a
+#: container booted without it reads.
+SEEDED_READOUT_SCENARIO_NAME = "va-e2e-seeded-readout"
+SEEDED_READOUT_BPM = "SR:DIAG:BPM:11:POSITION:X"
+SEEDED_READOUT_OFFSET = 50e-6
+SEEDED_READOUT_GAIN = 1.05
 
 #: Synthetic string channel, owned by the texture, and the text it is seeded with.
 STRING_CHANNEL = "SR:DIAG:E2E:TEXT"
