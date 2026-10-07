@@ -62,6 +62,9 @@ def _render(project_dir: Path, digest_override: str | None = None) -> None:
         "  auth:\n"
         f"    image: {_IMAGE}\n"
         '    command: ["sleep", "600"]\n'
+        # init: sleep as PID 1 ignores SIGTERM, so every recreate and the final
+        # down would otherwise wait out the whole stop grace period.
+        "    init: true\n"
         f"    env_file: {AUTH_ENV_FILENAME}\n"
         "    labels:\n"
         f'      {AUTH_ENV_DIGEST_LABEL}: "{digest}"\n',
