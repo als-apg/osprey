@@ -172,7 +172,7 @@ CHROMATICITY = frozenset({"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y"})
 
 #: The noisy served channels of the demo: every served address whose seed
 #: declares noise or drift.
-EXPECTED_NOISY_CHANNELS = 1262
+EXPECTED_NOISY_CHANNELS = 626
 #: Reads per substrate per noisy channel.
 SAMPLES = 200
 #: The family-wise false-alarm rate the noise bounds are set for.

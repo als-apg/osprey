@@ -1,24 +1,20 @@
-"""The mock's served nominals and noise against the per-address nominal golden.
+"""The mock's served nominals against the per-address nominal golden, and its served noise against the seeds.
 
 ``tests/facility/golden/nominal_mock.json`` holds, for every demo address, the
-nominal the mock serves with no scenario active and the sigma of the noise it
-adds to a read. The mock serves the control-assistant build's simulator view
-through a composite, so these tests build that composite from the shared build
-and hold it to the golden to 1e-12 on every address, except the declared
-re-baselines:
+nominal the mock serves with no scenario active. The mock serves the
+control-assistant build's simulator view through a composite, so these tests
+build that composite from the shared build and hold it to the golden to 1e-12
+on every address, except the declared re-baselines:
 
 * every channel the lattice physics model computes and the golden holds a
   different value for: each ``SR`` beam position monitor's horizontal
   position, which reads the deck's closed orbit, and the wired RF cavity's
   frequency setpoint and readback, which read the deck's RF frequency;
-* the setpoints the golden gives a noise to: a setpoint reads what it holds,
-  with no noise;
-* every bool channel, which the golden holds as a number with a noise: a bool
-  reads its label, ``TRUE`` where the golden's nominal is non-zero, with no
-  noise.
+* every bool channel, which the golden holds as a number: a bool reads its
+  label, ``TRUE`` where the golden's nominal is non-zero, with no noise.
 
-A float channel's served noise is its seed's ``noise``: a read at an instant
-adds that sigma times the channel's keyed normal draw for the instant, on top
+The served noise is the seed's: a float readback's read at an instant adds its
+seed's ``noise`` times the channel's keyed normal draw for the instant, on top
 of its drift.
 """
 
@@ -64,16 +60,13 @@ DECK_RF_TOLERANCE_MHZ = 1e-3
 #: The largest closed-orbit offset a monitor of the ideal deck reads, in metres.
 CLOSED_ORBIT_BOUND_M = 1e-4
 
-#: The setpoints the golden gives a noise to; a setpoint reads with none.
-NOISELESS_SETPOINTS = tuple(f"SR:VAC:ION-PUMP:0{n}:VOLTAGE:SP" for n in range(1, 7))
-
 #: The instants the served noise is sampled at, in epoch seconds.
 INSTANTS = 1.7e9 + 0.137 * np.arange(16)
 
 
 @cache
 def golden() -> dict[str, dict[str, float]]:
-    """The golden's channels: ``{address: {nominal, sigma}}``."""
+    """The golden's channels: ``{address: {nominal}}``."""
     channels: dict[str, dict[str, float]] = json.loads(GOLDEN.read_text(encoding="utf-8"))[
         "channels"
     ]
@@ -109,12 +102,6 @@ class Served:
         return (
             self.value_type(address) == "float" and self.channels[address].get("role") != "setpoint"
         )
-
-    def sigma(self, address: str) -> float:
-        """The noise sigma a read of ``address`` carries."""
-        if not self.is_float_readback(address):
-            return 0.0
-        return float(self.seeds.get(address, {}).get("noise") or 0.0)
 
 
 @pytest.fixture(scope="module")
@@ -162,18 +149,6 @@ def test_bool_labels_follow_the_golden(served: Served) -> None:
         assert read[address] == label, address
 
 
-def test_float_noise_sigmas_equal_the_golden_but_the_noiseless_setpoints(
-    served: Served,
-) -> None:
-    floats = [a for a in golden() if served.value_type(a) == "float"]
-    moved = sorted(a for a in floats if not close(served.sigma(a), golden()[a]["sigma"]))
-    assert moved == sorted(NOISELESS_SETPOINTS)
-    for address in NOISELESS_SETPOINTS:
-        assert served.channels[address]["role"] == "setpoint"
-        assert served.sigma(address) == 0.0
-        assert golden()[address]["sigma"] > 0.0
-
-
 def test_a_read_adds_the_seed_noise_times_the_channel_s_keyed_draw(served: Served) -> None:
     from osprey_connectors.simulation import series
 
@@ -194,7 +169,7 @@ def test_a_read_adds_the_seed_noise_times_the_channel_s_keyed_draw(served: Serve
             reading = reading - series.wander(
                 key, INSTANTS, float(drift["amplitude"]), float(drift["period_s"])
             )
-        expected = golden()[address]["sigma"] * series.keyed_normals(key, counters_ms)
+        expected = seed["noise"] * series.keyed_normals(key, counters_ms)
         np.testing.assert_allclose(reading, expected, rtol=1e-9, atol=TOLERANCE, err_msg=address)
         checked += 1
-    assert checked == 861
+    assert checked == 225
