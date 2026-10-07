@@ -56,6 +56,7 @@ HANGING = f"{_HELPERS}.HangingConnector"
 SLOW_START = f"{_HELPERS}.SlowStartConnector"
 TIMING_OUT = f"{_HELPERS}.TimingOutConnector"
 EXITING = f"{_HELPERS}.ExitingConnector"
+EXITING_ON_READ = f"{_HELPERS}.ExitingOnReadConnector"
 
 #: Bound for calls that must simply succeed, generous enough for a loaded CI box.
 OK_TIMEOUT_S = 10.0
@@ -900,6 +901,16 @@ async def test_a_child_that_exits_before_answering_init_is_refused_at_the_init_s
     assert "exited before answering its init frame (exit code 3)" in str(caught.value)
     assert spawns[0][1].returncode == 3
     assert pool.pids() == {}
+
+
+async def test_a_child_that_exits_mid_call_reports_its_own_exit_code(pools):
+    pool = pools(_section(EXITING_ON_READ))
+    live = await pool.connector("live")
+
+    with pytest.raises(ConnectorHostLostError) as caught:
+        await asyncio.wait_for(live.read_channel("SR:A"), OK_TIMEOUT_S)
+
+    assert caught.value.returncode == 4
 
 
 def _doctor_init_reports(monkeypatch, doctor):
