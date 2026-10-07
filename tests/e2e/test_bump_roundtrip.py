@@ -53,8 +53,9 @@ partial figure exists is therefore a fraction of a short run — an assertion
 that would be racing the run rather than testing the route.
 
 No physics fault is seeded on this stack (no ``VA_BPM_ERRORS``/``VA_CORR_GAIN``
-in the written ``.env``), so the VA's read
-path is deterministic: the baseline reads return identical values and the
+in the written ``.env``) and every reading it serves -- monitors and corrector
+readbacks alike -- serves without declared motion, so the VA's read path is
+deterministic: the baseline reads return identical values and the
 measured per-BPM sigma is exactly zero. That is legal and is not a skip — see
 ``bump_analysis.noise_floor_violations`` on why a zero sigma is a fact about
 readback resolution rather than a fault — and it means the convergence band
@@ -108,7 +109,7 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
-from tests.e2e._monitor_motion import still_monitor_motion
+from tests.e2e._monitor_motion import still_model_motion
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
@@ -489,11 +490,13 @@ def _horizontal_devices(repo: Path) -> tuple[list[str], list[str]]:
 def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedBumpStack]:
     base = tmp_path_factory.mktemp("bump_roundtrip_build")
 
-    def still_monitors(repo: Path) -> None:
+    def still_model(repo: Path) -> None:
         # TOLERANCE_M sits below the seeds' BPM noise and rests on a stack
-        # whose monitors read the solved orbit exactly, so they serve it
-        # without the drift and noise the facility's seeds give them.
-        still_monitor_motion(repo / "data")
+        # whose monitors read the solved orbit exactly, and the plan settles on
+        # and the return check reads the corrector readbacks, so every reading
+        # the model serves -- monitors and corrector readbacks alike -- serves
+        # without the drift and noise the facility's seeds give it.
+        still_model_motion(repo / "data")
 
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
@@ -508,7 +511,7 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         port_base=21900,
         timeout=BUILD_TIMEOUT_SEC,
         extra_config=EXTRA_CONFIG,
-        pre_build=still_monitors,
+        pre_build=still_model,
     )
 
     # The bump's geometry is chosen from the device file the build staged, so
