@@ -110,16 +110,6 @@ def dotenv_line_var(line: str) -> str | None:
     return candidate.partition("=")[0].strip() or None
 
 
-def _dotenv_raw_lines(text: str) -> dict[str, str]:
-    """Map ``KEY`` -> its raw ``KEY=VALUE`` line (quoting intact) from ``text``."""
-    raw: dict[str, str] = {}
-    for line in text.splitlines():
-        key = dotenv_line_var(line)
-        if key:
-            raw[key] = line.strip()
-    return raw
-
-
 #: Section header the deploy write-back groups its minted secrets under.
 DEPLOY_MINTED_BANNER = "# ── Minted by deploy ──"
 
@@ -446,37 +436,6 @@ def format_env_line(key: str, value: str) -> str:
         f"cannot write {key} to a .env file: the value needs quoting but contains "
         "both single and double quotes"
     )
-
-
-def merge_env_preserving_existing(
-    rendered_text: str,
-    existing_text: str,
-) -> str:
-    """Merge a freshly rendered ``.env`` with an existing one; existing wins.
-
-    Used when a build re-renders a project in place
-    or a profile ships a template ``.env``: the rendered text provides the
-    structure, comments, and any newly introduced variables, while every value
-    the user already has keeps its existing setting (their secrets, and the
-    service tokens/passwords that live containers and docker volumes were
-    initialized with). Keys present only in the existing file are appended at
-    the end so nothing the user set is ever dropped.
-    """
-    existing = _dotenv_raw_lines(existing_text)
-    consumed: set[str] = set()
-    out_lines: list[str] = []
-    for line in rendered_text.splitlines():
-        key = dotenv_line_var(line)
-        if key is not None and key in existing:
-            out_lines.append(existing[key])
-            consumed.add(key)
-            continue
-        out_lines.append(line)
-    leftovers = [existing[key] for key in existing if key not in consumed]
-    if leftovers:
-        out_lines.extend(["", "# Preserved from existing .env"])
-        out_lines.extend(leftovers)
-    return "\n".join(out_lines) + "\n"
 
 
 def chain_files(repo_root: Path) -> list[Path]:
