@@ -16,7 +16,8 @@ a server is started and ended in. The child answers a few commands over a pipe
 queue depth it observed, a one-shot failure of the next pass -- so what the
 wire cannot show is still measured where it happens.
 
-Three views are served:
+Three views are served, and the stub view once more for a start-up pass
+that fails, run the way the entrypoint runs it:
 
 * a hand-written tree of names in two separator conventions, built through
   ``osprey build`` with no physics model -- the names are served verbatim and
@@ -70,13 +71,14 @@ def _free_port() -> str:
         return str(probe.getsockname()[1])
 
 
-#: The three served views, each in a process of its own.
-SERVERS = ("names", "demo", "stub")
+#: The served views, each in a process of its own: the three below, and the
+#: stub view again for a start-up pass that fails.
+SERVERS = ("names", "demo", "stub", "first_pass")
 
 # import-time required because libca latches the EPICS_CA_* environment when
 # the C library initialises, which happens below, before pcaspy is imported.
 # Each server listens on a Channel Access port of its own, so the client
-# searches all three; the pairing of server and port is fixed here, once.
+# searches them all; the pairing of server and port is fixed here, once.
 CA_PORTS: dict[str, str] = {server: _free_port() for server in SERVERS}
 # import-time required because libca reads the search list once, at the
 # initialisation below.
@@ -501,6 +503,7 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
         composite = Composite(view_dir, state_dir=spec["state"], model_log=False)
         fault = _PassFault()
         _inject_pass_fault(composite, fault)
+        fault.text = spec["first_pass_fault"]
 
         from osprey.services.virtual_accelerator.serving.runner import ModelRunner
 
@@ -512,16 +515,26 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
             tick_interval_s=spec["tick"],
         )
         _instrument(runner, observed)
-        threading.Thread(target=runner._run, daemon=True, name="model-runner-loop").start()
-        deadline = time.monotonic() + STARTUP_TIMEOUT_S
-        while observed.passes_done < 1:
-            if time.monotonic() > deadline:
-                raise TimeoutError("the runner's first pass never finished")
-            time.sleep(0.05)
+        started: dict[str, Any] | None = None
+        if spec["first_pass_fault"] is not None:
+            # The entrypoint's own start-up: the first pass on this thread,
+            # and no run loop after it.
+            error = runner.first_pass()
+            started = {
+                "error": error,
+                "last_failed_pass": runner._surface.status()["last_failed_pass"],
+            }
+        else:
+            threading.Thread(target=runner._run, daemon=True, name="model-runner-loop").start()
+            deadline = time.monotonic() + STARTUP_TIMEOUT_S
+            while observed.passes_done < 1:
+                if time.monotonic() > deadline:
+                    raise TimeoutError("the runner's first pass never finished")
+                time.sleep(0.05)
     except BaseException as exc:
         conn.send(("error", f"{type(exc).__name__}: {exc}"))
         os._exit(1)
-    conn.send(("ready", None))
+    conn.send(("ready", started))
 
     def counts() -> dict[str, int]:
         with observed.lock:
@@ -577,6 +590,7 @@ class _Server:
         self.view = view
         self.state_dir = state_dir
         self.channels = {str(c["address"]): c for c in view["channels"]}
+        self.started: dict[str, Any] | None = None
         context = multiprocessing.get_context("spawn")
         self._conn, child = context.Pipe()
         self._proc = context.Process(target=_serve, args=(spec, child), daemon=True)
@@ -606,6 +620,7 @@ class _Server:
         kind, payload = self._conn.recv()
         if kind != "ready":
             raise AssertionError(f"the server process could not serve: {payload}")
+        self.started = payload
 
     def ask(self, name: str, *args: Any) -> Any:
         """Send one command to the server process and return its answer."""
@@ -647,6 +662,7 @@ def _served(
     tick_interval_s: float | None = None,
     physics: bool = False,
     stub: bool = False,
+    first_pass_fault: str | None = None,
 ) -> Iterator[_Server]:
     spec = {
         "view": str(view_dir),
@@ -657,6 +673,7 @@ def _served(
         "pva_broadcast": _free_port(),
         "physics": physics,
         "stub": stub,
+        "first_pass_fault": first_pass_fault,
     }
     view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
     served = _Server(spec, view, state_dir)
@@ -1075,3 +1092,18 @@ class TestStubComposite:
         assert stub_server.ask("held", [STUB_SETPOINT]) == {STUB_SETPOINT: held}
         assert _ca(STUB_SETPOINT)["value"] == held
         assert not math.isclose(_ca(STUB_SETPOINT)["value"], held + 3.0)
+
+
+def test_a_failing_start_up_pass_is_what_first_pass_returns(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    view_dir = _write_stub_view(tmp_path_factory.mktemp("first_pass"))
+
+    with _served(
+        view_dir, "first_pass", stub=True, first_pass_fault="the start-up pass failed"
+    ) as served:
+        started = served.started
+
+    assert started is not None
+    assert started["error"] == "the start-up pass failed"
+    assert started["last_failed_pass"]["error"] == "the start-up pass failed"

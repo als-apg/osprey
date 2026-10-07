@@ -38,6 +38,10 @@ class _Recorded:
     composite: dict[str, Any]
     runner: dict[str, Any]
     ran: bool = False
+    first_pass_error: str | None = None
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
 
 
 def _write_view(data_dir: Path) -> Path:
@@ -66,7 +70,12 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> _Recorded:
                 **kwargs,
             }
 
+        def first_pass(self) -> str | None:
+            record.events.append("first_pass")
+            return record.first_pass_error
+
         def run(self) -> None:
+            record.events.append("run")
             record.ran = True
 
     from osprey_connectors.simulation import composite
@@ -77,7 +86,16 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> _Recorded:
     monkeypatch.setitem(sys.modules, RUNNER_MODULE, runner)
     # The entrypoint installs its own stop handlers once it serves; the
     # test process keeps its own.
-    monkeypatch.setattr(entrypoint, "_install_shutdown_signals", lambda: None)
+    monkeypatch.setattr(
+        entrypoint, "_install_shutdown_signals", lambda: record.events.append("signals")
+    )
+    ready_line = entrypoint._ready_line
+
+    def _recorded_ready_line(channel_count: int) -> str:
+        record.events.append("ready")
+        return ready_line(channel_count)
+
+    monkeypatch.setattr(entrypoint, "_ready_line", _recorded_ready_line)
     monkeypatch.setattr(entrypoint, "_configure_logging", lambda: None)
     return record
 
@@ -135,6 +153,27 @@ class TestTheView:
         entrypoint.main()
 
         assert f"{entrypoint.READY_MARKER}: 3 channels" in capsys.readouterr().out.splitlines()
+
+    @pytest.mark.usefixtures("served")
+    def test_the_ready_line_follows_the_first_pass(self, recorded: _Recorded) -> None:
+        entrypoint.main()
+
+        assert recorded.events == ["first_pass", "signals", "ready", "run"]
+
+    @pytest.mark.usefixtures("served")
+    def test_a_failed_first_pass_exits_without_the_ready_line(
+        self, recorded: _Recorded, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        recorded.first_pass_error = "the deck has no stable orbit"
+
+        with pytest.raises(SystemExit) as caught:
+            entrypoint.main()
+
+        assert "the deck has no stable orbit" in str(caught.value.code)
+        assert caught.value.code not in (0, None)
+        assert entrypoint.READY_MARKER not in capsys.readouterr().out
+        assert not recorded.ran
+        assert recorded.events == ["first_pass"]
 
     @pytest.mark.usefixtures("served", "recorded")
     def test_the_served_models_are_named_at_boot(self, capsys: pytest.CaptureFixture[str]) -> None:

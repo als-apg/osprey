@@ -66,8 +66,9 @@ SERVED_MODELS_FILE = "served_models.json"
 ADDRESSES_FILE = "addresses.json"
 VARIABLES_FILE = "variables.json"
 
-# The line this process prints once it is serving, and the marker everything
-# that waits on that boot greps for: the image boot check
+# The line this process prints once the first publishing pass has published
+# every served channel, and the marker everything that waits on that boot
+# greps for: the image boot check
 # (``scripts/va/build_and_boot_check.sh``), the container e2e fixtures, and
 # anyone reading ``docker logs``. Both halves are load-bearing -- the marker
 # is matched as a prefix, the channel count is read out of the remainder --
@@ -187,8 +188,8 @@ def _install_shutdown_signals() -> None:
     default; SIGTERM -- what ``docker stop`` sends -- terminates the process
     outright unless a handler says otherwise. Pointing both at one handler
     makes a container stop leave through the runner's own exit. Installed only
-    once the servers are up: before that, dying at once is the right answer to
-    a stop signal.
+    once the first pass has published: before that, dying at once is the right
+    answer to a stop signal.
     """
     signal.signal(signal.SIGINT, _raise_keyboard_interrupt)
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
@@ -249,6 +250,13 @@ def main() -> None:
         tick_interval_s=tick_interval_s,
         instance=instance,
     )
+
+    # The first publishing pass runs here, on the thread that runs the loop,
+    # so the ready line is printed only once every served channel carries a
+    # value the composite computed.
+    error = runner.first_pass()
+    if error is not None:
+        raise SystemExit(f"FATAL: the first publishing pass failed: {error}")
 
     _install_shutdown_signals()
     print(_ready_line(len(addresses["channels"])), flush=True)
