@@ -550,7 +550,9 @@ def test_a_connector_settable_is_bluesky_locatable() -> None:
 
 
 async def test_the_demand_key_is_not_hinted_so_rd_returns_the_readback() -> None:
-    """``bps.rd`` reads the one hinted field; a second hint would make it raise."""
+    """``bps.rd`` locates the device and returns its readback; the one hinted
+    field is that readback column, and the demand key ``<name>_setpoint`` is
+    never hinted."""
     from bluesky.utils import get_hinted_fields
 
     fake = FakeConnector(readbacks={"SP": 25.0, "RB": 17.3})

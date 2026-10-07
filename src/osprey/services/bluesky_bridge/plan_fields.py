@@ -357,9 +357,11 @@ def resolve_column(channel_name: str, columns: Iterable[str]) -> str | None:
     declares child signals is read under ``f"{channel}-{signal}"`` -- the mock
     devices (`devices/mock.py`) do this, so a mock settable lands under
     ``"sp1-readback"``. A device that reads through the OSPREY connector
-    (`devices/connector.py`) emits exactly one entry named for the device
-    itself, so the same channel lands under ``"sp1"``. Neither module is
-    imported here; this is a rule about the data keys they produce.
+    (`devices/connector.py`) emits one entry named for the device itself, so
+    the same channel lands under ``"sp1"``, plus its demand under
+    ``f"sp1{SETPOINT_KEY_SUFFIX}"`` when it has a distinct readback (see
+    `resolve_regressor_column`). Neither module is imported here; this is a
+    rule about the data keys they produce.
 
     So: exact match first, then the single ``f"{channel_name}-"`` prefix rule,
     taking the first match in column order. ``None`` means the run's data has no
@@ -379,3 +381,39 @@ def resolve_column(channel_name: str, columns: Iterable[str]) -> str | None:
         if fallback is None and column.startswith(prefix):
             fallback = column
     return fallback
+
+
+SETPOINT_KEY_SUFFIX: Final = "_setpoint"
+"""Suffix of the data key a connector settable with a *distinct* readback
+reports its demand under: ``<name>_setpoint`` beside ``<name>``.
+The same convention as ophyd's positioners (``<name>_setpoint`` beside the
+``<name>`` readback), so a plan that settle-checks a slow device -- an
+insertion-device gap, a ramping magnet -- reads where the device is and where
+it was told to go off one device, without a second device aliasing the
+setpoint channel."""
+
+Regressor = Literal["setpoint", "readback"]
+"""Which of a settable's values a response fit regresses on: the commanded
+demand (``setpoint``) or the measured value (``readback``)."""
+
+
+def resolve_regressor_column(
+    channel_name: str, columns: Iterable[str], regressor: Regressor
+) -> str | None:
+    """The data column a response fit reads *channel_name*'s value from, or ``None``.
+
+    ``readback`` resolves the channel's own column through `resolve_column`.
+    ``setpoint`` takes the exact ``f"{channel_name}{SETPOINT_KEY_SUFFIX}"``
+    column when the run carries one, and otherwise falls back to
+    `resolve_column`: a device that reports no separate demand (an aliased
+    connector device, a mock settable) reports one column, and that column is
+    its demand.
+
+    *columns* may be any iterable of column names, including a data row itself.
+    """
+    columns = list(columns)
+    if regressor == "setpoint":
+        demand = f"{channel_name}{SETPOINT_KEY_SUFFIX}"
+        if demand in columns:
+            return demand
+    return resolve_column(channel_name, columns)

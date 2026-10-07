@@ -42,6 +42,8 @@ from typing import Any
 from bluesky.protocols import DataKey, Hints, Location, Reading
 from ophyd_async.core import AsyncStatus, StandardReadable
 
+from osprey.services.bluesky_bridge.plan_fields import SETPOINT_KEY_SUFFIX
+
 from ._connect import connect_all
 from .specs import ReadableSpec, SettableSpec
 
@@ -117,15 +119,6 @@ def _positive_float(env_var: str, default: float, *, allow_zero: bool) -> float:
 
 _READBACK_POLL_INTERVAL_S = 0.05
 """Sleep between readback polls in ``ConnectorSettable.set()``."""
-
-SETPOINT_KEY_SUFFIX = "_setpoint"
-"""Suffix of the data key a :class:`ConnectorSettable` with a *distinct*
-readback reports its demand under: ``<name>_setpoint`` beside ``<name>``.
-The same convention as ophyd's positioners (``<name>_setpoint`` beside the
-``<name>`` readback), so a plan that settle-checks a slow device -- an
-insertion-device gap, a ramping magnet -- reads where the device is and where
-it was told to go off one device, without a second device aliasing the
-setpoint channel."""
 
 
 class ConnectorSettable(StandardReadable):
