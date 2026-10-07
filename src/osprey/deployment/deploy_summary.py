@@ -143,8 +143,8 @@ _SERVICE_SLOTS = {
 #: every member of the band resolves to the band's one slot. Workers are
 #: ``dispatch-worker-<i>``; the per-user terminals are ``web-<user>`` (the
 #: companion families run inside that same container and publish no service of
-#: their own).
-_INDEXED_SERVICE_PREFIXES = (_WORKER_SERVICE_PREFIX, "web")
+#: their own); the qmd sidecars are ``qmd-<corpus>``.
+_INDEXED_SERVICE_PREFIXES = (_WORKER_SERVICE_PREFIX, "web", "qmd")
 
 #: The tiers in display order, taken from the layout's own ordering rather than
 #: listed again: :data:`~osprey.port_layout.LAYOUT` is in ascending offset order,

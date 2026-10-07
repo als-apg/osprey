@@ -51,22 +51,23 @@ def test_config_file_names_the_project_root(agent_dir, monkeypatch, tmp_path):
     assert resolved.name == "api_calls_dir"
 
 
-def test_without_config_file_it_still_falls_back_to_the_cwd(agent_dir, monkeypatch, tmp_path):
+def test_without_config_file_it_falls_back_to_the_cwd_with_a_warning(
+    agent_dir, monkeypatch, tmp_path, caplog
+):
+    """With nothing to anchor on, the path resolves under the cwd, and says so.
+
+    No container root is guessed: ``/app`` is not a project root in the shipped
+    layout, and never was one this could prove. Resolving under the cwd pins
+    that as well as any list of forbidden prefixes would.
+    """
     monkeypatch.delenv("CONFIG_FILE", raising=False)
     monkeypatch.chdir(tmp_path)
 
-    resolved = agent_dir(str(tmp_path / "does-not-exist"))
+    with caplog.at_level("WARNING"):
+        resolved = agent_dir(str(tmp_path / "does-not-exist"))
 
-    assert resolved.is_absolute()
+    # resolve(): on macOS tmp_path lives under /var, a symlink to /private/var.
+    assert resolved.is_relative_to(tmp_path.resolve())
+    assert not resolved.is_relative_to(tmp_path / "does-not-exist")
     assert resolved.name == "api_calls_dir"
-
-
-def test_no_container_root_is_guessed(agent_dir, monkeypatch, tmp_path):
-    """``/app`` is not a project root in the shipped layout, and never was one
-    this could prove."""
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
-    monkeypatch.chdir(tmp_path)
-
-    resolved = agent_dir(str(tmp_path / "does-not-exist"))
-
-    assert not str(resolved).startswith(("/app", "/pipelines", "/jupyter"))
+    assert "Falling back to relative path resolution" in caplog.text

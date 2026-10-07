@@ -22,6 +22,7 @@ from osprey.services.qmd import client as client_module
 from osprey.services.qmd.client import (
     QMDClient,
     QMDClientError,
+    QMDIndexStatus,
     QMDResponse,
     QMDUnavailableError,
 )
@@ -509,3 +510,45 @@ def test_malformed_result_row_raises(config: QMDServiceConfig) -> None:
     client, _ = make_client(config, tool_result={"structuredContent": {"results": ["nope"]}})
     with pytest.raises(QMDClientError, match="non-object"):
         client.query("ariel", "magnet")
+
+
+# ---------------------------------------------------------------------------
+# status
+# ---------------------------------------------------------------------------
+
+#: The daemon's ``status`` tool result, as qmd 2.5.3 returns it.
+LIVE_STATUS_RESULT: dict[str, Any] = {
+    "content": [{"type": "text", "text": "QMD Index Status:\n  Total documents: 9984"}],
+    "structuredContent": {
+        "totalDocuments": 9984,
+        "needsEmbedding": 8726,
+        "hasVectorIndex": True,
+        "collections": [{"name": "papers", "path": "/corpus/papers", "documents": 9984}],
+    },
+}
+
+
+def test_status_reports_documents_and_how_many_lack_vectors(config: QMDServiceConfig) -> None:
+    client, transport = make_client(config, tool_result=LIVE_STATUS_RESULT)
+
+    status = client.status()
+
+    assert status == QMDIndexStatus(documents=9984, pending=8726)
+    call = transport.posts[-1][0]
+    assert call["method"] == "tools/call"
+    assert call["params"] == {"name": "status", "arguments": {}}
+
+
+def test_status_without_counts_raises(config: QMDServiceConfig) -> None:
+    client, _ = make_client(config, tool_result={"content": [], "structuredContent": {}})
+
+    with pytest.raises(QMDClientError, match="no document counts"):
+        client.status()
+
+
+def test_status_of_an_unconfigured_client_raises_without_a_request() -> None:
+    client, transport = make_client(None)
+
+    with pytest.raises(QMDUnavailableError):
+        client.status()
+    assert transport.posts == []

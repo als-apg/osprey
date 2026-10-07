@@ -25,7 +25,6 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors import types as connector_types
 from osprey_connectors.types import (
     CONTROL_TARGETS,
     EPICS,
@@ -92,14 +91,6 @@ class TestLimitsPosture:
         assert LIMITS_LEAVES == ("enabled", "mode")
         assert isinstance(LIMITS_LEAVES, tuple)
 
-    def test_leaves_exclude_database_path(self) -> None:
-        """``database_path`` stays deployment-wide, so it is not a block leaf.
-
-        Compose mounts one limits database for the deployment; a per-type block
-        that omits the path is complete, not incomplete.
-        """
-        assert "database_path" not in LIMITS_LEAVES
-
     @pytest.mark.parametrize("leaf", LIMITS_LEAVES)
     def test_key_names_the_per_type_block_when_a_type_answered(self, leaf: str) -> None:
         """A posture read from a connector block names that block's key."""
@@ -163,30 +154,10 @@ class TestLimitsPosture:
         per_type = LimitsPosture(enabled=True, mode="exclusive", connector_type="epics")
         assert deployment_wide.strict is per_type.strict is True
 
-    def test_an_incomplete_block_is_never_strict(self) -> None:
-        """A block missing a leaf answers ``None``, which is not strict."""
-        posture = LimitsPosture(
-            enabled=None,
-            mode=None,
-            connector_type="virtual_accelerator",
-            incomplete=("mode",),
-        )
-        assert posture.strict is False
-
     def test_incomplete_defaults_to_empty(self) -> None:
         """A posture built without the field describes a well-formed block."""
         posture = LimitsPosture(enabled=True, mode="optional", connector_type=None)
         assert posture.incomplete == ()
-
-    def test_incomplete_names_the_missing_leaves(self) -> None:
-        """The field carries leaf names, so a refusal can quote them."""
-        posture = LimitsPosture(
-            enabled=None,
-            mode=None,
-            connector_type="epics",
-            incomplete=("enabled", "mode"),
-        )
-        assert posture.incomplete == ("enabled", "mode")
 
     def test_posture_is_frozen(self) -> None:
         """The posture a refusal quotes cannot be edited after it was resolved."""
@@ -200,20 +171,6 @@ class TestLimitsPosture:
             True, "exclusive", "epics"
         )
         assert LimitsPosture(True, "exclusive", "epics") != LimitsPosture(True, "exclusive", None)
-
-    def test_public_symbols_are_importable_from_types(self) -> None:
-        """The posture and its constants are part of the module's public surface.
-
-        :mod:`osprey_connectors.types` publishes no ``__all__`` today — every
-        public name in it is reachable by import, and the writes family beside
-        this one is consumed that way. The assertion is written so that adding
-        one later has to include these names rather than silently drop them.
-        """
-        exported = getattr(connector_types, "__all__", None)
-        for name in ("LimitsPosture", "LIMITS_CHECKING_LEAF", "LIMITS_LEAVES"):
-            assert hasattr(connector_types, name)
-            if exported is not None:
-                assert name in exported
 
 
 class TestTypeLimitsPosture:
@@ -250,29 +207,16 @@ class TestTypeLimitsPosture:
         """Both leaves are tri-state there: unset stays ``None``, never guessed.
 
         A deployment that says nothing per type keeps exactly the posture it had
-        when the deployment-wide block was the only one there was.
+        when the deployment-wide block was the only one there was. Only a
+        *per-type* block has to state both leaves to answer: deployment-wide
+        silence on one leaf is the shape every deployment predating per-type
+        blocks has, and reading it as incomplete would block every write on the
+        fleet.
         """
         section = _section(deployment_wide, connector={EPICS: {"timeout_s": 5.0}})
         posture = type_limits_posture(section, EPICS)
         assert (posture.enabled, posture.mode) == expected
         assert posture.connector_type is None
-        assert posture.incomplete == ()
-
-    def test_the_deployment_wide_answer_names_the_deployment_wide_key(self) -> None:
-        """Carrying no type is what makes the refusal name the editable line."""
-        posture = type_limits_posture(_section(_block(True, "exclusive")), EPICS)
-        assert posture.key(ENABLED_LEAF) == "control_system.limits_checking.enabled"
-        assert posture.key(MODE_LEAF) == ("control_system.limits_checking.mode")
-
-    def test_a_leaf_the_deployment_wide_block_never_carried_is_not_incomplete(self) -> None:
-        """Only a *per-type* block has to state both leaves to answer.
-
-        Deployment-wide silence on one leaf is the tri-state, not a malformed
-        block: it is the shape every deployment predating per-type blocks has,
-        and reading it as incomplete would block every write on the fleet.
-        """
-        posture = type_limits_posture(_section(_block(enabled=True)), EPICS)
-        assert posture == LimitsPosture(True, None, None)
         assert posture.incomplete == ()
 
     def test_a_type_the_deployment_never_configured_reads_the_deployment_wide_block(
@@ -334,14 +278,18 @@ class TestTypeLimitsPosture:
             None, None, EPICS, LIMITS_LEAVES
         )
 
-    @pytest.mark.parametrize("section", [None, "control_system", ["control_system"], 5, True])
+    @pytest.mark.parametrize(
+        "section",
+        [None, "control_system", ["control_system"], 5, True, {}],
+        ids=["none", "str", "list", "int", "bool", "no-block-written"],
+    )
     def test_a_section_that_is_not_a_mapping_states_nothing(self, section: Any) -> None:
-        """Never raises: a section nobody can read is a deployment that said nothing."""
-        assert type_limits_posture(section, EPICS) == LimitsPosture(None, None, None)
+        """Never raises: a section nobody can read is a deployment that said nothing.
 
-    def test_a_deployment_that_wrote_no_block_at_all_states_nothing(self) -> None:
-        """Silence one level up, which is what a fresh deployment has."""
-        assert type_limits_posture(_section(), EPICS) == LimitsPosture(None, None, None)
+        The empty section is silence one level up, which is what a fresh
+        deployment has.
+        """
+        assert type_limits_posture(section, EPICS) == LimitsPosture(None, None, None)
 
     @pytest.mark.parametrize("limits_checking", [None, "true", ["enabled"], 5])
     def test_a_deployment_wide_block_that_is_not_a_mapping_is_unreadable(
@@ -469,17 +417,6 @@ class TestTypeLimitsPosture:
         )
         assert per_type == LimitsPosture(None, None, EPICS, (leaf,))
 
-    def test_an_unexpanded_environment_variable_is_unreadable(self) -> None:
-        """Environment expansion yields strings, so this is the shape it reaches us in.
-
-        A deployment that wired ``enabled`` to a variable nothing set must not
-        end up with limits checking silently off.
-        """
-        section = _section(_block("${OSPREY_LIMITS_ENABLED}", "${OSPREY_MODE}"))
-        posture = type_limits_posture(section, EPICS)
-        assert posture.incomplete == LIMITS_LEAVES
-        assert posture.enabled is None
-
     # ------------------------------------------------------------------
     # An incomplete per-type block answers nothing, and says what is missing
     # ------------------------------------------------------------------
@@ -503,7 +440,8 @@ class TestTypeLimitsPosture:
         The deployment-wide block below is permissive on both leaves. Borrowing
         either half would hand a deployment a posture it never wrote, on a
         block it half-wrote — so the posture states ``None`` twice and carries
-        the missing leaf names for the refusal to quote.
+        the missing leaf names for the refusal to quote, in leaf order so a
+        refusal reads the same way whichever leaf was dropped.
         """
         section = _section(
             _block(True, "optional"),
@@ -512,11 +450,6 @@ class TestTypeLimitsPosture:
         posture = type_limits_posture(section, connector_type)
         assert posture == LimitsPosture(None, None, connector_type, missing)
         assert posture.strict is False
-
-    def test_missing_leaves_are_listed_in_leaf_order(self) -> None:
-        """So a refusal reads the same way whichever leaf was dropped."""
-        section = _section(connector={EPICS: {LIMITS_CHECKING_LEAF: {"database_path": "/x.db"}}})
-        assert type_limits_posture(section, EPICS).incomplete == LIMITS_LEAVES
 
     def test_an_incomplete_block_still_names_its_own_key(self) -> None:
         """The operator has to be sent to the block they half-wrote."""
@@ -555,21 +488,6 @@ class TestTypeLimitsPosture:
         posture = type_limits_posture(section, connector_type)
         assert posture == LimitsPosture(True, "exclusive", None)
         assert posture.key(ENABLED_LEAF) == "control_system.limits_checking.enabled"
-
-    # ------------------------------------------------------------------
-    # Reading a posture changes nothing
-    # ------------------------------------------------------------------
-
-    def test_resolving_does_not_mutate_the_section(self) -> None:
-        """Resolvers read a shared, once-loaded config; none of them may write to it."""
-        section = _section(
-            _block(True, "exclusive"),
-            connector={EPICS: {LIMITS_CHECKING_LEAF: _block(enabled=True)}},
-        )
-        before = copy.deepcopy(section)
-        for connector_type in (EPICS, MOCK, CUSTOM_TYPE, None):
-            type_limits_posture(section, connector_type)
-        assert section == before
 
 
 def _va_baseline_deployment() -> dict[str, Any]:
@@ -761,14 +679,6 @@ class TestTargetLimitsPosture:
         for target in CONTROL_TARGETS:
             assert target_limits_posture(section, target) == LimitsPosture(None, None, None)
 
-    def test_resolving_a_target_does_not_mutate_the_section(self) -> None:
-        """Resolvers read a shared, once-loaded config; none of them may write to it."""
-        section = _standin_deployment()
-        before = copy.deepcopy(section)
-        for target in [*CONTROL_TARGETS, "labatory", None]:
-            target_limits_posture(section, target)
-        assert section == before
-
 
 class TestMostRestrictive:
     """The posture that holds across every target a session here can select.
@@ -835,16 +745,20 @@ class TestMostRestrictive:
     # ------------------------------------------------------------------
 
     @pytest.mark.parametrize(
-        "deployment_wide", [_block(True, "exclusive"), _block(True, "optional")]
+        ("deployment_wide", "expected"),
+        [
+            (_block(True, "exclusive"), LimitsPosture(True, "exclusive", None)),
+            (_block(True, "optional"), LimitsPosture(True, "optional", None)),
+        ],
+        ids=["exclusive", "optional"],
     )
     def test_no_per_type_block_answers_the_deployment_wide_posture(
-        self, deployment_wide: dict[str, Any]
+        self, deployment_wide: dict[str, Any], expected: LimitsPosture
     ) -> None:
         """The compatibility story: every target reads one block, so the union is it."""
         section = _va_baseline_deployment()
         section[LIMITS_CHECKING_LEAF] = deployment_wide
         del section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF]
-        expected = type_limits_posture(section, EPICS)
         assert most_restrictive_limits_posture(section) == expected
 
     # ------------------------------------------------------------------
@@ -871,16 +785,19 @@ class TestMostRestrictive:
         assert most_restrictive_limits_posture(section) == LimitsPosture(False, "optional", None)
 
     @pytest.mark.parametrize(
-        "va_block", [_block(True, ...), _block(True, None), _block(True, "yes")]
+        "va_block",
+        [_block(True, ...), _block(True, None), _block(True, "yes"), _block(True, "${X}")],
+        ids=["unset", "null", "quoted-yes", "unexpanded-env"],
     )
     def test_a_target_that_states_nothing_counts_as_not_permitted(
         self, va_block: dict[str, Any]
     ) -> None:
         """``None`` is not ``True``, whether it came from silence or from garbage.
 
-        An incomplete block, a leaf YAML read as ``None`` and a quoted string
-        all leave one reachable target with no stated permission, and a union
-        that granted permission anyway would be inventing it.
+        An incomplete block, a leaf YAML read as ``None``, a quoted string and
+        an unexpanded environment variable all leave one reachable target with
+        no stated permission, and a union that granted permission anyway would
+        be inventing it: the union turns strict.
         """
         section = _va_baseline_deployment()
         section[LIMITS_CHECKING_LEAF] = _block(True, "optional")
@@ -888,12 +805,6 @@ class TestMostRestrictive:
         posture = most_restrictive_limits_posture(section)
         assert posture == LimitsPosture(True, "exclusive", None, (MODE_LEAF,))
         assert posture.strict is True
-
-    def test_a_deployment_that_stated_nothing_permits_nothing(self) -> None:
-        """Both leaves fold to a definite ``False``: silence grants no permission."""
-        assert most_restrictive_limits_posture(_section()) == LimitsPosture(
-            False, "exclusive", None
-        )
 
     @pytest.mark.parametrize("value", UNREADABLE_LEAVES)
     def test_a_deployment_whose_only_posture_is_unreadable_permits_nothing(
@@ -913,15 +824,6 @@ class TestMostRestrictive:
         assert most_restrictive_limits_posture(section) == LimitsPosture(
             False, "exclusive", None, LIMITS_LEAVES
         )
-
-    def test_one_unreadable_target_makes_the_union_strict(self) -> None:
-        """A reachable machine nobody can read a posture for grants no permission."""
-        section = _va_baseline_deployment()
-        section[LIMITS_CHECKING_LEAF] = _block(True, "optional")
-        section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(True, "${X}")
-        posture = most_restrictive_limits_posture(section)
-        assert posture == LimitsPosture(True, "exclusive", None, (MODE_LEAF,))
-        assert posture.strict is True
 
     # ------------------------------------------------------------------
     # Deployments that do not render the switch
@@ -971,7 +873,11 @@ class TestMostRestrictive:
 
     @pytest.mark.parametrize("section", [None, "control_system", ["control_system"], {}, 5])
     def test_a_section_that_states_nothing_never_raises(self, section: Any) -> None:
-        """A caller with no target is often the one with no good config either."""
+        """A caller with no target is often the one with no good config either.
+
+        Both leaves fold to a definite answer: limits off, and ``exclusive`` —
+        silence grants no permission.
+        """
         assert most_restrictive_limits_posture(section) == LimitsPosture(False, "exclusive", None)
 
     # ------------------------------------------------------------------
@@ -1002,13 +908,6 @@ class TestMostRestrictive:
     def test_a_deployment_whose_blocks_are_all_well_formed_folds_complete(self) -> None:
         """The fold does not invent incompleteness either."""
         assert most_restrictive_limits_posture(_va_baseline_deployment()).incomplete == ()
-
-    def test_resolving_the_union_does_not_mutate_the_section(self) -> None:
-        """Resolvers read a shared, once-loaded config; none of them may write to it."""
-        section = _standin_deployment()
-        before = copy.deepcopy(section)
-        most_restrictive_limits_posture(section)
-        assert section == before
 
 
 class TestAnyArmedTargetChecksLimits:
@@ -1084,13 +983,6 @@ class TestAnyArmedTargetChecksLimits:
     def test_an_unstated_posture_is_not_checking(self) -> None:
         """Silence builds no validator, so it opens no database either."""
         assert any_armed_target_checks_limits({"writes_enabled": True}) is False
-
-    def test_asking_does_not_mutate_the_section(self) -> None:
-        """Resolvers read a shared, once-loaded config; none of them may write to it."""
-        section = _standin_deployment()
-        before = copy.deepcopy(section)
-        any_armed_target_checks_limits(section)
-        assert section == before
 
 
 def _missing(connector_type: str, leaf: str) -> str:
@@ -1347,15 +1239,48 @@ class TestIncompleteBlocks:
         """Pure over the rendered section, and never the thing that fails a build."""
         assert incomplete_limits_blocks(section) == []
 
-    def test_linting_does_not_mutate_the_section(self) -> None:
-        """Resolvers read a shared, once-loaded config; none of them may write to it."""
-        section = _section(
-            _block(True, "exclusive"),
-            connector={
-                EPICS: {LIMITS_CHECKING_LEAF: _block(enabled=True)},
-                VIRTUAL_ACCELERATOR: {"gateway_address": "va.example"},
-            },
-        )
-        before = copy.deepcopy(section)
-        incomplete_limits_blocks(section)
-        assert section == before
+
+# ----------------------------------------------------------------------
+# Reading a posture changes nothing
+# ----------------------------------------------------------------------
+
+
+def _every_resolver_reads_this() -> dict[str, Any]:
+    """An armed stand-in deployment with a half-written per-type block.
+
+    The union of the sections each resolver used to be checked on alone, so
+    every branch that could be tempted to normalise a block in place is taken.
+    """
+    section = _standin_deployment()
+    section["writes_enabled"] = True
+    section["connector"][EPICS][LIMITS_CHECKING_LEAF] = _block(enabled=True)
+    return section
+
+
+def _resolve_every_type(section: dict[str, Any]) -> None:
+    for connector_type in (EPICS, MOCK, CUSTOM_TYPE, None):
+        type_limits_posture(section, connector_type)
+
+
+def _resolve_every_target(section: dict[str, Any]) -> None:
+    for target in [*CONTROL_TARGETS, "labatory", None]:
+        target_limits_posture(section, target)
+
+
+@pytest.mark.parametrize(
+    "resolve",
+    [
+        _resolve_every_type,
+        _resolve_every_target,
+        most_restrictive_limits_posture,
+        any_armed_target_checks_limits,
+        incomplete_limits_blocks,
+    ],
+    ids=["type", "target", "most-restrictive", "any-armed", "incomplete-blocks"],
+)
+def test_resolvers_do_not_mutate_the_section(resolve: Any) -> None:
+    """Resolvers read a shared, once-loaded config; none of them may write to it."""
+    section = _every_resolver_reads_this()
+    before = copy.deepcopy(section)
+    resolve(section)
+    assert section == before

@@ -65,7 +65,7 @@ def _ranked_backend_kwargs():
         degrades to the substring backend rather than taking the reading pane
         down with it, which a hard failure here would do.
     """
-    from osprey.deployment.qmd_service import resolve_qmd_service_config
+    from osprey.deployment.qmd_service import OKF_CORPUS, resolve_qmd_corpus_config
     from osprey.services.facility_knowledge.okf.bundle import OKFSearchSettings
     from osprey.services.qmd import QMDClient
     from osprey.utils.workspace import load_osprey_config
@@ -79,7 +79,7 @@ def _ranked_backend_kwargs():
     try:
         config = load_osprey_config()
         return {
-            "qmd_client": QMDClient(resolve_qmd_service_config(config)),
+            "qmd_client": QMDClient(resolve_qmd_corpus_config(config, OKF_CORPUS)),
             "search_settings": OKFSearchSettings.from_config(config),
         }
     except Exception:  # see above; degrade, never kill the panel.

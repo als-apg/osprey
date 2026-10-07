@@ -1541,7 +1541,7 @@ def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image:
 # image-dependent test here means marking it the same way.
 #
 # Same container-ops safety guardrail as the rest of this file: the sidecar is
-# exact-named `osprey-e2e-mus-p3-qmd`, removed by that name, and its stack goes
+# exact-named `osprey-e2e-mus-p3-qmd-okf`, removed by that name, and its stack goes
 # down with the project-scoped `compose -p <project> down` the module already
 # uses. No prune, no `-a`, no wildcard, no `-v`.
 
@@ -1550,9 +1550,10 @@ def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image:
 #: the two-project isolation test, 20280-20600 the heterogeneous tests).
 QMD_PORT = 19085
 
-#: Exact container name the sidecar fragment declares -- `<project>-qmd`, the
-#: same namespacing rule the shipped service template applies.
-QMD_CONTAINER = f"{PROJECT_NAME}-qmd"
+#: Exact container name the sidecar fragment declares for the OKF corpus --
+#: `<project>-qmd-<corpus>`, the same namespacing rule the shipped service
+#: template applies.
+QMD_CONTAINER = f"{PROJECT_NAME}-qmd-{QMD_OKF_COLLECTION}"
 
 #: The sidecar image, honouring `OSPREY_QMD_IMAGE`. Never built by this file.
 QMD_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-validate"
@@ -1640,8 +1641,8 @@ def _write_qmd_service_render(repo: Path) -> None:
       that happened to land.
 
     What the test asserts on is spelled exactly as the template spells it: the
-    published loopback port, the ``:ro`` corpus mount at
-    ``/corpus/<collection>``, the collection name, and the entrypoint's
+    published loopback port, the ``qmd-<corpus>`` service, the ``:ro`` corpus
+    mount at ``/corpus/<corpus>``, the collection name, and the entrypoint's
     ``OSPREY_QMD_*`` contract. The rendered template itself is covered
     independently by ``tests/deployment/test_qmd_compose_fragment.py``, so this
     copy is not the only thing standing behind that fragment.
@@ -1649,21 +1650,11 @@ def _write_qmd_service_render(repo: Path) -> None:
     service_dir = repo / BUILD_DIRNAME / "services" / "qmd"
     service_dir.mkdir(parents=True, exist_ok=True)
 
-    # One collection per mounted corpus, at the mount target below. The
-    # entrypoint copies this into its state directory on every start.
-    (service_dir / "index.yml").write_text(
-        f"collections:\n"
-        f"  {QMD_OKF_COLLECTION}:\n"
-        f"    path: {SIDECAR_CORPUS_TARGET}\n"
-        f'    pattern: "**/*.md"\n',
-        encoding="utf-8",
-    )
-
     # Every relative path resolves against the pinned compose project
     # directory, which is the repo root -- never this file's own subdir.
     (service_dir / "docker-compose.yml").write_text(
         f"""services:
-  qmd:
+  qmd-{QMD_OKF_COLLECTION}:
     image: {QMD_IMAGE}
     container_name: {QMD_CONTAINER}
     restart: unless-stopped
@@ -1674,9 +1665,10 @@ def _write_qmd_service_render(repo: Path) -> None:
       OSPREY_QMD_UPDATE_INTERVAL: "300"
       OSPREY_QMD_MARKER_POLL_INTERVAL: "{QMD_MARKER_POLL_SEC}"
       OSPREY_QMD_STATE_DIR: "/var/lib/qmd"
-      OSPREY_QMD_INDEX_CONFIG: "/etc/qmd/index.yml"
+      OSPREY_QMD_CORPUS: "{QMD_OKF_COLLECTION}"
+      OSPREY_QMD_CORPUS_PATH: "{SIDECAR_CORPUS_TARGET}"
+      OSPREY_QMD_INDEX_MODE: "managed"
     volumes:
-      - ./{BUILD_DIRNAME}/services/qmd/index.yml:/etc/qmd/index.yml:ro
       # collection `{QMD_OKF_COLLECTION}` -- READ-ONLY on purpose: the sidecar
       # indexes this tree, and every process that writes it (the web terminals)
       # is outside this container.

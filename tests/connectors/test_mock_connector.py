@@ -115,32 +115,23 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_read_carries_the_unit_of_the_channel_record(self, tmp_path):
-        """A read's unit is the one the channel record states."""
-        view = served_tree(
-            tmp_path,
-            readings=["BEAM:CURRENT", "MAGNET:VOLTAGE", "VACUUM:PRESSURE"],
-            channels={
-                "BEAM:CURRENT": {"unit": "mA"},
-                "MAGNET:VOLTAGE": {"unit": "V"},
-                "VACUUM:PRESSURE": {"unit": "Torr"},
-            },
-        )
+    @pytest.mark.parametrize(
+        ("channel", "units"),
+        [
+            pytest.param("BEAM:CURRENT", "mA", id="beam-current"),
+            pytest.param("MAGNET:VOLTAGE", "V", id="magnet-voltage"),
+            pytest.param("VACUUM:PRESSURE", "Torr", id="vacuum-pressure"),
+        ],
+    )
+    async def test_read_carries_the_unit_of_the_channel_record(self, tmp_path, channel, units):
+        """A read's unit is exactly the one the channel record states."""
+        view = served_tree(tmp_path, readings=[channel], channels={channel: {"unit": units}})
         with patch("osprey.utils.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect(mock_config(view, response_delay_ms=0))
 
-            # Test beam current units
-            beam_result = await connector.read_channel("BEAM:CURRENT")
-            assert "mA" in beam_result.metadata.units or "A" in beam_result.metadata.units
-
-            # Test voltage units
-            voltage_result = await connector.read_channel("MAGNET:VOLTAGE")
-            assert "V" in voltage_result.metadata.units
-
-            # Test pressure units
-            pressure_result = await connector.read_channel("VACUUM:PRESSURE")
-            assert "Torr" in pressure_result.metadata.units
+            result = await connector.read_channel(channel)
+            assert result.metadata.units == units
 
             await connector.disconnect()
 
@@ -164,30 +155,6 @@ class TestMockConnector:
             # Read it back
             result = await connector.read_channel(channel)
             assert abs(result.value - test_value) < 0.1  # Allow tiny variance
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_write_echoes_into_the_paired_readback(self, tmp_path):
-        """A setpoint's write is echoed into the readback its pair names."""
-        view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
-        connector = MockConnector()
-        with patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=_config_with_writes_enabled,
-        ):
-            await connector.connect(mock_config(view, response_delay_ms=0))
-
-            # Write to setpoint
-            sp_name = "MAGNET:CURRENT:SP"
-            rb_name = "MAGNET:CURRENT:RB"
-            test_value = 100.0
-
-            await connector.write_channel(sp_name, test_value)
-
-            # Check that readback exists and is close
-            rb_result = await connector.read_channel(rb_name)
-            assert abs(rb_result.value - test_value) < 1.0
 
             await connector.disconnect()
 
@@ -626,22 +593,19 @@ class TestMockArchiverConnector:
 
         start_date = datetime(2024, 1, 1, 0, 0, 0)
         end_date = datetime(2024, 1, 1, 0, 1, 0)
+        channels = ["BEAM:CURRENT", "MAGNET:VOLTAGE"]
 
         df = await connector.get_data(
-            channels=["BEAM:CURRENT", "MAGNET:VOLTAGE"],
+            channels=channels,
             start_date=start_date,
             end_date=end_date,
             precision_ms=1000,
         )
 
         assert list(df.columns) == ["timestamp", "channel", "value"]
-        current_rows = df[df["channel"] == "BEAM:CURRENT"]
-        voltage_rows = df[df["channel"] == "MAGNET:VOLTAGE"]
-
-        assert len(current_rows) > 0
-        assert len(voltage_rows) > 0
-        # Every row belongs to exactly one of the two requested channels.
-        assert len(current_rows) + len(voltage_rows) == len(df)
+        # Every row belongs to a requested channel, and every channel has rows.
+        assert set(df["channel"]) == set(channels)
+        assert (df["channel"].value_counts() >= 1).all()
 
         await connector.disconnect()
 

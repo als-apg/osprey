@@ -81,11 +81,10 @@ if TYPE_CHECKING:
 
 logger = get_logger("ariel")
 
-#: qmd collection the ARIEL mirror is indexed under. One sidecar serves several
-#: corpora side by side and the collection filter is what keeps them apart:
-#: without it, OKF concept hits would come back here and fail hydration. Not a
-#: config key — it is fixed by the sidecar's rendered index, not chosen per
-#: deployment, exactly as ``OKF_COLLECTION`` is on the facility-knowledge side.
+#: qmd corpus the ARIEL mirror is indexed as: the name its sidecar's port is
+#: resolved by and the collection its one index holds. Not a config key — it is
+#: fixed by the deployment's corpus derivation, not chosen per deployment,
+#: exactly as ``OKF_COLLECTION`` is on the facility-knowledge side.
 ARIEL_COLLECTION = "ariel"
 
 #: Whether the reranker runs when config says nothing. Matches qmd's own default.
@@ -197,10 +196,12 @@ def _default_client() -> QMDClient:
     global _cached_client
     with _client_lock:
         if _cached_client is None:
-            from osprey.deployment.qmd_service import resolve_qmd_service_config
+            from osprey.deployment.qmd_service import resolve_qmd_corpus_config
             from osprey.utils.workspace import load_osprey_config
 
-            _cached_client = QMDClient(resolve_qmd_service_config(load_osprey_config()))
+            _cached_client = QMDClient(
+                resolve_qmd_corpus_config(load_osprey_config(), ARIEL_COLLECTION)
+            )
         return _cached_client
 
 

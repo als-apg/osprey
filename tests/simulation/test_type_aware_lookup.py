@@ -8,19 +8,13 @@ This file pins:
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
-import yaml
 
 from osprey.simulation.apply import apply_scenarios
 from tests._simulator_view import write_scenarios_view
-
-TEMPLATE_SIM = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
+from tests.simulation.conftest import stage_sim_project
 
 MOCK_CS = {
     "type": "mock",
@@ -42,12 +36,7 @@ def _stage_project(tmp_path: Path, control_system: dict) -> Path:
     project directory looks like — its root is the render — and it is the shape
     the direct-API callers below are handed.
     """
-    sim_dst = tmp_path / "data" / "simulation"
-    sim_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(TEMPLATE_SIM, sim_dst)
-    config = {"control_system": control_system}
-    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
-    return tmp_path
+    return stage_sim_project(tmp_path, control_system=control_system)
 
 
 # ---------------------------------------------------------------------------

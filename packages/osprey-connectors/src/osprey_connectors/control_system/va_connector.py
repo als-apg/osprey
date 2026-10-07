@@ -18,7 +18,7 @@ logger = get_logger("va_connector")
 DEFAULT_VA_PORT = 5064
 
 
-def resolve_va_gateway_port() -> Any:
+def resolve_va_gateway_port(config_path: str | None = None) -> Any:
     """Resolve the Channel Access port of the Virtual Accelerator to talk to.
 
     Reads ``services.virtual_accelerator.port`` — the same key the VA compose
@@ -28,18 +28,22 @@ def resolve_va_gateway_port() -> Any:
     config cannot be read at all (no project context, unreadable file), so the
     connector still resolves a port without one.
 
+    Args:
+        config_path: The project config to read. ``None`` reads the one a child
+            reads — ``CONFIG_FILE``, else ``./config.yml``.
+
     Returns:
         The port to default-fill unset gateway ports with.
     """
     from osprey_connectors.config import get_config_value
 
     try:
-        return get_config_value("services.virtual_accelerator.port", DEFAULT_VA_PORT)
+        return get_config_value("services.virtual_accelerator.port", DEFAULT_VA_PORT, config_path)
     except (FileNotFoundError, KeyError, RuntimeError, ValueError):
         return DEFAULT_VA_PORT
 
 
-def fill_gateway_ports(config: dict[str, Any]) -> dict[str, Any]:
+def fill_gateway_ports(config: dict[str, Any], config_path: str | None = None) -> dict[str, Any]:
     """Default-fill every gateway's ``port`` from the deployed VA's port.
 
     Precedence:
@@ -51,6 +55,8 @@ def fill_gateway_ports(config: dict[str, Any]) -> dict[str, Any]:
 
     Args:
         config: The ``connector.virtual_accelerator`` config block.
+        config_path: The project config ``services.virtual_accelerator.port``
+            is read from; see :func:`resolve_va_gateway_port`.
 
     Returns:
         A copy of ``config`` whose gateways all carry a ``port``. The caller's
@@ -69,7 +75,7 @@ def fill_gateway_ports(config: dict[str, Any]) -> dict[str, Any]:
     if not unfilled:
         return config
 
-    port = resolve_va_gateway_port()
+    port = resolve_va_gateway_port(config_path)
     logger.debug(
         f"Virtual Accelerator gateways {sorted(unfilled)} have no explicit port; "
         f"using services.virtual_accelerator.port ({port})"

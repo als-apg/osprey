@@ -4873,7 +4873,7 @@ jobs:
       uses: actions/cache@v6
       with:
         path: /tmp/qmd-buildx-cache
-        key: qmd-buildx-${{ runner.os }}-${{ steps.pins.outputs.digest }}-${{ hashFiles('src/osprey/templates/services/qmd/Dockerfile', 'src/osprey/templates/services/qmd/entrypoint.sh') }}
+        key: qmd-buildx-${{ runner.os }}-${{ steps.pins.outputs.digest }}-${{ hashFiles('src/osprey/templates/services/qmd/Dockerfile', 'src/osprey/templates/services/qmd/entrypoint.sh', 'src/osprey/templates/services/qmd/patches/**') }}
         # Pins unchanged but the Dockerfile or entrypoint edited: restore the
         # previous entry anyway. buildx revalidates every layer against the
         # current instructions, so at worst the model layers miss and refetch —

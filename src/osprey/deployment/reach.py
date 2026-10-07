@@ -81,9 +81,16 @@ from osprey.deployment.graphdb_service import (
     resolve_graphdb_service_config,
 )
 from osprey.deployment.host_binding import BUNDLED_HOST_BINDINGS
+from osprey.deployment.qmd_service import (
+    ARIEL_CORPUS,
+    OKF_CORPUS,
+    QMD_SERVICE_NAME,
+    resolve_qmd_corpus_config,
+    resolve_qmd_service_config,
+)
+from osprey.deployment.qmd_service import CORPORA_CONFIG_KEY as QMD_CORPORA_CONFIG_KEY
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
-from osprey.deployment.qmd_service import QMD_SERVICE_NAME, resolve_qmd_service_config
 from osprey.deployment.web_terminals.personas import (
     BLUESKY_PANEL_ID,
     EVENTS_PANEL_ID,
@@ -177,6 +184,9 @@ class Consumer:
             exporter posts to) — so the ``reach`` health category knocks on
             what the client dials, not on what the service block says.
             ``None`` from the dialer means the client has nothing to dial.
+        endpoint: Which of the service's instances the consumer dials, for a
+            service that runs several (one qmd sidecar per corpus); ``None``
+            for a service with one endpoint.
     """
 
     name: str
@@ -185,6 +195,7 @@ class Consumer:
     resolves: Predicate
     refuse: bool = True
     dial: Dialer | None = None
+    endpoint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -627,12 +638,17 @@ def _host_port(url: str, default_port: int) -> Dial | None:
     return host, port or default_port
 
 
-def _qmd_dial(config: Mapping[str, Any]) -> Dial | None:
-    try:
-        resolved = resolve_qmd_service_config(config)
-    except ValueError:
-        return None
-    return None if resolved is None else _host_port(resolved.base_url, QMD_DEFAULT_PORT)
+def _qmd_dial(corpus: str) -> Dialer:
+    """The dialer of the clients that query *corpus*'s own sidecar."""
+
+    def dial(config: Mapping[str, Any]) -> Dial | None:
+        try:
+            resolved = resolve_qmd_corpus_config(config, corpus)
+        except ValueError:
+            return None
+        return None if resolved is None else _host_port(resolved.base_url, QMD_DEFAULT_PORT)
+
+    return dial
 
 
 def _graphdb_dial(config: Mapping[str, Any]) -> Dial | None:
@@ -836,7 +852,8 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
                 switch_key="ariel.search_modules.hybrid.enabled",
                 is_on=_hybrid_search_on,
                 resolves=_qmd_resolves,
-                dial=_qmd_dial,
+                dial=_qmd_dial(ARIEL_CORPUS),
+                endpoint=ARIEL_CORPUS,
             ),
             Consumer(
                 name="OKF panel ranked search",
@@ -846,7 +863,8 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
                 # Falls back to substring matching without a sidecar, by
                 # design (interfaces/okf_panel/app.py); reported, not refused.
                 refuse=False,
-                dial=_qmd_dial,
+                dial=_qmd_dial(OKF_CORPUS),
+                endpoint=OKF_CORPUS,
             ),
         ),
         projected=(
@@ -854,8 +872,14 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
                 QMD_PORT_CONFIG_KEY,
                 gate=lambda config: _hybrid_search_on(config) or _okf_ranked_search_on(config),
             ),
+            # The declared corpora fix where every corpus after the first two
+            # sits in the port family, so a render that dials one needs the list.
+            ProjectedKey(
+                QMD_CORPORA_CONFIG_KEY,
+                gate=lambda config: _hybrid_search_on(config) or _okf_ranked_search_on(config),
+            ),
         ),
-        note="hybrid logbook search and the OKF panel dial the sidecar on loopback",
+        note="hybrid logbook search and the OKF panel each dial their corpus's sidecar on loopback",
     ),
     GRAPHDB_SERVICE_NAME: ReachContract(
         service=GRAPHDB_SERVICE_NAME,

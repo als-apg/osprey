@@ -122,19 +122,12 @@ _DRIVERS = {"mock": _run_mock, "doocs": _run_doocs, "tango": _run_tango}
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("connector_name", list(_DRIVERS), ids=list(_DRIVERS))
-async def test_a_validation_error_refuses_the_write(connector_name, monkeypatch, tmp_path):
+async def test_a_validation_error_refuses_the_write_and_sends_nothing(
+    connector_name, monkeypatch, tmp_path
+):
     run = await _DRIVERS[connector_name](monkeypatch, tmp_path)
 
     assert run.result.outcome is WriteOutcome.REFUSED
     assert run.result.refusal_reason == "VALIDATION_ERROR"
     assert "validator is broken" in run.result.error_message
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("connector_name", list(_DRIVERS), ids=list(_DRIVERS))
-async def test_a_validation_error_sends_nothing_to_the_control_system(
-    connector_name, monkeypatch, tmp_path
-):
-    run = await _DRIVERS[connector_name](monkeypatch, tmp_path)
-
     run.client_call.assert_not_called()

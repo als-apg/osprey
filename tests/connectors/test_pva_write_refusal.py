@@ -19,68 +19,71 @@ config-less test environment, so the ``writes_enabled`` fixture patches it as a
 property to let the real body run. Fakes are injected instead of connecting.
 """
 
-import types
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from tests.connectors._epics_fakes import (
+    ca_connector,
+    fake_p4p_module,
+    writes_enabled,  # noqa: F401 - fixture, used by name
+)
 
 PVA_GLOB = "SR:CAM*:IMAGE"
 PVA_ADDRESS = "SR:CAM1:IMAGE"
 CA_ADDRESS = "SR:BEAM:CURRENT"
 
 
-@pytest.fixture
-def writes_enabled(monkeypatch):
-    """Open the base-class writes gate so ``write_channel`` reaches its body."""
-    monkeypatch.setattr(EPICSConnector, "_writes_enabled", property(lambda self: True))
+class _RecordingValidator:
+    """A limits validator that records every call and lets it through.
+
+    It must not raise: ``write_channel`` turns any exception from ``validate``
+    into the same REFUSED outcome these tests expect, so a raising fake would
+    hide the very ordering bug it is meant to catch. The tests read the call
+    lists instead.
+    """
+
+    def __init__(self):
+        self.validate_calls = []
+        self.resolve_confirm_calls = []
+
+    def validate(self, channel_address, value, read_current=None):
+        self.validate_calls.append((channel_address, value, read_current))
+
+    def resolve_confirm(self, channel_address):
+        self.resolve_confirm_calls.append(channel_address)
+        return True
 
 
-def _fake_p4p_module() -> types.ModuleType:
-    """A ``p4p`` module stub — present only so any use of it would be visible."""
-    thread_mod = types.ModuleType("p4p.client.thread")
-    thread_mod.Context = MagicMock(name="Context")
-    client_mod = types.ModuleType("p4p.client")
-    client_mod.thread = thread_mod
-    p4p_mod = types.ModuleType("p4p")
-    p4p_mod.client = client_mod
-    return p4p_mod
-
-
-class _LoudValidator:
-    """A limits validator that fails the test if the refusal path consults it."""
-
-    def validate(
-        self,
-        channel_address,
-        value,  # noqa: ARG002 - the limits-validator interface names read_current
-    ):  # pragma: no cover - must not run
-        raise AssertionError(f"limits validation ran for a refused write: {channel_address}")
-
-    def resolve_confirm(self, channel_address):  # pragma: no cover - must not run
-        raise AssertionError(f"confirm policy resolved for a refused write: {channel_address}")
-
-
-def _connector(*, globs=(PVA_GLOB,), limits_validator=None):
+def _connector(*, globs=(PVA_GLOB,)):
     """A connector wired for both transports without touching ``connect()``."""
-    connector = EPICSConnector()
-    connector._pva_channel_globs = list(globs)
-    connector._p4p = _fake_p4p_module()
-    connector._pva_context = MagicMock(name="pva_context")
-    connector._epics = MagicMock(name="epics")
+    connector = ca_connector(
+        epics=MagicMock(name="epics"), limits_validator=_RecordingValidator(), timeout=3.0
+    )
     connector._epics.caput.return_value = True
-    connector._limits_validator = limits_validator
-    connector._timeout = 3.0
-    connector._connected = True
-    connector._epics_configured = True
+    connector._pva_channel_globs = list(globs)
+    # A p4p stub carrying only ``Context``, so any use of it would be visible.
+    connector._p4p = fake_p4p_module(errors=False)
+    connector._pva_context = MagicMock(name="pva_context")
     return connector
 
 
-def _assert_no_network_operation(connector):
-    """Neither transport may have been touched at all."""
+def _assert_nothing_downstream_ran(connector):
+    """Neither transport, nor the limits validator, may have been touched at all.
+
+    The validator's ``max_step`` check does a blocking ``caget`` on the address,
+    and a camera image has no scalar limit to be compared against. Both are
+    reached only by a write that was not refused first.
+    """
+    validator = connector._limits_validator
+    assert validator.validate_calls == [], (
+        f"limits validation ran for a refused write: {validator.validate_calls}"
+    )
+    assert validator.resolve_confirm_calls == [], (
+        f"confirm policy resolved for a refused write: {validator.resolve_confirm_calls}"
+    )
     assert connector._pva_context.mock_calls == [], (
         f"PVA context was used on a refused write: {connector._pva_context.mock_calls}"
     )
@@ -118,7 +121,7 @@ class TestPvaWriteRefusal:
         result = await connector.write_channel(PVA_ADDRESS, 1.5)
 
         _assert_refusal(result, PVA_ADDRESS, 1.5)
-        _assert_no_network_operation(connector)
+        _assert_nothing_downstream_ran(connector)
 
     @pytest.mark.asyncio
     async def test_array_write_to_a_pva_address_is_refused(self):
@@ -129,27 +132,7 @@ class TestPvaWriteRefusal:
         result = await connector.write_channel(PVA_ADDRESS, value)
 
         _assert_refusal(result, PVA_ADDRESS, value)
-        _assert_no_network_operation(connector)
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "value",
-        [2.0, np.arange(1024, dtype=np.float64)],
-        ids=["scalar", "array"],
-    )
-    async def test_refusal_precedes_limits_validation(self, value):
-        """Nothing downstream of the check may run — validation least of all.
-
-        The validator's ``max_step`` check does a blocking ``caget`` on the
-        address, and a camera image has no scalar limit to be compared against.
-        Both are reached only by a write that was not refused first.
-        """
-        connector = _connector(limits_validator=_LoudValidator())
-
-        result = await connector.write_channel(PVA_ADDRESS, value)
-
-        assert result.outcome is WriteOutcome.REFUSED
-        _assert_no_network_operation(connector)
+        _assert_nothing_downstream_ran(connector)
 
     @pytest.mark.asyncio
     async def test_explicit_confirm_does_not_bypass_the_refusal(self):
@@ -159,18 +142,7 @@ class TestPvaWriteRefusal:
         result = await connector.write_channel(PVA_ADDRESS, 1.0, confirm=False)
 
         _assert_refusal(result, PVA_ADDRESS, 1.0)
-        _assert_no_network_operation(connector)
-
-    @pytest.mark.asyncio
-    async def test_refusal_reason_stays_inside_the_shared_vocabulary(self):
-        """No protocol-named reason code: the vocabulary is transport-neutral."""
-        from osprey.errors import ChannelWriteBlockedError
-
-        connector = _connector()
-
-        result = await connector.write_channel(PVA_ADDRESS, 1.0)
-
-        assert result.refusal_reason in ChannelWriteBlockedError._VALID_REASONS
+        _assert_nothing_downstream_ran(connector)
 
 
 # ---------------------------------------------------------------------------

@@ -64,6 +64,7 @@ __all__ = [
     "LAYOUT",
     "PORT_BASE_CONFIG_KEY",
     "PVA_DEFAULT_PORT",
+    "QMD_CORPUS_MAX",
     "SLOTS_BY_NAME",
     "VA_PVA_PORT_CONFIG_KEY",
     "VA_STANDIN_MAX",
@@ -102,6 +103,11 @@ WORKER_MAX = 39
 #: Highest index of the ``va_standin`` band. Virtual-accelerator instance *n*
 #: (``n >= 2``) is at index ``n - 2``, so the band holds instances 2..11.
 VA_STANDIN_MAX = 9
+
+#: Highest index of the qmd band. Each corpus a deployment searches has its own
+#: qmd sidecar, corpus *i* at index *i*, so the band holds ten sidecars and ends
+#: one below the tiled slot.
+QMD_CORPUS_MAX = 9
 
 #: Highest index of the facility band — ``base + 900``–``base + 999``, one
 #: hundred ports a facility's own services may claim without colliding with
@@ -183,6 +189,7 @@ LAYOUT: tuple[PortSlot, ...] = (
     # mode only: bridge-mode workers publish nothing on the host.
     PortSlot("worker", 10, "dispatch", "services.dispatch_worker.worker_port_base"),
     PortSlot("openobserve", 50, "services", "services.openobserve.port"),
+    # One qmd sidecar per corpus, corpus i at offset 60 + i.
     PortSlot("qmd", 60, "services", "services.qmd.port"),
     PortSlot("tiled", 70, "services", "services.bluesky.tiled_port"),
     PortSlot("bluesky_web", 71, "services", "services.bluesky_web.port"),
@@ -228,11 +235,12 @@ LAYOUT: tuple[PortSlot, ...] = (
 SLOTS_BY_NAME: Mapping[str, PortSlot] = MappingProxyType({entry.name: entry for entry in LAYOUT})
 
 #: Index range of the slots that are indexed but are *not* per-user families.
-#: Workers are 1-based (worker w at offset 10 + w), the other two are 0-based.
+#: Workers are 1-based (worker w at offset 10 + w), the others are 0-based.
 _BANDED_INDEX_BOUNDS: Mapping[str, tuple[int, int]] = MappingProxyType(
     {
         "worker": (1, WORKER_MAX),
         "va_standin": (0, VA_STANDIN_MAX),
+        "qmd": (0, QMD_CORPUS_MAX),
         "facility": (0, FACILITY_MAX),
     }
 )
@@ -271,7 +279,7 @@ def index_bounds(entry: PortSlot) -> tuple[int, int]:
 
     Returns:
         ``(0, INDEX_MAX)`` for a per-user family, the band's own range for the
-        workers / VA instances / facility services, and ``(0, 0)`` for a
+        workers / VA instances / qmd sidecars / facility services, and ``(0, 0)`` for a
         singleton slot, which accepts only index 0.
     """
     if entry.per_index:
@@ -379,7 +387,8 @@ def default_port(slot: str, index: int = 0, base: int | None = None) -> int:
             0..:data:`INDEX_MAX` (user *i*); ``worker`` takes
             1..:data:`WORKER_MAX` (worker *w*); ``va_standin`` takes
             0..:data:`VA_STANDIN_MAX` (instance *n* at ``n - 2``);
-            ``facility`` takes 0..:data:`FACILITY_MAX`. Every other slot takes
+            ``qmd`` takes 0..:data:`QMD_CORPUS_MAX` (corpus *i*); ``facility``
+            takes 0..:data:`FACILITY_MAX`. Every other slot takes
             only 0.
         base: The base the deployment resolved. ``None`` means
             :data:`DEFAULT_PORT_BASE`, which is right only when there is no

@@ -154,10 +154,8 @@ class TestMockConnectorPosture:
         assert DEPLOYMENT_WIDE_MODE_KEY in str(excinfo.value)
 
     @pytest.mark.asyncio
-    async def test_simulator_allows_the_unlisted_channel_the_live_machine_refuses(
-        self, monkeypatch, tmp_path
-    ):
-        """One deployment, two answers for the same channel — the point of the feature."""
+    async def test_the_simulator_allows_an_unlisted_channel(self, monkeypatch, tmp_path):
+        """The simulator's half of the same deployment; the live refusal is the test above."""
         connector = await _connected_mock(
             monkeypatch,
             tmp_path,

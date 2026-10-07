@@ -4,7 +4,9 @@ import logging
 
 import pytest
 
+from osprey.connectors import types
 from osprey.connectors.control_system.base import WriteOutcome
+from osprey.connectors.control_system.mock_connector import MockConnector
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 
 
@@ -24,52 +26,49 @@ class TestDynamicConnectorImport:
 
     @pytest.mark.asyncio
     async def test_dynamic_import_connector(self):
-        """Dotted module path resolves and instantiates the connector."""
-        config = {
-            "type": "tests.connectors._mock_dynamic_connector.MockDynamicConnector",
-            "connector": {},
-        }
+        """Dotted module path resolves, instantiates and registers the connector."""
+        from tests.connectors._mock_dynamic_connector import MockDynamicConnector
+
+        dotted = "tests.connectors._mock_dynamic_connector.MockDynamicConnector"
+        config = {"type": dotted, "connector": {}}
         connector = await ConnectorFactory.create_control_system_connector(config)
         result = await connector.read_channel("TEST:CH")
         assert result.value == 42
+        assert ConnectorFactory._control_system_connectors[dotted] is MockDynamicConnector
 
+    @pytest.mark.parametrize(
+        ("connector_type", "message"),
+        [
+            pytest.param(
+                "nonexistent.module.Foo",
+                "Could not import connector module 'nonexistent.module': "
+                "No module named 'nonexistent'",
+                id="module-not-importable",
+            ),
+            pytest.param(
+                "tests.connectors._mock_dynamic_connector.NoSuchClass",
+                "Module 'tests.connectors._mock_dynamic_connector' has no class 'NoSuchClass'",
+                id="class-missing",
+            ),
+            pytest.param(
+                "moat",
+                "Unknown control system type: 'moat'. Available types: ['mock']. "
+                "Use a dotted module path for custom connectors.",
+                id="unknown-name-lists-available",
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_dynamic_import_caches(self):
-        """Second call with same dotted path uses cached class (no re-import)."""
-        dotted = "tests.connectors._mock_dynamic_connector.MockDynamicConnector"
-        config = {"type": dotted, "connector": {}}
+    async def test_an_unusable_control_system_type_is_refused(self, connector_type, message):
+        """Mirrors ``TestArchiverTypeResolution`` for the control-system side."""
+        ConnectorFactory.register_control_system(types.MOCK, MockConnector)
 
-        await ConnectorFactory.create_control_system_connector(config)
-        assert dotted in ConnectorFactory._control_system_connectors
+        with pytest.raises(ValueError) as caught:
+            await ConnectorFactory.create_control_system_connector(
+                {"type": connector_type, "connector": {}}
+            )
 
-        # Second call should hit the cache, not importlib
-        connector2 = await ConnectorFactory.create_control_system_connector(config)
-        result = await connector2.read_channel("TEST:CH")
-        assert result.value == 42
-
-    @pytest.mark.asyncio
-    async def test_invalid_module_path(self):
-        """Non-existent module raises ValueError with clear message."""
-        config = {"type": "nonexistent.module.Foo", "connector": {}}
-        with pytest.raises(ValueError, match="Could not import connector module"):
-            await ConnectorFactory.create_control_system_connector(config)
-
-    @pytest.mark.asyncio
-    async def test_invalid_class_name(self):
-        """Valid module but missing class raises ValueError."""
-        config = {
-            "type": "tests.connectors._mock_dynamic_connector.NoSuchClass",
-            "connector": {},
-        }
-        with pytest.raises(ValueError, match="has no class 'NoSuchClass'"):
-            await ConnectorFactory.create_control_system_connector(config)
-
-    @pytest.mark.asyncio
-    async def test_simple_unknown_type_error_message(self):
-        """Non-dotted unknown type still raises with helpful message."""
-        config = {"type": "moat", "connector": {}}
-        with pytest.raises(ValueError, match="Use a dotted module path"):
-            await ConnectorFactory.create_control_system_connector(config)
+        assert message in str(caught.value)
 
 
 class TestControlSystemContextValidation:

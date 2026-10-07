@@ -23,7 +23,7 @@ mean anything:
   the hook's fail-closed rules are written on the assumption that the halves
   arrive together.
 * **Survival.** The stamp has to reach the processes that read it, which sit
-  behind two deliberate scrubs. ``ConnectorHostManager.child_env()`` drops the
+  behind two deliberate scrubs. ``osprey_connectors.ipc.launch.host_env()`` drops the
   EPICS family and is otherwise allow-by-default, so its test here is a
   regression pin: the day it grows a prefix rule, the connector-host child
   silently resolves a different directory from its parent. The execution
@@ -69,9 +69,8 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.pty_manager import env_fingerprint
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
-from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey_connectors import posture_store
+from osprey_connectors.ipc.launch import host_env
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -357,12 +356,7 @@ class TestTheStampSurvivesEveryScrub:
         EPICS family taken away from it — this asserts the scrub stayed as
         narrow as its docstring says.
         """
-        manager = ConnectorHostManager(
-            MCPServerConfig(
-                raw={"control_system": {"connector": {"type": "mock"}}}, config_path=None
-            )
-        )
-        child = manager.child_env()
+        child = host_env()
 
         assert child[OSPREY_AGENT_DATA_ROOT] == stamped_env[OSPREY_AGENT_DATA_ROOT]
         assert child[POSTURE_SESSION_ENV] == SESSION_A

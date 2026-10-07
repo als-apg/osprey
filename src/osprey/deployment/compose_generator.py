@@ -40,6 +40,7 @@ from osprey.deployment.compose_merge import (
 )
 from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.deployment.errors import DeploymentPreconditionError
+from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS
 from osprey.deployment.runtime_helper import (
     CONFIG_DIGEST_VAR,
     ComposeProvider,
@@ -155,14 +156,17 @@ QMD_CORPUS_ROOT = "/corpus"
 #: qmd collection the OKF facility-knowledge bundle is indexed under. This is a
 #: contract, not a label: a query filters on the collection name, so this must
 #: equal ``osprey.services.facility_knowledge.okf.bundle.OKF_COLLECTION``.
-#: Restated here rather than imported, because rendering a compose file must not
-#: drag the facility-knowledge service into the deployment import graph; a test
-#: asserts the two spellings agree.
-QMD_OKF_COLLECTION = "okf"
+#: Taken from the qmd schema rather than from the facility-knowledge service,
+#: because rendering a compose file must not drag that service into the
+#: deployment import graph; a test asserts the two spellings agree.
+QMD_OKF_COLLECTION = OKF_CORPUS
 
 #: qmd collection ARIEL's markdown mirror is indexed under. Same contract: the
 #: ARIEL search module filters on this name.
-QMD_ARIEL_COLLECTION = "ariel"
+QMD_ARIEL_COLLECTION = ARIEL_CORPUS
+
+#: Compose service name of one corpus's sidecar is this prefix plus the corpus.
+QMD_SERVICE_PREFIX = "qmd"
 
 #: Where a SERVICE image holds the deployment project's mounted files. Distinct
 #: from ``_CONTAINER_APP_ROOT``/``<project_name>``, which is where a *project*
@@ -971,38 +975,64 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
 
 
 def _resolve_qmd_corpora(config, repo_root):
-    """List the corpora the qmd sidecar indexes, one entry per collection.
+    """List the corpora the deployment searches, one qmd sidecar per entry.
 
-    This is the single derivation behind BOTH of the sidecar's rendered
-    artifacts: ``docker-compose.yml.j2`` turns each entry into a read-only bind
-    mount and ``index.yml.j2`` turns the same entry into a qmd collection. Doing
-    it once here is the point — a corpus mounted without a collection indexes
-    nothing, and a collection declared without a mount points at an empty
-    directory, and both fail as "the search returns nothing" rather than as an
+    This is the single derivation behind every corpus sidecar the qmd compose
+    fragment renders: its service name, its port in the qmd family, its index
+    volume or prebuilt index mount, and its read-only corpus mount and the
+    collection the entrypoint declares over it. Doing it once here is the point
+    — a corpus mounted under one name and declared under another indexes
+    nothing, and a sidecar published on a port no client resolves is never
+    asked, and both fail as "the search returns nothing" rather than as an
     error.
 
-    Two corpora are recognized, each gated on the config that produces it:
+    Two corpora are derived from the config that produces them, at fixed
+    offsets in the port family:
 
-    * the facility-knowledge bundle, when ``facility_knowledge.bundle_path``
-      names one;
-    * ARIEL's markdown mirror, when
+    * the facility-knowledge bundle (``okf``), when
+      ``facility_knowledge.bundle_path`` names one;
+    * ARIEL's markdown mirror (``ariel``), when
       ``ariel.enhancement_modules.qmd_export`` is enabled AND names a
       ``mirror_path`` (an enabled export with no path is a config error the
       exporter itself refuses at runtime; there is nothing to mount here).
+
+    The corpora ``services.qmd.corpora`` declares follow, in list order.
 
     :param config: Configuration dictionary
     :type config: dict
     :param repo_root: The deployment repo root, for relative bind sources
     :type repo_root: str
-    :return: Corpus descriptors with ``collection``, ``source`` and ``target``
+    :return: Corpus descriptors with ``collection``, ``service``, ``port``,
+        ``index`` (``managed`` or ``prebuilt``), ``source`` and ``target`` (the
+        corpus mount, ``None`` for a prebuilt corpus without one), ``index_dir``
+        (the prebuilt index's bind source, else ``None``) and ``volume`` (the
+        managed index's named volume, else ``None``)
     :rtype: list[dict]
     """
+    from osprey.deployment.qmd_service import (
+        INDEX_MANAGED,
+        QMDServiceConfig,
+        resolve_bind_address,
+        resolve_qmd_service_config,
+    )
 
-    def corpus(collection, raw_path):
+    resolved = resolve_qmd_service_config(config) or QMDServiceConfig(
+        bind_address=resolve_bind_address(config)
+    )
+
+    def corpus(collection, raw_source, index=INDEX_MANAGED, raw_index_dir=None):
+        managed = index == INDEX_MANAGED
         return {
             "collection": collection,
-            "source": repo_relative_mount_source(raw_path, repo_root),
-            "target": f"{QMD_CORPUS_ROOT}/{collection}",
+            "service": f"{QMD_SERVICE_PREFIX}-{collection}",
+            "port": resolved.for_corpus(collection).port,
+            "index": index,
+            "source": (repo_relative_mount_source(raw_source, repo_root) if raw_source else None),
+            "target": f"{QMD_CORPUS_ROOT}/{collection}" if raw_source else None,
+            "index_dir": (
+                None if managed else repo_relative_mount_source(raw_index_dir, repo_root)
+            ),
+            "volume": f"qmd_index_{collection}" if managed else None,
         }
 
     corpora = []
@@ -1015,6 +1045,9 @@ def _resolve_qmd_corpora(config, repo_root):
     mirror_path = configured_ariel_mirror_path(config)
     if mirror_path is not None:
         corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path))
+
+    for declared in resolved.corpora:
+        corpora.append(corpus(declared.name, declared.source, declared.index, declared.index_dir))
 
     return corpora
 

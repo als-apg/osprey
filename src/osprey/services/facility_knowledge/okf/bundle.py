@@ -32,12 +32,12 @@ Example usage::
 
 Wiring the ranked backend takes the two resolvers its inputs already have::
 
-    from osprey.deployment.qmd_service import resolve_qmd_service_config
+    from osprey.deployment.qmd_service import OKF_CORPUS, resolve_qmd_corpus_config
     from osprey.services.qmd import QMDClient
 
     bundle = OKFBundle(
         bundle_root,
-        qmd_client=QMDClient(resolve_qmd_service_config(config)),
+        qmd_client=QMDClient(resolve_qmd_corpus_config(config, OKF_CORPUS)),
         search_settings=OKFSearchSettings.from_config(config),
     )
 
@@ -66,8 +66,8 @@ _RESERVED_NAMES: frozenset[str] = frozenset({"index.md", "log.md"})
 # index.md link pattern: Markdown links of the form [title](path)
 _INDEX_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
 
-#: qmd collection the OKF bundle is indexed under. One sidecar serves several
-#: corpora side by side, and the collection filter is what keeps them apart.
+#: qmd corpus the OKF bundle is indexed as: the name its sidecar's port is
+#: resolved by and the collection its one index holds.
 OKF_COLLECTION = "okf"
 
 #: Maximum hits :meth:`OKFBundle.search` returns when the caller names no limit.

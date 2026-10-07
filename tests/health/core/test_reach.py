@@ -1,8 +1,8 @@
 """Tests for the core ``reach`` health category.
 
 Drives the category through an injected ``knock`` so no socket is opened,
-exercising: no live consumer ⇒ no rows; one row per service naming every
-consumer that dials it; the address in the row is the one the client's own
+exercising: no live consumer ⇒ no rows; one row per endpoint naming every
+consumer that dials it (one per corpus sidecar for qmd); the address in the row is the one the client's own
 resolver produces; and the three outcomes — reachable, unreachable, nothing
 to dial.
 """
@@ -34,20 +34,27 @@ class TestRows:
         """A render that switches nothing on has nothing to reach."""
         assert await _run({}) == {}
 
-    async def test_one_row_per_service_naming_every_consumer(self):
-        """Hybrid search and the OKF panel both dial the qmd sidecar: one knock,
-        one row, both names — a service is not reported twice because two
-        clients depend on it."""
+    async def test_one_row_per_corpus_sidecar(self):
+        """Hybrid search and the OKF panel each dial their own corpus's sidecar,
+        on its own port of the qmd family: one knock and one row per sidecar,
+        each naming the consumer that depends on it."""
+        seen: list[tuple[str, int]] = []
+
+        async def knock(host: str, port: int) -> None:
+            seen.append((host, port))
+
         config = {
             **HYBRID_ON,
             "services": {"qmd": {"port": 8180}},
             "web": {"panels": {"okf": {"enabled": True}}},
             "facility_knowledge": {"bundle_path": "data/facility/knowledge"},
         }
-        rows = await _run(config)
-        assert "reach.qmd" in rows
-        assert "ARIEL hybrid search" in rows["reach.qmd"].message
-        assert "OKF panel ranked search" in rows["reach.qmd"].message
+        rows = await _run(config, knock=knock)
+        assert "OKF panel ranked search" in rows["reach.qmd-okf"].message
+        assert "127.0.0.1:8180" in rows["reach.qmd-okf"].message
+        assert "ARIEL hybrid search" in rows["reach.qmd-ariel"].message
+        assert "127.0.0.1:8181" in rows["reach.qmd-ariel"].message
+        assert {("127.0.0.1", 8180), ("127.0.0.1", 8181)} <= set(seen)
 
     async def test_knocks_on_what_the_client_dials(self):
         """The address comes from the client's resolver, not from a literal:
@@ -59,12 +66,13 @@ class TestRows:
 
         rows = await _run({**HYBRID_ON, "services": {"qmd": {"port": 9180}}}, knock=knock)
         # The `ariel:` section also makes the ARIEL database a live consumer;
-        # the sidecar's knock is the one this test is about.
-        assert ("127.0.0.1", 9180) in seen
-        row = rows["reach.qmd"]
+        # the sidecar's knock is the one this test is about. ARIEL's corpus is
+        # the second of the qmd family.
+        assert ("127.0.0.1", 9181) in seen
+        row = rows["reach.qmd-ariel"]
         assert row.status is Status.OK
         assert row.value == "up"
-        assert "127.0.0.1:9180" in row.message
+        assert "127.0.0.1:9181" in row.message
 
 
 class TestOutcomes:
@@ -73,10 +81,10 @@ class TestOutcomes:
             raise ConnectionRefusedError(111, "Connection refused")
 
         rows = await _run({**HYBRID_ON, "services": {"qmd": {"port": 8180}}}, knock=refused)
-        row = rows["reach.qmd"]
+        row = rows["reach.qmd-ariel"]
         assert row.status is Status.WARNING
         assert row.value == "offline"
-        assert "127.0.0.1:8180" in row.message
+        assert "127.0.0.1:8181" in row.message
         assert "services.qmd.port" in row.details
 
     async def test_timeout_is_unreachable_too(self):
@@ -84,7 +92,7 @@ class TestOutcomes:
             raise TimeoutError()
 
         rows = await _run({**HYBRID_ON, "services": {"qmd": {"port": 8180}}}, knock=hangs)
-        assert rows["reach.qmd"].value == "offline"
+        assert rows["reach.qmd-ariel"].value == "offline"
 
     async def test_nothing_to_dial_is_a_warning_naming_the_key(self):
         """The state the build refuses, met at run time (a hand-edited render,
@@ -97,11 +105,11 @@ class TestOutcomes:
             seen.append((host, port))
 
         rows = await _run(HYBRID_ON, knock=knock)
-        row = rows["reach.qmd"]
+        row = rows["reach.qmd-ariel"]
         # No knock at the sidecar's default: nothing was resolved, nothing is
         # guessed. (The ARIEL database, live from the same `ariel:` section,
         # is knocked on as usual.)
-        assert all(port != DEFAULT_PORT for _host, port in seen)
+        assert all(port not in (DEFAULT_PORT, DEFAULT_PORT + 1) for _host, port in seen)
         assert row.status is Status.WARNING
         assert row.value == "unresolved"
         assert "ariel.search_modules.hybrid.enabled" in row.details
@@ -116,8 +124,8 @@ class TestOutcomes:
             "facility_knowledge": {"bundle_path": "data/facility/knowledge"},
         }
         rows = await _run(config)
-        assert rows["reach.qmd"].value == "unresolved"
-        assert "degrades" in rows["reach.qmd"].details
+        assert rows["reach.qmd-okf"].value == "unresolved"
+        assert "degrades" in rows["reach.qmd-okf"].details
 
 
 @pytest.mark.parametrize("config", [None, {}])
