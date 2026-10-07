@@ -759,7 +759,8 @@ def _finish_manifest(
     Args:
         entries: One entry per enumerated channel, before the scenario seed.
         paths: The data tree the per-tree sources (``machine.json``, the
-            machine-state list) are read from.
+            machine-state list) are read from. A tree carrying no
+            ``machine.json`` contributes no scenario seed.
         source_paradigms: The paradigm databases that loaded and fed the
             entries. Empty for a roster-sourced manifest, which loaded none:
             ``source_corpus`` names what fed it.
@@ -789,7 +790,9 @@ def _finish_manifest(
     entries = list(entries)
     addresses = {entry.address for entry in entries}
 
-    machine_json_channels = loaders.load_machine_json_channels(paths=paths)
+    machine_json_channels = (
+        loaders.load_machine_json_channels(paths=paths) if paths.machine_json.is_file() else {}
+    )
     # machine.json is expected to be a scenario-seed subset of the DB
     # namespace. A novel address here would be additive data, not an error --
     # but it's the one place a new channel could sneak in without ever
@@ -1167,7 +1170,8 @@ def _staged_expansion_is_empty(paths: ManifestPaths, expansion: ParadigmExpansio
         return False
     try:
         addresses = set().union(*expansion.addresses.values())
-        addresses |= set(loaders.load_machine_json_channels(paths=paths))
+        if paths.machine_json.is_file():
+            addresses |= set(loaders.load_machine_json_channels(paths=paths))
     except (json.JSONDecodeError, KeyError, OSError):
         return False
     return not addresses
