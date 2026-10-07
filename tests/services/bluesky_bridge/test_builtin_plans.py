@@ -263,6 +263,23 @@ def test_orm_params_rejects_an_unknown_sweep() -> None:
         ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=5, sweep="sideways")
 
 
+def test_orm_params_regressor_defaults_to_setpoint() -> None:
+    """The fit regresses on the commanded current unless the caller asks otherwise."""
+    params = ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=5)
+    assert params.regressor == "setpoint"
+    assert (
+        ORMParams(
+            correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=5, regressor="readback"
+        ).regressor
+        == "readback"
+    )
+
+
+def test_orm_params_rejects_an_unknown_regressor() -> None:
+    with pytest.raises(ValidationError):
+        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=5, regressor="demand")
+
+
 def test_orm_declares_a_role_for_every_channel_field() -> None:
     """`orm` drives hardware, so what it moves and what it merely reads is a
     safety-relevant claim — declared, not inferred from the field names. The
