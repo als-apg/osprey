@@ -502,7 +502,7 @@ class TestEveryChannelNothingDrivesIsReadOnly:
 
     def test_a_readback_write_is_refused_by_the_validator(self, tree):
         """The software safety layer, not the IOC, is what refuses it."""
-        from osprey.errors import ChannelLimitsViolationError
+        from osprey_connectors.errors import ChannelLimitsViolationError
 
         read_addresses = _read_addresses(tree)
         assert read_addresses, f"{tree.name} reads no address it does not also write"

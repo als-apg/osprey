@@ -27,7 +27,7 @@ import pytest
 
 from osprey.cli.build_environment import _create_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 # A full cold-cache install of osprey's dependency tree is a >1 GB download.
 # Fifteen minutes is the floor at which the cap is bounding a hung installer

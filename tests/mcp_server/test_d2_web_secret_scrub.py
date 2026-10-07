@@ -247,11 +247,11 @@ def reset_config_caches(monkeypatch):
     caches; a test that installs a temporary config must not inherit — or leave
     behind — another test's cached configuration.
     """
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_config_cache()
 
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     monkeypatch.setattr(_cfg, "_default_config", None)
     monkeypatch.setattr(_cfg, "_default_configurable", None)

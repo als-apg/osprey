@@ -34,8 +34,8 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.set_cmd import set as set_cmd
-from osprey.connectors.control_system.mock_connector import MockConnector
-from osprey.connectors.factory import (
+from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.factory import (
     ConnectorFactory,
     isolated_connector_registries,
     register_builtin_connectors,

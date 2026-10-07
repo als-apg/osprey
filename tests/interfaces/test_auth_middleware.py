@@ -40,8 +40,8 @@ from osprey.interfaces.common_middleware import (
     session_cookie_name,
 )
 from osprey.interfaces.web_auth import BIND_HOST_ENV, WebCredentials, reset_web_credentials
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, acting_identity
 from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, acting_identity
 
 #: Read off the module rather than retyped, so a rename cannot leave the
 #: caplog assertions below silently watching a logger nothing writes to.

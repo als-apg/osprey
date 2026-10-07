@@ -28,7 +28,7 @@ from osprey.cli.build_profile_presets import (
     PRESET_DATA_BUNDLE_KEY,
     preset_data_bundle,
 )
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:

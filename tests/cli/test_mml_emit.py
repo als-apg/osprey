@@ -89,8 +89,8 @@ from osprey.services.virtual_accelerator.manifest.loaders import (
 )
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 from osprey.services.virtual_accelerator.model.bindings import build_action_variables
-from osprey.simulation.machine import parse_machine
 from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.simulation.machine import parse_machine
 from tests.cli.test_mml_map import _fill
 from tests.templates.mml_export_contract import EXPORTER_VERSION
 

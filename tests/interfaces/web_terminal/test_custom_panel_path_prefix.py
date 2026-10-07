@@ -27,7 +27,7 @@ def _config(path: str) -> dict:
 
 
 def _custom_path(path: str) -> str:
-    with patch("osprey.utils.workspace.load_osprey_config", return_value=_config(path)):
+    with patch("osprey_connectors.workspace.load_osprey_config", return_value=_config(path)):
         _enabled, custom, _default = _load_panel_config()
     (panel,) = custom
     return panel["path"]

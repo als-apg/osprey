@@ -391,7 +391,7 @@ def config_backup_path(config_path: Path) -> Path:
     repo ROOT — the directory holding ``profile.yml`` and ``var/`` — never
     relative to the render that ``config.yml`` sits in. So the anchor is derived
     from the config itself, applying the same precedence
-    :func:`~osprey.utils.workspace.resolve_project_root` applies at runtime: the
+    :func:`~osprey_connectors.workspace.resolve_project_root` applies at runtime: the
     config's own ``project_root`` key when it names a directory that exists
     here, and :func:`repo_root_for_config` otherwise. That is the helper every
     other state-zone consumer resolves the root with:
@@ -422,7 +422,7 @@ def config_backup_path(config_path: Path) -> Path:
     Returns:
         The path the backup should be written to. Nothing is created.
     """
-    from osprey.utils.workspace import agent_data_base_dir, anchored_path, repo_root_for_config
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path, repo_root_for_config
 
     try:
         config = load_config_document(config_path)

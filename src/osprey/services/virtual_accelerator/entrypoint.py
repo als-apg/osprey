@@ -140,7 +140,7 @@ from osprey.services.virtual_accelerator.model.fault_bounds import (
     MAX_CORR_GAIN_FACTOR,
 )
 from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
-from osprey.simulation.engine import SimulationEngine
+from osprey_connectors.simulation.engine import SimulationEngine
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.model import LUMEModel
@@ -632,7 +632,7 @@ class _RunnerRefresh(TypedDict, total=False):
 
 
 def main() -> None:
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     # Container entry point: without this the serving/PyAT/framework log records
     # this process drives would have no handler. Records go to stderr.

@@ -37,7 +37,7 @@ from osprey.services.ariel_search.models import (
     SearchDiagnostic,
     SyncStatus,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

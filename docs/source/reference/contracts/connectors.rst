@@ -59,12 +59,12 @@ Write Confirmation
 A write is **confirmed** when the channel it wrote now holds the value that was
 sent. The connector establishes that itself: it re-reads the channel once the
 control system has accepted the put, and reports what it found as a single word
-on :class:`~osprey.connectors.control_system.ChannelWriteResult`, which every
+on :class:`~osprey_connectors.control_system.ChannelWriteResult`, which every
 ``write_channel()`` call returns.
 
 .. code-block:: python
 
-   from osprey.connectors.control_system import WriteOutcome
+   from osprey_connectors.control_system import WriteOutcome
 
    result = await connector.write_channel("BEAM:CURRENT", 100.0)
 
@@ -329,13 +329,13 @@ read.
 
 .. seealso::
 
-   :class:`~osprey.connectors.control_system.ChannelValue`
+   :class:`~osprey_connectors.control_system.ChannelValue`
        Channel read result data model
 
-   :class:`~osprey.connectors.control_system.ChannelWriteResult`
+   :class:`~osprey_connectors.control_system.ChannelWriteResult`
        Complete write operation result
 
-   :class:`~osprey.connectors.control_system.WriteOutcome`
+   :class:`~osprey_connectors.control_system.WriteOutcome`
        The six words a write can end in
 
 
@@ -350,7 +350,7 @@ control-system connector answers about the present.
    ``get_data`` returns long-format data (below) instead of a shared-index wide
    ``DataFrame``. Out-of-tree connectors written against the old contract must be updated.
 
-Subclass :class:`~osprey.connectors.archiver.base.ArchiverConnector` and implement
+Subclass :class:`~osprey_connectors.archiver.base.ArchiverConnector` and implement
 ``connect``, ``disconnect``, ``get_data``, ``get_metadata``, ``check_availability``.
 
 ``get_data`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
@@ -405,7 +405,7 @@ applied independently to each channel's own samples:
   grid of its own is the documented exception -- the Archiver Appliance's
   operators are epoch-anchored, and the window merely clips them.
 
-The shared helpers in ``osprey.connectors.archiver._timerange`` (``to_utc``,
+The shared helpers in ``osprey_connectors.archiver._timerange`` (``to_utc``,
 ``require_datetime``, ``resolve_processing``, ``long_frame``, ``decimate_raw``,
 ``aggregate_series``, ``reject_non_numeric``) implement all of the above --
 every in-tree connector builds on them rather than reimplementing binning.

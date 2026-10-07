@@ -121,7 +121,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 # ---------------------------------------------------------------------------
 
 # The enforcement axis the control-system tiers differ on — the reference
-# monitor's master write switch (see osprey.connectors.control_system.base).
+# monitor's master write switch (see osprey_connectors.control_system.base).
 WRITES_KEY = "control_system.writes_enabled"
 # The same posture spelled per connector TYPE. The flat key above is only what
 # a type inherits when its own block says nothing, so these are what a tier

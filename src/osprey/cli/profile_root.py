@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 #: Directory name that marks a profile file as a persona delta.
 PERSONA_DIRNAME = "personas"

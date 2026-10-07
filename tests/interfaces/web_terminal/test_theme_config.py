@@ -141,7 +141,7 @@ class TestRenderedDataTheme:
                 return_value={"watch_dir": str(workspace_dir)},
             ),
             patch(
-                "osprey.utils.config.get_config_value",
+                "osprey_connectors.config.get_config_value",
                 side_effect=FileNotFoundError("no config.yml found"),
             ),
             TestClient(create_app(shell_command=["echo"])) as client,
@@ -202,27 +202,27 @@ class TestConfiguredWebTheme:
 
     def test_env_var_outranks_config(self, monkeypatch):
         monkeypatch.setenv("OSPREY_WEB_THEME", "desy-light")
-        with patch("osprey.utils.config.get_config_value", return_value="main") as get_value:
+        with patch("osprey_connectors.config.get_config_value", return_value="main") as get_value:
             assert configured_web_theme() == "desy-light"
         get_value.assert_not_called()  # the config is not even read
 
     def test_blank_env_var_falls_through_to_config(self, monkeypatch):
         """An empty env var is 'unset', not 'the empty theme'."""
         monkeypatch.setenv("OSPREY_WEB_THEME", "   ")
-        with patch("osprey.utils.config.get_config_value", return_value="retro") as get_value:
+        with patch("osprey_connectors.config.get_config_value", return_value="retro") as get_value:
             assert configured_web_theme() == "retro"
         get_value.assert_called_once_with("web.theme", "main")
 
     def test_absent_env_var_reads_web_theme_with_the_main_default(self, monkeypatch):
         monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
-        with patch("osprey.utils.config.get_config_value", return_value="main") as get_value:
+        with patch("osprey_connectors.config.get_config_value", return_value="main") as get_value:
             assert configured_web_theme() == DEFAULT_WEB_THEME
         get_value.assert_called_once_with("web.theme", "main")
 
     def test_empty_config_value_falls_back_to_the_default(self, monkeypatch):
         """`web.theme:` with nothing after it reads as None, not as a theme name."""
         monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
-        with patch("osprey.utils.config.get_config_value", return_value=None):
+        with patch("osprey_connectors.config.get_config_value", return_value=None):
             assert configured_web_theme() == DEFAULT_WEB_THEME
 
     def test_config_read_error_propagates(self, monkeypatch):
@@ -232,7 +232,7 @@ class TestConfiguredWebTheme:
         monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
         with (
             patch(
-                "osprey.utils.config.get_config_value",
+                "osprey_connectors.config.get_config_value",
                 side_effect=FileNotFoundError("no config.yml found"),
             ),
             pytest.raises(FileNotFoundError),

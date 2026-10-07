@@ -50,7 +50,6 @@ from uuid import uuid4
 import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
-from osprey.errors import BuildProfileError
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
     config_edit_session,
@@ -58,8 +57,9 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import (
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     IMAGE_DIR_NAME,
     STATE_DIR_NAME,
@@ -3177,7 +3177,7 @@ def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
     * **Append-only.** That ``.env`` is the deployment's whole secret store:
       hand-edited, and written back to by ``osprey up`` with tokens the running
       volumes are pinned to. The build writes it through the same
-      :func:`~osprey.utils.dotenv.append_profile_env` every other writer uses,
+      :func:`~osprey_connectors.dotenv.append_profile_env` every other writer uses,
       so a value already on file always wins and a disagreement is *reported*
       rather than resolved. Repointing a running IOC's channel set from under
       an operator, on a rebuild they ran for some unrelated reason, is not a
@@ -3201,7 +3201,7 @@ def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
     """
     from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
     from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-    from osprey.utils.dotenv import (
+    from osprey_connectors.dotenv import (
         BUILD_DERIVED_BANNER,
         BUILD_DERIVED_KEYS,
         VA_LATTICE_KEY,
@@ -3306,7 +3306,7 @@ def _migrate_retired_lattice_pointer(env_path: Path, data_root: Path, derived: s
             is the one the container mounts and looks the name up in.
         derived: The value :func:`_served_lattice` earned from that tree.
     """
-    from osprey.utils.dotenv import VA_LATTICE_KEY, replace_profile_env_value
+    from osprey_connectors.dotenv import VA_LATTICE_KEY, replace_profile_env_value
 
     if (data_root / "simulation" / _VA_LATTICE_RETIRED).is_file():
         return

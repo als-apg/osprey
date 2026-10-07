@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.profile_root import resolve_profile_root
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 def test_persona_file_anchors_at_the_profile_root(tmp_path: Path) -> None:

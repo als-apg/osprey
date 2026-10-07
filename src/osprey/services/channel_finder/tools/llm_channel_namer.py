@@ -338,7 +338,7 @@ def create_namer_from_config(config_path: str | Path | None = None) -> LLMChanne
     Returns:
         Configured LLMChannelNamer instance
     """
-    from osprey.utils.config import load_config
+    from osprey_connectors.config import load_config
 
     if config_path:
         config = load_config(str(config_path))

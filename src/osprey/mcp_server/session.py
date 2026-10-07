@@ -2,7 +2,7 @@
 
 import logging
 
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 logger = logging.getLogger("osprey.mcp_server.session")
 
@@ -14,7 +14,7 @@ def gather_session_metadata(created_via: str) -> dict:
     ``session_start_time``, ``git_branch``, ``git_commit_short``,
     ``operator``, ``model_name``, ``created_via``. All fall back gracefully to
     ``None`` except ``operator``, which floors at
-    :data:`~osprey.utils.identity.UNKNOWN_IDENTITY` — an entry always names
+    :data:`~osprey_connectors.identity.UNKNOWN_IDENTITY` — an entry always names
     somebody, even if only honestly.
 
     Args:
@@ -24,7 +24,7 @@ def gather_session_metadata(created_via: str) -> dict:
     import os
     import subprocess
 
-    from osprey.utils.workspace import load_osprey_config, resolve_project_root
+    from osprey_connectors.workspace import load_osprey_config, resolve_project_root
 
     meta: dict = {"created_via": created_via}
 

@@ -25,7 +25,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.runtime")
 
@@ -536,7 +536,7 @@ def env_chain_digest(repo_root: Path | str) -> str:
 
     THE recipe, spelled once so every reproducer agrees on it:
 
-    * take :func:`osprey.utils.dotenv.chain_files` for ``repo_root`` — the
+    * take :func:`osprey_connectors.dotenv.chain_files` for ``repo_root`` — the
       existing members of ``.env.shared``, ``.env``, in that order;
     * feed each file's raw bytes, unparsed and in that order, into one
       ``sha256``; the files are concatenated into a single hash, not hashed
@@ -560,7 +560,7 @@ def env_chain_digest(repo_root: Path | str) -> str:
     :param repo_root: Directory the chain lives in (the deployment repo root).
     :return: Hex sha256 of the concatenated chain, or ``""`` for an empty chain.
     """
-    from osprey.utils.dotenv import chain_files
+    from osprey_connectors.dotenv import chain_files
 
     paths = chain_files(Path(repo_root))
     if not paths:

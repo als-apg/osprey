@@ -238,7 +238,7 @@ def _isolate_web_env(monkeypatch):
 @pytest.fixture(autouse=True)
 def _fresh_config_cache():
     """``load_osprey_config`` memoizes a builder; each test renders its own."""
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_config_cache()
     yield
@@ -394,7 +394,7 @@ class TestStoreDirectoryPublication:
     def test_the_default_agent_data_root_reaches_the_environment(
         self, runner, lifecycle_repo, monkeypatch
     ):
-        from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+        from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
         _render_with_agent_data(lifecycle_repo, None)
         seen: dict[str, str | None] = {}
@@ -442,7 +442,7 @@ class TestStoreDirectoryPublication:
         would rewrite the file underneath the child that does.
         """
         from osprey.interfaces.web_auth import get_web_credentials
-        from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+        from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
         _render_with_agent_data(lifecycle_repo, None)
         monkeypatch.setattr("osprey.cli.web_cmd._read_pid", lambda repo_root: None)
@@ -513,7 +513,7 @@ def _render_on_port(repo: Path, port: int) -> None:
 
 def _store_dir(repo: Path) -> Path:
     """The directory the launcher publishes for this repo's session store."""
-    from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+    from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
     return repo / DEFAULT_AGENT_DATA_BASE_DIR / "web_terminal"
 

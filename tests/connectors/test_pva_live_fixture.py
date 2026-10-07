@@ -47,8 +47,8 @@ from p4p.nt import NTEnum, NTNDArray, NTScalar
 from p4p.server import Server
 from p4p.server.thread import SharedPV
 
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.epics_connector import EPICSConnector
 from tests.connectors._epics_fakes import (
     install_fake_pyepics,
     writes_enabled,  # noqa: F401 - fixture, used by name
@@ -409,10 +409,10 @@ def tool_singletons():
     test. Resetting on both sides keeps a store rooted at a deleted ``tmp_path``
     from leaking into whatever runs next in this directory.
     """
-    import osprey.utils.config as config_module
+    import osprey_connectors.config as config_module
     from osprey.mcp_server.control_system.server_context import reset_server_context
     from osprey.stores.artifact_store import reset_artifact_store
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     def reset_all():
         reset_server_context()
@@ -438,11 +438,11 @@ async def _read_through_the_tool(tmp_path, monkeypatch, connector, channels: lis
 
     with (
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new_callable=AsyncMock,
             return_value=connector,
         ),
-        patch("osprey.infrastructure.server_launcher.ensure_artifact_server", lambda: None),
+        patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
     ):
         result = await get_tool_fn(channel_read)(channels=channels)
     return extract_response_dict(result)

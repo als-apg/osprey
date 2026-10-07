@@ -50,10 +50,10 @@ def started_client(
             return_value={"watch_dir": str(workspace_dir)},
         ),
         patch(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             return_value={"web": dict(web or {})},
         ),
-        patch("osprey.utils.config.get_config_value", get_config_value),
+        patch("osprey_connectors.config.get_config_value", get_config_value),
     ):
         app = create_app(shell_command=["echo"])
         with TestClient(app) as client:

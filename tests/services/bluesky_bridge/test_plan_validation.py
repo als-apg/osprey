@@ -260,7 +260,7 @@ class TestStaticAllowlistCheck:
             "from logging.config import dictConfig",
             "import osprey",  # bare osprey, no submodule
             "import osprey as o",
-            "from osprey.connectors import epics",  # the control-system surface itself
+            "from osprey_connectors import epics",  # the control-system surface itself
             "from osprey.services.bluesky_bridge.queue_backend import QueueBackend",
             "import osprey.services.bluesky_bridge.queue_backend",
             "from osprey.services.bluesky_bridge.queue import Queue",
@@ -411,7 +411,7 @@ class TestStaticAllowlistCheck:
         assert "osprey" in plan_validation._VALIDATOR_TOP_LEVEL_MODULES
         assert "osprey" not in plan_validation._ALLOWED_TOP_LEVEL_MODULES
         assert not plan_validation._is_allowed_import("osprey")
-        assert not plan_validation._is_allowed_import("osprey.connectors")
+        assert not plan_validation._is_allowed_import("osprey.runtime")
         assert plan_validation._is_allowed_import("osprey.services.bluesky_bridge.figure")
         assert plan_validation._is_allowed_import("osprey.services.bluesky_bridge.plan_fields")
 

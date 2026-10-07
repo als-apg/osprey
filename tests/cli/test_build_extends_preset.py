@@ -108,7 +108,7 @@ def test_extends_nonexistent_name_has_combined_diagnostic(tmp_path: Path) -> Non
     """Unknown extends value: error message must mention BOTH the preset list
     and the resolved file path so the user knows where to look.
     """
-    from osprey.errors import BuildProfileError
+    from osprey_connectors.errors import BuildProfileError
 
     profile = tmp_path / "p.yml"
     profile.write_text("extends: not-a-real-thing\nname: Orphan\n")
@@ -176,7 +176,7 @@ def test_load_preset_raw_invalid_yaml_raises_build_profile_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A preset file with invalid YAML raises `BuildProfileError` naming the preset."""
-    from osprey.errors import BuildProfileError
+    from osprey_connectors.errors import BuildProfileError
 
     monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: tmp_path)
     (tmp_path / "broken.yml").write_text("name: [unterminated\n", encoding="utf-8")
@@ -191,7 +191,7 @@ def test_load_preset_raw_non_mapping_yaml_raises_build_profile_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A preset file whose YAML parses to a list (not a mapping) is rejected."""
-    from osprey.errors import BuildProfileError
+    from osprey_connectors.errors import BuildProfileError
 
     monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: tmp_path)
     (tmp_path / "listy.yml").write_text("- one\n- two\n", encoding="utf-8")

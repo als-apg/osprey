@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.simulation.machine import (
+from osprey_connectors.simulation.machine import (
     DEFAULT_SCENARIO,
     BpmErrorSpec,
     ParsedMachine,

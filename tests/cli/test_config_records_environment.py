@@ -35,13 +35,13 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
-from osprey.utils.config import ConfigBuilder
+from osprey_connectors.config import ConfigBuilder
 from tests._config_render_context import CONFIG_TEMPLATES, MINIMAL_CONFIG_CONTEXT
 
 # Any path that names a Python interpreter, e.g. /Users/x/proj/.venv/bin/python3.11.
 _INTERPRETER_PATH = re.compile(r"bin/python[\d.]*$")
 
-# ``osprey.utils.config`` logs under a flat name, not its module path.
+# ``osprey_connectors.config`` logs under a flat name, not its module path.
 _CONFIG_LOGGER = "CONFIG"
 
 

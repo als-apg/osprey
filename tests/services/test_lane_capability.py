@@ -93,7 +93,7 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
                 return control_system
             return declared.get(key, default)
 
-        monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
         # The host-side resolver this module's fallback is pinned equal to
         # reads the section, not a dotted key.
         monkeypatch.setattr(
@@ -211,7 +211,7 @@ async def test_an_unreadable_config_still_yields_a_lane_identity(monkeypatch) ->
         raise FileNotFoundError("no config.yml found")
 
     monkeypatch.delenv(qb.LANE_ENV, raising=False)
-    monkeypatch.setattr("osprey.utils.config.get_config_value", raising_get_config_value)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", raising_get_config_value)
 
     capability = await _capability()
 

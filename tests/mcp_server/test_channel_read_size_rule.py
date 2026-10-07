@@ -65,7 +65,7 @@ def _threshold_patch(inline_max: int | None):
     if inline_max is None:
         return nullcontext()
 
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     real = config_module.get_config_value
 
@@ -74,7 +74,7 @@ def _threshold_patch(inline_max: int | None):
             return inline_max
         return real(path, default, *args, **kwargs)
 
-    return patch("osprey.utils.config.get_config_value", side_effect=fake)
+    return patch("osprey_connectors.config.get_config_value", side_effect=fake)
 
 
 async def _read(tmp_path, monkeypatch, values, channels=None, inline_max=None, **kwargs):
@@ -85,7 +85,7 @@ async def _read(tmp_path, monkeypatch, values, channels=None, inline_max=None, *
 
     connector = _MockConnector(values)
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=connector,
     ):

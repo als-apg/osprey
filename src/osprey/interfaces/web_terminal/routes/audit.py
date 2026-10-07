@@ -26,7 +26,7 @@ only ``var/audit/<its own identity>/`` read-write, so its own subdirectory is
 the only thing it can honestly serve; the deployment-wide view over every
 identity is host-side, by design. :func:`identity_dir` therefore resolves
 exactly where :func:`~osprey.audit.writer.ledger_path` does — the same
-``audit_dir()`` seam and the same :func:`~osprey.utils.identity.acting_identity`
+``audit_dir()`` seam and the same :func:`~osprey_connectors.identity.acting_identity`
 ladder — and no request field participates. The one client-supplied string, the
 ``surface`` filter, is validated as a single path component AND then matched
 against the stems this directory actually contains, so the parameter never
@@ -64,7 +64,7 @@ from osprey.audit import writer
 from osprey.audit.tool_call import SURFACE_TOOL_CALL
 from osprey.audit.writer import LEDGER_SUFFIX, MAX_RECORD_BYTES
 from osprey.interfaces.web_terminal.routes.config import _require_config_panel
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 logger = logging.getLogger(__name__)
 

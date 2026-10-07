@@ -36,8 +36,8 @@ from osprey.interfaces.ariel.api.schemas import (
     SearchResponse,
     StatusResponse,
 )
-from osprey.utils.config import get_facility_timezone, to_facility_iso
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import get_facility_timezone, to_facility_iso
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search import ARIELSearchService
@@ -65,7 +65,7 @@ def _localize_facility(dt: datetime | None) -> datetime | None:
     Naive dates are facility-local wall-clock (never box-local / UTC) before
     they drive a ``TIMESTAMPTZ`` query.
     """
-    from osprey.utils.config import localize_facility
+    from osprey_connectors.config import localize_facility
 
     return localize_facility(dt)
 

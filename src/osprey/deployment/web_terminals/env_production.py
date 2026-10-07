@@ -24,7 +24,7 @@ from osprey.deployment.web_terminals.personas import (
     effective_persona,
     resolve_authorization_roles,
 )
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
     ENV_USERS_BANNER,
@@ -34,7 +34,7 @@ from osprey.utils.dotenv import (
     merge_chain,
     parse_dotenv_file,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
 
@@ -1092,8 +1092,8 @@ def _build_env_production_subset(
     :param config: Raw deploy config (facility fields merged in — see
         ``modules.web_terminals.image_source`` in :func:`ensure_env_production`).
     :param dotenv: The operator's env chain, already merged via
-        :func:`osprey.utils.dotenv.merge_chain` — or a single named secrets
-        file parsed via :func:`osprey.utils.dotenv.parse_dotenv_file`, when
+        :func:`osprey_connectors.dotenv.merge_chain` — or a single named secrets
+        file parsed via :func:`osprey_connectors.dotenv.parse_dotenv_file`, when
         the caller was handed one instead.
     :return: The subset to write into ``.env.users``, in stable
         (insertion) order.
@@ -1779,7 +1779,7 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
       compose invocation — there is nothing to generate from and no file to
       fall back on.
 
-    Values come from the merged env chain — :func:`osprey.utils.dotenv.merge_chain`
+    Values come from the merged env chain — :func:`osprey_connectors.dotenv.merge_chain`
     reads ``.env.shared`` then ``.env``, so a key both files set takes the
     ``.env`` value and a key only the shared defaults carry is still delivered.
     The chain on disk is the whole source: the ambient process/shell

@@ -28,7 +28,7 @@ _NO_ROWS = {"attachment_rows": None, "model_id": None, "file_source": False}
 def facility_tokyo(monkeypatch):
     # to_facility_iso resolves the zone via the config module's get_facility_timezone;
     # patch it there so both the web and MCP call sites see the same facility zone.
-    monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: TOKYO)
+    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: TOKYO)
 
 
 def _entry() -> dict:

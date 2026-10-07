@@ -34,7 +34,7 @@ Connector
 ---------
 
 A connector is Osprey's single interface to one control system. Subclass
-``ControlSystemConnector`` from ``osprey.connectors.control_system.base``
+``ControlSystemConnector`` from ``osprey_connectors.control_system.base``
 --- the source lives in
 ``packages/osprey-connectors/src/osprey_connectors/control_system/`` --- and
 return the ``ChannelValue``, ``ChannelMetadata`` and ``ChannelWriteResult``
@@ -55,7 +55,7 @@ Archiver
 --------
 
 An archiver connector answers questions about the past instead of the present.
-Subclass ``ArchiverConnector`` from ``osprey.connectors.archiver.base``
+Subclass ``ArchiverConnector`` from ``osprey_connectors.archiver.base``
 (alongside the control-system connectors in
 ``packages/osprey-connectors/src/osprey_connectors/archiver/``) and register it
 the same two ways, with ``ConnectorFactory.register_archiver`` or a

@@ -73,7 +73,7 @@ from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
 from osprey.interfaces.web_terminal.routes.config import _changed_protected_keys
 from osprey.utils.config_writer import config_update_fields
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -193,7 +193,7 @@ def _backup_dir(project_dir):
     ``test_patch_backup_follows_a_relocated_agent_data_root`` is the case that
     actually separates the two.
     """
-    from osprey.utils.workspace import agent_data_base_dir, anchored_path
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
     try:
         config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))

@@ -31,7 +31,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
-from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -94,12 +94,12 @@ def _get_channel_write():
 def _channel_write_patches(mock_connector):
     return (
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new_callable=AsyncMock,
             return_value=mock_connector,
         ),
         patch(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
     )
@@ -107,12 +107,12 @@ def _channel_write_patches(mock_connector):
 
 async def test_channel_write_limits_violation_no_emit(tmp_path, monkeypatch):
     """A validation refusal (limits_violation) must emit nothing."""
-    from osprey.errors import ChannelLimitsViolationError
+    from osprey_connectors.errors import ChannelLimitsViolationError
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
 
-    from osprey.connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system.limits_validator import LimitsValidator
 
     # Spec'd, so the mock carries exactly the entry points the real validator
     # does: the tool asks for the checks a caller that has not yet resolved a
@@ -130,7 +130,7 @@ async def test_channel_write_limits_violation_no_emit(tmp_path, monkeypatch):
 
     with (
         patch(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=mock_validator,
         ),
         patch(f"{_CW_MOD}.notify_agent_activity_async") as notify,
@@ -830,7 +830,7 @@ def _audit_records(root):
     import json
 
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     path = root / "var" / "audit" / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
     if not path.is_file():

@@ -116,14 +116,13 @@ from typing import Any
 
 from osprey.audit.call import note, write_stamps
 from osprey.audit.posture import posture_session
-from osprey.errors import ChannelWriteBlockedError
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey_connectors import control_context
-from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_write")
@@ -742,7 +741,7 @@ async def channel_write(
 
     # Limits validation (additional safety layer inside the tool)
     try:
-        from osprey.connectors.control_system.limits_validator import LimitsValidator
+        from osprey_connectors.control_system.limits_validator import LimitsValidator
     except ImportError:
         LimitsValidator = None  # type: ignore[assignment,misc]
 

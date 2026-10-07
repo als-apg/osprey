@@ -31,7 +31,7 @@ from osprey.registry.mcp import (
     ServerDefinition,
     resolve_servers,
 )
-from osprey.utils.workspace import RENDERED_CONFIG_RELPATH
+from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH
 
 REPO = "/tmp/test-repo"
 

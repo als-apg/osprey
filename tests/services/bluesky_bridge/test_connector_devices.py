@@ -32,7 +32,6 @@ import pytest
 bluesky = pytest.importorskip("bluesky")
 ophyd_async = pytest.importorskip("ophyd_async")
 
-from osprey.errors import ChannelWriteBlockedError, ChannelWriteFailedError  # noqa: E402
 from osprey.services.bluesky_bridge.devices import connector as connector_module  # noqa: E402
 from osprey.services.bluesky_bridge.devices.connector import (  # noqa: E402
     ConnectorReadable,
@@ -40,11 +39,12 @@ from osprey.services.bluesky_bridge.devices.connector import (  # noqa: E402
     build_devices,
 )
 from osprey.services.bluesky_bridge.devices.specs import ReadableSpec, SettableSpec  # noqa: E402
+from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError  # noqa: E402
 
 
 @dataclass
 class _FakeChannelValue:
-    """Stand-in for ``osprey.connectors.control_system.base.ChannelValue``."""
+    """Stand-in for ``osprey_connectors.control_system.base.ChannelValue``."""
 
     value: Any
     timestamp: float = field(default_factory=time.time)

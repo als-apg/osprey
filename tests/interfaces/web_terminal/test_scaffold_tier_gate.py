@@ -276,7 +276,7 @@ def _started_app(
             "osprey.interfaces.web_terminal.app._load_web_config",
             return_value={"watch_dir": str(workspace_dir)},
         ),
-        patch("osprey.utils.config.get_config_value", fake_get_config_value),
+        patch("osprey_connectors.config.get_config_value", fake_get_config_value),
     ):
         app = create_app(config_path=config_path, shell_command="echo")
         with TestClient(app) as client:

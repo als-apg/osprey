@@ -27,7 +27,7 @@ from osprey.services.ariel_search.enhancement._offload import run_blocking
 from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule, HealthResult
 from osprey.services.ariel_search.enhancement.qmd_export.writer import write_entry
 from osprey.utils.config_paths import resolve_config_relative_path
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -62,7 +62,7 @@ def resolve_mirror_path(raw: str | Path, config_dir: Path | None = None) -> Path
             ``enhancement_modules.qmd_export.mirror_path``.
         config_dir: Directory containing ``config.yml``; the project root is
             derived from it. When omitted it is derived from
-            :func:`osprey.utils.workspace.resolve_config_path`, which falls
+            :func:`osprey_connectors.workspace.resolve_config_path`, which falls
             back to the process CWD when ``OSPREY_CONFIG`` is unset.
 
     Returns:

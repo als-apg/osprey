@@ -19,7 +19,7 @@ import pytest
 from osprey.cli.build_cmd import _VA_LATTICE_RETIRED, _wire_build_derived_env
 from osprey.services.virtual_accelerator import entrypoint
 from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     BUILD_DERIVED_BANNER,
     BUILD_DERIVED_KEYS,
     DEPLOY_MINTED_BANNER,

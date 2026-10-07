@@ -540,7 +540,7 @@ class TestCreateServer:
     def test_success_path_sets_bundle(self, fixture_bundle: Path, monkeypatch):
         """create_server() with a valid config sets _bundle to an OKFBundle."""
         import osprey.mcp_server.facility_knowledge.server as srv
-        import osprey.utils.workspace as ws
+        import osprey_connectors.workspace as ws
         from osprey.services.facility_knowledge.okf.bundle import OKFBundle
 
         monkeypatch.setattr(srv, "_bundle", None)
@@ -561,7 +561,7 @@ class TestCreateServer:
     def test_missing_key_sets_none(self, tmp_path: Path, monkeypatch):
         """create_server() with no facility_knowledge key leaves _bundle=None (no crash)."""
         import osprey.mcp_server.facility_knowledge.server as srv
-        import osprey.utils.workspace as ws
+        import osprey_connectors.workspace as ws
 
         monkeypatch.setattr(srv, "_bundle", None)
 
@@ -578,7 +578,7 @@ class TestCreateServer:
     def test_bad_bundle_path_sets_none(self, tmp_path: Path, monkeypatch):
         """create_server() with a bundle_path that doesn't exist logs an error, _bundle=None."""
         import osprey.mcp_server.facility_knowledge.server as srv
-        import osprey.utils.workspace as ws
+        import osprey_connectors.workspace as ws
 
         monkeypatch.setattr(srv, "_bundle", None)
 
@@ -597,7 +597,7 @@ class TestCreateServer:
     async def test_tools_work_after_create_server(self, fixture_bundle: Path, monkeypatch):
         """After create_server() succeeds, list_concepts/read_concept/search all work."""
         import osprey.mcp_server.facility_knowledge.server as srv
-        import osprey.utils.workspace as ws
+        import osprey_connectors.workspace as ws
         from osprey.mcp_server.facility_knowledge.server import list_concepts
 
         monkeypatch.setattr(srv, "_bundle", None)

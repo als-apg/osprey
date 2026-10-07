@@ -244,7 +244,7 @@ class TestMockConnectorTutorialChannels:
 
     async def test_mock_connector_reads_tutorial_channels(self):
         """Instantiate MockConnector and read tutorial channels."""
-        from osprey.connectors.control_system.mock_connector import MockConnector
+        from osprey_connectors.control_system.mock_connector import MockConnector
 
         connector = MockConnector()
         await connector.connect({})

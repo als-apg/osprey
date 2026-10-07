@@ -66,10 +66,10 @@ from osprey.interfaces.common_middleware import (
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
-from osprey.utils.config import get_facility_timezone
 from osprey.utils.http_proxy import HOP_BY_HOP
-from osprey.utils.identity import acting_identity
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
+from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.identity import acting_identity
 
 logger = logging.getLogger(__name__)
 
@@ -540,7 +540,7 @@ def _panel_auth_header(
 def _owner_header(scope: Request | WebSocket, panel_id: str, backend_url: str) -> dict[str, str]:
     """Who this process says is driving, or ``{}`` for a backend not told.
 
-    Minted from :func:`~osprey.utils.identity.acting_identity` — the account
+    Minted from :func:`~osprey_connectors.identity.acting_identity` — the account
     this container runs as — and never from anything that arrived. The value
     decides whose chip gates the writes a queued plan makes, so an inbound
     header is a claim rather than evidence: the strip above and this mint are

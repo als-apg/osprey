@@ -7,7 +7,7 @@ from osprey.utils.config_writer import (
     config_backup_path,
     update_yaml_file,
 )
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 # =============================================================================
 # update_yaml_file Tests (moved from test_config_builder.py)

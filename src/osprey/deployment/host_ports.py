@@ -76,7 +76,7 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.host_ports")
 

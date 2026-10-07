@@ -53,7 +53,7 @@ def prime_config_builder() -> None:
     if osprey_config:
         osprey_config = os.path.expandvars(osprey_config)
         try:
-            from osprey.utils.config import get_config_builder
+            from osprey_connectors.config import get_config_builder
 
             with startup_timer("config_builder"):
                 get_config_builder(config_path=osprey_config, set_as_default=True)
@@ -94,7 +94,7 @@ def initialize_workspace_singletons() -> None:
         That process boundary is not guaranteed. ``ServerLauncher`` can start
         the artifact gallery IN-THREAD inside this very process — the store
         auto-launches it on first save when no other process owns the port
-        (``artifact_store.py`` save paths → ``ensure_artifact_server``). In
+        (``artifact_store.py`` save paths → ``ensure_web_server("artifact")``). In
         that topology a HUMAN deleting an artifact in the gallery UI fires the
         same delete listener, and the activity frame is attributed to the
         agent. Telling the two apart needs origin plumbing through the store or
@@ -103,7 +103,7 @@ def initialize_workspace_singletons() -> None:
     """
     from osprey.mcp_server.artifact_activity import register_artifact_activity_listeners
     from osprey.stores.artifact_store import initialize_artifact_store
-    from osprey.utils.workspace import resolve_shared_data_root
+    from osprey_connectors.workspace import resolve_shared_data_root
 
     with startup_timer("workspace_singletons"):
         initialize_artifact_store(workspace_root=resolve_shared_data_root())
@@ -189,7 +189,7 @@ def run_mcp_server(server_module: str) -> None:
     t_total = time.perf_counter()
 
     from osprey.mcp_env import load_dotenv_from_project
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     with startup_timer("dotenv_load"):
         load_dotenv_from_project()

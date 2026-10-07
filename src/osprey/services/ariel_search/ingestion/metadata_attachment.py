@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.attachments.fetch import fetch_attachment_bytes, origins_for
 from osprey.services.ariel_search.models import EnhancedLogbookEntry
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.ingestion.base import FacilityAdapter

@@ -19,7 +19,7 @@ import signal
 import sys
 from pathlib import Path
 
-from osprey.utils.logger import configure_logging
+from osprey_connectors.logger import configure_logging
 
 from .config import RecorderConfigError, load_settings, resolve_channel_addresses
 from .recorder import Recorder

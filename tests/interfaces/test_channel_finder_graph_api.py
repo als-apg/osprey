@@ -35,7 +35,7 @@ import osprey.channel_roster as channel_roster
 from osprey.services.channel_finder.databases import FlatChannelDatabase
 from tests._graph_index import build_index_from_ttl, default_index_path
 
-_CONFIG_SEAM = "osprey.utils.workspace.load_osprey_config"
+_CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 _GRAPH_CONTEXT_SEAM = "osprey.interfaces.channel_finder.app._make_graph_context"
 
 #: The key an operator edits to name the corpus, which every unavailable answer

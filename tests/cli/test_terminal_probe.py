@@ -34,7 +34,7 @@ def run_cli(monkeypatch: pytest.MonkeyPatch):
     and then prints help. ``load_project_dotenv`` is stubbed out: it writes an
     ancestor ``.env`` straight into ``os.environ``, which outlives the test.
     """
-    monkeypatch.setattr("osprey.utils.config.load_project_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
     runner = CliRunner()
 
     def _run(*args: str) -> None:

@@ -11,16 +11,16 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from osprey.connectors.archiver.base import ArchiverMetadata
-from osprey.connectors.archiver.mongodb_archiver_connector import (
+from osprey.port_layout import default_port
+from osprey_connectors.archiver.base import ArchiverMetadata
+from osprey_connectors.archiver.mongodb_archiver_connector import (
     DEPLOY_HINT,
     HOST_OVERRIDE_ENV,
     PORT_OVERRIDE_ENV,
     MongoDBArchiverConnector,
     address_overrides,
 )
-from osprey.connectors.factory import ConnectorFactory
-from osprey.port_layout import default_port
+from osprey_connectors.factory import ConnectorFactory
 from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
 
 # xdist_group("docker"): the session ``mongodb_container`` fixture starts a real
@@ -419,7 +419,7 @@ class TestFactoryIntegration:
         teardown — we leave built-ins in place so subsequent tests can rely on
         them.
         """
-        from osprey.connectors.factory import register_builtin_connectors
+        from osprey_connectors.factory import register_builtin_connectors
 
         register_builtin_connectors()
         yield
@@ -461,7 +461,7 @@ class TestQueryShapeWithoutDocker:
         """Return a connector wired to an in-memory stub collection."""
         from unittest.mock import MagicMock
 
-        from osprey.connectors.archiver.mongodb_archiver_connector import (
+        from osprey_connectors.archiver.mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
 

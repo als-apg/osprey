@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import click
 
 # Import get_config_value at module level for easier patching in tests
-from osprey.utils.config import get_config_builder, get_config_value
+from osprey_connectors.config import get_config_builder, get_config_value
 
 from . import output
 

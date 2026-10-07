@@ -13,7 +13,7 @@ Covers the two concerns the unit owns:
   warning when the teardown wedges, and is unregistered on clean shutdown.
 
 The factory-patching spy mirrors ``tests/health/test_runtime.py`` — both names
-`get_connector` imports from ``osprey.connectors.factory`` are intercepted.
+`get_connector` imports from ``osprey_connectors.factory`` are intercepted.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ from typing import Any
 
 import pytest
 
-from osprey.connectors import factory
 from osprey.health import lifecycle as lifecycle_mod
 from osprey.health.lifecycle import (
     RESTART_NOTICE_MESSAGE,
@@ -35,6 +34,7 @@ from osprey.health.lifecycle import (
     control_system_snapshot,
 )
 from osprey.health.models import Status
+from osprey_connectors import factory
 
 _LIFECYCLE_LOGGER = "osprey.health.lifecycle"
 

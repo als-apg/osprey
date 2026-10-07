@@ -39,7 +39,7 @@ from osprey.services.virtual_accelerator.bindings import load_bindings
 from osprey.services.virtual_accelerator.manifest import build_manifest
 from osprey.services.virtual_accelerator.manifest.paths import MANIFEST_OUTPUT, PACKAGE_PATHS
 from osprey.simulation.facility_spec import ALS_U_AR
-from osprey.simulation.machine import parse_machine
+from osprey_connectors.simulation.machine import parse_machine
 
 # The demo tree, and the files in it, named the way the build and the service
 # name them: one layout, written down once, rather than a second spelling of
@@ -497,7 +497,7 @@ class TestBtsCorrectorSetpointBoundsAreUniform:
 
 class TestMachineJsonParsesAsValidMachineDescription:
     """The file must still validate against the simulation engine's real
-    schema loader (osprey.simulation.machine.parse_machine), not just be
+    schema loader (osprey_connectors.simulation.machine.parse_machine), not just be
     syntactically valid JSON."""
 
     def test_parses_and_channel_count_matches(self, machine):

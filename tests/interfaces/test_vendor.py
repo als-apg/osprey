@@ -44,7 +44,7 @@ def _scoped_sleep():
 class TestIsOffline:
     def test_defaults_to_false(self, monkeypatch):
         monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
-        with patch("osprey.utils.workspace.load_osprey_config", return_value={}):
+        with patch("osprey_connectors.workspace.load_osprey_config", return_value={}):
             assert is_offline() is False
 
     @pytest.mark.parametrize("val", ["1", "true", "TRUE", "yes", "on"])
@@ -56,7 +56,7 @@ class TestIsOffline:
     def test_env_falsy_values(self, monkeypatch, val):
         monkeypatch.setenv("OSPREY_OFFLINE", val)
         with patch(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             return_value={"offline": True},
         ):
             # Env var wins: falsy env overrides config.yml's truthy setting
@@ -65,7 +65,7 @@ class TestIsOffline:
     def test_config_yml_truthy_when_env_unset(self, monkeypatch):
         monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
         with patch(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             return_value={"offline": True},
         ):
             assert is_offline() is True
@@ -73,7 +73,7 @@ class TestIsOffline:
     def test_empty_env_falls_through_to_config(self, monkeypatch):
         monkeypatch.setenv("OSPREY_OFFLINE", "")
         with patch(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             return_value={"offline": True},
         ):
             assert is_offline() is True
@@ -81,7 +81,7 @@ class TestIsOffline:
     def test_config_load_failure_returns_false(self, monkeypatch):
         monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
         with patch(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             side_effect=RuntimeError("boom"),
         ):
             assert is_offline() is False
@@ -191,14 +191,14 @@ class TestVendorUrl:
 
     def test_online_returns_cdn_url(self, monkeypatch):
         monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
-        with patch("osprey.utils.workspace.load_osprey_config", return_value={}):
+        with patch("osprey_connectors.workspace.load_osprey_config", return_value={}):
             url = vendor_url("xterm.js", "/static/vendor/xterm.min.js")
         assert url.startswith("https://cdn.jsdelivr.net/")
         assert url.endswith("xterm.min.js")
 
     def test_online_unknown_name_raises(self, monkeypatch):
         monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
-        with patch("osprey.utils.workspace.load_osprey_config", return_value={}):
+        with patch("osprey_connectors.workspace.load_osprey_config", return_value={}):
             with pytest.raises(KeyError):
                 vendor_url("nope", "/static/vendor/nope.js")
 
@@ -229,7 +229,7 @@ class TestWebTerminalRendering:
 
     def test_cdn_mode_uses_jsdelivr(self, client, monkeypatch):
         monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
-        with patch("osprey.utils.workspace.load_osprey_config", return_value={}):
+        with patch("osprey_connectors.workspace.load_osprey_config", return_value={}):
             resp = client.get("/")
         assert resp.status_code == 200
         body = resp.text

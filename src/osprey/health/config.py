@@ -11,7 +11,7 @@ of the ``file_system.disk_space`` row.
 The configuration is read through the standard loader (``ConfigBuilder.get``),
 which has already resolved ``${VAR}`` placeholders — this module performs no
 second interpolation pass. Library validation failures raise
-:class:`~osprey.errors.ConfigurationError`; the CLI converts those into report
+:class:`~osprey_connectors.errors.ConfigurationError`; the CLI converts those into report
 rows at its single load-failure boundary.
 
 Three category sources are executed identically by the runner:
@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from osprey.errors import ConfigurationError
+from osprey_connectors.errors import ConfigurationError
 
 from .core import CORE_CATEGORY_NAMES as _CORE_CATEGORY_NAMES_ORDERED
 from .models import Status

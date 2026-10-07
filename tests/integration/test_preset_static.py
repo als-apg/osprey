@@ -231,8 +231,8 @@ def test_phoebus2_extends_clone_round_trips(tmp_path: Path) -> None:
     import yaml
 
     from osprey.registry.mcp import resolve_servers
-    from osprey.utils.config import resolve_env_vars
     from osprey.utils.config_writer import config_update_fields
+    from osprey_connectors.config import resolve_env_vars
 
     # The dotted overrides a facility would declare in config.yml for a second
     # live Phoebus instance (its own bridge URL, cloned from the phoebus server).

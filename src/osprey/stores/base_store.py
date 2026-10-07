@@ -88,7 +88,7 @@ class BaseStore(Generic[T]):
         # inside the zone every build replaces, while every other reader used
         # the durable one. Shared (not session-isolated) because a store's data
         # must stay visible to the long-lived gallery and ARIEL daemons.
-        from osprey.utils.workspace import resolve_shared_data_root
+        from osprey_connectors.workspace import resolve_shared_data_root
 
         self._workspace = workspace_root or resolve_shared_data_root()
         self._store_dir = self._workspace / self._subdir if self._subdir else self._workspace
@@ -114,7 +114,7 @@ class BaseStore(Generic[T]):
         an entry records) and the read side (the gallery resolving one) cannot
         answer differently.
         """
-        from osprey.utils.workspace import (
+        from osprey_connectors.workspace import (
             agent_data_base_dir,
             load_osprey_config,
             repo_root_for_agent_data,

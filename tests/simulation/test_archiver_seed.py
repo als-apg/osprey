@@ -32,7 +32,7 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from osprey.simulation.archiver_seed import (
+from osprey_connectors.simulation.archiver_seed import (
     DATE_FIELD,
     EXPIRE_FIELD,
     MANIFEST_ID,
@@ -48,8 +48,8 @@ from osprey.simulation.archiver_seed import (
     synthesize_documents,
     write_manifest,
 )
-from osprey.simulation.procedural import baseline_value, generate_series
-from osprey.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.procedural import baseline_value, generate_series
+from osprey_connectors.simulation.series import epoch_seconds_array
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 from tests.simulation.conftest import StubCollection
@@ -133,7 +133,7 @@ def read_back(mongo_store, monkeypatch):
     monkeypatch.setenv(password_env, mongo_store["password"])
 
     async def query(channels, start, end):
-        from osprey.connectors.archiver.mongodb_archiver_connector import (
+        from osprey_connectors.archiver.mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
 
@@ -665,7 +665,7 @@ def test_the_module_never_imports_pymongo():
         [
             sys.executable,
             "-c",
-            "import sys, osprey.simulation.archiver_seed as m;"
+            "import sys, osprey_connectors.simulation.archiver_seed as m;"
             "assert 'pymongo' not in sys.modules, sorted(sys.modules);"
             "print('CLEAN')",
         ],

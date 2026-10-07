@@ -18,7 +18,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from osprey.interfaces.ariel.api.attachment_response import attachment_response
-from osprey.utils.workspace import resolve_shared_data_root
+from osprey_connectors.workspace import resolve_shared_data_root
 
 
 # Drafts directory is resolved lazily so OSPREY_CONFIG changes (via

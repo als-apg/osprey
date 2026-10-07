@@ -157,7 +157,7 @@ def build_figure(
 
 
 def main() -> None:
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     # Subprocess entry point: the parent captures this worker's stderr and
     # surfaces it when a computation fails, so records need a handler here.

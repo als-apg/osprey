@@ -59,7 +59,7 @@ def test_startup_timer_emits_on_exception(capsys, monkeypatch):
 
 def test_prime_config_builder_noop_without_env(monkeypatch):
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-    with patch("osprey.utils.config.get_config_builder") as gcb:
+    with patch("osprey_connectors.config.get_config_builder") as gcb:
         startup.prime_config_builder()
     gcb.assert_not_called()
 
@@ -67,7 +67,7 @@ def test_prime_config_builder_noop_without_env(monkeypatch):
 def test_prime_config_builder_primes_and_loads_categories(monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/does-not-matter/config.yml")
     with (
-        patch("osprey.utils.config.get_config_builder") as gcb,
+        patch("osprey_connectors.config.get_config_builder") as gcb,
         patch(
             "osprey.stores.type_registry.load_categories_from_config", return_value=2
         ) as load_cat,
@@ -83,7 +83,7 @@ def test_prime_config_builder_expands_vars(monkeypatch):
     monkeypatch.setenv("MYROOT", "/opt/osprey")
     monkeypatch.setenv("OSPREY_CONFIG", "$MYROOT/config.yml")
     with (
-        patch("osprey.utils.config.get_config_builder") as gcb,
+        patch("osprey_connectors.config.get_config_builder") as gcb,
         patch("osprey.stores.type_registry.load_categories_from_config", return_value=0),
     ):
         startup.prime_config_builder()
@@ -97,7 +97,7 @@ def test_prime_config_builder_swallows_priming_failure(monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/config.yml")
     with (
         patch(
-            "osprey.utils.config.get_config_builder",
+            "osprey_connectors.config.get_config_builder",
             side_effect=RuntimeError("bad config"),
         ),
         patch.object(startup, "logger") as mock_logger,
@@ -111,7 +111,7 @@ def test_prime_config_builder_survives_category_load_failure(monkeypatch):
     """Category loading is best-effort; its failure doesn't abort priming."""
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/config.yml")
     with (
-        patch("osprey.utils.config.get_config_builder"),
+        patch("osprey_connectors.config.get_config_builder"),
         patch(
             "osprey.stores.type_registry.load_categories_from_config",
             side_effect=RuntimeError("registry down"),
@@ -133,7 +133,9 @@ def test_initialize_workspace_singletons(tmp_path):
     session-relocated path — session isolation lives in the index."""
     with (
         patch("osprey.stores.artifact_store.initialize_artifact_store") as init,
-        patch("osprey.utils.workspace.resolve_shared_data_root", return_value=tmp_path) as resolve,
+        patch(
+            "osprey_connectors.workspace.resolve_shared_data_root", return_value=tmp_path
+        ) as resolve,
     ):
         startup.initialize_workspace_singletons()
     resolve.assert_called_once_with()
@@ -158,7 +160,7 @@ def test_run_mcp_server_wires_startup_sequence(monkeypatch):
 
     with (
         patch("osprey.mcp_env.load_dotenv_from_project") as load_dotenv,
-        patch("osprey.utils.logger.configure_logging") as configure,
+        patch("osprey_connectors.logger.configure_logging") as configure,
         patch("importlib.import_module", return_value=mod) as import_module,
     ):
         order.attach_mock(configure, "configure_logging")
@@ -204,7 +206,7 @@ def _run(server_module: str, *, transport: str, monkeypatch, logger_mock=None):
 
     stack = [
         patch("osprey.mcp_env.load_dotenv_from_project"),
-        patch("osprey.utils.logger.configure_logging"),
+        patch("osprey_connectors.logger.configure_logging"),
         patch("importlib.import_module", return_value=mod),
     ]
     if logger_mock is not None:
@@ -360,7 +362,7 @@ def test_run_cf_main_installs_the_audit_middleware_too(monkeypatch):
 
     with (
         patch("osprey.mcp_env.load_dotenv_from_project"),
-        patch("osprey.utils.logger.configure_logging"),
+        patch("osprey_connectors.logger.configure_logging"),
         patch("importlib.import_module", return_value=mod),
     ):
         channel_finder_common.run_cf_main("osprey.mcp_server.channel_finder_graph.server")

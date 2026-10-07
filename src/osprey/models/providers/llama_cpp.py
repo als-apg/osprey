@@ -22,7 +22,7 @@ import time
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 from . import _local_server
 from .base import (

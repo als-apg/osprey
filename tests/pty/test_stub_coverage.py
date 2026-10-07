@@ -494,7 +494,7 @@ class TestStubAnswersPlausibly:
             as_built_compose_files,
             as_built_config_path,
         )
-        from osprey.utils.config import load_project_config
+        from osprey_connectors.config import load_project_config
 
         config = load_project_config(str(as_built_config_path(exemplar_repo)), wrap_errors=True)
         compose_files = as_built_compose_files(config, exemplar_repo)

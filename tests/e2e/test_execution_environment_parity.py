@@ -61,7 +61,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     RENDERED_CONFIG_RELPATH,
     container_image_context,

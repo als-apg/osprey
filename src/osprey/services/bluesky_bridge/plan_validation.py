@@ -72,8 +72,8 @@ from osprey.mcp_server.workspace.execution.sandbox_executor import validate_sand
 from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
 )
-from osprey.utils.workspace import load_osprey_config
 from osprey_connectors.ipc.host import scrub_epics_env
+from osprey_connectors.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.plan_validation")
 

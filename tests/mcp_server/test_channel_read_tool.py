@@ -66,7 +66,7 @@ def _epics_connector_serving(pv):
     ``ChannelValue`` is that the mapping under test is the connector's; a stub
     would only assert that the tool copies fields it was handed.
     """
-    from osprey.connectors.control_system.epics_connector import EPICSConnector
+    from osprey_connectors.control_system.epics_connector import EPICSConnector
 
     fake_epics = MagicMock()
     fake_epics.PV.return_value = pv
@@ -96,7 +96,7 @@ async def test_channel_read_single(tmp_path, monkeypatch):
     mock_connector.read_channel.return_value = mock_value
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=mock_connector,
     ):
@@ -125,7 +125,7 @@ async def test_channel_read_multiple(tmp_path, monkeypatch):
     mock_connector.read_multiple_channels.return_value = values
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=mock_connector,
     ):
@@ -150,7 +150,7 @@ async def test_channel_read_metadata_disabled(tmp_path, monkeypatch):
     mock_connector.read_channel.return_value = mock_value
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=mock_connector,
     ):
@@ -177,7 +177,7 @@ async def test_channel_read_with_metadata(tmp_path, monkeypatch):
     mock_connector.read_channel.return_value = mock_value
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=mock_connector,
     ):
@@ -209,7 +209,7 @@ async def test_access_details_lists_exactly_the_fields_shipped(
     mock_connector.read_channel.return_value = _make_channel_value()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=mock_connector,
     ):
@@ -232,7 +232,7 @@ async def test_include_metadata_changes_the_payload(tmp_path, monkeypatch):
     mock_connector.read_channel.return_value = _make_channel_value()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=mock_connector,
     ):
@@ -266,7 +266,7 @@ async def test_channel_read_does_not_promise_write_limits(tmp_path, monkeypatch)
     mock_connector.read_channel.return_value = _make_channel_value()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=mock_connector,
     ):
@@ -288,7 +288,7 @@ async def test_channel_read_connection_error(tmp_path, monkeypatch):
     mock_connector.read_channel.side_effect = ConnectionError("timeout")
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=mock_connector,
     ):
@@ -324,7 +324,7 @@ async def test_channel_access_alarm_renders_as_a_name(tmp_path, monkeypatch):
     (tmp_path / "config.yml").write_text("control_system:\n  type: epics\n")
     initialize_server_context()
 
-    from osprey.connectors.control_system.epics_connector import EPICSConnector
+    from osprey_connectors.control_system.epics_connector import EPICSConnector
 
     pv = MagicMock()
     pv.wait_for_connection.return_value = True
@@ -345,7 +345,7 @@ async def test_channel_access_alarm_renders_as_a_name(tmp_path, monkeypatch):
     connector._timeout = 5.0
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=connector,
     ):
@@ -373,7 +373,7 @@ async def test_enum_reading_carries_its_state_label(tmp_path, monkeypatch):
     connector = _epics_connector_serving(_fake_enum_pv())
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=connector,
     ):
@@ -401,7 +401,7 @@ async def test_a_non_enum_entry_has_no_enum_keys_at_all(tmp_path, monkeypatch):
     mock_connector.read_channel.return_value = _make_channel_value(value=500.2)
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=mock_connector,
     ):
@@ -423,7 +423,7 @@ async def test_enum_keys_are_omitted_when_metadata_is_off(tmp_path, monkeypatch)
     connector = _epics_connector_serving(_fake_enum_pv())
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=connector,
     ):
@@ -451,7 +451,7 @@ async def test_access_details_accounts_for_every_key_on_an_enum_entry(tmp_path, 
     connector = _epics_connector_serving(_fake_enum_pv())
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=connector,
     ):

@@ -66,8 +66,8 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.mcp_server import audit_middleware as am
 from osprey.mcp_server import startup
 from osprey.registry.mcp import FRAMEWORK_SERVERS, TOOL_PREFIX_ENV, resolve_servers
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -286,7 +286,7 @@ async def _refused(tool: str) -> ToolError:
 
 
 def _records(audit_root: Path, surface: str) -> list[dict]:
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     path = audit_root / acting_identity() / f"{surface}.jsonl"
     if not path.exists():

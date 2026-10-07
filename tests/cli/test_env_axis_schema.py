@@ -22,7 +22,7 @@ import yaml
 
 from osprey.cli.build_profile import BuildProfile, DispatchConfig, ServiceDef, _parse_profile
 from osprey.cli.build_profile_schema import env_names_errors
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 @pytest.fixture(autouse=True)

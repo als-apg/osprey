@@ -356,7 +356,7 @@ def _virtual_accelerator(port: int, repo: Path) -> Iterator[str]:
     if the build ever stops writing them.
     """
     from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
-    from osprey.utils.dotenv import VA_LATTICE_KEY, parse_dotenv_file
+    from osprey_connectors.dotenv import VA_LATTICE_KEY, parse_dotenv_file
 
     served_dir = render_dir(repo) / "data" / "simulation"
     env_path = repo / COMPOSE_ENV_FILENAME

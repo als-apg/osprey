@@ -4,12 +4,12 @@ from unittest.mock import patch
 
 import pytest
 
-from osprey.connectors import types
-from osprey.connectors.archiver.base import ArchiverConnector
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.control_system.base import ControlSystemConnector
-from osprey.connectors.control_system.mock_connector import MockConnector
-from osprey.connectors.factory import (
+from osprey_connectors import types
+from osprey_connectors.archiver.base import ArchiverConnector
+from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.control_system.base import ControlSystemConnector
+from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.factory import (
     _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
     ConnectorFactory,
@@ -236,8 +236,8 @@ class TestBuiltinArchiverRegistration:
         the other means a connector the registry advertises but the factory
         cannot construct, or the reverse.
         """
-        from osprey.connectors.factory import _BUILTIN_ARCHIVERS
         from osprey.registry.builtins import FrameworkRegistryProvider
+        from osprey_connectors.factory import _BUILTIN_ARCHIVERS
 
         registry_archivers = {
             reg.name
@@ -267,9 +267,9 @@ class TestLiveStandinRegistration:
         resolves to ``control_system.connector.live_standin.writes_enabled``
         rather than to the ``epics`` block's.
         """
-        from osprey.connectors import types
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
-        from osprey.connectors.factory import register_builtin_connectors
+        from osprey_connectors import types
+        from osprey_connectors.control_system.epics_connector import EPICSConnector
+        from osprey_connectors.factory import register_builtin_connectors
 
         register_builtin_connectors()
 
@@ -296,8 +296,8 @@ class TestLiveStandinRegistration:
         instead of the key would look right on one of them and be wrong on the
         other. Pinning the sibling keeps that failure visible.
         """
-        from osprey.connectors import types
-        from osprey.connectors.factory import register_builtin_connectors
+        from osprey_connectors import types
+        from osprey_connectors.factory import register_builtin_connectors
 
         register_builtin_connectors()
 
@@ -323,8 +323,8 @@ class TestArchiverTypeResolution:
                 id="module-not-importable",
             ),
             pytest.param(
-                "osprey.connectors.archiver.mock_archiver_connector.NoSuchArchiver",
-                "Module 'osprey.connectors.archiver.mock_archiver_connector' has no class "
+                "osprey_connectors.archiver.mock_archiver_connector.NoSuchArchiver",
+                "Module 'osprey_connectors.archiver.mock_archiver_connector' has no class "
                 "'NoSuchArchiver'",
                 id="class-missing",
             ),
@@ -345,7 +345,7 @@ class TestArchiverTypeResolution:
 
     @pytest.mark.asyncio
     async def test_a_dotted_archiver_path_is_imported_and_remembered(self):
-        dotted = "osprey.connectors.archiver.mock_archiver_connector.MockArchiverConnector"
+        dotted = "osprey_connectors.archiver.mock_archiver_connector.MockArchiverConnector"
 
         connector = await ConnectorFactory.create_archiver_connector({"type": dotted})
 

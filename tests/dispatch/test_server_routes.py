@@ -260,7 +260,7 @@ def test_dashboard_state_carries_a_clock_triggers_next_fire(tmp_path, monkeypatc
     )
     monkeypatch.setenv("TRIGGERS_YML", str(path))
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "secret")
-    monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: berlin)
+    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: berlin)
 
     def fake_entry_points(*, group):  # noqa: ARG001 - entry_points takes group by keyword
         return [_FakeEntryPoint("cron", CronSource)]

@@ -156,7 +156,7 @@ def _clean_token_env(monkeypatch):
 
 
 def _parse_env(tmp_path):
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     p = tmp_path / ".env"
     return parse_dotenv_file(p) if p.is_file() else {}
@@ -3534,7 +3534,7 @@ def staged_archiver(monkeypatch, tmp_path):
     and full bring-up is assertable) plus what the seeder was asked to do.
     """
     from osprey.simulation import apply as apply_mod
-    from osprey.simulation import archiver_seed
+    from osprey_connectors.simulation import archiver_seed
 
     state: dict = {
         "cmds": [],
@@ -3667,7 +3667,7 @@ def test_absent_fingerprint_seeds_after_a_volume_wipe(staged_archiver, tmp_path)
 def test_matching_fingerprint_skips_the_seed(staged_archiver, tmp_path):
     """Unchanged knobs mean the stored archive already describes this profile:
     nothing is dropped, written, or re-applied, and the recorder keeps running."""
-    from osprey.simulation.archiver_seed import SeedState
+    from osprey_connectors.simulation.archiver_seed import SeedState
 
     staged_archiver["fingerprint_state"] = SeedState.MATCH
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -3684,7 +3684,7 @@ def test_mismatched_fingerprint_rebuilds_and_reapplies(staged_archiver, tmp_path
     """Changed knobs make the stored coverage wrong, so the base is rebuilt and
     the active scenario set re-applied onto it — otherwise the deployment would
     claim a fault whose history it had just erased."""
-    from osprey.simulation.archiver_seed import SeedState
+    from osprey_connectors.simulation.archiver_seed import SeedState
 
     staged_archiver["fingerprint_state"] = SeedState.MISMATCH
     staged_archiver["differences"] = (("retention_days", 30, 1),)
@@ -3705,7 +3705,7 @@ def test_drop_and_rebuild_always_implies_a_quiesced_recorder(staged_archiver, tm
     underneath it. Stopping a service that was never started is a no-op, so the
     unconditional rule is both simpler and strictly safer.
     """
-    from osprey.simulation.archiver_seed import SeedState
+    from osprey_connectors.simulation.archiver_seed import SeedState
 
     staged_archiver["fingerprint_state"] = getattr(SeedState, state)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -3730,7 +3730,7 @@ def test_keep_archiver_base_suppresses_only_the_mismatch_rebuild(
     silently leave the deployment with no history at all. This is also why
     `rebuild` needs no flag of its own: it always lands on the absent path.
     """
-    from osprey.simulation.archiver_seed import SeedState
+    from osprey_connectors.simulation.archiver_seed import SeedState
 
     staged_archiver["fingerprint_state"] = getattr(SeedState, state)
     staged_archiver["differences"] = (("retention_days", 30, 1),)
@@ -4249,7 +4249,7 @@ CHAIN_PROJECT = "demo-deployment"
 
 def _write_shared_half(repo: Path, text: str) -> Path:
     """Lay down the chain's committed-defaults file beside the local one."""
-    from osprey.utils.dotenv import ENV_SHARED_FILENAME
+    from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 
     path = repo / ENV_SHARED_FILENAME
     path.write_text(text, encoding="utf-8")
@@ -4265,7 +4265,7 @@ def _load_the_entry_point_chain(monkeypatch, repo: Path) -> None:
     because what is being measured IS that this step is what makes the shared
     half visible downstream.
     """
-    import osprey.utils.config as config
+    import osprey_connectors.config as config
 
     monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
     monkeypatch.chdir(repo)

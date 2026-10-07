@@ -2,7 +2,7 @@
 
 Pins the error-accumulation contract: ``validate()`` never fails fast. Every
 check appends to one ``errors`` list and, only after all of them have run, a
-single :class:`~osprey.errors.BuildProfileError` is raised whose message is
+single :class:`~osprey_connectors.errors.BuildProfileError` is raised whose message is
 ``"Build profile validation failed:\\n  - "`` followed by every failure joined
 by ``"\\n  - "``. A profile with four unrelated faults therefore reports all
 four in one raise, so a build author fixes them in one pass instead of one
@@ -37,7 +37,7 @@ from osprey.cli.build_profile import (
     VAConfig,
     _parse_profile,
 )
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 DEPLOYS_GRAPHDB = {
     "services.graphdb.path": "./services/graphdb",

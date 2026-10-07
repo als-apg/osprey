@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from osprey.cli.profile_root import PERSONA_DIRNAME
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 @dataclass(frozen=True)

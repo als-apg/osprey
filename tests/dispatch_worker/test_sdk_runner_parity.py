@@ -65,7 +65,7 @@ def render_dir(monkeypatch, tmp_path) -> Path:
         "osprey.agent_runner.sdk_context.make_tool_allowlist",
         lambda tools, denied=(): lambda *a, **k: None,
     )
-    monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda *a, **k: "UTC")
+    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda *a, **k: "UTC")
     monkeypatch.setattr(
         "osprey_connectors.workspace.resolve_shared_data_root",
         lambda: tmp_path / "agent-data",

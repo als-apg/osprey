@@ -15,14 +15,14 @@ from pathlib import Path
 
 import pytest
 
-from osprey.connectors.control_system.limits_validator import (
+from osprey_connectors.control_system.limits_validator import (
     DEFAULTS_FIELD,
     LIMITS_DATABASE_CONFIG_KEY,
     ChannelLimitsConfig,
     LimitsValidator,
     mapping_config_lookup,
 )
-from osprey.errors import ChannelLimitsViolationError
+from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import EPICS, VIRTUAL_ACCELERATOR, LimitsPosture
 
 
@@ -258,8 +258,8 @@ def _patch_config(
             return section
         return values.get(key, default)
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
-    monkeypatch.setattr("osprey.utils.config.default_config_path", lambda: config_path)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: config_path)
 
 
 class TestFromConfig:

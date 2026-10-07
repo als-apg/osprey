@@ -146,7 +146,7 @@ The ones that exist today:
 - `osprey.deployment.compose_generator._reset_wheel_build_cache()` — defined in
   `wheel_build.py` and re-exported by `compose_generator`; import it from either,
   but `wheel_build.py` is where it lives if you need to read it.
-- `osprey.connectors.factory.isolated_connector_registries(clear=True)` — a
+- `osprey_connectors.factory.isolated_connector_registries(clear=True)` — a
   context manager that snapshots and restores the connector registries. Use it
   instead of `ConnectorFactory._registry.clear()`, which destroys registrations
   other files depend on.

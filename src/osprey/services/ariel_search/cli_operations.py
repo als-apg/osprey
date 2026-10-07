@@ -162,7 +162,7 @@ def _postgresql_services() -> dict:
     (tests, an embedding host) gets an empty block and the shipped Postgres
     defaults, rather than a crash about a missing config.yml.
     """
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     try:
         return get_config_value("services.postgresql", {}) or {}
@@ -188,7 +188,7 @@ def _port_base() -> int:
     the shipped defaults rather than crashing about a missing config.yml.
     """
     from osprey.port_layout import resolve_port_base
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     try:
         deployment = get_config_value("deployment", {})
@@ -865,7 +865,7 @@ async def run_ingest(
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.services.ariel_search.ingestion import get_adapter
     from osprey.services.ariel_search.ingestion.ingest import ingest_one
-    from osprey.utils.config import localize_facility
+    from osprey_connectors.config import localize_facility
 
     if "ingestion" not in config_dict:
         config_dict["ingestion"] = {}
@@ -996,7 +996,7 @@ async def run_watch(
 
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
-    from osprey.utils.logger import get_logger
+    from osprey_connectors.logger import get_logger
 
     # Only an actual override may mint the block: a config with no `ingestion`
     # at all must reach `_ariel_config` still missing it, or the "no ingestion
@@ -1148,7 +1148,7 @@ async def run_sync_watch(
     import signal
 
     from osprey.services.ariel_search.ingestion.scheduler import StopReason
-    from osprey.utils.logger import get_logger
+    from osprey_connectors.logger import get_logger
 
     async def _sync_then_watch() -> StopReason | None:
         busy_skipped: list[str] | None
@@ -1361,7 +1361,7 @@ def _touch_qmd_marker(mirror_root: Path) -> bool:
     from datetime import UTC, datetime
 
     from osprey.services.ariel_search.enhancement.qmd_export import TOUCH_MARKER_NAME
-    from osprey.utils.logger import get_logger
+    from osprey_connectors.logger import get_logger
 
     try:
         mirror_root.mkdir(parents=True, exist_ok=True)
@@ -1506,7 +1506,7 @@ async def run_qmd_resync(
 
     from osprey.services.ariel_search.database.connection import create_connection_pool
     from osprey.services.ariel_search.enhancement.qmd_export.writer import write_entry
-    from osprey.utils.logger import get_logger
+    from osprey_connectors.logger import get_logger
 
     logger = get_logger("ariel")
 
@@ -1615,7 +1615,7 @@ async def resync_qmd_mirror_best_effort(
         The pass result, or ``None`` when the module is disabled or the pass
         failed.
     """
-    from osprey.utils.logger import get_logger
+    from osprey_connectors.logger import get_logger
 
     try:
         result = await run_qmd_resync(config_dict)
@@ -1754,7 +1754,7 @@ async def _run_text_enhance(
         text_mark_kwargs,
     )
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
-    from osprey.utils.logger import get_logger
+    from osprey_connectors.logger import get_logger
 
     logger = get_logger("ariel")
     enhancers = create_enhancers_from_config(
@@ -1897,7 +1897,7 @@ async def _drive_image_modules(
     """
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.enhancement.image_driver import drive_image_module
-    from osprey.utils.logger import get_logger
+    from osprey_connectors.logger import get_logger
 
     logger = get_logger("ariel")
     walked = 0
@@ -2018,7 +2018,7 @@ async def retry_failed_entries(config: ARIELConfig, module: str, progress: _Prog
         report_unavailable,
     )
     from osprey.services.ariel_search.exceptions import ModuleConfigError
-    from osprey.utils.logger import get_logger
+    from osprey_connectors.logger import get_logger
 
     logger = get_logger("ariel")
     table: str | None = None
@@ -2253,7 +2253,7 @@ async def run_catchup(
         The text stage's result, with the picture entries walked added to
         ``entries_processed`` and the picture modules to ``module_names``.
     """
-    from osprey.utils.logger import get_logger
+    from osprey_connectors.logger import get_logger
 
     logger = get_logger("ariel")
     started = time.monotonic()
@@ -2673,7 +2673,7 @@ async def run_quickstart(
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.services.ariel_search.ingestion import get_adapter
     from osprey.services.ariel_search.ingestion.ingest import ingest_one
-    from osprey.utils.logger import get_logger
+    from osprey_connectors.logger import get_logger
 
     logger = get_logger("ariel")
 
@@ -2795,7 +2795,7 @@ async def _quickstart_narrative(config_dict: dict, progress: _ProgressCb) -> tup
     from datetime import datetime
 
     from osprey.simulation.apply import demo_narrative_logbook, seed_narrative_if_empty
-    from osprey.utils.config import get_facility_timezone
+    from osprey_connectors.config import get_facility_timezone
 
     logbook = demo_narrative_logbook(config_dict)
     if progress:
@@ -3520,7 +3520,7 @@ async def backfill_store(
     from osprey.services.ariel_search.attachments import copy as copy_mod
     from osprey.services.ariel_search.attachments.fetch import origins_for, redact_url
     from osprey.services.ariel_search.ingestion.scheduler import COPY_LOCK_KEY
-    from osprey.utils.logger import get_logger
+    from osprey_connectors.logger import get_logger
 
     logger = get_logger("ariel")
     result = BackfillResult(

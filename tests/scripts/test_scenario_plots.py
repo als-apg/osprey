@@ -20,8 +20,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from osprey.simulation.machine import parse_plot_spec
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
+from osprey_connectors.simulation.machine import parse_plot_spec
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _SPEC = importlib.util.spec_from_file_location(

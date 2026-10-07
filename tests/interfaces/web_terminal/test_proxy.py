@@ -62,8 +62,8 @@ from osprey.interfaces.web_terminal.routes.proxy import (
     _backend_is_loopback,
     _is_stripped_header,
 )
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 
 from ._proxy_fakes import _FakeConnect, _FakeStreamResponse, _lower, _patch_connect
 

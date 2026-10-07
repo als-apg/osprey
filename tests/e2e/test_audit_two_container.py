@@ -145,7 +145,7 @@ from osprey.deployment.compose_generator import (
     ensure_shared_corpus_dir,
 )
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
-from osprey.utils.workspace import AUDIT_DIR_RELPATH, container_image_context
+from osprey_connectors.workspace import AUDIT_DIR_RELPATH, container_image_context
 from tests._container_support import docker_cli_unavailable_reason
 
 #: Escape hatch for local diagnosis on a non-Linux host. Deliberately named as
@@ -284,7 +284,7 @@ out = {
 }
 
 from osprey.audit.writer import audit_dir, record
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 out["identity"] = acting_identity()
 out["audit_dir"] = str(audit_dir())

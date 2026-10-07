@@ -771,12 +771,12 @@ def test_osprey_unimportable_allows_the_write(tmp_path, hook_module, monkeypatch
     """
     # Arrange
     hook = hook_module("osprey_limits")
-    monkeypatch.setitem(sys.modules, "osprey.connectors.control_system.limits_validator", None)
+    monkeypatch.setitem(sys.modules, "osprey_connectors.control_system.limits_validator", None)
     # A `None` entry in `sys.modules` is what makes the hook's own import raise.
     # Asserted here so that a test which stopped exercising the branch cannot
     # pass by exiting 0 for some other reason.
     with pytest.raises(ImportError):
-        importlib.import_module("osprey.connectors.control_system.limits_validator")
+        importlib.import_module("osprey_connectors.control_system.limits_validator")
     payload = {
         "tool_name": "mcp__controls__channel_write",
         "tool_input": {"operations": [{"channel": UNLISTED_CHANNEL, "value": 50.0}]},
@@ -895,7 +895,7 @@ def _run_in_process(hook, monkeypatch, capsys, tmp_path, validator_cls):
     """
     monkeypatch.setitem(
         sys.modules,
-        "osprey.connectors.control_system.limits_validator",
+        "osprey_connectors.control_system.limits_validator",
         types.SimpleNamespace(LimitsValidator=validator_cls),
     )
     payload = {

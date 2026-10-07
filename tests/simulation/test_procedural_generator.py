@@ -1,6 +1,6 @@
 """The procedural generator's contract: absolute time, VA baselines, bounded.
 
-``osprey.simulation.procedural`` synthesizes history for the channels a
+``osprey_connectors.simulation.procedural`` synthesizes history for the channels a
 project's ``machine.json`` does not describe — 1,872 of the control-assistant
 preset's 2,908 — and its output is written into a real store as well as
 returned from live archiver queries. That makes three things load-bearing, and
@@ -37,17 +37,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from osprey.connectors.channel_taxonomy import classify_channel
 from osprey.services.virtual_accelerator.manifest.loaders import load_machine_json_channels
 from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
-from osprey.simulation.procedural import (
+from osprey_connectors.channel_taxonomy import classify_channel
+from osprey_connectors.simulation.procedural import (
     DEFAULT_NOISE_LEVEL,
     KIND_SHAPES,
     baseline_value,
     deviation_bound,
     generate_series,
 )
-from osprey.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.series import epoch_seconds_array
 from tests.simulation.conftest import TEMPLATE_SIM
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -203,8 +203,8 @@ class TestCrossProcessDeterminism:
         script = textwrap.dedent("""
             import json
             from datetime import UTC, datetime, timedelta
-            from osprey.simulation.procedural import generate_series
-            from osprey.simulation.series import epoch_seconds_array
+            from osprey_connectors.simulation.procedural import generate_series
+            from osprey_connectors.simulation.series import epoch_seconds_array
 
             start = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
             stamps = [start + timedelta(seconds=17 * i) for i in range(24)]

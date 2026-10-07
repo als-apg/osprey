@@ -123,7 +123,7 @@ def _refusal_prose(envelope) -> str:
 def _refusal_records(audit_zone):
     """Every executor record this identity filed — the ledger is per-identity."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     log = audit_zone / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
     if not log.exists():
@@ -621,7 +621,7 @@ GLOBAL_KEY = "control_system.writes_enabled"
 def mixed_posture(monkeypatch):
     """A deployment that arms writes on its VA and refuses them on its machine."""
     monkeypatch.setattr(
-        "osprey.utils.config.get_config_value",
+        "osprey_connectors.config.get_config_value",
         lambda path, default=None, config_path=None: (
             MIXED_POSTURE_SECTION if path == "control_system" else default
         ),

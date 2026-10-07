@@ -275,7 +275,7 @@ class TestGenerateNames:
 
 class TestCreateNamerFromConfig:
     def test_missing_provider_raises(self, monkeypatch):
-        import osprey.utils.config as config_mod
+        import osprey_connectors.config as config_mod
 
         monkeypatch.setattr(
             config_mod,
@@ -292,7 +292,7 @@ class TestCreateNamerFromConfig:
         provider a deployment has excluded, and it hides one the deployment
         added.
         """
-        import osprey.utils.config as config_mod
+        import osprey_connectors.config as config_mod
         from osprey.models.provider_registry import get_provider_registry
 
         monkeypatch.setattr(
@@ -314,7 +314,7 @@ class TestCreateNamerFromConfig:
             assert absent not in message
 
     def test_builds_namer_from_config_values(self, monkeypatch):
-        import osprey.utils.config as config_mod
+        import osprey_connectors.config as config_mod
 
         config = {
             "channel_finder": {
@@ -357,7 +357,7 @@ class TestCreateNamerFromConfig:
     def test_no_model_id_runs_on_the_deployments_main_model(
         self, monkeypatch, claude_code, expected
     ):
-        import osprey.utils.config as config_mod
+        import osprey_connectors.config as config_mod
 
         config = {
             "claude_code": claude_code,
@@ -377,7 +377,7 @@ class TestCreateNamerFromConfig:
         assert create_namer_from_config().model_id == expected
 
     def test_uses_explicit_config_path(self, monkeypatch, tmp_path):
-        import osprey.utils.config as config_mod
+        import osprey_connectors.config as config_mod
 
         seen: list = []
 

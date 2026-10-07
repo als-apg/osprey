@@ -27,9 +27,9 @@ from typing import IO, Any
 
 from rich.text import Text
 
-from osprey.errors import BuildProfileError
-from osprey.utils.dotenv import chain_files, merge_chain
-from osprey.utils.logger import get_logger
+from osprey_connectors.dotenv import chain_files, merge_chain
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 
 from .output import fail, report, warn
 from .phase_reporter import current_reporter

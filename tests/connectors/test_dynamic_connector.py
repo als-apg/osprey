@@ -4,10 +4,10 @@ import logging
 
 import pytest
 
-from osprey.connectors import types
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
-from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors import types
+from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 
 
 @pytest.fixture(autouse=True)
@@ -132,7 +132,7 @@ class TestCustomConnectorConfirmDefault:
         # that type and so inherits the deployment-wide key.
         section = {"writes_enabled": True}
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda key, default=None: section if key == "control_system" else default,
         )
 

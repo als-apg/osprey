@@ -8,28 +8,28 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from osprey.connectors.control_system.base import (
-    ChannelMetadata,
-    ChannelValue,
-    ChannelWriteResult,
-    ControlSystemConnector,
-    WriteOutcome,
-)
-from osprey.connectors.control_system.limits_validator import (
-    ChannelLimitsConfig,
-    LimitsValidator,
-)
-from osprey.errors import (
-    ChannelLimitsViolationError,
-    ChannelWriteBlockedError,
-    ChannelWriteFailedError,
-)
 from osprey.runtime import (
     _write_channel_async,
     cleanup_runtime,
     read_channel,
     write_channel,
     write_channels,
+)
+from osprey_connectors.control_system.base import (
+    ChannelMetadata,
+    ChannelValue,
+    ChannelWriteResult,
+    ControlSystemConnector,
+    WriteOutcome,
+)
+from osprey_connectors.control_system.limits_validator import (
+    ChannelLimitsConfig,
+    LimitsValidator,
+)
+from osprey_connectors.errors import (
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
+    ChannelWriteFailedError,
 )
 
 
@@ -122,7 +122,7 @@ def test_write_channel_success():
     mock_connector = MockConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -146,7 +146,7 @@ def test_write_channel_failure():
     )
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -179,7 +179,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -206,7 +206,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -228,7 +228,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -251,7 +251,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -276,7 +276,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -294,7 +294,7 @@ class TestRuntimeWriteConfirmation:
         )
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -307,7 +307,7 @@ def test_read_channel_success():
     mock_connector = MockConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -324,7 +324,7 @@ def test_write_channels_bulk():
     mock_connector = MockConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -345,7 +345,7 @@ async def test_cleanup_runtime():
     mock_connector = MockConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -365,7 +365,7 @@ def test_connector_reuse():
     mock_connector = MockConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
@@ -387,7 +387,7 @@ async def test_connector_recreated_after_cleanup():
     mock_connector2 = MockConnector()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.side_effect = [mock_connector1, mock_connector2]
 
@@ -538,7 +538,7 @@ class TestRuntimeStepCheckReader:
         mock_connector = MockConnector()
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -565,7 +565,7 @@ class TestRuntimeStepCheckReader:
         mock_connector = MockConnector()
 
         with patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector"
         ) as mock_factory:
             mock_factory.return_value = mock_connector
 
@@ -614,7 +614,7 @@ def _record_observer():
 
 def _patched_factory(connector):
     return patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         return_value=connector,
     )
 

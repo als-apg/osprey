@@ -28,7 +28,7 @@ from osprey.cli.scaffold_cmd import claim_into_profile
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -774,7 +774,7 @@ def test_exclude_spellings_split_the_library_selection_from_the_shipped_file():
 
 def test_exclude_rejects_a_hook_entry_qualified_with_another_channel():
     """`hooks: [rules/safety]` is a mistake, not a hook literally named that."""
-    from osprey.errors import BuildProfileError
+    from osprey_connectors.errors import BuildProfileError
 
     with pytest.raises(BuildProfileError, match="rules"):
         _apply_exclude({"hooks": []}, {"hooks": ["rules/safety"]})

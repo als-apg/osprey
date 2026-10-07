@@ -11,7 +11,7 @@ import json
 import numpy as np
 import pytest
 
-from osprey.simulation import SimulationEngine
+from osprey_connectors.simulation import SimulationEngine
 
 T0 = 1_764_000_000.0
 

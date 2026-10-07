@@ -47,7 +47,7 @@ def _enable_telemetry(monkeypatch, org="default", backend="openobserve"):
     if org is not None:
         telemetry[backend or "openobserve"] = {"org": org}
     monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
+        "osprey_connectors.workspace.load_osprey_config",
         lambda: {"claude_code": {"telemetry": telemetry}},
     )
 
@@ -158,7 +158,7 @@ async def test_the_org_comes_from_config_not_from_the_endpoint_url(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:5080/api/stale")
     monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
+        "osprey_connectors.workspace.load_osprey_config",
         lambda: {
             "claude_code": {
                 "telemetry": {"backend": "openobserve", "openobserve": {"org": "example"}}
@@ -183,7 +183,7 @@ async def test_an_explicitly_empty_org_is_reported_as_written(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:5080/api/")
     monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
+        "osprey_connectors.workspace.load_osprey_config",
         lambda: {
             "claude_code": {"telemetry": {"backend": "openobserve", "openobserve": {"org": ""}}}
         },
@@ -201,7 +201,7 @@ async def test_an_absent_org_falls_back_to_the_default_organization(monkeypatch)
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:5080/api/default")
     monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
+        "osprey_connectors.workspace.load_osprey_config",
         lambda: {"claude_code": {"telemetry": {"backend": "openobserve"}}},
     )
     monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "sess-abc-123")
@@ -216,7 +216,7 @@ async def test_an_unreadable_config_omits_the_coordinates(monkeypatch):
     """Degrade by saying less, never by guessing a coordinate."""
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:5080/api/example")
-    monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda: {})
+    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: {})
     monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "sess-abc-123")
 
     result = json.loads(await _fn()())

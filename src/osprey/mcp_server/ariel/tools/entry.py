@@ -76,7 +76,7 @@ def _focus_ariel_panel(url: str) -> None:
 
 def _get_drafts_dir() -> Path:
     """Resolve the drafts directory at call time (not import time)."""
-    from osprey.utils.workspace import resolve_shared_data_root
+    from osprey_connectors.workspace import resolve_shared_data_root
 
     return resolve_shared_data_root() / "drafts"
 
@@ -165,7 +165,7 @@ async def entry_get(
         # TypedDict -- dict access, not attribute access. Localize the three
         # timestamp fields through the shared egress helper so single-entry get
         # matches search/browse (serialize_entry) instead of emitting raw UTC.
-        from osprey.utils.config import to_facility_iso
+        from osprey_connectors.config import to_facility_iso
 
         result: dict[str, Any] = {
             "entry_id": entry["entry_id"],

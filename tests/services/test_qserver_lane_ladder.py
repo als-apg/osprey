@@ -72,7 +72,7 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
                 return section.get("writes_enabled", default)
             return declared.get(key, default)
 
-        monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
     return _stage
 
@@ -100,7 +100,7 @@ def test_an_unreadable_config_still_builds_the_mock(monkeypatch: pytest.MonkeyPa
         raise FileNotFoundError("no project config context")
 
     monkeypatch.delenv(qb.LANE_ENV, raising=False)
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _raise)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", _raise)
 
     assert qserver_startup.resolve_control_system_type() == "mock"
     assert qserver_startup.worker_writes_enabled() is False

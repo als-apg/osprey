@@ -41,11 +41,11 @@ from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_cmd import _ariel_server_enabled
 from osprey.cli.derived_keys import is_derived_key
 from osprey.cli.templates.manager import TemplateManager, _enable_flags
-from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.profiles.providers import load_provider_catalog
 from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.registry.mcp import FRAMEWORK_SERVERS
+from osprey_connectors.errors import BuildProfileError
 
 #: The panel ids one profile *selects*, which is not the registry: the registry
 #: arrives with the shared context and is what a selection is filtered against.

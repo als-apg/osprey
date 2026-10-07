@@ -1153,7 +1153,7 @@ class TestUsersEnv:
         """`osprey users env > .env.users` has to produce a usable file, so
         only file content may reach stdout — the readme header (comment lines
         are valid dotenv) and assignments, never a CLI banner or summary."""
-        from osprey.utils.dotenv import ENV_USERS_BANNER
+        from osprey_connectors.dotenv import ENV_USERS_BANNER
 
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text("CBORG_API_KEY=llm-secret\n", encoding="utf-8")

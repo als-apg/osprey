@@ -15,8 +15,12 @@ from pathlib import Path
 import pytest
 
 from osprey.simulation.apply import apply_scenarios
-from osprey.simulation.engine import SimulationEngine, default_state_dir, resolve_state_dir
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.simulation.engine import (
+    SimulationEngine,
+    default_state_dir,
+    resolve_state_dir,
+)
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.simulation.conftest import stage_sim_project
 
 
@@ -66,8 +70,8 @@ class TestResolveStateDir:
 
     def test_the_config_key_is_the_one_the_drift_check_warns_about(self):
         """One spelling, or a project passes the check while still writing into data/."""
-        from osprey.simulation.engine import STATE_DIR_CONFIG_KEY
-        from osprey.utils.config import RUNTIME_WRITE_PATH_KEYS
+        from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
+        from osprey_connectors.simulation.engine import STATE_DIR_CONFIG_KEY
 
         assert STATE_DIR_CONFIG_KEY in RUNTIME_WRITE_PATH_KEYS
 
@@ -75,7 +79,7 @@ class TestResolveStateDir:
         """A connector in a project with no loadable config must not crash."""
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("CONFIG_FILE", raising=False)
-        from osprey.utils.workspace import reset_config_cache
+        from osprey_connectors.workspace import reset_config_cache
 
         reset_config_cache()
         try:

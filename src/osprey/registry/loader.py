@@ -13,8 +13,8 @@ import inspect
 import sys
 from pathlib import Path
 
-from osprey.errors import RegistryError
-from osprey.utils.logger import get_logger
+from osprey_connectors.errors import RegistryError
+from osprey_connectors.logger import get_logger
 
 from .base import ExtendedRegistryConfig, RegistryConfig, RegistryConfigProvider
 

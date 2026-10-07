@@ -26,7 +26,7 @@ from osprey.cli.build_profile_deploy import (
     deploy_config_overrides,
     parse_deploy_block,
 )
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 DEPLOY_BLOCK: dict[str, Any] = {
     "ci": "gitlab",

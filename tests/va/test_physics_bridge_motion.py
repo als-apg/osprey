@@ -27,7 +27,7 @@ from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
 from osprey.services.virtual_accelerator.manifest import build_manifest
 from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
-from osprey.simulation.engine import SimulationEngine
+from osprey_connectors.simulation.engine import SimulationEngine
 
 #: Two tick instants, far enough apart on a one-hour wander for the texture to
 #: have visibly moved between them.

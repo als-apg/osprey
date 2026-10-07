@@ -35,11 +35,11 @@ from osprey.deployment.web_terminals.env_production import deploy_issued_credent
 from osprey.deployment.web_terminals.personas import effective_image_source
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.docs_links import installer_remedy
-from osprey.utils.config import ConfigBuilder
-from osprey.utils.dotenv import ENV_LOCAL_FILENAME
-from osprey.utils.log_filter import quiet_logger
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+from osprey_connectors.config import ConfigBuilder
+from osprey_connectors.dotenv import ENV_LOCAL_FILENAME
+from osprey_connectors.log_filter import quiet_logger
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 
 logger = get_logger("deployment.lifecycle")
 
@@ -104,7 +104,7 @@ def _persona_image_context(project_path: str | Path) -> Path:
     the catalog's ``project_path`` is what every caller here has (and is an
     externally-pinned contract — ``osprey init`` writes ``build/<repo>-<persona>``
     and the dispatch e2e pins it), and the two directories are siblings by
-    construction: :func:`osprey.utils.workspace.container_image_context` puts the
+    construction: :func:`osprey_connectors.workspace.container_image_context` puts the
     container copy at ``<render>/../.image/<render name>``. Relative in, relative
     out — repo-scoped verbs run from the repo root.
 
@@ -510,7 +510,7 @@ def _resolve_persona_profile(build_profile: str, persona_name: str, profile_root
     # candidate and the expected directory resolve to the SAME place, so a
     # containment check on the parent passes while the root is still wrong.
     from osprey.cli.profile_root import PERSONA_DIRNAME, resolve_profile_root
-    from osprey.errors import BuildProfileError
+    from osprey_connectors.errors import BuildProfileError
 
     try:
         anchored_root, is_delta = resolve_profile_root(candidate)

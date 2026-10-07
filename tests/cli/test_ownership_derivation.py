@@ -21,7 +21,7 @@ from osprey.cli.build_persistence import (
 )
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:

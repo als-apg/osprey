@@ -17,7 +17,7 @@ from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
-from osprey.utils.workspace import RENDERED_CONFIG_RELPATH, agent_data_base_dir
+from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH, agent_data_base_dir
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -2065,7 +2065,7 @@ class TestPhoebusAgentAccessContextKey:
         assert derived["phoebus_agent_access"] == "read_write"
 
     def test_unknown_value_is_refused_by_name(self):
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         with pytest.raises(BuildProfileError) as exc_info:
             self._derive({"phoebus": {"agent_access": "write"}})

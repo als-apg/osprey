@@ -503,7 +503,7 @@ def _wait_for_container_health(container: str, timeout: float) -> None:
 
 
 def _env_value(repo: Path, key: str) -> str:
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path}"
@@ -1394,8 +1394,8 @@ def _stage_the_queue_tools(
     from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
     from osprey.bluesky_bridge_connection import LANE_ONE, lane_env_prefix
     from osprey.mcp_server.bluesky.server_context import initialize_server_context
-    from osprey.utils.workspace import reset_config_cache
     from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR
+    from osprey_connectors.workspace import reset_config_cache
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(
@@ -1461,7 +1461,7 @@ def queue_tools_context_reset() -> Iterator[None]:
     yield
 
     from osprey.mcp_server.bluesky.server_context import reset_server_context
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_server_context()
     reset_config_cache()

@@ -58,8 +58,8 @@ from osprey.cli.profile_conventions import (
     validate_project_mirror,
     warn_unknown_root_entries,
 )
-from osprey.errors import BuildProfileError
 from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
+from osprey_connectors.errors import BuildProfileError
 
 
 def _write(path: Path, content: str = "x\n") -> Path:

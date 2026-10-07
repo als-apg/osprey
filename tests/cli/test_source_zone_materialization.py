@@ -26,8 +26,8 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.init_cmd import init
-from osprey.errors import BuildProfileError
 from osprey.profiles.providers import PROVIDERS_FILENAME, compute_providers_hash
+from osprey_connectors.errors import BuildProfileError
 
 
 @pytest.fixture
@@ -378,7 +378,7 @@ def test_only_keys_of_referenced_providers_are_seeded(
     """The keys of the providers this profile names, and nothing else — the
     profile is where a facility's secrets live, so what lands there must be
     predictable, and importing a whole shell keyring is more than it needs."""
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
@@ -398,7 +398,7 @@ def test_a_switched_provider_takes_its_own_key(
 ) -> None:
     """The rule reads the RESOLVED profile, so a `--set provider=` that the
     emitted profile.yml records moves which key is seeded with it."""
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
@@ -422,7 +422,7 @@ def test_a_gateway_added_to_the_catalog_is_referenced(
     own `api_key:`, which is the only place a gateway OSPREY does not ship can
     name one.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("HOUSE_GATEWAY_API_KEY", "sk-house-test")

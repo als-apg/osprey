@@ -70,7 +70,7 @@ from osprey.services.ariel_search.search.base import (
     module_result,
 )
 from osprey.services.qmd import QMDClient, QMDUnavailableError
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
@@ -197,7 +197,7 @@ def _default_client() -> QMDClient:
     with _client_lock:
         if _cached_client is None:
             from osprey.deployment.qmd_service import resolve_qmd_corpus_config
-            from osprey.utils.workspace import load_osprey_config
+            from osprey_connectors.workspace import load_osprey_config
 
             _cached_client = QMDClient(
                 resolve_qmd_corpus_config(load_osprey_config(), ARIEL_COLLECTION)

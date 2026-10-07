@@ -141,12 +141,12 @@ class TestRfThermalContract:
         return engine
 
     def _zone(self):
-        from osprey.utils.config import get_facility_timezone
+        from osprey_connectors.config import get_facility_timezone
 
         return get_facility_timezone()
 
     def _entry_time(self, entry_id: str) -> datetime:
-        from osprey.utils.relative_time import RelativeTimestamp, resolve_relative_timestamp
+        from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 
         entries = json.loads((TEMPLATE_SIM / "scenarios/rf-thermal/logbook.json").read_text())
         when = next(e["when"] for e in entries if e["entry_id"] == entry_id)
@@ -161,7 +161,7 @@ class TestRfThermalContract:
 
     def _spikes(self, channel: str) -> list[tuple[datetime, float]]:
         """``(instant, amplitude)`` of the bundle's spikes on ``channel``."""
-        from osprey.simulation.series import anchored_instant
+        from osprey_connectors.simulation.series import anchored_instant
 
         bundle = json.loads((TEMPLATE_SIM / "scenarios/rf-thermal/scenario.json").read_text())
         events = next(a["events"] for a in bundle["archiver"] if a["channel"] == channel)

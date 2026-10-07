@@ -16,8 +16,8 @@ def _reset_registry():
     and ``test_server_context.py::test_registry_not_initialized`` finds it already
     there.
     """
-    import osprey.utils.config as _cfg
-    from osprey.utils.workspace import reset_config_cache
+    import osprey_connectors.config as _cfg
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_cf_hier_context()
     reset_config_cache()

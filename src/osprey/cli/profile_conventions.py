@@ -40,16 +40,16 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from osprey.errors import BuildProfileError
 from osprey.profiles.providers import PROVIDERS_FILENAME
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import BUILD_DIR_NAME, STATE_DIR_NAME
 
-# Free at module level: ``osprey.utils.logger`` above already pulls
+# Free at module level: ``osprey_connectors.logger`` above already pulls
 # ``osprey_connectors.config`` into this module's import closure, so naming it
 # here adds no load time to the CLI's lazy-command budget. Imported rather than
 # restated — see :data:`PROTECTED_CONFIG_KEYS`.
 from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME, STATE_DIR_NAME
 
 logger = get_logger("build")
 
@@ -224,7 +224,7 @@ PROJECT_MIRROR_DIR = "project"
 #: The disposable output zone. Every ``osprey build`` wipes and re-renders it,
 #: so nothing durable may live there. Spelled here under this module's own name
 #: — the repo root it judges is the directory the zone sits in — but ALIASED to
-#: :data:`osprey.utils.workspace.BUILD_DIR_NAME` rather than restated. Three
+#: :data:`osprey_connectors.workspace.BUILD_DIR_NAME` rather than restated. Three
 #: modules named this directory with three independent string literals, which
 #: is three chances for the zone layout to disagree with itself; there is now
 #: one literal and two names for it.

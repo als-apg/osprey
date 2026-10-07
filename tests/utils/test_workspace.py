@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     RENDERED_CONFIG_RELPATH,
     load_osprey_config,
@@ -33,7 +33,6 @@ from osprey.utils.workspace import (
     resolve_path,
     resolve_project_root,
     resolve_shared_data_root,
-    resolve_workspace_root,
 )
 
 
@@ -204,7 +203,7 @@ class TestResetConfigCache:
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
         load_osprey_config()  # populates default singleton
 
-        from osprey.utils import config as config_module
+        from osprey_connectors import config as config_module
 
         assert config_module._default_config is not None
         reset_config_cache()
@@ -263,11 +262,6 @@ class TestResolveAgentDataRoot:
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
         monkeypatch.delenv("OSPREY_SESSION_ID", raising=False)
         assert "sessions" not in resolve_agent_data_root().parts
-
-    def test_workspace_root_alias(self, tmp_path, monkeypatch):
-        cfg = _write_repo(tmp_path, "agent_data:\n  base_dir: var/agent_data\n")
-        monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_workspace_root() == resolve_agent_data_root()
 
 
 class TestResolveSharedDataRoot:

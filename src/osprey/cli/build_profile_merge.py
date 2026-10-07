@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_document import _read_profile_document
 from .build_profile_presets import (
@@ -848,7 +848,7 @@ def _fold_source_tree(
     """
     import hashlib
 
-    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
+    from osprey_connectors.workspace import RUNTIME_DATA_DIR_NAME
 
     if source.is_dir():
         entries = []

@@ -25,7 +25,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 from .styles import Styles
 

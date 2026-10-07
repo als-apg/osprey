@@ -29,8 +29,8 @@ from osprey.cli.build_profile import (
     _parse_profile,
     load_profile,
 )
-from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
+from osprey_connectors.errors import BuildProfileError
 
 
 def test_no_bluesky_web_validates(tmp_path: Path) -> None:

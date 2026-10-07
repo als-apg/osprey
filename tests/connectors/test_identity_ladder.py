@@ -1,8 +1,7 @@
-"""The four copies of the acting-identity ladder, pinned to one another.
+"""The three copies of the acting-identity ladder, pinned to one another.
 
-The ladder is written out four times on purpose. ``osprey_connectors.identity``
-holds it; ``osprey.utils.identity`` re-exports it under the historical path; and
-the two stdlib hooks — ``osprey_target_state`` and ``osprey_hook_log`` — restate
+The ladder is written out three times on purpose. ``osprey_connectors.identity``
+holds it, and the two stdlib hooks — ``osprey_target_state`` and ``osprey_hook_log`` — restate
 it, because a hook runs outside the osprey venv where neither package exists.
 Restating is the only option available to them, so the cost of restating has to
 be paid somewhere, and it is paid here.
@@ -21,9 +20,9 @@ than sampling it: 16 values for each env rung (unset, blank, whitespace-padded,
 ordinary, and each way a value can fail to be one path component) against 10
 outcomes for the local-account rung (ordinary names, blank ones, a traversal,
 and the three ways :func:`getpass.getuser` fails) — 2560 rows, every one of
-which all four copies must answer alike.
+which all three copies must answer alike.
 
-Agreement alone would be satisfied by four copies that are identically wrong,
+Agreement alone would be satisfied by three copies that are identically wrong,
 so two other things anchor it. The package ladder is the reference every other
 copy is compared against, and its semantics are pinned independently in
 ``tests/utils/test_identity.py``. And the rows that name a deployment shape —
@@ -35,7 +34,7 @@ states: ``OSPREY_AUDIT_IDENTITY`` may never join a scrub list. An executor
 sandbox is severed from the ``OSPREY_TERMINAL_`` family by design, and inside a
 container the process account names ``osprey`` or ``root``, so rung 2 is the
 only rung left that names the person. This module builds a real child
-environment with the real scrubber and checks that all four copies still say
+environment with the real scrubber and checks that all three copies still say
 ``alice``.
 """
 
@@ -49,7 +48,6 @@ from pathlib import Path
 import pytest
 
 from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
-from osprey.utils import identity as re_export
 from osprey_connectors import identity as ladder
 
 #: The shipped hooks, as files. They are loaded from here by path rather than
@@ -151,10 +149,9 @@ def hooks() -> dict:
 
 @pytest.fixture(scope="module")
 def resolvers(hooks: dict) -> dict:
-    """The four ``acting_identity`` callables, keyed by where each one lives."""
+    """The three ``acting_identity`` callables, keyed by where each one lives."""
     return {
         "osprey_connectors.identity": ladder.acting_identity,
-        "osprey.utils.identity": re_export.acting_identity,
         **{name: module.acting_identity for name, module in hooks.items()},
     }
 
@@ -202,12 +199,8 @@ class TestTheMatrixItself:
         assert len(ENV_VALUES) ** 2 * len(ACCOUNT_OUTCOMES) == MATRIX_ROWS
 
 
-class TestOneImplementation:
-    """Two of the four copies are meant to be the same object, not a likeness."""
-
-    def test_the_re_export_is_the_ladder_itself(self) -> None:
-        """``osprey.utils.identity`` is an import path, not a second ladder."""
-        assert re_export.acting_identity is ladder.acting_identity
+class TestSharedConstants:
+    """Every copy spells the ladder's deployment contract the same way."""
 
     @pytest.mark.parametrize(
         "constant",
@@ -224,7 +217,6 @@ class TestOneImplementation:
         expected = getattr(ladder, constant)
         for name, module in hooks.items():
             assert getattr(module, constant, None) == expected, name
-        assert getattr(re_export, constant) == expected
 
 
 class TestEveryCopyAgrees:

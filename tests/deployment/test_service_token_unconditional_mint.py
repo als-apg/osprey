@@ -36,7 +36,7 @@ import pytest
 from osprey.deployment import container_lifecycle
 
 # The legacy spelling ("local") and the honest one ("subprocess") name the same
-# backend (see ``osprey.utils.config.resolve_execution_method``). "local" is the
+# backend (see ``osprey_connectors.config.resolve_execution_method``). "local" is the
 # value the deleted guard keyed on, so it is the one a regression would most
 # plausibly reintroduce — cover both wherever the posture is varied.
 _SUBPROCESS_METHODS = ("local", "subprocess")
@@ -87,7 +87,7 @@ def _clean_token_env(monkeypatch):
 
 
 def _parse_dotenv(path):
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     return parse_dotenv_file(path) if path.is_file() else {}
 
@@ -463,7 +463,7 @@ SHARED_HALF_TOKEN = "shared-half-fixture-token-not-a-secret"
 
 def _write_shared_half(tmp_path, text: str):
     """Lay down the chain's committed-defaults file beside the local one."""
-    from osprey.utils.dotenv import ENV_SHARED_FILENAME
+    from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 
     path = tmp_path / ENV_SHARED_FILENAME
     path.write_text(text, encoding="utf-8")
@@ -479,7 +479,7 @@ def _load_the_entry_point_chain(monkeypatch, repo):
     because the thing being measured IS that this step is what makes the shared
     half visible.
     """
-    import osprey.utils.config as config
+    import osprey_connectors.config as config
 
     monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
     monkeypatch.chdir(repo)
@@ -506,7 +506,7 @@ def test_a_token_only_the_shared_half_carries_is_minted_over(_clean_token_env, t
     local = _parse_dotenv(env_path)
     assert local["BLUESKY_LAUNCH_TOKEN"], "the shared-only value did not even reach the predicate"
     assert local["BLUESKY_LAUNCH_TOKEN"] != SHARED_HALF_TOKEN
-    from osprey.utils.dotenv import ENV_SHARED_FILENAME
+    from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 
     assert _parse_dotenv(tmp_path / ENV_SHARED_FILENAME)["BLUESKY_LAUNCH_TOKEN"] == (
         SHARED_HALF_TOKEN

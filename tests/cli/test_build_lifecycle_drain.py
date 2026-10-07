@@ -22,7 +22,7 @@ import pytest
 from osprey.cli import build_lifecycle
 from osprey.cli.build_profile_schema import LifecycleStep
 from osprey.cli.phase_reporter import NullReporter, PhaseReporter, install_reporter
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 from tests.cli._scoped_subprocess import patch_subprocess
 
 # Every wait here is a deadline an assertion polls to, never a sleep sized to

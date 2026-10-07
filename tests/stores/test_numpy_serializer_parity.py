@@ -47,7 +47,7 @@ def _no_server_launch(monkeypatch):
     """Saving an artifact tries to boot the gallery web server; don't."""
     import osprey.infrastructure.server_launcher as launcher
 
-    monkeypatch.setattr(launcher, "ensure_artifact_server", lambda: None)
+    monkeypatch.setattr(launcher, "ensure_web_server", lambda *a, **k: None)
 
 
 @pytest.fixture

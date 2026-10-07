@@ -34,7 +34,7 @@ from osprey.services.ariel_search.database.search_fts import (
     ATTACHMENT_TEXT_DOCUMENT,
     RAW_TEXT_FTS_EXPRESSION_V2,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection

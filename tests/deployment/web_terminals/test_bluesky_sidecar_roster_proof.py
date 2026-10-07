@@ -88,7 +88,7 @@ from osprey.deployment.web_terminals.personas import (
 from osprey.deployment.web_terminals.provision import _provision_terminal_secrets
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, ROSTER_SECRET_ENV_PREFIX
-from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 from tests._container_support import docker_cli_unavailable_reason
 from tests.cli.test_persona_presets import _build_persona_stack
 
@@ -102,8 +102,8 @@ pytestmark = [
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC_DIR = _REPO_ROOT / "src"
-# The osprey.* tree reached via /src is shim-backed: config/logger/connectors
-# live in the osprey-connectors workspace member, so its source joins the
+# The osprey.* tree reached via /src imports config/logger/connectors from
+# the osprey-connectors workspace member, so its source joins the
 # mount and the PYTHONPATH — the distribution is not yet installable from
 # PyPI inside the harness image.
 _CONNECTORS_SRC_DIR = _REPO_ROOT / "packages" / "osprey-connectors" / "src"

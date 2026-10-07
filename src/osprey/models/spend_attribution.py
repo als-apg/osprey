@@ -9,7 +9,7 @@ if the request says who asked. LiteLLM reads two headers for that:
   (``/customer/info``, ``end_user`` in the spend logs);
 * ``x-litellm-tags`` — free-form tags on the spend-log row (``request_tags``).
 
-OSPREY already knows who is asking: :func:`osprey.utils.identity.acting_identity`
+OSPREY already knows who is asking: :func:`osprey_connectors.identity.acting_identity`
 resolves the roster user of a terminal container, the framework identity of a
 service container, or the local account. This module turns that answer into
 those two headers and delivers them on both LLM call paths:
@@ -34,7 +34,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping, MutableMapping
 
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 
 #: The one gateway kind OSPREY knows how to attribute spend on.
 LITELLM_GATEWAY = "litellm"
@@ -93,7 +93,7 @@ def gateway_for(
 def acting_surface() -> str:
     """Which kind of process is asking — the ``surface:`` tag value.
 
-    Follows the same ladder as :func:`osprey.utils.identity.acting_identity`:
+    Follows the same ladder as :func:`osprey_connectors.identity.acting_identity`:
     a terminal container names a person; a service container names a
     framework identity, and the dispatch worker is the one whose runs a
     facility wants to see apart from the rest; everything else is a local

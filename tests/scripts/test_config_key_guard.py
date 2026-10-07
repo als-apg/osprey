@@ -435,9 +435,8 @@ def test_mode_4_scans_every_root_of_a_multi_root_site():
     """A site's ``root`` may be a list; resurrection under ANY root goes red.
 
     The applications site grew a second root when the config loader moved to
-    the osprey-connectors workspace member (src/osprey/utils/config.py is now a
-    shim its regex can never match) — a site scanning only the shim tree would
-    be a green light wired to nothing.
+    the osprey-connectors workspace member, out of src/osprey/utils — a site
+    scanning only the old tree would be a green light wired to nothing.
     """
 
     def resurrect_under_the_second_root(manifest):

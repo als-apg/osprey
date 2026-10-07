@@ -88,7 +88,7 @@ def _started_over(workspace_dir, config: dict):
             "osprey.interfaces.web_terminal.app._load_web_config",
             return_value={"watch_dir": str(workspace_dir)},
         ),
-        patch("osprey.utils.workspace.load_osprey_config", return_value=config),
+        patch("osprey_connectors.workspace.load_osprey_config", return_value=config),
     ):
         with TestClient(create_app(shell_command=["echo"])) as client:
             yield client

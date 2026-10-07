@@ -34,8 +34,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from osprey.utils.config import get_agent_dir, get_config_value
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import get_agent_dir, get_config_value
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("osprey.models")
 

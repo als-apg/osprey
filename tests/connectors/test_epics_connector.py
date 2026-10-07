@@ -20,13 +20,13 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from osprey.connectors.control_system.base import (
+from osprey_connectors.control_system.base import (
     ChannelMetadata,
     ChannelValue,
     WriteOutcome,
     raise_for_write_result,
 )
-from osprey.connectors.control_system.epics_connector import (
+from osprey_connectors.control_system.epics_connector import (
     EPICSConnector,
     _ChannelSubscription,
     _configure_pyepics_libca,
@@ -288,7 +288,7 @@ class TestConnect:
         _patch_writes_enabled(monkeypatch, False)
         sentinel = MagicMock(name="limits_validator")
         monkeypatch.setattr(
-            "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
             classmethod(lambda cls, *, connector_type=None, target=None: sentinel),
         )
 
@@ -346,7 +346,7 @@ class TestReadChannel:
         A naive ``datetime.fromtimestamp(ts)`` without a zone would fail this.
         """
         monkeypatch.setattr(
-            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
             lambda: ZoneInfo("Asia/Tokyo"),  # UTC+9, no DST
         )
         epics = MagicMock()
@@ -364,7 +364,7 @@ class TestReadChannel:
         """When the PV reports no timestamp, the read stamps a facility-tz 'now'."""
         tokyo = __import__("zoneinfo").ZoneInfo("Asia/Tokyo")
         monkeypatch.setattr(
-            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
             lambda: tokyo,
         )
         pv = MagicMock()
@@ -388,7 +388,7 @@ class TestReadChannel:
     async def test_pv_cache_reused_across_reads(self, monkeypatch):
         """The same channel reuses its cached PV object instead of recreating it."""
         monkeypatch.setattr(
-            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
             lambda: __import__("zoneinfo").ZoneInfo("UTC"),
         )
         pv = MagicMock()
@@ -742,7 +742,7 @@ class TestWriteFailClosed:
     @pytest.mark.asyncio
     async def test_limits_violation_propagates(self):
         """A ChannelLimitsViolationError from validate is raised, not swallowed."""
-        from osprey.errors import ChannelLimitsViolationError
+        from osprey_connectors.errors import ChannelLimitsViolationError
 
         epics = MagicMock()
         limits = MagicMock()
@@ -771,7 +771,7 @@ class TestSubscribe:
         """The pyepics callback is adapted into a facility-tz ChannelValue."""
         tokyo = __import__("zoneinfo").ZoneInfo("Asia/Tokyo")
         monkeypatch.setattr(
-            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
             lambda: tokyo,
         )
         pv = MagicMock()
@@ -886,7 +886,7 @@ class TestChannelAccessAlarmNames:
     async def test_subscribe_callback_reports_alarm_name(self, monkeypatch):
         """The monitor path maps codes exactly like the read path."""
         monkeypatch.setattr(
-            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
             lambda: __import__("zoneinfo").ZoneInfo("UTC"),
         )
         epics = MagicMock()
@@ -1070,7 +1070,7 @@ class TestChannelAccessEnumLabels:
     async def test_subscribe_callback_reports_the_label_from_its_kwargs(self, monkeypatch):
         """pyepics hands the monitor callback the PV's whole arg set, enum_strs included."""
         monkeypatch.setattr(
-            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
             lambda: __import__("zoneinfo").ZoneInfo("UTC"),
         )
         epics = MagicMock()
@@ -1101,7 +1101,7 @@ class TestChannelAccessEnumLabels:
     async def test_subscribe_callback_without_labels_delivers_the_update_anyway(self, monkeypatch):
         """Until ctrlvars are fetched pyepics passes enum_strs=None; the update still lands."""
         monkeypatch.setattr(
-            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
             lambda: __import__("zoneinfo").ZoneInfo("UTC"),
         )
         epics = MagicMock()

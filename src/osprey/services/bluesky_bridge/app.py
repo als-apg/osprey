@@ -193,7 +193,7 @@ def queue_autostart_configured() -> bool:
     # The same resolution as every other config read in this process
     # (`qserver_startup.worker_writes_enabled`): the deployed ``CONFIG_FILE``
     # first, then ``config.yml`` in the working directory.
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     try:
         section = get_config_value("bluesky", {})
@@ -249,7 +249,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     - The worker environment, opened in the background, and the queue
       plumbing's single teardown.
     """
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     # The bridge is launched as `uvicorn ...:app`, so it passes through no
     # Osprey entry point. Configuring here — on serve, never on import — keeps

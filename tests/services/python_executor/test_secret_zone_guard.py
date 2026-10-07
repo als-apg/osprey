@@ -236,11 +236,11 @@ def test_bare_wrapper_still_renders_and_runs(tmp_path):
 @pytest.fixture
 def reset_config_caches(monkeypatch):
     """Reset every config cache around a test that writes its own ``config.yml``."""
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_config_cache()
 
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     monkeypatch.setattr(_cfg, "_default_config", None)
     monkeypatch.setattr(_cfg, "_default_configurable", None)

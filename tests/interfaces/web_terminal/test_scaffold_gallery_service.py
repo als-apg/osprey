@@ -293,7 +293,7 @@ def _protected_records(audit_zone: Path) -> list[dict]:
     about which file they happened to land in.
     """
     from osprey.audit.protected import SURFACE_SCAFFOLD_GALLERY, SURFACE_SCAFFOLD_RESTORE
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     records: list[dict] = []
     for surface in (SURFACE_SCAFFOLD_GALLERY, SURFACE_SCAFFOLD_RESTORE):

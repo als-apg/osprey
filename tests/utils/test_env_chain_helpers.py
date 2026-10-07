@@ -1,4 +1,4 @@
-"""Tests for the env-chain helpers in :mod:`osprey.utils.dotenv`.
+"""Tests for the env-chain helpers in :mod:`osprey_connectors.dotenv`.
 
 The deployment's env lives in two files at the repo root: ``.env.shared``
 (committed, non-secret defaults) and ``.env`` (host-local overrides and
@@ -19,7 +19,7 @@ import stat
 
 import pytest
 
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
     ENV_MERGED_BANNER,

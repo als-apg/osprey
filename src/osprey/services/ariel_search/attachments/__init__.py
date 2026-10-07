@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.database.repository import ARIELRepository
@@ -56,7 +56,7 @@ def max_attachment_bytes() -> int:
     """
     default = DEFAULT_MAX_ATTACHMENT_MB * 1024 * 1024
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         section = get_config_value("ariel.attachments", {})
     except Exception:

@@ -693,8 +693,8 @@ def expand(from_preset: str | None, refresh_providers: bool, repo: Path | None) 
       $ osprey profile expand --from control-assistant
       $ osprey profile expand --providers
     """
-    from osprey.errors import BuildProfileError
     from osprey.utils.config_writer import _yaml, anchored_put, load_config_document
+    from osprey_connectors.errors import BuildProfileError
 
     from .build_profile_drift import lacking_config_keys
     from .build_profile_emit import _drop_key_and_pre_comment
@@ -839,7 +839,7 @@ def _report_drift(
     Never fatal: the expansion is written and correct either way, so a
     comparison that cannot be made is simply not reported.
     """
-    from osprey.errors import BuildProfileError
+    from osprey_connectors.errors import BuildProfileError
 
     from .build_profile_drift import preset_drift_report
     from .build_profile_schema import ProfileProvenance

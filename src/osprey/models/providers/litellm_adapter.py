@@ -48,8 +48,8 @@ from osprey.models.spend_attribution import (
     TAGS_HEADER,
     attribution_tags,
 )
-from osprey.utils.identity import acting_identity
-from osprey.utils.logger import get_logger
+from osprey_connectors.identity import acting_identity
+from osprey_connectors.logger import get_logger
 
 from .base import KEYLESS_API_KEY_PLACEHOLDER
 

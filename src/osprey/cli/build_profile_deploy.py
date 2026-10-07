@@ -26,8 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from osprey.errors import BuildProfileError
 from osprey_connectors.connection import ENV_NAME_RE
+from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     LIMITS_CHECKING_LEAF,
     LIMITS_LEAVES,

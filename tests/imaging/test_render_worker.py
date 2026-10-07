@@ -718,7 +718,7 @@ def test_worker_process_is_hardened_and_imports_no_service_code():
 
     loaded = report["loaded"]
     assert not [m for m in loaded if m == "osprey.services" or m.startswith("osprey.services.")]
-    assert "osprey.utils.config" not in loaded
+    assert "osprey_connectors.config" not in loaded
     stdlib = sys.stdlib_module_names
     outside = [
         m

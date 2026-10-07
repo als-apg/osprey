@@ -31,7 +31,7 @@ from osprey.deployment.web_terminals.provision import AUTH_SERVICE_NAME
 from osprey.services.auth_sidecar.passwords import verify_password
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey.utils import config_writer
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 
 _FORBIDDEN_ARGV_TOKENS = {"prune", "-a", "--all", "system", "network"}
 _GLOB_METACHARACTERS = set("*?[")

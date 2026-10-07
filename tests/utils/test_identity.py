@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.identity import (
+from osprey_connectors.identity import (
     AUDIT_IDENTITY_ENV,
     IDENTITY_ENV_LADDER,
     TERMINAL_USER_ENV,
@@ -157,7 +157,7 @@ class TestPathSafety:
         rule is what a future rung would be checked against, and a NUL splits a
         path at the syscall boundary.
         """
-        from osprey.utils.identity import _usable
+        from osprey_connectors.identity import _usable
 
         assert _usable("nul\0byte") == ""
         assert _usable("alice") == "alice"
@@ -292,7 +292,7 @@ class TestLeafModule:
         """Static check: no ``import osprey...`` of any spelling in the source.
 
         Aimed at the ladder's own module, which is the one that is read where
-        ``osprey`` is not importable; the re-export is free to name it.
+        ``osprey`` is not importable.
         """
         import osprey_connectors.identity as module
 
@@ -311,7 +311,9 @@ class TestLeafModule:
 
     def test_loading_the_file_pulls_in_no_osprey_modules(self) -> None:
         """Behavioural check: executing the module imports no osprey package."""
-        module_path = Path(__file__).resolve().parents[2] / "src/osprey/utils/identity.py"
+        import osprey_connectors.identity
+
+        module_path = Path(osprey_connectors.identity.__file__)
         probe = f"""
 import importlib.util, sys, json
 spec = importlib.util.spec_from_file_location("_probe_identity", {str(module_path)!r})

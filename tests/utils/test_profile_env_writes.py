@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_LOCAL_BANNER,
     append_profile_env,
@@ -38,7 +38,7 @@ def _append_in_child(env_path: str, keys: list[str], barrier) -> None:
 
     Module-level (not a closure) so a ``spawn`` child can import it by name.
     """
-    from osprey.utils.dotenv import append_profile_env as child_append
+    from osprey_connectors.dotenv import append_profile_env as child_append
 
     barrier.wait(timeout=30)
     for key in keys:

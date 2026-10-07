@@ -91,7 +91,7 @@ from osprey.services.auth_sidecar.roster_env import (
     env_var_suffix,
     env_var_suffix_collisions,
 )
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.types import (
     TARGET_LIVE,
     TYPE_WRITES_ENABLED_LEAF,

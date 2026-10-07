@@ -69,7 +69,7 @@ from osprey.interfaces.common_middleware import (
     forwarded_identity,
 )
 from osprey.interfaces.web_auth import WebCredentials, reset_web_credentials
-from osprey.utils.identity import AUDIT_IDENTITY_ENV
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV
 
 MIDDLEWARE_LOGGER = common_middleware.logger.name
 

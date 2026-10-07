@@ -13,8 +13,8 @@ from contextlib import asynccontextmanager
 
 from fastmcp.exceptions import ToolError
 
-from osprey.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from osprey.mcp_server.errors import make_error
+from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 
 logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
 

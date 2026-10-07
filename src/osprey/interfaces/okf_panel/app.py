@@ -68,7 +68,7 @@ def _ranked_backend_kwargs():
     from osprey.deployment.qmd_service import OKF_CORPUS, resolve_qmd_corpus_config
     from osprey.services.facility_knowledge.okf.bundle import OKFSearchSettings
     from osprey.services.qmd import QMDClient
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     # Everything the ranked backend needs sits inside the guard, config load
     # included: this helper's caller wraps it in the factory's own catch-all, so

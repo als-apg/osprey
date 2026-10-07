@@ -1275,7 +1275,7 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
         config = raw_config(va_port=endpoints.va, live_port=endpoints.live)
         monkeypatch.setattr(target_banner, "load_osprey_config", lambda: config)
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda key, default=None, config_path=None: (
                 True if key == "control_system.writes_enabled" else default
             ),

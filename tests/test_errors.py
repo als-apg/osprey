@@ -1,9 +1,9 @@
-"""Unit tests for typed exceptions in osprey.errors."""
+"""Unit tests for typed exceptions in osprey_connectors.errors."""
 
 import pytest
 
-from osprey.connectors.control_system import WriteOutcome
-from osprey.errors import ChannelWriteBlockedError, ChannelWriteFailedError
+from osprey_connectors.control_system import WriteOutcome
+from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 
 
 class TestChannelWriteBlockedError:

@@ -19,8 +19,8 @@ import pytest
 import yaml
 
 import osprey.templates.claude_code.claude.hooks.osprey_hook_log as hook_log
-from osprey.utils import workspace
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors import workspace
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 
 @pytest.fixture(autouse=True)

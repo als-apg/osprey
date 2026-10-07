@@ -51,8 +51,8 @@ from osprey.deployment.errors import NoComposeFilesError
 from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
 from osprey.deployment.staleness import BUILD_DIRNAME, staleness_reasons
 from osprey.deployment.web_terminals.naming import web_container_name
-from osprey.utils.config import load_project_config
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import load_project_config
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.status")
 
@@ -882,7 +882,7 @@ def _auth_availability(secret_env, repo_root):
     """
     import os
 
-    from osprey.utils.dotenv import ENV_LOCAL_FILENAME, chain_files, parse_dotenv_file
+    from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, chain_files, parse_dotenv_file
 
     if os.environ.get(secret_env):
         return True, "exported in this shell"
@@ -1035,7 +1035,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
     from osprey.cli.validate_claude_artifacts import agent_file_models
     from osprey.models.display import display_model_name
-    from osprey.utils.dotenv import ENV_CHAIN_FILENAMES
+    from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 
     rows: list[tuple[str, object]] = []
     notes: list[str] = []

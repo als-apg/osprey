@@ -52,7 +52,7 @@ from osprey.services.virtual_accelerator.serving.pvdb import (
     ServingRecords,
     build_serving_pvdb,
 )
-from osprey.simulation.engine import SimulationEngine
+from osprey_connectors.simulation.engine import SimulationEngine
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.

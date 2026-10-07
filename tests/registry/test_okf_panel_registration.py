@@ -12,7 +12,6 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 
-from osprey.infrastructure import server_launcher
 from osprey.interfaces.web_terminal import app as web_terminal_app
 from osprey.interfaces.web_terminal.routes import proxy as proxy_module
 from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME
@@ -69,20 +68,6 @@ def test_port_env_override_key_is_facility_knowledge():
     # The launcher derives OSPREY_{CONFIG_KEY}_PORT; assert the resulting key.
     defn = FRAMEWORK_WEB_SERVERS["okf"]
     assert f"OSPREY_{defn.config_key.upper()}_PORT" == "OSPREY_FACILITY_KNOWLEDGE_PORT"
-
-
-def test_ensure_okf_server_alias_delegates_to_okf_key(monkeypatch):
-    """The ensure_okf_server alias delegates to ensure_web_server("okf").
-
-    Behavioural (was an inspect.getsource substring check): patch the delegate
-    and assert the alias forwards the bare "okf" key — stronger than matching
-    source text and immune to getsource line-slicing flakes.
-    """
-    assert hasattr(server_launcher, "ensure_okf_server")
-    keys: list[str] = []
-    monkeypatch.setattr(server_launcher, "ensure_web_server", keys.append)
-    server_launcher.ensure_okf_server()
-    assert keys == ["okf"]
 
 
 def test_proxy_state_map_wires_okf_to_okf_server_url():

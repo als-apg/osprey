@@ -26,7 +26,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.theme import Theme
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("base")
 
@@ -70,15 +70,8 @@ class ColorTheme:
 
     def __post_init__(self):
         """Calculate derived colors from theme colors."""
-        # Derive darker/lighter variations of primary
+        # Derive a darker variation of primary
         self.primary_dark = self._adjust_brightness(self.primary, 0.85)
-        self.primary_light = self._adjust_brightness(self.primary, 1.15)
-
-        # Derive dimmed variations of standard colors
-        self.success_dim = self._adjust_brightness(self.success, 0.8)
-        self.error_dim = self._adjust_brightness(self.error, 0.8)
-        self.warning_dim = self._adjust_brightness(self.warning, 0.8)
-        self.info_dim = self._adjust_brightness(self.info, 0.8)
 
         # Structural colors derive from primary
         self.header = self.primary
@@ -160,7 +153,7 @@ def load_theme_from_config(config_path: str | None = None) -> ColorTheme:
         >>> # Load theme from specific config
         >>> theme = load_theme_from_config("/path/to/config.yml")
     """
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     # Get theme name from config (default to "default")
     theme_name = get_config_value("cli.theme", "default", config_path)
@@ -366,14 +359,8 @@ class Styles:
     # Text styles
     BOLD = "bold"
     DIM = "dim"
-    ITALIC = "italic"
     PRIMARY = "primary"
     SECONDARY = "secondary"
-
-    # Combined styles
-    BOLD_PRIMARY = "bold_primary"
-    BOLD_SUCCESS = "bold_success"
-    BOLD_ERROR = "bold_error"
 
     # Component styles
     BANNER = "banner"
@@ -387,7 +374,6 @@ class Styles:
 
     # Borders
     BORDER = "border"
-    BORDER_ACCENT = "border_accent"
     BORDER_DIM = "border_dim"
 
 
@@ -462,11 +448,6 @@ class ThemeConfig:
             Style name for borders
         """
         return Styles.BORDER_DIM if dim else Styles.BORDER
-
-    @staticmethod
-    def get_banner_style() -> str:
-        """Get the style for ASCII art banners."""
-        return Styles.BANNER
 
 
 # ---------------------------------------------------------------------------

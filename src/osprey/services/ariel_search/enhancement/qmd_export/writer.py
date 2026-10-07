@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from osprey.utils.config import to_facility_iso
+from osprey_connectors.config import to_facility_iso
 
 # Maximum size of one rendered document, including the truncation marker.
 BODY_CAP_BYTES = 256 * 1024

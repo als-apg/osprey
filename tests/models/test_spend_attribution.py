@@ -23,7 +23,7 @@ from osprey.models.spend_attribution import (
     merge_custom_headers,
     render_custom_headers,
 )
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
 
 @pytest.fixture

@@ -395,7 +395,7 @@ class TestRunValidation:
         assert rc == 0
 
     def test_no_database_and_no_config_returns_one(self, monkeypatch):
-        import osprey.utils.config as config_mod
+        import osprey_connectors.config as config_mod
 
         # Config with no pipelines configured -> detect returns (None, None).
         monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
@@ -405,7 +405,7 @@ class TestRunValidation:
         assert "No database configured" in _text(console)
 
     def test_no_database_config_raises_returns_one(self, monkeypatch):
-        import osprey.utils.config as config_mod
+        import osprey_connectors.config as config_mod
 
         def boom(*a, **k):
             raise RuntimeError("config broken")
@@ -418,7 +418,7 @@ class TestRunValidation:
 
     def test_unknown_pipeline_mode_names_the_rejected_value(self, monkeypatch):
         """A mode typo is its own message, not the generic unreadable-config panel."""
-        import osprey.utils.config as config_mod
+        import osprey_connectors.config as config_mod
 
         monkeypatch.setattr(
             config_mod,
@@ -435,7 +435,7 @@ class TestRunValidation:
         assert "Error reading config" not in text
 
     def test_no_database_detected_but_missing_path(self, monkeypatch):
-        import osprey.utils.config as config_mod
+        import osprey_connectors.config as config_mod
 
         monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
         # detect returns a type but with no path.
@@ -446,7 +446,7 @@ class TestRunValidation:
         assert "No database path" in _text(console)
 
     def test_database_given_without_pipeline_uses_detected_type(self, tmp_path, monkeypatch):
-        import osprey.utils.config as config_mod
+        import osprey_connectors.config as config_mod
 
         p = _write(
             tmp_path / "db.json",
@@ -461,7 +461,7 @@ class TestRunValidation:
         assert rc == 0
 
     def test_database_on_a_graph_project_reads_as_in_context(self, tmp_path, monkeypatch):
-        import osprey.utils.config as config_mod
+        import osprey_connectors.config as config_mod
 
         p = _write(
             tmp_path / "db.json",
@@ -496,8 +496,8 @@ class TestRunValidationPipelineOverride:
     """
 
     def _config(self, monkeypatch, tmp_path: Path, cf_config: dict) -> None:
-        import osprey.utils.config as config_mod
-        import osprey.utils.workspace as workspace_mod
+        import osprey_connectors.config as config_mod
+        import osprey_connectors.workspace as workspace_mod
 
         monkeypatch.setattr(
             config_mod, "load_config", lambda *a, **k: {"channel_finder": cf_config}

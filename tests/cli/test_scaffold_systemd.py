@@ -52,7 +52,7 @@ from osprey.cli.deploy_scaffold_templates import (
 )
 from osprey.cli.main import cli
 from osprey.cli.scaffold_cmd import scaffold
-from osprey.errors import ConfigurationError
+from osprey_connectors.errors import ConfigurationError
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
 #: The ``osprey`` the emitted unit names. Frozen, because the real resolver

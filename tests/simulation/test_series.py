@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from osprey.simulation import SimulationEngine
+from osprey_connectors.simulation import SimulationEngine
 
 QUAD_DRIFT_TRANS = 98.5 - 0.85 * abs(28.4 - 42.0)  # 86.94
 

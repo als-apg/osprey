@@ -66,7 +66,7 @@ class TestDisplayRegistryContents:
     def test_displays_registry_with_initialized_registry(self, mock_registry, capsys):
         """Test displaying registry contents when registry is already initialized."""
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
-            with patch("osprey.utils.log_filter.quiet_logger"):
+            with patch("osprey_connectors.log_filter.quiet_logger"):
                 mock_get_registry.return_value = mock_registry
 
                 result = display_registry_contents(verbose=False)
@@ -84,7 +84,7 @@ class TestDisplayRegistryContents:
         mock_registry.get_stats.return_value["initialized"] = False
 
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
-            with patch("osprey.utils.log_filter.quiet_logger"):
+            with patch("osprey_connectors.log_filter.quiet_logger"):
                 mock_get_registry.return_value = mock_registry
 
                 result = display_registry_contents(verbose=False)
@@ -99,7 +99,7 @@ class TestDisplayRegistryContents:
     def test_summary_prints_the_service_count_as_a_section(self, mock_registry, capsys):
         """The counts are facts about the registry, so they print as a section."""
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
-            with patch("osprey.utils.log_filter.quiet_logger"):
+            with patch("osprey_connectors.log_filter.quiet_logger"):
                 mock_get_registry.return_value = mock_registry
 
                 display_registry_contents(verbose=False)
@@ -112,7 +112,7 @@ class TestDisplayRegistryContents:
     def test_handles_exceptions_gracefully(self):
         """Test that exceptions are handled gracefully."""
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
-            with patch("osprey.utils.log_filter.quiet_logger"):
+            with patch("osprey_connectors.log_filter.quiet_logger"):
                 mock_get_registry.side_effect = Exception("Test error")
 
                 result = display_registry_contents(verbose=False)
@@ -123,7 +123,7 @@ class TestDisplayRegistryContents:
     def test_failure_reaches_stderr_with_its_cause(self, capsys):
         """Trouble is stderr's, whatever the caller does with stdout."""
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
-            with patch("osprey.utils.log_filter.quiet_logger"):
+            with patch("osprey_connectors.log_filter.quiet_logger"):
                 mock_get_registry.side_effect = Exception("Test error")
 
                 display_registry_contents(verbose=False)
@@ -141,7 +141,7 @@ class TestDisplayRegistryContents:
         the one dim border, which is the convergence the shared look is for.
         """
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
-            with patch("osprey.utils.log_filter.quiet_logger"):
+            with patch("osprey_connectors.log_filter.quiet_logger"):
                 mock_get_registry.return_value = mock_registry
 
                 display_registry_contents(verbose=False)
@@ -156,7 +156,7 @@ class TestDisplayRegistryContents:
     def test_verbose_mode_shows_additional_info(self, mock_registry):
         """Test that verbose mode displays additional information."""
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
-            with patch("osprey.utils.log_filter.quiet_logger"):
+            with patch("osprey_connectors.log_filter.quiet_logger"):
                 mock_get_registry.return_value = mock_registry
 
                 result = display_registry_contents(verbose=True)

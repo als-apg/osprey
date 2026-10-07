@@ -17,7 +17,7 @@ import pytest
 
 from osprey.cli.build_persistence import _apply_conventions
 from osprey.cli.templates.manager import TemplateManager
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:

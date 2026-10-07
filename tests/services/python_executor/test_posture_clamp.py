@@ -208,7 +208,7 @@ def session(control_context_root, monkeypatch):
 def _executor_records(audit_root) -> list[dict]:
     """Every record on the executor surface, for the identity in force."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     path = audit_root / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
     if not path.exists():

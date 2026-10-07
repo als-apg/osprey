@@ -21,7 +21,7 @@ Eight claims, in the order a deployment makes them true:
   than a declared window.
 * **The seam is invisible.** Where seeded history ends and recorded reality
   begins, the step in every fidelity partition is attributable to noise — the
-  threshold quoted from :func:`~osprey.simulation.procedural.deviation_bound`
+  threshold quoted from :func:`~osprey_connectors.simulation.procedural.deviation_bound`
   per channel, never a constant embedded here.
 * **A scenario apply stays bounded.** Activating an eventful scenario rewrites
   event windows, not the archive; the document count is asked to stay inside a
@@ -80,7 +80,7 @@ from typing import Any
 
 import pytest
 
-from osprey.simulation.procedural import DEFAULT_NOISE_LEVEL, deviation_bound
+from osprey_connectors.simulation.procedural import DEFAULT_NOISE_LEVEL, deviation_bound
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [
@@ -349,7 +349,7 @@ class DeployedArchiverWorld:
 
 def _load_config(repo: Path) -> dict[str, Any]:
     """The as-built config the deploy runs on — the render, never the source."""
-    from osprey.utils.config import load_project_config
+    from osprey_connectors.config import load_project_config
 
     return load_project_config(str(repo / "build" / "config.yml"), wrap_errors=True)
 
@@ -494,7 +494,7 @@ def _connector(world: DeployedArchiverWorld):
     surfacing it are different claims, and only the second one is what an
     operator experiences.
     """
-    from osprey.connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
+    from osprey_connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
 
     store = world.store
     connector = MongoDBArchiverConnector()
@@ -594,7 +594,7 @@ def _seed_anchor(world: DeployedArchiverWorld) -> datetime:
     test can put its window ACROSS the seam rather than wherever the clock
     happens to be when it runs.
     """
-    from osprey.simulation.archiver_seed import MANIFEST_ID
+    from osprey_connectors.simulation.archiver_seed import MANIFEST_ID
 
     with _collection(world) as collection:
         manifest = collection.find_one({"_id": MANIFEST_ID})
@@ -721,13 +721,13 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     sampled by the recorder over channel access, land in the store, and come back
     through the connector the agent reads with.
     """
-    from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
+    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
     # Writes are fail-closed, and the guard does NOT consult the config handed to
     # the connector: `_writes_enabled` re-reads `control_system.writes_enabled`
     # from the GLOBAL config every time (see
-    # osprey.connectors.control_system.base), which resolves from CONFIG_FILE or
+    # osprey_connectors.control_system.base), which resolves from CONFIG_FILE or
     # the working directory. Pytest runs from the repo root, which has no
     # config.yml, so without this the guard fails closed and the write is
     # refused — and the test then blames the recorder for a value that was never
@@ -803,7 +803,7 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     # no sweep intervenes the bracket collapses to the old exact comparison.
     def oldest_held() -> datetime:
         with _collection(archiver_world) as collection:
-            from osprey.simulation.archiver_seed import oldest_sample
+            from osprey_connectors.simulation.archiver_seed import oldest_sample
 
             oldest = oldest_sample(collection)
         assert oldest is not None, "the seeded store reports no oldest sample"

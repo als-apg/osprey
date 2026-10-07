@@ -18,7 +18,7 @@ Related to Issue #18 - Control System Abstraction (Layer 1)
 import re
 from typing import Any
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("pattern_detection")
 
@@ -258,7 +258,7 @@ def detect_control_system_operations(
     # Load control_system_type for logging/metadata (doesn't affect patterns!)
     if control_system_type is None:
         try:
-            from osprey.utils.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
             control_system_type = get_config_value("control_system.type", "unknown")
         except Exception:
@@ -279,7 +279,7 @@ def detect_control_system_operations(
             patterns = _merge_patterns(framework, patterns)
     else:
         try:
-            from osprey.utils.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
             custom_patterns = get_config_value("control_system.patterns", None)
 

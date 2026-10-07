@@ -16,9 +16,9 @@ from unittest.mock import AsyncMock, patch
 import pandas as pd
 import pytest
 
-from osprey.connectors.archiver._timerange import long_frame
 from osprey.mcp_server.control_system.server_context import initialize_server_context
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors.archiver._timerange import long_frame
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -81,13 +81,13 @@ def archiver_read_tool(archiver_project):  # noqa: ARG001 - the tool resolves it
     ``coverage_unknown``, the verdict that asserts nothing about a store this
     mock never had. Tests that exercise a specific verdict override them.
     """
-    from osprey.connectors.archiver.base import ArchiverMetadata
+    from osprey_connectors.archiver.base import ArchiverMetadata
 
     connector = AsyncMock()
     connector.check_availability.side_effect = lambda chans: dict.fromkeys(chans, True)
     connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(channel=ch, is_archived=True)
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
         new_callable=AsyncMock,
         return_value=connector,
     ):
@@ -725,7 +725,7 @@ async def test_full_resolution_is_reported_as_requested_zero(archiver_read_tool)
 
 async def test_auto_bin_budget_comes_from_config(tmp_path, monkeypatch):
     """``archiver.auto_bin_points`` sets how many points the default bin aims for."""
-    from osprey.connectors.archiver.base import ArchiverMetadata
+    from osprey_connectors.archiver.base import ArchiverMetadata
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(
@@ -738,7 +738,7 @@ async def test_auto_bin_budget_comes_from_config(tmp_path, monkeypatch):
     connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(channel=ch, is_archived=True)
     connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
         new_callable=AsyncMock,
         return_value=connector,
     ):
@@ -1074,8 +1074,8 @@ class TestArchiverReadRealMockConnector:
 
 def _probe(available=True, start=None, end=None, is_archived=True, note=None):
     """A _CoverageProbe with an ArchiverMetadata built from bare bounds."""
-    from osprey.connectors.archiver.base import ArchiverMetadata
     from osprey.mcp_server.control_system.tools.archiver_read import _CoverageProbe
+    from osprey_connectors.archiver.base import ArchiverMetadata
 
     md = ArchiverMetadata(
         channel="X", is_archived=is_archived, archival_start=start, archival_end=end
@@ -1195,7 +1195,7 @@ class TestCoverageInToolResponse:
     """The block reaches the agent — and costs nothing when nothing is empty."""
 
     async def test_empty_channel_gets_a_coverage_block(self, archiver_read_tool):
-        from osprey.connectors.archiver.base import ArchiverMetadata
+        from osprey_connectors.archiver.base import ArchiverMetadata
 
         fn, connector = archiver_read_tool
         connector.get_data.return_value = _make_archiver_df({})  # nothing at all
@@ -1236,7 +1236,7 @@ class TestCoverageInToolResponse:
         connector.check_availability.assert_not_awaited()
 
     async def test_partial_result_explains_only_the_empty_channel(self, archiver_read_tool):
-        from osprey.connectors.archiver.base import ArchiverMetadata
+        from osprey_connectors.archiver.base import ArchiverMetadata
 
         fn, connector = archiver_read_tool
         connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})

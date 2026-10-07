@@ -7,7 +7,7 @@ including YAML loading, environment variable resolution, and nested access.
 import pytest
 import yaml
 
-from osprey.utils.config import ConfigBuilder
+from osprey_connectors.config import ConfigBuilder
 
 
 class TestConfigBuilder:
@@ -339,7 +339,7 @@ class TestGetFacilityTimezone:
 
     @staticmethod
     def _reset_config_singleton():
-        from osprey.utils import config as config_module
+        from osprey_connectors import config as config_module
 
         config_module._default_config = None
         config_module._default_configurable = None
@@ -348,7 +348,7 @@ class TestGetFacilityTimezone:
         """No config.yml in cwd and no CONFIG_FILE → UTC, not FileNotFoundError."""
         from zoneinfo import ZoneInfo
 
-        from osprey.utils.config import get_facility_timezone
+        from osprey_connectors.config import get_facility_timezone
 
         monkeypatch.delenv("CONFIG_FILE", raising=False)
         monkeypatch.chdir(tmp_path)  # empty dir, no config.yml
@@ -360,7 +360,7 @@ class TestGetFacilityTimezone:
         """A typo'd system.timezone → UTC fallback, not ZoneInfoNotFoundError."""
         from zoneinfo import ZoneInfo
 
-        from osprey.utils.config import get_facility_timezone
+        from osprey_connectors.config import get_facility_timezone
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("system:\n  timezone: Not/ARealZone\n")
@@ -373,7 +373,7 @@ class TestGetFacilityTimezone:
         """A valid system.timezone is honored — the fallback must not swallow it."""
         from zoneinfo import ZoneInfo
 
-        from osprey.utils.config import get_facility_timezone
+        from osprey_connectors.config import get_facility_timezone
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("system:\n  timezone: America/Los_Angeles\n")
@@ -398,7 +398,7 @@ class TestGetFacilityTimezone:
         """
         import logging
 
-        from osprey.utils.config import get_facility_timezone
+        from osprey_connectors.config import get_facility_timezone
 
         monkeypatch.delenv("CONFIG_FILE", raising=False)
         monkeypatch.chdir(tmp_path)  # empty dir, no config.yml
@@ -419,19 +419,19 @@ class TestToFacilityIso:
 
     @staticmethod
     def _reset_config_singleton():
-        from osprey.utils import config as config_module
+        from osprey_connectors import config as config_module
 
         config_module._default_config = None
         config_module._default_configurable = None
 
     def test_none_passes_through(self):
-        from osprey.utils.config import to_facility_iso
+        from osprey_connectors.config import to_facility_iso
 
         assert to_facility_iso(None) is None
 
     def test_non_datetime_degrades_to_str(self):
         """A value already serialized upstream (or any non-datetime) must not crash."""
-        from osprey.utils.config import to_facility_iso
+        from osprey_connectors.config import to_facility_iso
 
         assert to_facility_iso("2026-06-01T00:00:00+00:00") == "2026-06-01T00:00:00+00:00"
 
@@ -441,7 +441,7 @@ class TestToFacilityIso:
         $TZ dependence on the egress side — mirrors the parse-side contract."""
         from datetime import datetime
 
-        from osprey.utils.config import to_facility_iso
+        from osprey_connectors.config import to_facility_iso
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("system:\n  timezone: Asia/Tokyo\n")  # +09:00
@@ -457,7 +457,7 @@ class TestToFacilityIso:
         """A UTC instant is rendered in the configured facility zone, with offset."""
         from datetime import UTC, datetime
 
-        from osprey.utils.config import to_facility_iso
+        from osprey_connectors.config import to_facility_iso
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("system:\n  timezone: Asia/Tokyo\n")  # +09:00, no DST
@@ -476,7 +476,7 @@ class TestTimezoneDriftWarning:
 
     @staticmethod
     def _reset(monkeypatch):
-        from osprey.utils import config as config_module
+        from osprey_connectors import config as config_module
 
         config_module._default_config = None
         config_module._default_configurable = None
@@ -489,7 +489,7 @@ class TestTimezoneDriftWarning:
         self._reset(monkeypatch)
         # Trigger the one-time config load (runs load_dotenv) before we pin $TZ,
         # so the value we set below is what the resolver reads at call time.
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         get_config_value("system.timezone", None)
 
@@ -497,7 +497,7 @@ class TestTimezoneDriftWarning:
         import logging
         from zoneinfo import ZoneInfo
 
-        from osprey.utils.config import get_facility_timezone
+        from osprey_connectors.config import get_facility_timezone
 
         self._load_explicit_zone(tmp_path, monkeypatch, "America/Los_Angeles")
         monkeypatch.setenv("TZ", "UTC")  # diverges from system.timezone
@@ -514,7 +514,7 @@ class TestTimezoneDriftWarning:
     def test_no_warning_when_tz_matches(self, tmp_path, monkeypatch, caplog):
         import logging
 
-        from osprey.utils.config import get_facility_timezone
+        from osprey_connectors.config import get_facility_timezone
 
         self._load_explicit_zone(tmp_path, monkeypatch, "America/Los_Angeles")
         monkeypatch.setenv("TZ", "America/Los_Angeles")
@@ -531,7 +531,7 @@ class TestTimezoneDriftWarning:
         every CI run with $TZ set but no system.timezone would warn spuriously)."""
         import logging
 
-        from osprey.utils.config import get_config_value, get_facility_timezone
+        from osprey_connectors.config import get_config_value, get_facility_timezone
 
         config_file = tmp_path / "config.yml"
         config_file.write_text("control_system:\n  type: mock\n")  # no system.timezone

@@ -557,7 +557,7 @@ def test_the_build_renders_every_catalog_entry_the_emitter_wrote(
     from osprey.cli.build_cmd import build
     from osprey.deployment.web_terminals import persona_images
     from osprey.deployment.web_terminals.personas import resolve_personas
-    from osprey.utils.config import ConfigBuilder
+    from osprey_connectors.config import ConfigBuilder
 
     target = tmp_path / "my-facility"
     assert _new(runner, target, preset).exit_code == 0

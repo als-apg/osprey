@@ -11,8 +11,8 @@ channel exactly as a sequence of single writes would.
 import json
 from unittest.mock import patch
 
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.mock_connector import MockConnector
 from tests.connectors._write_fakes import writes_enabled_config
 
 
@@ -61,7 +61,7 @@ async def _connected_mock(monkeypatch, limits_file=None, **extra):
     mock's synthetic jitter; the confirming read is noise-free either way.
     """
     config = writes_enabled_config if limits_file is None else _limits_config(limits_file, **extra)
-    monkeypatch.setattr("osprey.utils.config.get_config_value", config)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", config)
 
     connector = MockConnector()
     await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
@@ -294,7 +294,7 @@ class TestWritesDisabledOutranksConfirmation:
 
     async def test_a_disabled_write_is_refused_not_unrequested(self):
         connector = MockConnector()
-        with patch("osprey.utils.config.get_config_value", return_value=False):
+        with patch("osprey_connectors.config.get_config_value", return_value=False):
             await connector.connect({"response_delay_ms": 0})
 
             result = await connector.write_channel("TEST:CHANNEL", 100.0, confirm=False)

@@ -321,7 +321,7 @@ def _wait_for_container_health(container: str, timeout: float) -> None:
 
 
 def _env_value(repo: Path, key: str) -> str:
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — nothing was minted"

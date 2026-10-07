@@ -37,7 +37,6 @@ from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.build_profile_schema import VAConfig
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.templates.manager import TemplateManager
-from osprey.errors import BuildProfileError
 from osprey.services.virtual_accelerator.manifest.build import (
     LIMITS_FILENAME,
     prepare_project_manifest,
@@ -47,6 +46,7 @@ from osprey.services.virtual_accelerator.manifest.paths import (
     PACKAGE_PATHS,
     ManifestPaths,
 )
+from osprey_connectors.errors import BuildProfileError
 from tests._graph_index import build_index_from_ttl, default_index_path
 
 #: The sentence that must no longer exist anywhere in a build's output.
@@ -675,7 +675,7 @@ def _wired_env(
     from osprey.cli.build_cmd import _wire_build_derived_env
     from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
     from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     bindings_name = ManifestPaths(data_root=Path("unused")).va_bindings.name
     if partition_source is None:
@@ -862,7 +862,7 @@ def test_the_exemplar_builds_and_serves_its_own_channels(built_exemplar):
 def test_the_exemplar_build_leaves_the_manifest_env_set(built_exemplar):
     """No build path leaves the pointer unset, so the built-in default is unreachable."""
     from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env = parse_dotenv_file(built_exemplar / COMPOSE_ENV_FILENAME)
 
@@ -922,7 +922,7 @@ def test_the_exemplar_build_names_the_lattice_its_own_tree_stages(built_exemplar
     """
     from osprey.cli.build_cmd import _VA_LATTICE_NONE
     from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     paths = ManifestPaths(data_root=built_exemplar / "build" / "data")
     env = parse_dotenv_file(built_exemplar / COMPOSE_ENV_FILENAME)
@@ -1079,7 +1079,7 @@ def test_a_graph_mode_repo_deploys_a_va_and_the_fact_names_the_corpus(tmp_path_f
         "SR:MAG:HCM:01:CURRENT:RB",
         "SR:DIAG:BPM:01:POSITION:X",
     }
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env = parse_dotenv_file(repo / ".env")
     assert env["VA_CHANNELS_FILE"] == MANIFEST_FILENAME
@@ -1197,7 +1197,7 @@ def test_a_graph_repo_with_an_unreadable_corpus_fails_a_real_build(tmp_path_fact
     from click.testing import CliRunner
 
     from osprey.cli.build_cmd import build as build_command
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     repo = _graph_repo(tmp_path_factory.mktemp("graph-bad") / "repo", corpus="not turtle {{{\n")
 

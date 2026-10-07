@@ -46,7 +46,7 @@ from osprey.simulation.apply import (
     persisted_scenario_anchor,
     preflight_archive_rewrite,
 )
-from osprey.simulation.archiver_seed import (
+from osprey_connectors.simulation.archiver_seed import (
     DATE_FIELD,
     EXPIRE_FIELD,
     MANIFEST_ID,
@@ -232,7 +232,7 @@ def _write_project(root: Path, store: dict | None, *, password: str | None) -> P
 
 def _engine(root: Path):
     """The project's engine, resolved exactly as the product resolves it."""
-    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
+    from osprey_connectors.simulation.engine import SimulationEngine, resolve_state_dir
 
     config = yaml.safe_load((root / "config.yml").read_text())
     return SimulationEngine.from_file(
@@ -611,7 +611,7 @@ class TestPersistedAnchor:
         assert persisted_scenario_anchor(config, root) == later
 
     def test_a_single_name_state_file_is_not_read(self, tmp_path):
-        from osprey.simulation.engine import resolve_state_dir
+        from osprey_connectors.simulation.engine import resolve_state_dir
 
         root = _write_project(tmp_path / "proj", None, password=None)
         config = yaml.safe_load((root / "config.yml").read_text())

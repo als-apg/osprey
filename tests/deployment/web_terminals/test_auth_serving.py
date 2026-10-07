@@ -117,7 +117,7 @@ from osprey.services.auth_sidecar.app import (
 from osprey.services.auth_sidecar.passwords import generation_tag, hash_password
 from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     ENV_LOCAL_FILENAME,
     ENV_SHARED_FILENAME,
     merge_chain,
@@ -128,8 +128,8 @@ from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIE
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC_DIR = _REPO_ROOT / "src"
-# The osprey.* tree reached via /src is shim-backed: config/logger/connectors
-# live in the osprey-connectors workspace member, so its source joins the
+# The osprey.* tree reached via /src imports config/logger/connectors from
+# the osprey-connectors workspace member, so its source joins the
 # mount and the PYTHONPATH — the distribution is not yet installable from
 # PyPI inside the harness image.
 _CONNECTORS_SRC_DIR = _REPO_ROOT / "packages" / "osprey-connectors" / "src"
@@ -607,8 +607,7 @@ def _resolved_env_flags(service: dict[str, Any], chain_env: Mapping[str, str]) -
     Resolution order, matching what compose does with the chain:
 
     1. the **merged env chain** — ``.env.shared`` under ``.env``, the later file
-       winning (:func:`osprey_connectors.dotenv.merge_chain`, reached here
-       through the ``osprey.utils.dotenv`` re-export shim). Resolving against
+       winning (:func:`osprey_connectors.dotenv.merge_chain`). Resolving against
        ``.env`` alone would silently drop every value an operator put in the
        committed half of the chain, which is exactly where a site-wide proxy
        lives;

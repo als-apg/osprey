@@ -122,11 +122,11 @@ from osprey.deployment.web_terminals.personas import (
 from osprey.deployment.web_terminals.postup_hooks import reload_nginx_config
 from osprey.deployment.web_terminals.render import _auth_tls_context
 from osprey.services.auth_sidecar.roster_env import env_var_suffix
-from osprey.utils.config import ConfigBuilder
 from osprey.utils.config_writer import config_replace_list
-from osprey.utils.dotenv import parse_dotenv_file
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import STATE_DIR_NAME
+from osprey_connectors.config import ConfigBuilder
+from osprey_connectors.dotenv import parse_dotenv_file
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import STATE_DIR_NAME
 
 logger = get_logger("deployment.lifecycle")
 

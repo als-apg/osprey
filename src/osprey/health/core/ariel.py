@@ -59,9 +59,9 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from osprey.errors import ConfigurationError
 from osprey.health.models import CheckResult, Status
 from osprey.registry.web import WebServerConfigDepthError, resolve_web_server_address
+from osprey_connectors.errors import ConfigurationError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

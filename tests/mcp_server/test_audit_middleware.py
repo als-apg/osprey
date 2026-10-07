@@ -32,7 +32,7 @@ from osprey.audit.envelope import (
     POSTURE_SOURCE_SPAWN,
 )
 from osprey.mcp_server import audit_middleware as am
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from tests._control_context_fixtures import write_control_context
 
 # --------------------------------------------------------------------------
@@ -206,7 +206,7 @@ def _records(project, surface: str = "controls", identity: str | None = None) ->
 
 
 def _identity() -> str:
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     return acting_identity()
 

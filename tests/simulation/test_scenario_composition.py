@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from osprey.simulation import SimulationEngine
+from osprey_connectors.simulation import SimulationEngine
 
 GAUGE07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
 CAVITY01_TEMP = "SR:RF:CAVITY:01:TEMPERATURE:RB"

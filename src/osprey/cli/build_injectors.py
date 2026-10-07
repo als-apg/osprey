@@ -29,7 +29,6 @@ from osprey.deployment.host_binding import (
     BUNDLED_HOST_BINDINGS,
     LISTENS_KEY,
 )
-from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import (
     anchored_append,
     anchored_put,
@@ -37,8 +36,9 @@ from osprey.utils.config_writer import (
     save_config_document,
 )
 from osprey.utils.facility import resolve_facility_name
-from osprey.utils.logger import get_logger
 from osprey_connectors import types as connector_types
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 if TYPE_CHECKING:

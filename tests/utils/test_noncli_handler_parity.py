@@ -35,8 +35,8 @@ from typing import Literal, cast
 from rich.console import Console
 from rich.logging import RichHandler
 
-from osprey.utils.logger import ComponentLogger, _build_rich_handler
 from osprey_connectors.config import get_config_value
+from osprey_connectors.logger import ComponentLogger, _build_rich_handler
 
 #: Fixed wall-clock seed for every record. ``RichHandler.render`` derives the
 #: displayed timestamp from ``record.created`` alone, so pinning that field is

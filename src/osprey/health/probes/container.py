@@ -54,7 +54,7 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.container_ownership import deployment_containers, first_container_name
 from osprey.deployment.runtime_helper import get_ps_command
 from osprey.health.models import CheckResult, Status
-from osprey.utils.config import get_full_configuration
+from osprey_connectors.config import get_full_configuration
 
 if TYPE_CHECKING:
     from osprey.health.probes import ProbeContext

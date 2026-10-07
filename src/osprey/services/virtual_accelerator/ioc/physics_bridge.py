@@ -117,7 +117,7 @@ _MAGNET_CAL_VARIABLES: frozenset[str] = frozenset(_MAGNET_CAL_FIELDS.values())
 class MachineMotion(Protocol):
     """How a channel's reading moves around the level the model computes.
 
-    :class:`~osprey.simulation.engine.SimulationEngine` is the implementation:
+    :class:`~osprey_connectors.simulation.engine.SimulationEngine` is the implementation:
     it holds the machine file's per-channel ``texture``/``noise``/``noise_abs``
     and applies them with the same arithmetic synthesis uses.
     """

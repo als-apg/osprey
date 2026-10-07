@@ -30,13 +30,13 @@ from typing import Any
 
 import pytest
 
-from osprey.connectors.honesty import (
+from osprey_connectors.honesty import (
     VA_MOCK_ARCHIVER_WHY,
     pairing_for_target,
     pairing_in_profile,
     pairing_in_rendered_config,
 )
-from osprey.connectors.types import MOCK_ARCHIVER
+from osprey_connectors.types import MOCK_ARCHIVER
 
 VA = "virtual_accelerator"
 STANDIN = "live_standin"

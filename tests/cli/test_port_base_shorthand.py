@@ -20,8 +20,8 @@ from osprey.cli.build_profile_resolve import (
     SHORTHAND_OVERRIDE_KEYS,
     apply_cli_edits,
 )
-from osprey.errors import BuildProfileError
 from osprey.port_layout import PORT_BASE_CONFIG_KEY
+from osprey_connectors.errors import BuildProfileError
 
 
 def _minimal(**extra) -> dict:

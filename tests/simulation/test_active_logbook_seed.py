@@ -222,7 +222,7 @@ def test_a_missing_demo_narrative_directory_is_named(tmp_path):
 
 
 def _state_file(project: Path) -> Path:
-    from osprey.simulation.engine import ACTIVE_SCENARIOS_FILENAME, resolve_state_dir
+    from osprey_connectors.simulation.engine import ACTIVE_SCENARIOS_FILENAME, resolve_state_dir
 
     config = yaml.safe_load((project / "config.yml").read_text())
     return resolve_state_dir(config, project) / ACTIVE_SCENARIOS_FILENAME
@@ -338,8 +338,8 @@ def _plot_spec_project(tmp_path: Path) -> tuple[dict, Path]:
 def test_a_plot_spec_is_drawn_against_its_entrys_own_timestamp(tmp_path, monkeypatch):
     """The drawn picture shows the dates of the entry it is attached to: the spec
     drawn at the seeded row's timestamp, handed over in the entry's own order."""
-    from osprey.simulation.machine import load_narratives
     from osprey.simulation.plots import render_plot_spec
+    from osprey_connectors.simulation.machine import load_narratives
 
     config, project = _plot_spec_project(tmp_path)
     seen = _stub_ariel(monkeypatch, existing=0)

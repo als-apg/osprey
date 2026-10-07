@@ -54,7 +54,7 @@ def _config_patch(overrides: dict):
     if not overrides:
         return nullcontext()
 
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     real = config_module.get_config_value
 
@@ -63,7 +63,7 @@ def _config_patch(overrides: dict):
             return overrides[path]
         return real(path, default, *args, **kwargs)
 
-    return patch("osprey.utils.config.get_config_value", side_effect=fake)
+    return patch("osprey_connectors.config.get_config_value", side_effect=fake)
 
 
 async def _read(tmp_path, monkeypatch, values, *, overrides=None, **kwargs):
@@ -78,11 +78,11 @@ async def _read(tmp_path, monkeypatch, values, *, overrides=None, **kwargs):
     connector = _MockConnector(values)
     with (
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new_callable=AsyncMock,
             return_value=connector,
         ),
-        patch("osprey.infrastructure.server_launcher.ensure_artifact_server", lambda: None),
+        patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
         _config_patch(overrides or {}),
     ):
         result = await get_tool_fn(channel_read)(channels=list(values), **kwargs)

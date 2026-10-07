@@ -29,13 +29,13 @@ import pytest
 
 from osprey.deployment import container_lifecycle
 from osprey.deployment.service_tokens import _VAR_FORBIDDEN_VALUES
-from osprey.utils.dotenv import format_env_line
+from osprey_connectors.dotenv import format_env_line
 
 _MINT_SAMPLES = 200
 
 
 def _parse_dotenv(path):
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     return parse_dotenv_file(path) if path.is_file() else {}
 

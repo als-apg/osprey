@@ -32,7 +32,7 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.init_cmd import init
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 @pytest.fixture
@@ -212,7 +212,7 @@ def test_ariel_standalone_narrates_every_control_assistant_scenario(
     """
     import osprey
     from osprey.simulation.apply import demo_narrative_logbook
-    from osprey.simulation.machine import parse_machine, read_machine_json
+    from osprey_connectors.simulation.machine import parse_machine, read_machine_json
 
     templates = pathlib.Path(osprey.__file__).parent / "templates" / "apps"
     own = sorted(
@@ -1024,7 +1024,7 @@ class TestBuildProfileChannelFinderModeValidation:
 
     def test_validate_rejects_channel_finder_mode_all(self, tmp_path: Path) -> None:
         from osprey.cli.build_profile import BuildProfile
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         profile = BuildProfile(name="t", channel_finder_mode="all")
         with pytest.raises(BuildProfileError) as exc:
@@ -1034,7 +1034,7 @@ class TestBuildProfileChannelFinderModeValidation:
 
     def test_validate_rejects_unknown_channel_finder_mode(self, tmp_path: Path) -> None:
         from osprey.cli.build_profile import BuildProfile
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         profile = BuildProfile(name="t", channel_finder_mode="bogus")
         with pytest.raises(BuildProfileError):
@@ -1445,7 +1445,7 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
     assert narrow["grafana"]["enabled"] is False
     assert narrow["okf"]["enabled"] is True
     with patch(
-        "osprey.utils.workspace.load_osprey_config",
+        "osprey_connectors.workspace.load_osprey_config",
         return_value=_config_yaml(_persona_project(root, "narrow")),
     ):
         enabled, custom, _default = _load_panel_config()
@@ -1506,7 +1506,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
 
     # Custom panels are in the custom list, never in the enabled set.
     for config, expected in ((wide_config, ["beam.viewer"]), (narrow_config, [])):
-        with patch("osprey.utils.workspace.load_osprey_config", return_value=config):
+        with patch("osprey_connectors.workspace.load_osprey_config", return_value=config):
             _enabled, custom, _default = _load_panel_config()
         assert [panel["id"] for panel in custom] == expected
 

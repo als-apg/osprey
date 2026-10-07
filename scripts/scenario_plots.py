@@ -167,7 +167,7 @@ def _synthesize(simulation_dir: Path, scenario: str, channels: list[str], times:
     loading a logbook checks the plot specs it names, which are what this
     script is about to write, and telemetry never depends on a narrative.
     """
-    from osprey.simulation.engine import SimulationEngine
+    from osprey_connectors.simulation.engine import SimulationEngine
 
     with tempfile.TemporaryDirectory() as scratch:
         telemetry = Path(scratch) / "simulation"
@@ -207,7 +207,7 @@ def _week_before(end: datetime, step: timedelta) -> list[datetime]:
 
 def event_instant(event: dict) -> datetime:
     """Where one anchored event of a scenario script sits, by the engine's own rule."""
-    from osprey.simulation.series import anchored_instant
+    from osprey_connectors.simulation.series import anchored_instant
 
     return datetime.fromtimestamp(anchored_instant(event, ANCHOR.timestamp(), UTC), UTC)
 
@@ -304,7 +304,7 @@ def draw_bump_test(test: BumpTest, path: Path) -> None:
 
 def write_spec(spec: dict, path: Path) -> None:
     """Write ``spec`` as JSON: one key per line, each array on one line."""
-    from osprey.simulation.machine import parse_plot_spec
+    from osprey_connectors.simulation.machine import parse_plot_spec
 
     parse_plot_spec(spec, str(path))
     lines = []

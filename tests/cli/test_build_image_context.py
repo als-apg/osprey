@@ -23,7 +23,7 @@ from importlib import resources
 from pathlib import Path
 
 from osprey.cli.build_cmd import _prune_ignored_entries, _write_image_context_dockerignore
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 #: The four working-state subtrees this module pins. Stated literally rather
 #: than read off the template, so a future edit to the template's wording (or

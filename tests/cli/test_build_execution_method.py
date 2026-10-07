@@ -1,7 +1,7 @@
 """The execution backend is resolved at build, on the rendered config (issue #465).
 
 ``execution.execution_method`` is read by every container's python executor
-through :func:`osprey.utils.config.resolve_execution_method` — at its FIRST
+through :func:`osprey_connectors.config.resolve_execution_method` — at its FIRST
 ``execute`` call. A profile's ``config:`` overlay can write any value into the
 render, and nothing on the build path used to read it back, so a typo
 survived ``osprey build``, ``osprey up`` and MCP startup and surfaced as a
@@ -22,7 +22,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from osprey.utils import config as config_module
+from osprey_connectors import config as config_module
 
 CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 

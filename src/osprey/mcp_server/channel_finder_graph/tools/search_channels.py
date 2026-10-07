@@ -43,7 +43,7 @@ from osprey.services.channel_finder.graph_index.reader import (
     GraphIndexAbsence,
     open_graph_index,
 )
-from osprey.utils.workspace import load_osprey_config
+from osprey_connectors.workspace import load_osprey_config
 
 from ..server import make_error, mcp
 

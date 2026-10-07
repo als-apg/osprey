@@ -23,7 +23,7 @@ from osprey.cli.build_profile_deploy import (
 )
 from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, load_profile
 from osprey.cli.profile_cmd import profile
-from osprey.errors import BuildProfileError, ConfigurationError
+from osprey_connectors.errors import BuildProfileError, ConfigurationError
 
 VALID_DEPLOY: dict[str, Any] = {
     "ci": "gitlab",

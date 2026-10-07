@@ -30,8 +30,8 @@ from osprey.services.python_executor.write_surface import (
     _FRAMEWORK_WRITE_TARGETS,
     _READONLY_WRITE_TARGETS,
 )
-from osprey.utils.logger import get_logger
 from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("execution_wrapper")
 
@@ -473,7 +473,7 @@ if not _execution_dir.exists():
             # Runtime Channel Limits Checking (Embedded Config)
             try:
                 import json
-                from osprey.connectors.control_system.limits_validator import (
+                from osprey_connectors.control_system.limits_validator import (
                     LimitsValidator, ChannelLimitsConfig
                 )
 

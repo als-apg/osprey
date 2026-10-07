@@ -294,7 +294,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 @contextmanager
 def patched_config(**overrides: Any) -> Iterator[None]:
-    """Patch ``osprey.utils.config.get_config_value`` for the duration of the block.
+    """Patch ``osprey_connectors.config.get_config_value`` for the duration of the block.
 
     Every connector config lookup in this suite goes through this instead of
     relying on an ambient ``config.yml`` -- explicit and immune to whatever
@@ -326,7 +326,7 @@ def patched_config(**overrides: Any) -> Iterator[None]:
             node[leaf] = value
         return section or default
 
-    with patch("osprey.utils.config.get_config_value", side_effect=_get_config_value):
+    with patch("osprey_connectors.config.get_config_value", side_effect=_get_config_value):
         yield
 
 
@@ -348,7 +348,7 @@ async def connect_va(**config_overrides: Any):
     The connector is registered for automatic disconnect after the test (see
     ``_disconnect_va_connectors``); callers need no try/finally of their own.
     """
-    from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
     register_builtin_connectors()
     connector = await ConnectorFactory.create_control_system_connector(CONNECTOR_CONFIG)
@@ -413,7 +413,7 @@ def stage_va_project(root: Path) -> VaProject:
     A plain function rather than the fixture body so a caller can stage the
     repo and drive ``osprey sim apply`` at it without a pytest session.
     """
-    from osprey.simulation.engine import resolve_state_dir
+    from osprey_connectors.simulation.engine import resolve_state_dir
     from tests.cli._lifecycle_build import stub_build
     from tests.fixtures.lifecycle_repo import build_exemplar_repo
 

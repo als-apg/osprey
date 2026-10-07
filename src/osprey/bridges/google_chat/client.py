@@ -72,10 +72,6 @@ import threading
 from typing import Any
 
 from ..core.errors import UndeliverableError
-
-# Re-exported, not used here: the helper moved to the core with the chunker, and
-# this name stays importable from the module it has always lived in.
-from ..core.text import _fence_spans as _fence_spans
 from ..core.text import chunk_text as _core_chunk_text
 from .config import GoogleChatBridgeConfig
 from .formatting import CHAT_MENTION_RE

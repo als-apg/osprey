@@ -141,7 +141,7 @@ def _secrets_dir(project_dir: Path) -> Path:
     directory that holds its own ``config.yml`` still answers itself — the
     previous behaviour, kept for every caller that passes one.
     """
-    from osprey.utils.workspace import repo_root_for_config
+    from osprey_connectors.workspace import repo_root_for_config
 
     return repo_root_for_config(Path(project_dir) / "config.yml")
 
@@ -414,22 +414,6 @@ class SDKWorkflowResult:
         if not usage:
             return 0
         return int(usage.get("output_tokens", 0))
-
-    @property
-    def cache_read_tokens(self) -> int:
-        """Cache-read input tokens (charged at reduced rate)."""
-        usage: dict[str, Any] | None = getattr(self.result, "usage", None)
-        if not usage:
-            return 0
-        return int(usage.get("cache_read_input_tokens", 0))
-
-    @property
-    def cache_creation_tokens(self) -> int:
-        """Cache-creation input tokens."""
-        usage: dict[str, Any] | None = getattr(self.result, "usage", None)
-        if not usage:
-            return 0
-        return int(usage.get("cache_creation_input_tokens", 0))
 
     def tools_matching(self, substring: str) -> list[ToolTrace]:
         """Return all tool traces whose name contains *substring*."""

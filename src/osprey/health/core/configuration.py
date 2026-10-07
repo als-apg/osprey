@@ -350,13 +350,13 @@ def _check_timezone(config: dict[str, Any]) -> CheckResult:
     reference to an unset variable — is an error, because every reader then
     falls back to UTC while the agent is told otherwise.
     """
-    from osprey.utils.config import resolve_env_vars
     from osprey.utils.facility import (
         DEFAULT_FACILITY_ZONE,
         SET_FACILITY_ZONE,
         closest_zone_name,
         is_zone_name,
     )
+    from osprey_connectors.config import resolve_env_vars
 
     tz_raw = (config.get("system") or {}).get("timezone", DEFAULT_FACILITY_ZONE)
     tz = resolve_env_vars(tz_raw) if isinstance(tz_raw, str) else tz_raw
@@ -431,7 +431,7 @@ def _check_ariel_dsn_port(config: dict[str, Any]) -> list[CheckResult]:
         Postgres service, a malformed ``port_host``, or a uri whose port cannot
         be read).
     """
-    from osprey.utils.config import resolve_env_vars
+    from osprey_connectors.config import resolve_env_vars
 
     database = (config.get("ariel") or {}).get("database") or {}
     if "uri" in database:

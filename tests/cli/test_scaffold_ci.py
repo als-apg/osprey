@@ -45,7 +45,7 @@ from osprey.cli.deploy_scaffold_templates import CI_MARKER, VERIFY_MARKER
 from osprey.cli.main import cli
 from osprey.cli.scaffold_cmd import scaffold
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
-from osprey.errors import ConfigurationError
+from osprey_connectors.errors import ConfigurationError
 from tests.fixtures.lifecycle_repo import (
     CI_PIPELINE_FILES,
     build_exemplar_repo,

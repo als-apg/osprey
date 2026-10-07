@@ -85,7 +85,7 @@ def _lane_roster(lane_urls: dict[str, str]) -> tuple[dict, ...]:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     # Launched as `uvicorn ...:app`, bypassing every Osprey entry point.
     # Configuring on serve rather than on import keeps this module safe to

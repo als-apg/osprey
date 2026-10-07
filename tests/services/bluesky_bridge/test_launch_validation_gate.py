@@ -269,7 +269,7 @@ def _patch_lane_config(
     limits database.
 
     The guard imports `get_config_value` inside its own body, so patching the
-    `osprey.utils.config` attribute takes effect on the next call.
+    `osprey_connectors.config` attribute takes effect on the next call.
     """
 
     def fake_get_config_value(key: str, default=None):
@@ -285,12 +285,12 @@ def _patch_lane_config(
             return _LANE_TARGETS.get(key.split(".")[1], default)
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
 
 def _spy_on_limits_probe(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Record every `LimitsValidator._load_limits_database` call, still doing it."""
-    from osprey.connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system.limits_validator import LimitsValidator
 
     probe_calls: list[str] = []
     original_load = LimitsValidator._load_limits_database

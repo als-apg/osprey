@@ -12,7 +12,7 @@ from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
-from osprey.utils.workspace import resolve_config_path
+from osprey_connectors.workspace import resolve_config_path
 
 logger = logging.getLogger("osprey.mcp_server.tools.facility_description")
 

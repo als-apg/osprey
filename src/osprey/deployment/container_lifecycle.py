@@ -97,8 +97,8 @@ from osprey.deployment.web_terminals.provision import (
 )
 from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
-from osprey.utils.config import config_anchored_at, load_project_config
-from osprey.utils.dotenv import (
+from osprey_connectors.config import config_anchored_at, load_project_config
+from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
     ENV_SHARED_FILENAME,
@@ -110,8 +110,8 @@ from osprey.utils.dotenv import (
     parse_dotenv_file,
     write_env_merged,
 )
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
 
 logger = get_logger("deployment.lifecycle")
 
@@ -1067,7 +1067,7 @@ def _volume_initialized_vars_that_would_be_minted(config: dict, env_path: Path) 
     copy of the credential each surviving volume was initialized with. Asking
     after the stop would find every volume unrecoverable, having just made it so.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     services = {str(s) for s in (config.get("deployed_services") or [])}
     on_disk = parse_dotenv_file(env_path) if env_path.is_file() else {}
@@ -1148,7 +1148,7 @@ def _stale_store_volumes(
     way every time), together with each one's harvested original credential —
     ``None`` where the volume can no longer be reopened.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     try:
         existing = {resource.name for resource in probe.volumes_for_project(project)}
@@ -1259,7 +1259,7 @@ def _adopt_original_credentials(
     checks before its ``down`` and therefore before any mint, so the file may
     not carry the name at all and the value has to be appended.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     text = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
     on_disk = parse_dotenv_file(env_path) if env_path.is_file() else {}
@@ -1373,11 +1373,11 @@ def _refuse_invented_history(config: dict) -> None:
 
     Both keys are resolved through nested sections only, the way ``ConfigBuilder``
     reads a rendered ``config.yml`` — see
-    :func:`~osprey.connectors.honesty.pairing_in_rendered_config`.
+    :func:`~osprey_connectors.honesty.pairing_in_rendered_config`.
 
     The refused machine is *named* in the message rather than assumed: the
     pairing covers every type in
-    :data:`~osprey.connectors.types.INVENTED_HISTORY_TYPES`, so a deployment
+    :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`, so a deployment
     baselined on the live stand-in must be told about the stand-in and not about
     a virtual accelerator it does not run.
 
@@ -1386,8 +1386,8 @@ def _refuse_invented_history(config: dict) -> None:
         for itself — a virtual accelerator or the live stand-in — with the mock
         archiver, an unset ``archiver.type`` included.
     """
-    from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
-    from osprey.connectors.types import resolve_control_system_type
+    from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+    from osprey_connectors.types import resolve_control_system_type
 
     pairing = pairing_in_rendered_config(config)
     if not pairing.is_invented_history:
@@ -2716,7 +2716,7 @@ def _build_project_image(
     :param build_context: The container repo this image is built from —
         ``<repo>/build/.image/<project>``, which ``osprey build`` rendered
         against the ``/app/<project>`` path the container sees rather than this
-        host's (:func:`osprey.utils.workspace.container_image_context`). Passed
+        host's (:func:`osprey_connectors.workspace.container_image_context`). Passed
         explicitly because it is the one thing here that is NOT the compose
         project directory. Building from ``<repo>/build`` instead would produce
         an image whose every recorded path — ``project_root``, and the
@@ -3110,7 +3110,7 @@ def _selected_variant_profile(repo_root: Path) -> Path | None:
         profile as-is.
     """
     from osprey.cli.variant_selection import resolve_variant_selection
-    from osprey.errors import BuildProfileError
+    from osprey_connectors.errors import BuildProfileError
 
     try:
         return resolve_variant_selection(repo_root).path
@@ -3218,7 +3218,7 @@ def _required_env_problems(repo_root: Path | str, env: Mapping[str, str]) -> lis
 
     A name counts as provided when ANY source the stack reads carries a
     non-empty value for it: this repo's env chain (``.env.shared`` under
-    ``.env``, via :func:`~osprey.utils.dotenv.merge_chain`) or the process
+    ``.env``, via :func:`~osprey_connectors.dotenv.merge_chain`) or the process
     environment. The union rather than a precedence order, because the question
     here is existence, not which value wins — and both halves are needed: the
     chain is read from ``repo_root``, which under ``osprey up --repo`` is not
@@ -3884,7 +3884,7 @@ def _preflight_build_derived_env(
 ) -> None:
     """Refuse the deploy when the build's own env keys are gone from the chain.
 
-    ``osprey build`` writes BOTH :data:`~osprey.utils.dotenv.BUILD_DERIVED_KEYS`
+    ``osprey build`` writes BOTH :data:`~osprey_connectors.dotenv.BUILD_DERIVED_KEYS`
     (``VA_CHANNELS_FILE``, ``VA_LATTICE``) into ``.env`` whenever it generates
     ``build/data/simulation/channel_manifest.json``, and nothing else ever
     writes them. So a manifest on disk beside a chain that carries only one of
@@ -3928,7 +3928,7 @@ def _preflight_build_derived_env(
         it a value -- or gives it the name of a file the render does not carry.
     """
     from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-    from osprey.utils.dotenv import BUILD_DERIVED_KEYS
+    from osprey_connectors.dotenv import BUILD_DERIVED_KEYS
 
     root = Path(repo_root).expanduser().absolute()
     manifest = Path(BUILD_DIRNAME) / "data" / "simulation" / MANIFEST_FILENAME
@@ -3940,7 +3940,7 @@ def _preflight_build_derived_env(
         return
 
     if environ is None:
-        from osprey.utils.config import dotenv_shell_overrides
+        from osprey_connectors.config import dotenv_shell_overrides
 
         process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
     else:
@@ -3990,7 +3990,7 @@ def _preflight_served_lattice(
     data directory, which is the ``build/data/simulation`` the compose service
     mounts, and the container's entrypoint resolves it there verbatim — case
     included — exiting FATAL on a name that is not in the tree it was handed.
-    :data:`~osprey.utils.dotenv.VA_LATTICE_DEFAULT` is the one value naming no
+    :data:`~osprey_connectors.dotenv.VA_LATTICE_DEFAULT` is the one value naming no
     file, and an absolute value names a path in the container's filesystem that
     this host cannot speak for; neither is a name to look up.
 
@@ -4004,7 +4004,7 @@ def _preflight_served_lattice(
     :param process_env: The environment the stack is started with.
     :raises RuntimeError: The value names a file the render does not carry.
     """
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, VA_LATTICE_KEY
+    from osprey_connectors.dotenv import VA_LATTICE_DEFAULT, VA_LATTICE_KEY
 
     if VA_LATTICE_KEY not in wanted:
         return
@@ -4113,7 +4113,7 @@ def _preflight_env_shadowing(
     **Names only, never values.** Which variable diverged is the actionable
     fact; what either side holds is a secret, and a warning is the one place a
     secret would leak into a terminal, a CI log and a bug report at once. Same
-    rule as :func:`osprey.utils.dotenv.compose_unsafe_vars` and the build's own
+    rule as :func:`osprey_connectors.dotenv.compose_unsafe_vars` and the build's own
     divergence warning.
 
     :param compose_files: The compose files this deploy will start, in ``-f``
@@ -4125,7 +4125,7 @@ def _preflight_env_shadowing(
         directory and the home of the env chain compose is pointed at.
     :param environ: The process environment to compare against. ``None`` reads
         the live one, overlaid with the shell values the CLI's entry-time
-        ``.env`` load replaced (:func:`~osprey.utils.config.dotenv_shell_overrides`)
+        ``.env`` load replaced (:func:`~osprey_connectors.config.dotenv_shell_overrides`)
         — the comparison is against what the operator's shell actually
         exported, which the in-process override would otherwise have erased.
     :param provider: The detected compose provider, when the caller has probed
@@ -4152,7 +4152,7 @@ def _preflight_env_shadowing(
     chain_values = merge_chain(root)
 
     if environ is None:
-        from osprey.utils.config import dotenv_shell_overrides
+        from osprey_connectors.config import dotenv_shell_overrides
 
         process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
     else:
@@ -4360,7 +4360,7 @@ def _preflight_declared_env_unset(
         return []
 
     if environ is None:
-        from osprey.utils.config import dotenv_shell_overrides
+        from osprey_connectors.config import dotenv_shell_overrides
 
         process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
     else:
@@ -4874,7 +4874,7 @@ def _solved_monitor_baselines(project_dir: Path, channels: Sequence[dict]) -> di
     """
     from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
     from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
+    from osprey_connectors.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
 
     build_dir = project_dir / BUILD_DIRNAME
     if resolved_va_lattice(project_dir, build_dir) == VA_LATTICE_DEFAULT:
@@ -5191,9 +5191,12 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         load_machine_json_channels,
         load_manifest_file,
     )
-    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-    from osprey.simulation.machine import read_machine_json
-    from osprey_connectors.simulation.engine import resolve_simulation_file
+    from osprey_connectors.simulation.engine import (
+        SimulationEngine,
+        resolve_simulation_file,
+        resolve_state_dir,
+    )
+    from osprey_connectors.simulation.machine import read_machine_json
 
     env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
     named = (env.get("VA_CHANNELS_FILE") or os.environ.get("VA_CHANNELS_FILE") or "").strip()
@@ -5275,7 +5278,7 @@ def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
     :raises RuntimeError: if the re-apply fails, naming the command that fixes it.
     """
     from osprey.simulation.apply import apply_scenarios, persisted_scenario_anchor
-    from osprey.simulation.engine import DEFAULT_SCENARIO
+    from osprey_connectors.simulation.engine import DEFAULT_SCENARIO
 
     if engine is None:
         logger.debug("No machine model in this project; no scenarios to re-apply after the reseed")
@@ -5387,7 +5390,7 @@ def _wait_for_archiver_store(
 
 
 def _seed_progress_reporter():
-    """A :func:`~osprey.simulation.archiver_seed.seed_base` progress callback.
+    """A :func:`~osprey_connectors.simulation.archiver_seed.seed_base` progress callback.
 
     Each firing becomes a step line under the verb's open phase, so a first
     deploy's multi-minute seed reports as it goes instead of stalling silently.
@@ -5491,7 +5494,7 @@ def _stage_archiver_store(
     :raises RuntimeError: if the store cannot be reached or authenticated.
     """
     from osprey.simulation.apply import archiver_collection
-    from osprey.simulation.archiver_seed import (
+    from osprey_connectors.simulation.archiver_seed import (
         SeedKnobs,
         SeedState,
         compare_fingerprint,
@@ -5684,7 +5687,7 @@ def _ariel_store_config(config: dict, project_dir: Path) -> dict:
     """
     from osprey.port_layout import resolve_port_base
     from osprey.services.ariel_search.config import resolve_ariel_dsn
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = Path(project_dir) / ".env"
     env = parse_dotenv_file(env_path) if env_path.is_file() else {}
@@ -5826,7 +5829,7 @@ def _stage_ariel_store(
     if seeded:
         _report_step(f"logbook seeded: {seeded} entries")
     elif scenarios_activated:
-        from osprey.simulation.engine import DEFAULT_SCENARIO
+        from osprey_connectors.simulation.engine import DEFAULT_SCENARIO
 
         faults = " ".join(name for name in scenarios_activated if name != DEFAULT_SCENARIO)
         logger.warning(
@@ -5923,7 +5926,7 @@ def _graphdb_connection(config: dict, project_dir: Path):
     """
     from osprey.deployment.graphdb_service import resolve_graphdb_connection
     from osprey.port_layout import resolve_port_base
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = Path(project_dir) / ".env"
     env = parse_dotenv_file(env_path) if env_path.is_file() else {}
@@ -5950,7 +5953,7 @@ def _graphdb_config_dir(project_dir: Path) -> Path:
     down in ``build/`` when it is there, and the project root itself otherwise —
     a container's project directory, or a legacy flat project, IS its own render.
     """
-    from osprey.utils.workspace import rendered_config_path
+    from osprey_connectors.workspace import rendered_config_path
 
     rendered = rendered_config_path(project_dir)
     return rendered.parent if rendered.is_file() else Path(project_dir)
@@ -6806,7 +6809,7 @@ def _start_stack(
     # handing compose the overridden copy would make that a lie and silently
     # start the stack on the store's value instead. Variables `.env` added that
     # the shell never set are untouched (their process value IS the file's).
-    from osprey.utils.config import dotenv_shell_overrides
+    from osprey_connectors.config import dotenv_shell_overrides
 
     env = {**os.environ, **dotenv_shell_overrides()}
     if dev_mode:
@@ -7607,7 +7610,7 @@ def _start_as_built(
     the anchor the host is the one participant in that contract left resolving
     against a working directory that holds no ``config.yml`` at all, and its
     lookups degrade to defaults without failing. See
-    :func:`~osprey.utils.config.config_anchored_at`.
+    :func:`~osprey_connectors.config.config_anchored_at`.
     """
     with config_anchored_at(as_built_config_path(repo_root)):
         _warn_on_timezone_drift(config)

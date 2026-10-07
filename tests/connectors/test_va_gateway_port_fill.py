@@ -26,8 +26,8 @@ import yaml
 import osprey.profiles
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
-from osprey.connectors.control_system import va_connector
-from osprey.connectors.control_system.va_connector import (
+from osprey_connectors.control_system import va_connector
+from osprey_connectors.control_system.va_connector import (
     DEFAULT_VA_PORT,
     VirtualAcceleratorConnector,
     fill_gateway_ports,
@@ -59,10 +59,10 @@ def deployed_va_port(monkeypatch):
     """Pin what ``services.virtual_accelerator.port`` resolves to.
 
     ``resolve_va_gateway_port`` imports ``get_config_value`` from
-    ``osprey.utils.config`` at call time, so patching it on that module is
+    ``osprey_connectors.config`` at call time, so patching it on that module is
     what the connector actually sees.
     """
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     def _set(port: Any | None) -> None:
         def fake_get_config_value(path: str, default: Any = None, _config_path: str | None = None):
@@ -164,7 +164,7 @@ def test_defaults_to_5064_when_the_service_port_is_unset(deployed_va_port) -> No
 
 def test_unreadable_config_falls_back_to_5064(monkeypatch) -> None:
     """Outside a project context the connector falls back to the default port."""
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     def exploding_get_config_value(_path: str, _default: Any = None, _config_path: str = None):
         raise FileNotFoundError("no config.yml here")
@@ -217,7 +217,7 @@ def test_explicit_and_derived_ports_mix_per_gateway(deployed_va_port) -> None:
 
 def test_fully_explicit_config_never_reads_the_config_file(monkeypatch) -> None:
     """Nothing to fill means nothing to resolve — and the dict comes back as-is."""
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     def unexpected_read(*args, **kwargs):
         raise AssertionError("resolved the service port for a fully explicit config")
@@ -256,7 +256,7 @@ def test_the_callers_config_is_not_mutated(deployed_va_port) -> None:
 )
 def test_a_config_with_no_gateways_passes_through(config: dict[str, Any], monkeypatch) -> None:
     """A gateway-less config is the EPICS connector's problem, not the fill's."""
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     monkeypatch.setattr(
         config_module,
@@ -303,8 +303,8 @@ async def test_plain_epics_connector_does_not_follow_the_va_service_port(monkeyp
     that omits a port keeps the EPICS connector's own default even when the
     project also deploys a VA on some other port.
     """
-    from osprey.connectors.control_system.epics_connector import EPICSConnector
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
+    from osprey_connectors.control_system.epics_connector import EPICSConnector
 
     def fake_get_config_value(path: str, default: Any = None, _config_path: str | None = None):
         if path == "services.virtual_accelerator.port":

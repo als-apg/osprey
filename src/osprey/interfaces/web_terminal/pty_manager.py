@@ -20,7 +20,7 @@ from collections.abc import AsyncIterator
 
 from osprey.agent_runner.clean_env import build_base_child_env
 from osprey.interfaces.web_terminal import process_tree
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("pty_manager")
 

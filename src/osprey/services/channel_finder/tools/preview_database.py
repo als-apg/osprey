@@ -116,7 +116,7 @@ def _resolve_path(path_str: str) -> Path:
     if path.is_absolute():
         return path
     try:
-        from osprey.utils.workspace import resolve_path
+        from osprey_connectors.workspace import resolve_path
 
         return resolve_path(path_str)
     except Exception:
@@ -919,7 +919,7 @@ def preview_database(
             console.print(f"[error]\u2717 Error loading database from {db_path}: {e}[/error]")
             return
     else:
-        from osprey.utils.config import load_config as get_config
+        from osprey_connectors.config import load_config as get_config
 
         config = get_config()
         pipeline_type, detected = detect_pipeline_config(config)

@@ -80,14 +80,14 @@ class TestGetExecutionControlConfigFactory:
             assert path == "control_system"
             return {"writes_enabled": True, "type": "mock"}
 
-        monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
         cfg = get_execution_control_config()
         assert cfg.control_system_writes_enabled is True
         assert cfg.control_system_type == "mock"
 
     def test_defaults_when_writes_key_missing(self, monkeypatch):
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda path, default=None, config_path=None: {},
         )
         cfg = get_execution_control_config()
@@ -99,7 +99,7 @@ class TestGetExecutionControlConfigFactory:
         def boom(_path, _default=None, _config_path=None):
             raise RuntimeError("config unavailable")
 
-        monkeypatch.setattr("osprey.utils.config.get_config_value", boom)
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", boom)
         cfg = get_execution_control_config()
         # On any failure the factory must return a write-disabled config on a
         # non-live control system.
@@ -127,7 +127,7 @@ class TestPerTargetPosture:
     @staticmethod
     def _config(monkeypatch, section):
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda path, default=None, config_path=None: section,
         )
 

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from osprey.services.virtual_accelerator.bindings import load_bindings
 from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS, ManifestPaths
-from osprey.simulation.engine import SimulationEngine
+from osprey_connectors.simulation.engine import SimulationEngine
 
 
 def _repo_with_preset_data(tmp_path: Path) -> Path:

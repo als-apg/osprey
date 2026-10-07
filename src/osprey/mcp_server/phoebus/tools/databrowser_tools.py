@@ -62,7 +62,7 @@ from osprey.mcp_server.phoebus.tools.bridge_tools import (
     _bridge_error_message,
     _http_post_open,
 )
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     agent_data_base_dir,
     anchored_path,
     load_osprey_config,

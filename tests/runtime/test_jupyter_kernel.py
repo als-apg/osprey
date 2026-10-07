@@ -1342,7 +1342,7 @@ def stub_factory(monkeypatch):
 
     monkeypatch.setattr(runtime, "_target_connector_config", lambda: None)
     monkeypatch.setattr(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector", create
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector", create
     )
     return built
 

@@ -586,7 +586,7 @@ class TestGraphParadigmRoutes:
 
     def test_statistics_503_when_the_index_is_absent(self, client, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             lambda: {"services": {"graphdb": {"ttl_path": "./data/facility.ttl"}}},
         )
         absence = GraphIndexAbsence("missing", tmp_path / "graph.duckdb", "No search index at g.")
@@ -604,7 +604,7 @@ class TestGraphParadigmRoutes:
 
     def test_statistics_503_when_the_app_holds_no_index_at_all(self, client, monkeypatch):
         monkeypatch.setattr(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             lambda: {"services": {"graphdb": {"ttl_path": "./data/facility.ttl"}}},
         )
         install_graph_paradigm(client, index=None)

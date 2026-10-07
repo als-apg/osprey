@@ -38,11 +38,11 @@ def _reset_all_config_caches(monkeypatch):
     before each test so the adapter reads from the test's own
     config.yml via monkeypatch.chdir(tmp_path).
     """
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_config_cache()
 
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     monkeypatch.setattr(_cfg, "_default_config", None)
     monkeypatch.setattr(_cfg, "_default_configurable", None)
@@ -279,7 +279,7 @@ def test_limits_validator_loaded_and_passed(tmp_path, monkeypatch):
         },
     )
     # Force ConfigBuilder to use this test's config.yml
-    from osprey.utils.config import get_config_builder
+    from osprey_connectors.config import get_config_builder
 
     get_config_builder(config_path=str(tmp_path / "config.yml"), set_as_default=True)
 
@@ -329,7 +329,7 @@ def test_wrapper_injects_validator_when_present(tmp_path, monkeypatch):
         },
     )
     # Force ConfigBuilder to use this test's config.yml
-    from osprey.utils.config import get_config_builder
+    from osprey_connectors.config import get_config_builder
 
     get_config_builder(config_path=str(tmp_path / "config.yml"), set_as_default=True)
 
@@ -394,7 +394,7 @@ async def test_deprecated_container_method_still_executes(tmp_path, monkeypatch,
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, {"execution": {"execution_method": "container"}})
 
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     monkeypatch.setattr(_cfg, "_container_method_warned", False)
 
@@ -403,7 +403,7 @@ async def test_deprecated_container_method_still_executes(tmp_path, monkeypatch,
     mock_proc.returncode = 0
 
     with (
-        # Logger name is "CONFIG" (src/osprey/utils/config.py) — NOT the module
+        # Logger name is "CONFIG" (osprey_connectors/config.py) — NOT the module
         # path. Naming the wrong logger leaves CONFIG at its inherited level, so
         # the record is filtered at emit whenever an earlier test has raised the
         # root level, and caplog.text comes back empty.

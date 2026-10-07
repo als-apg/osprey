@@ -35,8 +35,8 @@ from osprey.mcp_server.control_system.server_context import (
     reset_server_context,
 )
 from osprey.stores.artifact_store import reset_artifact_store
-from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import posture_store
+from osprey_connectors.workspace import reset_config_cache
 from tests._control_context_fixtures import write_control_context
 
 # ---------------------------------------------------------------------------

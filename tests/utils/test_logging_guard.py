@@ -27,7 +27,7 @@ import logging
 import pytest
 from rich.logging import RichHandler
 
-from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS, configure_logging
+from osprey_connectors.logger import QUIET_THIRD_PARTY_LOGGERS, configure_logging
 
 # Private by name, but this is the module that tests it.
 from tests.conftest import _PRISTINE_LOGGING

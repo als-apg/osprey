@@ -480,7 +480,7 @@ class TestRunIngestStoring:
 
     async def test_a_naive_since_is_read_in_the_facility_zone(self, monkeypatch, mock_repository):
         monkeypatch.setattr(
-            "osprey.utils.config.get_facility_timezone", lambda: ZoneInfo("Europe/Berlin")
+            "osprey_connectors.config.get_facility_timezone", lambda: ZoneInfo("Europe/Berlin")
         )
         adapter = _Adapter(_entries(1))
         _patch_adapter(monkeypatch, adapter)

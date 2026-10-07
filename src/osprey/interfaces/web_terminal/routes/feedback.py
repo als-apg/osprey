@@ -53,7 +53,7 @@ from osprey.interfaces.web_terminal.feedback_store import (
     prune_store,
     write_record,
 )
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

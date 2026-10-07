@@ -218,7 +218,7 @@ class TestLifespanOspreyConfig:
         ``osprey web`` reads the project config before the server starts; an
         edit between that read and the lifespan must be what the page renders.
         """
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         config_file = project / "config.yml"
         config_file.write_text(yaml.dump({"web": {"ui_mode": "expert"}}))

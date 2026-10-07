@@ -3384,8 +3384,7 @@ orphan_sites:
     why: the deleted ollama port line
   applications:
     # `root` may be a LIST: the config loader moved to the osprey-connectors
-    # workspace member, so src/osprey/utils/config.py is a shim this regex can
-    # never match. Both trees are scanned; the back-test sums hits across the
+    # workspace member, out of src/osprey/utils. Both trees are scanned; the back-test sums hits across the
     # roots, because the connectors tree postdates the baseline commit.
   - root:
     - src/osprey/utils

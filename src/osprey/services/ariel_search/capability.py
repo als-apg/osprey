@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from osprey.utils.config import get_config_value
+from osprey_connectors.config import get_config_value
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.service import ARIELSearchService

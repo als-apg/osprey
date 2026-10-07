@@ -66,7 +66,7 @@ from osprey.registry.web import (
     WebServerConfigDepthError,
     resolve_web_server_address,
 )
-from osprey.utils.workspace import resolve_shared_data_root
+from osprey_connectors.workspace import resolve_shared_data_root
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

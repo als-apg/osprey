@@ -2,12 +2,11 @@
 
 import pytest
 
-from osprey.errors import (
+from osprey_connectors.errors import (
     RAW_CLIENT_WRITE_MARKER,
     ChannelWriteBlockedError,
     raw_client_write_message,
 )
-from osprey_connectors import errors as connector_errors
 
 
 def test_reason_is_a_valid_blocked_reason():
@@ -17,11 +16,6 @@ def test_reason_is_a_valid_blocked_reason():
 def test_marker_value_is_pinned():
     # Consumers match this substring in subprocess stderr; changing it breaks them.
     assert RAW_CLIENT_WRITE_MARKER == "raw client write refused"
-
-
-def test_shim_and_package_expose_the_same_objects():
-    assert connector_errors.RAW_CLIENT_WRITE_MARKER is RAW_CLIENT_WRITE_MARKER
-    assert connector_errors.raw_client_write_message is raw_client_write_message
 
 
 @pytest.mark.parametrize("address", ["SR:C01:MAG:PS:SP", "<unknown>"])
