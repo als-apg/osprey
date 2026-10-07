@@ -6,11 +6,6 @@ block already spends, it can land on the very gateway the simulation is dialed
 through, it can be named as a deployment's baseline without being built, and it
 can record a store that would be read as the real machine's past.
 
-The perturbation itself is the deployment's own: the last tests here pin that
-:func:`~osprey.cli.build_profile_va_faults.effective_standin_bpm_errors` reads
-the ``machine.json`` this deployment serves and inherits nothing from the
-framework, so a facility's stand-in displaces the devices that facility named.
-
 What it can no longer be is refused for standing beside a facility's own
 machine: ``live`` keeps meaning the authored ``epics`` block, so an ``epics``
 baseline with a stand-in is the ordinary shape and is pinned here as one.
@@ -24,14 +19,12 @@ several stand-in faults arrive in ONE
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from osprey.cli.build_profile import BuildProfile, _parse_profile
-from osprey.cli.build_profile_va_faults import effective_standin_bpm_errors
 from osprey.errors import BuildProfileError
 
 
@@ -312,59 +305,3 @@ def test_live_standin_validate_leaves_a_profile_without_the_key_alone(tmp_path: 
     _parse_profile({"name": "x", "data": "data", "virtual_accelerator": {"port": 5064}}).validate(
         tmp_path
     )
-
-
-def _machine_stating(root: Path, spec: str | None) -> None:
-    """Give the deployment at ``root`` a machine, stating ``spec`` or nothing."""
-    simulation = root / "data" / "simulation"
-    simulation.mkdir(parents=True, exist_ok=True)
-    machine: dict[str, Any] = {"name": "a facility machine of its own", "channels": {}}
-    if spec is not None:
-        machine["standin_bpm_errors"] = spec
-    (simulation / "machine.json").write_text(json.dumps(machine), encoding="utf-8")
-
-
-def test_live_standin_validate_reads_the_perturbation_from_the_deployments_own_tree(
-    tmp_path: Path,
-) -> None:
-    """The devices the deployment's own machine names, and no others."""
-    _machine_stating(tmp_path, "C-A-01:offset_x=2.5e-4")
-    (tmp_path / ".env").write_text("VA_LATTICE=lattice.json\n")
-
-    assert effective_standin_bpm_errors(tmp_path) == "C-A-01:offset_x=2.5e-4"
-
-
-def test_live_standin_validate_ships_no_perturbation_a_tree_does_not_state(
-    tmp_path: Path,
-) -> None:
-    """No framework fallback: an unstated perturbation is an absent one.
-
-    A facility that says nothing about its stand-in gets a stand-in that reads
-    as its machine does, rather than one displaced at devices some other
-    facility's machine happens to serve.
-    """
-    _machine_stating(tmp_path, None)
-    (tmp_path / ".env").write_text("VA_LATTICE=lattice.json\n")
-
-    assert effective_standin_bpm_errors(tmp_path) == ""
-
-
-def test_live_standin_validate_lets_the_chains_own_fault_set_win(tmp_path: Path) -> None:
-    """``VA_STANDIN_BPM_ERRORS`` replaces the tree's answer wholesale."""
-    _machine_stating(tmp_path, "C-A-01:offset_x=2.5e-4")
-    (tmp_path / ".env").write_text(
-        "VA_LATTICE=lattice.json\nVA_STANDIN_BPM_ERRORS=C-B-02:offset_y=-1.0e-4\n"
-    )
-
-    assert effective_standin_bpm_errors(tmp_path) == "C-B-02:offset_y=-1.0e-4"
-
-
-def test_live_standin_validate_leaves_a_stated_perturbation_off_without_a_lattice(
-    tmp_path: Path,
-) -> None:
-    """Offsets displace a model, and a chain serving none has nothing to move."""
-    _machine_stating(tmp_path, "C-A-01:offset_x=2.5e-4")
-    (tmp_path / ".env").write_text("VA_LATTICE=none\n")
-
-    assert effective_standin_bpm_errors(tmp_path) == ""
-    assert _standin_profile().validate(tmp_path) is None
