@@ -1,23 +1,19 @@
 """SC6 acceptance: every address a channel-finder pipeline surfaces is live over CA.
 
-The Control Assistant preset ships the SAME full manifest namespace -- a few
-thousand addresses; ``channel_manifest.json``'s ``_metadata.total_channels``
-is the authoritative count -- in three interchangeable channel-finder paradigms
-(``osprey.services.virtual_accelerator.manifest``'s own build step
-cross-checks this: ``build_manifest()`` raises ``ParadigmMismatchError`` if
-the three tier-3 DBs ever disagree on their expanded address set -- see
-``manifest/build.py``). This suite proves that
-guarantee holds against a *live* container by expanding each paradigm DB
-through its own loader (the same loaders ``manifest/build.py`` uses, so this
-exercises the real per-pipeline expansion path rather than re-deriving
-addresses from one shared source) and reading a representative slice of
-finder-surfaced addresses -- orbit, corrector, RF, vacuum -- back over real
-Channel Access.
+The Control Assistant preset ships the SAME channel namespace -- a few
+thousand addresses -- in three interchangeable channel-finder paradigms, and
+the facility the demo container serves names every one of them. This suite
+proves that holds against a *live* container by expanding each paradigm's
+tier-3 database through the channel finder's own database class (the code
+that loads these files at runtime, so this exercises the real per-pipeline
+expansion path rather than re-deriving addresses from one shared source) and
+reading a representative slice of finder-surfaced addresses -- orbit,
+corrector, RF, vacuum -- back over real Channel Access.
 
 Reuses ``scripts/va/sweep_check.sweep()`` for the actual batched CA read (same
-reachability-sweep logic ``test_full_sweep.py`` already validates at full
-manifest scale), so this test is about *which* addresses each pipeline hands
-back, not a new CA-read mechanism.
+reachability-sweep logic ``test_full_sweep.py`` already validates at the
+served view's full scale), so this test is about *which* addresses each
+pipeline hands back, not a new CA-read mechanism.
 """
 
 from __future__ import annotations
@@ -26,11 +22,16 @@ import sys
 
 import pytest
 
-from tests.va.e2e.conftest import sweep_check
+from tests.va.e2e.conftest import REPO_ROOT, sweep_check
+
+#: The preset's tier-3 channel databases, one file per paradigm.
+TIER3_DIR = (
+    REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3"
+)
 
 # Representative finder-query categories, keyed by the address-string tokens
-# that identify them (``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD`` -- see
-# manifest/classify.py for the same convention). Address-string matching
+# that identify them in the preset's ``AREA:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD``
+# naming. Address-string matching
 # works uniformly across all three loaders: two of them (in_context,
 # middle_layer) return bare address sets with no hierarchy-path metadata, so
 # there's no richer structure to filter on than the address itself.
@@ -42,7 +43,7 @@ QUERY_CATEGORIES: dict[str, tuple[str, ...]] = {
 }
 
 # Cap per category so the live read stays a fast representative slice, not a
-# second full-manifest sweep (test_full_sweep.py already owns that scale).
+# second full-view sweep (test_full_sweep.py already owns that scale).
 ADDRESSES_PER_CATEGORY = 6
 
 SWEEP_TIMEOUT_S = 30.0
@@ -63,21 +64,29 @@ def _representative_addresses(all_addresses: set[str]) -> dict[str, list[str]]:
 
 
 def _hierarchical_addresses() -> set[str]:
-    from osprey.services.virtual_accelerator.manifest import loaders
+    from osprey.services.channel_finder.databases.hierarchical import (
+        HierarchicalChannelDatabase,
+    )
 
-    return {c.address for c in loaders.load_hierarchical_channels()}
+    db = HierarchicalChannelDatabase(str(TIER3_DIR / "hierarchical.json"))
+    db.load_database()
+    return {channel["address"] for channel in db.get_all_channels()}
 
 
 def _in_context_addresses() -> set[str]:
-    from osprey.services.virtual_accelerator.manifest import loaders
+    from osprey.services.channel_finder.databases.template import ChannelDatabase
 
-    return loaders.load_in_context_addresses()
+    db = ChannelDatabase(str(TIER3_DIR / "in_context.json"))
+    db.load_database()
+    return {channel["address"] for channel in db.get_all_channels()}
 
 
 def _middle_layer_addresses() -> set[str]:
-    from osprey.services.virtual_accelerator.manifest import loaders
+    from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 
-    return loaders.load_middle_layer_addresses()
+    db = MiddleLayerDatabase(str(TIER3_DIR / "middle_layer.json"))
+    db.load_database()
+    return {channel["address"] for channel in db.get_all_channels()}
 
 
 PIPELINES = {
