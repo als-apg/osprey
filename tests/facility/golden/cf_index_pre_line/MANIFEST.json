@@ -1,5 +1,5 @@
 {
-  "_reproduce": "uv run python scripts/facility_demo/fingerprint.py --cf-index-pre-line --write tests/facility/golden/cf_index_pre_line",
+  "_reproduce": "Frozen: no command rewrites this golden; its files are pinned by sha256.",
   "files": {
     "hierarchical.json": {
       "source": "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3/hierarchical.json",

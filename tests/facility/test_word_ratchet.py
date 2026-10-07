@@ -32,7 +32,6 @@ SCAN_PATHS: tuple[str, ...] = (
     "src",
     "packages",
     "scripts/facility_schema",
-    "scripts/facility_demo",
 )
 
 #: The MATLAB Middle Layer exporter the mml layer ships: MATLAB source written
@@ -261,7 +260,7 @@ def test_the_exporter_is_the_only_excluded_file_under_the_facility_package() -> 
 
 
 def test_scan_covers_the_facility_scripts() -> None:
-    assert {"scripts/facility_schema", "scripts/facility_demo"} <= set(SCAN_PATHS)
+    assert {"scripts/facility_schema"} <= set(SCAN_PATHS)
 
 
 def test_binary_fonts_are_never_reported() -> None:

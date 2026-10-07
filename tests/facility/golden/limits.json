@@ -1,7 +1,7 @@
 {
-  "_reproduce": "uv run python scripts/facility_demo/_limits.py --write tests/facility/golden/limits.json",
+  "_reproduce": "Frozen: no command rewrites this golden; its rows are the committed limits.yaml records resolved.",
   "_sources": [
-    "scripts/facility_demo/_limits.py"
+    "src/osprey/templates/facilities/example/limits.yaml"
   ],
   "count": 3,
   "channels": {

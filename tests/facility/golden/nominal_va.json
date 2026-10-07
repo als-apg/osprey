@@ -1,13 +1,12 @@
 {
-  "_reproduce": "uv run python scripts/facility_demo/capture_nominals.py --substrate va --out tests/facility/golden/nominal_va.json",
+  "_reproduce": "Frozen: no command rewrites this golden; its values are the served nominals pinned by this file.",
   "header": {
-    "command": "uv run python scripts/facility_demo/capture_nominals.py --substrate va --out tests/facility/golden/nominal_va.json",
+    "command": "Frozen: no command rewrites this golden; its values are the served nominals pinned by this file.",
     "substrate": "va",
     "addresses": {
       "source": "src/osprey/services/virtual_accelerator/manifest/channel_manifest.json",
       "count": 2908
     },
-    "machine_file": "src/osprey/templates/apps/control_assistant/data/simulation/machine.json",
     "active_scenarios": [],
     "stripped_keys": [
       "noise",
