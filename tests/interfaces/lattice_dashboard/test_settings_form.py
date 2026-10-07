@@ -78,7 +78,7 @@ def _launch_lattice_dashboard(tmp_path, monkeypatch) -> Iterator[str]:
     monkeypatch.chdir(tmp_path)
     from osprey.interfaces.lattice_dashboard.app import create_app
 
-    app = create_app(workspace_root=tmp_path)
+    app = create_app(workspace_root=tmp_path, render_root=tmp_path)
     with _run_app_server(app) as base_url:
         yield base_url
 

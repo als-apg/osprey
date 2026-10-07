@@ -3,16 +3,21 @@
 Serves the dashboard SPA, REST API for lattice state management,
 and SSE stream for live figure updates.
 
+The lattice comes from the render's simulator view: the dashboard loads the
+first served deck-bearing model's deck on the first ``/api/state`` or
+``/api/models`` request, and ``POST /api/models/select`` switches to another.
+
 Usage::
 
     from osprey.interfaces.lattice_dashboard.app import create_app
-    app = create_app()  # resolves the deployment's agent-data root
+    app = create_app()  # resolves the deployment's agent-data root and render
 """
 
 from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import json
 import logging
 import threading
@@ -27,8 +32,22 @@ from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.interfaces.lattice_dashboard.catalog import (
+    DashboardModel,
+    ModelCatalog,
+    catalog_sources,
+    read_catalog,
+)
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
-from osprey.interfaces.lattice_dashboard.state import ALL_FIGURES, DEFAULT_SETTINGS, LatticeState
+from osprey.interfaces.lattice_dashboard.state import (
+    ALL_FIGURES,
+    DEFAULT_SETTINGS,
+    SINGLE_PASS,
+    SINGLE_PASS_UNAVAILABLE,
+    LatticeState,
+    fast_figures,
+    figure_available,
+)
 from osprey.interfaces.lattice_dashboard.workers._base import figure_to_dict
 from osprey.interfaces.lattice_dashboard.workers.chromaticity import (
     build_figure as build_chromaticity,
@@ -43,6 +62,7 @@ from osprey.interfaces.lattice_dashboard.workers.resonance import (
     build_figure as build_resonance,
 )
 from osprey.interfaces.vendor import vendor_url
+from osprey.utils.config import default_config_path
 from osprey.utils.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.lattice_dashboard")
@@ -203,11 +223,114 @@ class SettingsRequest(BaseModel):
     settings: dict[str, dict[str, Any]]
 
 
+class SelectModelRequest(BaseModel):
+    name: str
+
+
+# ── Model loading ─────────────────────────────────────────
+
+
+def _file_signature(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+class _ModelLoader:
+    """Keeps the dashboard state on the selected model's deck.
+
+    The catalog is re-read when ``served_models.json`` or ``facility.json``
+    changes, and a deck's digest when the deck file changes, so a rebuilt
+    render is picked up without re-reading it on every request.
+
+    Args:
+        state: The dashboard state.
+        render_root: The render to read the simulator view from, or None.
+    """
+
+    def __init__(self, state: LatticeState, render_root: Path | None) -> None:
+        self._state = state
+        self._render_root = render_root
+        self._lock = threading.Lock()
+        self._catalog: ModelCatalog | None = None
+        self._catalog_key: tuple[Any, ...] | None = None
+        self._digests: dict[Path, tuple[tuple[int, int] | None, str]] = {}
+
+    def catalog(self) -> ModelCatalog:
+        """Return the render's switchable models."""
+        root = self._render_root
+        key = (
+            None
+            if root is None
+            else tuple(_file_signature(source) for source in catalog_sources(root))
+        )
+        if self._catalog is None or key != self._catalog_key:
+            self._catalog = read_catalog(root)
+            self._catalog_key = key
+        return self._catalog
+
+    def _digest(self, deck: Path) -> str:
+        signature = _file_signature(deck)
+        cached = self._digests.get(deck)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+        digest = hashlib.sha256(deck.read_bytes()).hexdigest()
+        self._digests[deck] = (signature, digest)
+        return digest
+
+    def _load(self, model: DashboardModel, digest: str) -> dict[str, Any]:
+        return self._state.initialize(
+            str(model.deck),
+            model=model.name,
+            solve=model.solve,
+            twiss_in=model.twiss_in,
+            deck_sha256=digest,
+        )
+
+    def sync(self) -> bool:
+        """Load the selected model's deck, else the default model's, when stale.
+
+        Returns:
+            True when the state was (re)initialised from a deck.
+        """
+        with self._lock:
+            catalog = self.catalog()
+            current = self._state.load()
+            model = catalog.get(current.get("model") or "") or catalog.default()
+            if model is None:
+                return False
+            digest = self._digest(model.deck)
+            if current.get("model") == model.name and current.get("deck_sha256") == digest:
+                return False
+            self._load(model, digest)
+            return True
+
+    def select(self, name: str) -> DashboardModel | None:
+        """Initialise the state from model *name*'s deck.
+
+        Overrides and the old baseline are dropped; settings are kept.
+
+        Returns:
+            The model loaded, or None when the catalog has no model *name*.
+        """
+        with self._lock:
+            model = self.catalog().get(name)
+            if model is None:
+                return None
+            self._load(model, self._digest(model.deck))
+            return model
+
+
 # ── App factory ───────────────────────────────────────────
 
 
-def create_app(workspace_root: Path | None = None) -> FastAPI:
+def create_app(workspace_root: Path | None = None, render_root: Path | None = None) -> FastAPI:
     """Create the Lattice Dashboard FastAPI application.
+
+    Constructing the app loads no deck and starts no worker: the state is
+    initialised on the first ``/api/state`` or ``/api/models`` request.
 
     Args:
         workspace_root: Agent-data root (e.g. ``<repo>/var/agent_data``). The
@@ -216,13 +339,42 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             framework launch path passes explicitly. Never default it to a
             cwd-relative directory: a caller standing anywhere but the repo root
             would get a fresh empty state rather than the running deployment's.
+        render_root: The render whose ``data/simulator/`` view supplies the
+            decks. Omit it to use the directory of the config this process
+            loaded; with no config loaded there is no simulator view.
     """
     ws_root = Path(workspace_root) if workspace_root else resolve_shared_data_root()
     state_dir = ws_root / "lattice"
+    if render_root is None:
+        render_root = Path(p).parent if (p := default_config_path()) else None
 
     state = LatticeState(state_dir)
     broadcaster = _SSEBroadcaster()
     compute = ComputeManager(state, broadcaster)
+    loader = _ModelLoader(state, Path(render_root) if render_root is not None else None)
+
+    def sync_model() -> None:
+        try:
+            loaded = loader.sync()
+        except Exception as exc:
+            logger.exception("Failed to load the selected model's deck")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        if loaded:
+            broadcaster.broadcast({"type": "state_updated"})
+            compute.refresh_fast()
+
+    def state_payload() -> dict[str, Any]:
+        s = state.load()
+        if "settings" not in s:
+            s["settings"] = copy.deepcopy(DEFAULT_SETTINGS)
+        s.setdefault("model", None)
+        s["fast_figures"] = list(fast_figures(s.get("solve")))
+        s["notice"] = loader.catalog().notice()
+        return s
+
+    def refuse_unavailable(name: str) -> None:
+        if not figure_available(name, state.load().get("solve")):
+            raise HTTPException(status_code=409, detail=SINGLE_PASS_UNAVAILABLE)
 
     app = FastAPI(
         title="Lattice Dashboard",
@@ -240,10 +392,38 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     @app.get("/api/state")
     async def get_state() -> dict[str, Any]:
-        s = state.load()
-        if "settings" not in s:
-            s["settings"] = copy.deepcopy(DEFAULT_SETTINGS)
-        return s
+        sync_model()
+        return state_payload()
+
+    # ── Models API ────────────────────────────────────────
+
+    @app.get("/api/models")
+    async def list_models() -> list[dict[str, Any]]:
+        sync_model()
+        selected = state.load().get("model")
+        return [
+            {
+                "name": model.name,
+                "served": model.served,
+                "solve": model.solve,
+                "selected": model.name == selected,
+            }
+            for model in loader.catalog().models
+        ]
+
+    @app.post("/api/models/select")
+    async def select_model(body: SelectModelRequest) -> dict[str, Any]:
+        try:
+            model = loader.select(body.name)
+        except Exception as exc:
+            logger.exception("Failed to load model %s", body.name)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if model is None:
+            raise HTTPException(status_code=404, detail=f"Unknown model: {body.name}")
+
+        broadcaster.broadcast({"type": "state_updated"})
+        compute.refresh_fast()
+        return state_payload()
 
     @app.post("/api/state/init")
     async def init_lattice(body: InitRequest) -> dict[str, Any]:
@@ -287,11 +467,14 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 status_code=404,
                 detail=f"Unknown figure: {figure}",
             )
+        refuse_unavailable(figure)
         compute.refresh_one(figure)
         return {"status": "ok", "launched": [figure]}
 
     @app.post("/api/verify")
     async def verify() -> dict[str, Any]:
+        if state.load().get("solve") == SINGLE_PASS:
+            raise HTTPException(status_code=409, detail=SINGLE_PASS_UNAVAILABLE)
         launched = compute.refresh_verification()
         return {"status": "ok", "launched": launched}
 
@@ -301,6 +484,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     async def get_figure(name: str) -> Any:
         if name not in ALL_FIGURES:
             raise HTTPException(status_code=404, detail=f"Unknown figure: {name}")
+        refuse_unavailable(name)
 
         fig_path = state.figures_dir / f"{name}.json"
         if not fig_path.exists():
@@ -317,6 +501,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     async def get_data(name: str) -> Any:
         if name not in ALL_FIGURES:
             raise HTTPException(status_code=404, detail=f"Unknown figure: {name}")
+        refuse_unavailable(name)
 
         fig_path = state.figures_dir / f"{name}.json"
         if not fig_path.exists():
