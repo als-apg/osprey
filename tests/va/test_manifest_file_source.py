@@ -190,10 +190,9 @@ class TestSubfieldVocabularyHasOneProducer:
         from osprey.services.virtual_accelerator import manifest
         from osprey.services.virtual_accelerator.manifest import build, classify
         from osprey.services.virtual_accelerator.model import catalog
-        from osprey.services.virtual_accelerator.serving import pvdb
 
         assert manifest.SETPOINT_SUBFIELD is classify.SETPOINT_SUBFIELD
-        for module in (build, pvdb, catalog):
+        for module in (build, catalog):
             assert module.SETPOINT_SUBFIELD is classify.SETPOINT_SUBFIELD
             assert module.READBACK_SUBFIELD is classify.READBACK_SUBFIELD
 
@@ -202,9 +201,8 @@ class TestSubfieldVocabularyHasOneProducer:
 
         from osprey.services.virtual_accelerator.manifest import build, classify
         from osprey.services.virtual_accelerator.model import catalog
-        from osprey.services.virtual_accelerator.serving import pvdb
 
-        for module in (build, pvdb, catalog):
+        for module in (build, catalog):
             source = inspect.getsource(module)
             assert "SETPOINT_SUBFIELD = " not in source, module.__name__
             assert "READBACK_SUBFIELD = " not in source, module.__name__

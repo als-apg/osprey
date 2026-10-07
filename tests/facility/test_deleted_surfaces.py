@@ -25,6 +25,7 @@ SERVING_RUNNER = REPO / "src/osprey/services/virtual_accelerator/serving/runner.
 DELETED_PATHS: tuple[str, ...] = (
     "src/osprey/services/virtual_accelerator/ioc",
     "src/osprey/services/virtual_accelerator/serving/model_stub.py",
+    "src/osprey/services/virtual_accelerator/serving/pvdb.py",
     "src/osprey/services/virtual_accelerator/serving/write_path.py",
 )
 

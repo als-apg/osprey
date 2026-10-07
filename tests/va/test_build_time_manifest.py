@@ -1666,34 +1666,8 @@ class TestGraphStatedPairs:
         assert metadata["setpoint_count"] == 1
         assert metadata["total_channels"] == 4
 
-    def test_the_written_manifest_loads_and_the_container_pairs_the_echo(
-        self, tmp_path, limits_view
-    ):
-        """The shape the IOC reads: through the file loader, then the pvdb pairing.
-
-        ``build_serving_pvdb`` is what pairs the two halves on their identity
-        keys, and it is the one consumer that refuses an echo setpoint with
-        nothing to echo into -- so it is the contract this manifest has to
-        satisfy, proven here on the build host rather than at container boot.
-        """
-        from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
-
-        root, config = _graph_tree(tmp_path / "data", tree=_STATED_PAIR_TREE)
-        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
-        project_data = _project_data(tmp_path / "project" / "data", limits_view)
-
-        manifest_path = write_project_manifest(prepared, project_data)
-
-        channels = loaders.load_manifest_file(manifest_path)
-        assert len(channels) == 4
-        records = build_serving_pvdb(channels)
-        assert records.setpoint_readbacks == {"SR01C___B______AC00": "SR01C___B______AM00"}
-        assert set(records.static_noisy) == {"SR01C:BEND:Setpoint:Golden", "SR01C___T______AM00"}
-
     def test_a_readback_two_setpoints_claim_pairs_with_neither(self, tmp_path):
         """An ambiguous pair is served static-noisy on both sides, never half an echo."""
-        from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
-
         root, config = _graph_tree(tmp_path / "data", tree=None)
         _stated_records(
             root,
@@ -1707,8 +1681,6 @@ class TestGraphStatedPairs:
         metadata = prepared.manifest["_metadata"]
         assert metadata["by_partition"] == {classify.PARTITION_STATIC_NOISY: 3}
         assert metadata["setpoint_count"] == 0
-        # And the IOC's contract holds on it: no echo setpoint left without a readback.
-        assert build_serving_pvdb(prepared.manifest["channels"]).setpoint_readbacks == {}
 
     def test_a_readback_that_is_itself_a_setpoint_pairs_with_nothing(self, tmp_path):
         """A chain ``A -> B -> C`` states no clean pair; both links are dropped."""
