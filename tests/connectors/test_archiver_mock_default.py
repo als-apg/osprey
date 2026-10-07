@@ -104,7 +104,9 @@ class TestArchiverTypeFallback:
             connector = await ConnectorFactory.create_archiver_connector(config)
 
         assert isinstance(connector, MockArchiverConnector)
-        assert "archiver.type is not set" not in caplog.text
+        assert not [
+            r for r in caplog.records if r.name == FACTORY_LOGGER and r.levelno >= logging.WARNING
+        ]
 
         await connector.disconnect()
 
