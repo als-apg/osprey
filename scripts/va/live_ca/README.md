@@ -111,8 +111,8 @@ which requires all three to import *before* pytest starts, so an image that
 lacked one exits 1 naming it.
 
 **The tag is content-addressed.** The image is tagged with a digest of
-`pyproject.toml`, `uv.lock` and the `Containerfile`, so bumping the pcaspy
-floor or editing a build step produces a new tag rather than silently reusing a
+`pyproject.toml`, `uv.lock` and the `Containerfile`, so bumping the lume-pva-apg
+pin or editing a build step produces a new tag rather than silently reusing a
 stale image built under the same name.
 
 ## It claims no host port
@@ -130,6 +130,6 @@ CI's `ubuntu-latest` unit-test lanes are x86_64 and install the
 `virtual-accelerator` extra, so `pcaspy` is present there. The unit lane's
 sweep ignores both suites by name, and one cell runs `gate.py --pva` in a step
 of its own, one process per module, under the same skip and pass checks. The
-`macos-latest` lanes are arm64; the marker on `pcaspy` excludes them, the same
+`macos-latest` lanes are arm64; the marker on `lume-pva-apg` excludes them, the same
 way it excludes a developer's Mac. This directory's image is the local venue
 for proving the contract before pushing.
