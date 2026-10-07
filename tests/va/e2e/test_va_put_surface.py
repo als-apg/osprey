@@ -120,6 +120,11 @@ FAULT_VALUE_M = 1e-3
 PRESENTED_TOKEN = "any-token"
 
 
+#: Floor for this module's own test count -- a guard against a refactor that
+#: leaves the file importable but empty, which would otherwise pass silently.
+MIN_COLLECTED_TESTS = 10
+
+
 # ---------------------------------------------------------------------------
 # The container
 # ---------------------------------------------------------------------------
@@ -418,3 +423,17 @@ def test_an_rpc_set_without_a_model_write_token_is_refused(served: Served) -> No
     after = _rpc(served.pva, "get", names=[FAULT_NAME])[FAULT_NAME]
 
     assert after == before
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_va_put_surface.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS

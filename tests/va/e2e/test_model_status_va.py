@@ -67,6 +67,10 @@ STATUS_TIMEOUT_S = 120.0
 #: The demo's physics model.
 DEMO_PHYSICS_MODEL = "SR"
 
+#: Floor for this module's own test count -- a guard against a refactor that
+#: leaves the file importable but empty, which would otherwise pass silently.
+MIN_COLLECTED_TESTS = 2
+
 
 def _free_port() -> int:
     with socket.socket() as probe:
@@ -251,3 +255,17 @@ def test_each_instance_reports_its_physics_model_ok(repo: Path, target: str) -> 
 
     assert code == 0, output
     assert f"{DEMO_PHYSICS_MODEL}: ok" in output.splitlines()
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_model_status_va.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS
