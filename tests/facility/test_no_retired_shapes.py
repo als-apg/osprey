@@ -55,6 +55,7 @@ SELF_EXEMPT: tuple[str, ...] = (
     "tests/connectors/test_limits_mode.py",
     "tests/docs/test_environment_variable_page.py",
     "tests/docs/test_mml_converter_retired.py",
+    "tests/facility/test_deleted_surfaces.py",
     "tests/facility/test_no_retired_shapes.py",
 )
 
