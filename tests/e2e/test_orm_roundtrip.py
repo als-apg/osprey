@@ -221,10 +221,10 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
     base = tmp_path_factory.mktemp("orm_roundtrip_build")
 
     def still_model(repo: Path) -> None:
-        # The oracle is the noiseless model (see MATCH_RTOL), and the plan both
-        # settles on and fits against the corrector readbacks, so every reading
-        # the model serves -- monitors and corrector readbacks alike -- serves
-        # without the drift and noise the facility's seeds give it.
+        # The oracle is the noiseless model (see MATCH_RTOL), and the plan
+        # settles on the corrector readbacks and fits against their setpoints,
+        # so every reading the model serves -- monitors and corrector readbacks
+        # alike -- serves without the drift and noise the facility's seeds give it.
         still_model_motion(repo / "data")
 
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
