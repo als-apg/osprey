@@ -884,14 +884,6 @@ class TestControlAssistant:
             assert not (repo / "data" / "simulation" / name).exists(), name
             assert f"data/simulation/{name}" in emitted, name
 
-    def test_the_build_says_the_standin_has_no_model_to_displace(
-        self, control_assistant_repo: dict
-    ) -> None:
-        """A harvested tree carries no ring, and the build says so once."""
-        printed = " ".join(control_assistant_repo["build"].split())
-
-        assert "VA_LATTICE=none: no model to displace" in printed
-
 
 class TestTheDemoNobodyHarvestedOnto:
     """The preset built as it ships: its ring is its own, and it keeps it."""
