@@ -239,9 +239,9 @@ jobs:
       run: uv python install ${{ matrix.python-version }}
 
     - name: Install dependencies
-      # virtual-accelerator: carries the whole serving stack -- pcaspy, and
-      # lume-pva-apg[ca,pva] which brings p4p with it -- none of which is in
-      # dev. The live Channel Access suites (run in their own step below, one
+      # virtual-accelerator: carries the whole serving stack --
+      # lume-pva-apg[ca,pva], which brings pcaspy and p4p with it -- none of
+      # which is in dev. The live Channel Access suites (run in their own step below, one
       # process per module) need all of it. They guard their imports, so
       # without the extra they SKIP rather than error: the lane stays green
       # having never touched Channel Access. That is why the extra is pinned

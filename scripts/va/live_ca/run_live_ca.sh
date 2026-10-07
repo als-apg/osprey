@@ -45,7 +45,7 @@ fi
 # The tag is a digest of everything that goes into the image: the dependency
 # files (the root pyproject, every workspace member's, and the lock) and the
 # Containerfile itself. That makes "reuse it if it exists" safe rather than
-# merely convenient -- bump the pcaspy floor, add a dependency, or edit a build
+# merely convenient -- bump a pin, add a dependency, or edit a build
 # step, and the tag changes, so a stale image cannot be silently reused under a
 # name that no longer describes it. A fixed tag would also collide with any
 # other image somebody happened to build under the same name.

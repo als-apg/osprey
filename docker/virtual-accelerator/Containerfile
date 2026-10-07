@@ -29,7 +29,8 @@ FROM --platform=linux/amd64 python:3.11-slim
 # unreachable, but a `--platform` override on the command line, or someone
 # lifting this recipe into another file, would otherwise produce an image that
 # BUILDS CLEANLY AND CANNOT SERVE: there is no pcaspy wheel for linux/aarch64
-# at any interpreter, and osprey's `virtual-accelerator` extra marks pcaspy
+# at any interpreter, and osprey's `virtual-accelerator` extra marks
+# lume-pva-apg, whose `ca` extra brings pcaspy,
 # `sys_platform == 'linux' and platform_machine == 'x86_64'` -- so on aarch64
 # the Channel Access server is simply not installed, silently, because an
 # unmatched environment marker is not an error. The first sign would be an

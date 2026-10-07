@@ -111,8 +111,9 @@ namespace of its own. Which models are served is the view's
 
   A build-time guard right after the `FROM` refuses any other architecture.
   It exists because the failure it prevents is silent: osprey's
-  `virtual-accelerator` extra marks `pcaspy` with
-  `sys_platform == 'linux' and platform_machine == 'x86_64'`, and an
+  `virtual-accelerator` extra marks `lume-pva-apg`, whose `ca` extra brings
+  `pcaspy`, with `sys_platform == 'linux' and platform_machine == 'x86_64'`,
+  and an
   environment marker that does not match is not an error — pip installs
   nothing for it. Without the guard, an aarch64 build would succeed and
   produce an image with **no Channel Access server**, first visible as a

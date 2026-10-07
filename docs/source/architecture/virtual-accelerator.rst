@@ -113,9 +113,9 @@ still settling:
        failed, serves integer variables as integers on PVAccess, and exposes a
        public tick period whose ticks coalesce.
 
-``lume-pva-apg`` and ``pcaspy`` publish wheels for linux-x86_64 only and are
-marked accordingly, so ``serving/runner.py`` alone is unimportable off that
-platform; it is reached lazily, and the rest of ``serving/`` imports anywhere.
+``pcaspy`` publishes wheels for linux-x86_64 only, so the ``lume-pva-apg``
+entry that brings it is marked accordingly, and ``serving/runner.py`` alone is
+unimportable off that platform; it is reached lazily, and the rest of ``serving/`` imports anywhere.
 The live Channel Access suites run in the container venue under
 ``scripts/va/live_ca/``.
 

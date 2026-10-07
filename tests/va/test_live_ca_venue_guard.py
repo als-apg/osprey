@@ -74,8 +74,9 @@ LIVE_CA_MACHINES = frozenset({"x86_64", "amd64"})
 #: worst possible failure for a venue whose whole job is to prove what a
 #: client sees. Importable is therefore not the whole claim.
 #:
-#: ``pyproject.toml`` remains the authority that installs it; this is the
-#: independent check that what arrived is usable. A floor that falls behind
+#: The lume-pva-apg pin in ``pyproject.toml`` is the authority that installs
+#: it (its ``ca`` extra sets the floor); this is the independent check that
+#: what arrived is usable. A floor that falls behind
 #: pyproject's makes this test weaker, never falsely red.
 MINIMUM_VERSION = (0, 8, 1)
 REJECTED_VERSION = "0.8.0"

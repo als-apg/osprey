@@ -84,10 +84,10 @@ ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
 # Refuse to build anywhere but amd64. The pin above should make this
 # unreachable, but a `--platform` override, or someone lifting this recipe into
 # their own file, would otherwise produce an image that BUILDS CLEANLY AND
-# CANNOT SERVE: osprey's `virtual-accelerator` extra marks pcaspy
-# `sys_platform == 'linux' and platform_machine == 'x86_64'`, and an
-# environment marker that does not match is not an error — pip simply installs
-# nothing for it. The first sign would be a runtime ImportError on
+# CANNOT SERVE: osprey's `virtual-accelerator` extra marks lume-pva-apg, whose
+# `ca` extra brings pcaspy, `sys_platform == 'linux' and
+# platform_machine == 'x86_64'`, and an environment marker that does not match
+# is not an error — pip simply installs nothing for it. The first sign would be a runtime ImportError on
 # `import pcaspy` inside serving/runner.py, long after the build reported
 # success. Fail here instead, where the message can say why.
 RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \

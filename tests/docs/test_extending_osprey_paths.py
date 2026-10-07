@@ -63,9 +63,10 @@ _GLOB_CHARS = "*?["
 #: line number is not part of the path.
 _LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
 
-#: Top-level modules whose wheels exist only for linux-x86_64 (pyproject's
-#: ``virtual-accelerator`` extra marks both ``sys_platform == 'linux' and
-#: platform_machine == 'x86_64'``). Absent here means "wrong platform", not
+#: Top-level modules installed only on linux-x86_64 (pyproject's
+#: ``virtual-accelerator`` extra marks the ``lume-pva-apg`` entry
+#: ``sys_platform == 'linux' and platform_machine == 'x86_64'``, and pcaspy
+#: rides it). Absent here means "wrong platform", not
 #: "stale pointer".
 _PLATFORM_GATED_MODULES = frozenset({"lume_pva_apg", "pcaspy"})
 
