@@ -40,7 +40,6 @@ import pytest
 import yaml
 
 from osprey_connectors import posture_store
-from osprey_connectors.channel_taxonomy import classify_channel
 from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
@@ -61,12 +60,16 @@ MOCK_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
 
 #: The addresses a spawned child writes, and the ones it only reads.
 SETPOINTS = ("SR:CORR:1:SP", "SR:CORR:2:SP")
-READINGS = ("SR:BEAM:CURRENT", *(f"SR:BPM:{index}:X" for index in range(6)))
+READINGS = ("SR:BEAM:CURRENT", "VAC:PRESSURE", *(f"SR:BPM:{index}:X" for index in range(6)))
+
+#: The unit each probed channel's record states; a probe's reply carries it.
+PROBED_UNITS = {"SR:BEAM:CURRENT": "mA", "VAC:PRESSURE": "Torr"}
 
 
 def _control_system(root: Path) -> dict:
     """The mock deployment a child serves, from a tree built under ``root``."""
-    view = served_tree(root, SETPOINTS, READINGS, channels={"SR:BEAM:CURRENT": {"unit": "mA"}})
+    channels = {address: {"unit": unit} for address, unit in PROBED_UNITS.items()}
+    view = served_tree(root, SETPOINTS, READINGS, channels=channels)
     return {
         "type": MOCK_TYPE,
         "writes_enabled": False,
@@ -404,16 +407,16 @@ def test_the_child_reports_the_posture_of_the_block_for_its_own_type(tmp_path):
 # ------------------------------------------------------------- spawn_probe
 
 
-@pytest.mark.parametrize("channel", ["SR:BEAM:CURRENT", "VAC:PRESSURE"])
+@pytest.mark.parametrize("channel", list(PROBED_UNITS))
 def test_spawn_probe_reads_the_named_channel(ready_child, channel):
     frame = ready_child.call("spawn_probe", channel=channel, timeout=5.0)
 
     assert isinstance(frame, frames.ResultFrame)
     assert isinstance(frame.value, ChannelValue)
     assert isinstance(frame.value.value, float)
-    # The mock's units come from the channel name, so they show which channel
+    # The mock's units come from the channel record, so they show which channel
     # was read: mA for the beam current, Torr for the vacuum gauge.
-    assert frame.value.metadata.units == classify_channel(channel).units
+    assert frame.value.metadata.units == PROBED_UNITS[channel]
 
 
 def test_a_probe_that_exceeds_its_bound_fails_typed_and_the_child_keeps_serving(ready_child):

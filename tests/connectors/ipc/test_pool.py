@@ -38,6 +38,7 @@ from osprey_connectors.ipc.pool import (
     PooledConnector,
 )
 from tests.connectors.ipc._pool_connectors import WRITE_LOG_ENV
+from tests.facility.served_tree import mock_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHONPATH = os.pathsep.join(
@@ -60,12 +61,41 @@ EXITING = f"{_HELPERS}.ExitingConnector"
 OK_TIMEOUT_S = 10.0
 
 
+#: Every address a child here reads or writes, each a writable setpoint. The
+#: ``SLOW:``, ``GONE:`` and ``WEDGE:`` ones misbehave before the mock serves them.
+SERVED = (
+    "GONE:X",
+    "SLOW:RB",
+    "SLOW:SP",
+    "SLOW:SP2",
+    "SLOW:X",
+    "SR:A",
+    "SR:B",
+    "SR:DCCT",
+    "SR:SP",
+    "SR:SP1",
+    "SR:SP2",
+    "WEDGE:X",
+)
+
+#: The simulator view every child serves, built once per module.
+_VIEW: dict[str, Path] = {}
+
+
+@pytest.fixture(scope="module", autouse=True)
+def served_view(tmp_path_factory):
+    """Build the view :func:`_section` names, before any test asks for a section."""
+    _VIEW["view"] = served_tree(tmp_path_factory.mktemp("pool_served"), SERVED)
+    yield _VIEW["view"]
+    _VIEW.clear()
+
+
 def _section(connector_type: str, *, writes_enabled: bool = False, block=None) -> dict:
     return {
         "type": connector_type,
         "writes_enabled": writes_enabled,
         "connector": {
-            connector_type: {"response_delay_ms": 1, "noise_level": 0.0, **(block or {})}
+            connector_type: mock_config(_VIEW["view"], response_delay_ms=1, **(block or {}))
         },
     }
 
