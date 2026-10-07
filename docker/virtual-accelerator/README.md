@@ -144,11 +144,11 @@ namespace of its own. Which models are served is the view's
 ## Building manually
 
 The build context **must** be a staging directory containing exactly
-`pyproject.toml`, `README.md`, `src/`, and
+`pyproject.toml`, `README.md`, `src/`, `packages/`, and
 `docker/virtual-accelerator/Containerfile` — never the repo root, which also
 contains `.venv/`, `.git/`, and worktrees that would make every build re-tar
 gigabytes of unrelated content for no benefit.
-`scripts/va/run_va.sh` and `scripts/va/build_and_boot_check.sh` both stage this
+`scripts/va/build_and_boot_check.sh` stages this
 automatically; if building by hand, reproduce the same staging step first.
 
 That staging directory deliberately has no `.git`, and osprey's version comes
@@ -159,12 +159,9 @@ report and would fail outright. The host resolves the version and passes it as
 container. A build that omits the arg still succeeds but honestly reports an
 unknown version rather than a plausible wrong one.
 
-`manifest/paths.py` locates the channel-finder database JSON files via the
-installed `osprey.templates` package location
-(`Path(osprey.templates.__file__).parent`), not a fixed-depth `__file__`
-climb — so the VA modules under `src/osprey/services/virtual_accelerator/`
-need no special copy step; they ship automatically with the `src/` copy the
-`Containerfile`'s `pip install .` already installs.
+The VA modules under `src/osprey/services/virtual_accelerator/` ship with the
+`src/` copy and the `osprey-connectors` workspace member with the `packages/`
+copy, both of which the `Containerfile` installs, so no extra copy step exists.
 
 ## Validating
 

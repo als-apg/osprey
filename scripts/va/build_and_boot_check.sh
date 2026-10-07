@@ -11,10 +11,11 @@
 # `<render>/data/simulator/`: `served_models.json`, `addresses.json`,
 # `variables.json`, `seeds.json`, `scenarios.json` and the decks of the
 # deck-backed models. Given no argument, the gate renders that view from the
-# packaged control_assistant preset's data/facility, the way `osprey build`
-# does; given a render's data root (a directory holding `simulator/`), it
-# serves that view. The physics assertions (steps 2, 3, 5, 6, 7) hold only for
-# a view whose served models include one wiring the channels named below.
+# packaged example facility under src/osprey/templates/facilities/example
+# (PRESET_FACILITY), the way `osprey build` does; given a render's data root
+# (a directory holding `simulator/`), it serves that view. The physics
+# assertions (steps 2, 3, 5, 6, 7) hold only for a view whose served models
+# include one wiring the channels named below.
 #
 # Either way the gate serves a COPY of the view with the declared motion
 # (drift and noise seeds) removed from the two monitor readings it measures.
@@ -231,8 +232,9 @@ find "${STAGING_DIR}" -name "__pycache__" -type d -prune -exec rm -rf {} +
 # pin in osprey's `virtual-accelerator` extra, which the Containerfile installs
 # by name from PyPI along with everything else the extra carries. So the five
 # things copied above (packages/ is the osprey-connectors workspace member the
-# Containerfile installs from source) are the whole build-context contract --
-# same as scripts/va/run_va.sh, which stages the same set.
+# Containerfile installs from source) are the whole build-context contract,
+# the one tests/va/test_va_image_build_context.py checks against the
+# Containerfile.
 
 # osprey's version comes from git (hatch-vcs) and the staged context has no
 # .git, so the host resolves it and passes it in; see the Containerfile.

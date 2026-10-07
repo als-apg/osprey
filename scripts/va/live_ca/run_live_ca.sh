@@ -85,8 +85,7 @@ echo "--- runtime: ${RUNTIME}, platform: ${PLATFORM} ---"
 # The image needs only pyproject.toml, uv.lock and README.md, plus each
 # workspace member's pyproject.toml and README.md under packages/ (see the
 # Containerfile for why the member metadata comes along). They are staged into
-# a scratch directory used as the build context, the same way
-# scripts/va/run_va.sh stages its own -- the repo root would work as a context
+# a scratch directory used as the build context -- the repo root would work as a context
 # but also holds .git/, .venv/ and the worktrees, and would make every build
 # re-tar gigabytes of content the image never reads. src/ and tests/ arrive
 # over the read-only mount at run time, not through the context.

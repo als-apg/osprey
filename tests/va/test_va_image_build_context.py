@@ -45,7 +45,9 @@ class ImageBuild:
     containerfile: str
 
 
-IMAGE_BUILDS = (ImageBuild("scripts/va/run_va.sh", "docker/virtual-accelerator/Containerfile"),)
+IMAGE_BUILDS = (
+    ImageBuild("scripts/va/build_and_boot_check.sh", "docker/virtual-accelerator/Containerfile"),
+)
 
 _ROOT_REF = re.compile(r'"?\$\{WORKTREE_ROOT\}/([^"\s]+)"?')
 
