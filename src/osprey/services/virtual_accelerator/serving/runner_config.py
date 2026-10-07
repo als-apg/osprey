@@ -18,6 +18,9 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
 :func:`chromaticity_addresses` names the channels wired to a physics model's
 chromaticity output, which a write pass leaves for the next periodic pass.
 
+:data:`HEALTH_KEYS` holds the defaults of the runner's health record: how many
+consecutive failed publishing passes still count as ``degraded``.
+
 Nothing here imports the serving runtime, so the configuration is decided and
 tested in process.
 """
@@ -28,7 +31,7 @@ import copy
 from collections.abc import Mapping
 from typing import Any
 
-__all__ = ["SAFETY_KEYS", "apply_safety", "chromaticity_addresses"]
+__all__ = ["HEALTH_KEYS", "SAFETY_KEYS", "apply_safety", "chromaticity_addresses"]
 
 #: The write-path keys every model runner configuration carries.
 SAFETY_KEYS: Mapping[str, Any] = {
@@ -38,6 +41,11 @@ SAFETY_KEYS: Mapping[str, Any] = {
     "clamp_writes": True,
     "control_pvs": False,
 }
+
+#: The health keys every model runner configuration carries, at their defaults:
+#: more than ``failed_pass_tolerance`` consecutive failed publishing passes
+#: fail the runner's health record.
+HEALTH_KEYS: Mapping[str, Any] = {"failed_pass_tolerance": 3}
 
 _SETPOINT = "setpoint"
 _FLOAT = "float"

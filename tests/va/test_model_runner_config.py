@@ -206,3 +206,8 @@ def test_the_module_imports_no_server_library() -> None:
 
     roots = {name.split(".")[0] for name in imported}
     assert roots.isdisjoint({"lume_pva_apg", "pcaspy", "p4p"})
+
+
+def test_the_failed_pass_tolerance_is_a_runner_config_field() -> None:
+    assert runner_config.HEALTH_KEYS == {"failed_pass_tolerance": 3}
+    assert "HEALTH_KEYS" in runner_config.__all__
