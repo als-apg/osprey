@@ -48,7 +48,7 @@ from osprey.build.claude_code_telemetry import TelemetryConfigError, openobserve
 from osprey.deployment import openobserve_provision as provision
 from osprey.deployment.reset import MINTED_ENV_BANNERS
 from osprey.port_layout import default_port
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 
 TOKEN_VAR = provision.INGEST_TOKEN_VAR
 EMAIL_VAR = "ZO_INGEST_USER_EMAIL"

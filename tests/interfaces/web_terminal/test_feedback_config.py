@@ -78,11 +78,11 @@ def _lifespan_client(
             return_value=web_terminal_section,
         ),
         patch(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             return_value={"web": {}, "agent_data": {"base_dir": str(shared_root)}},
         ),
         patch(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             side_effect=config_reader or _config_reader(overrides),
         ),
     ):

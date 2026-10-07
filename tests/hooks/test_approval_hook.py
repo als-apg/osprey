@@ -1653,7 +1653,6 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
     reset_config_cache()
 
     launches: list[str] = []
-    monkeypatch.setattr(launcher, "ensure_artifact_server", lambda: launches.append("artifact"))
     monkeypatch.setattr(launcher, "ensure_web_server", lambda key: launches.append(key))
 
     hook = hook_module("osprey_approval")

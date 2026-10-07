@@ -55,8 +55,8 @@ from osprey.cli.build_profile_schema import (
     BlueskyConfig,
     VAConfig,
 )
-from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port
+from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import CONTROL_TARGETS
 
 #: Lane 1's bridge port at the layout's own base — what a profile that names no

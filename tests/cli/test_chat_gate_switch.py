@@ -37,7 +37,7 @@ from osprey.cli.chat_cmd import (
     chat,
 )
 from osprey.cli.phase_reporter import LiveReporter, NullReporter, current_reporter, install_reporter
-from osprey.utils.logger import configure_logging
+from osprey_connectors.logger import configure_logging
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
 
@@ -99,7 +99,7 @@ def gated(monkeypatch: pytest.MonkeyPatch) -> None:
     A live reporter goes with it: the default reporter is already the quiet one,
     so a switch asserted against that default would pass while doing nothing.
     """
-    monkeypatch.setattr("osprey.utils.config.load_project_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
     configure_logging()
     install_gate()
     assert gate_installed(), "the fixture failed to install the gate it is about to watch"

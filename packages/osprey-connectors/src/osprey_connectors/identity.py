@@ -44,7 +44,7 @@ Stdlib only, and a leaf of this package. It is read where ``osprey`` cannot be
 imported at all — connector-host children, executor sandboxes, notebook kernels
 — and it is imported from ``mcp_server``, from the interface apps and from the
 services, where an ``osprey`` import here would risk a cycle between those
-packages. ``osprey.utils.identity`` re-exports every name below, so the
+packages. ``osprey_connectors.identity`` re-exports every name below, so the
 historical import path costs no second implementation.
 """
 

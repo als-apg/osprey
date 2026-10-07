@@ -703,8 +703,8 @@ class TestValidateSubcommand:
 
         with patch("osprey.cli.channel_finder_cmd._setup_config"):
             with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
-                with patch("osprey.utils.config.load_config", return_value=config):
-                    with patch("osprey.utils.workspace.resolve_path", side_effect=Path):
+                with patch("osprey_connectors.config.load_config", return_value=config):
+                    with patch("osprey_connectors.workspace.resolve_path", side_effect=Path):
                         result = runner.invoke(
                             channel_finder, ["validate", "--pipeline", "hierarchical"]
                         )
@@ -724,7 +724,7 @@ class TestValidateSubcommand:
 
         with patch("osprey.cli.channel_finder_cmd._setup_config"):
             with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
-                with patch("osprey.utils.config.load_config", return_value=config):
+                with patch("osprey_connectors.config.load_config", return_value=config):
                     result = runner.invoke(
                         channel_finder, ["validate", "--pipeline", "middle_layer"]
                     )
@@ -754,7 +754,7 @@ class TestGraphParadigmGuidance:
     def _invoke(self, runner, args):
         with patch("osprey.cli.channel_finder_cmd._setup_config"):
             with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
-                with patch("osprey.utils.config.load_config", return_value=GRAPH_CONFIG):
+                with patch("osprey_connectors.config.load_config", return_value=GRAPH_CONFIG):
                     return runner.invoke(channel_finder, args)
 
     def test_validate_prints_the_graph_panel_and_succeeds(self, runner, tmp_path):

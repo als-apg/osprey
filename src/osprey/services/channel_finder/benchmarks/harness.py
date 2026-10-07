@@ -83,51 +83,6 @@ def _mcp_tool_to_openai(tool: Any) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Pre-flight validation
-# ---------------------------------------------------------------------------
-
-
-async def preflight_checks(model: str) -> None:
-    """Validate environment before running benchmark queries.
-
-    Checks:
-    1. Ollama reachability (if using an ``ollama/`` model).
-    2. Tool-calling support for the remapped model name.
-
-    Raises:
-        RuntimeError: If Ollama is required but not reachable.
-    """
-    import httpx
-
-    # 1. Check Ollama reachability for ollama/* models
-    if model.startswith("ollama/"):
-        tags_url = OLLAMA_OPENAI_BASE.replace("/v1", "") + "/api/tags"
-        try:
-            async with httpx.AsyncClient() as http:
-                resp = await http.get(tags_url, timeout=5.0)
-                resp.raise_for_status()
-        except Exception as exc:
-            raise RuntimeError(
-                f"Ollama is not reachable at {tags_url} — is it running?  (error: {exc})"
-            ) from exc
-
-    # 2. Check tool-calling support after remapping
-    remapped = _litellm_model_name(model)
-    try:
-        supported = litellm.get_supported_openai_params(model=remapped)
-        if supported is not None and "tools" not in supported:
-            logger.warning(
-                "Model %r may not support tool calling — 'tools' not in supported OpenAI params.",
-                remapped,
-            )
-    except Exception:
-        logger.warning(
-            "Could not determine supported params for model %r; proceeding anyway.",
-            remapped,
-        )
-
-
-# ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
 

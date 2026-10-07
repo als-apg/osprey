@@ -497,7 +497,7 @@ def _boot(
         monkeypatch.setenv(name, value)
 
     monkeypatch.setattr(
-        "osprey.utils.logger.configure_logging",
+        "osprey_connectors.logger.configure_logging",
         lambda *a, **k: boot.journal.append(("logging", None)),
     )
     monkeypatch.setitem(sys.modules, RUNNER_MODULE, _fake_runner_module(boot, interrupt=interrupt))

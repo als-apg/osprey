@@ -12,9 +12,9 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.mock_connector import MockConnector
 
 TEST_MACHINE = {
     "name": "TestRig",
@@ -82,7 +82,7 @@ def state_dir(tmp_path, monkeypatch):
     ``tmp_path`` keeps a developer's active ``osprey sim`` scenario out of the
     results and the working tree untouched.
     """
-    from osprey.simulation import engine as engine_module
+    from osprey_connectors.simulation import engine as engine_module
 
     path = tmp_path / "_agent_data" / "simulation"
     path.mkdir(parents=True, exist_ok=True)
@@ -96,7 +96,7 @@ class TestMockConnectorSimulation:
     @pytest.mark.asyncio
     async def test_no_simulation_file_means_no_engine(self):
         """Backward compat: without simulation_file the engine is never loaded."""
-        with patch("osprey.utils.config.get_config_value", return_value=False):
+        with patch("osprey_connectors.config.get_config_value", return_value=False):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0})
 
@@ -109,7 +109,7 @@ class TestMockConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_read_engine_channel(self, machine_file):
-        with patch("osprey.utils.config.get_config_value", return_value=False):
+        with patch("osprey_connectors.config.get_config_value", return_value=False):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
 
@@ -125,7 +125,7 @@ class TestMockConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_string_channel_passes_through(self, machine_file):
-        with patch("osprey.utils.config.get_config_value", return_value=False):
+        with patch("osprey_connectors.config.get_config_value", return_value=False):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
 
@@ -136,7 +136,7 @@ class TestMockConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_unknown_pv_falls_back_to_legacy(self, machine_file):
-        with patch("osprey.utils.config.get_config_value", return_value=False):
+        with patch("osprey_connectors.config.get_config_value", return_value=False):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
 
@@ -151,7 +151,7 @@ class TestMockConnectorSimulation:
         """Engine readbacks come from machine-file exprs, not legacy mirroring."""
         connector = MockConnector()
         with patch(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
             await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
@@ -171,7 +171,7 @@ class TestMockConnectorSimulation:
     async def test_write_unknown_pv_uses_legacy_mirroring(self, machine_file):
         connector = MockConnector()
         with patch(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
             await connector.connect(
@@ -191,7 +191,7 @@ class TestMockConnectorSimulation:
     @pytest.mark.asyncio
     async def test_scenario_override_visible_through_connector(self, machine_file, state_dir):
         (state_dir / "active_scenarios").write_text("quad-drift\n")
-        with patch("osprey.utils.config.get_config_value", return_value=False):
+        with patch("osprey_connectors.config.get_config_value", return_value=False):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
 
@@ -213,7 +213,7 @@ class TestMockConnectorSimulation:
                 return str(tmp_path)
             return default
 
-        with patch("osprey.utils.config.get_config_value", side_effect=config_side_effect):
+        with patch("osprey_connectors.config.get_config_value", side_effect=config_side_effect):
             connector = MockConnector()
             await connector.connect(
                 {"response_delay_ms": 0, "simulation_file": "data/simulation/machine.json"}
@@ -227,7 +227,7 @@ class TestMockConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_get_metadata_from_engine(self, machine_file):
-        with patch("osprey.utils.config.get_config_value", return_value=False):
+        with patch("osprey_connectors.config.get_config_value", return_value=False):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
 

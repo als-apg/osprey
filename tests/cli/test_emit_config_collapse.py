@@ -23,8 +23,8 @@ from osprey.cli.build_profile_emit import (
     emit_standalone_profile_yaml,
 )
 from osprey.cli.build_profile_presets import _presets_dir
-from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
+from osprey_connectors.errors import BuildProfileError
 
 #: A landing-page port for the fixtures below, spelled as the layout lookup a
 #: real config carries so no retired number rides along in a filler value.

@@ -25,7 +25,7 @@ are in hand; ``os._exit(0)`` hands the socket back to the OS untorn.
 Protocol -- ``argv[1]`` is a JSON spec::
 
     {"connector_config": {...},          # the ConnectorFactory connector config
-     "config_overrides": {...},          # osprey.utils.config.get_config_value overrides
+     "config_overrides": {...},          # osprey_connectors.config.get_config_value overrides
      "read": "<address>",                # the readback address to return
      "write": {"address": "<addr>", "value": <float>} | null,
      "settle_read": <bool>}              # poll the read until it == write.value (sp-echo)
@@ -80,7 +80,7 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
     out-of-process read/write drives a REAL production connector -- isolated in
     its own process only for CA-teardown safety, never a mocked or bypassed path.
     """
-    from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
     register_builtin_connectors()
 
@@ -107,7 +107,7 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
             node[leaf] = value
         return section or default
 
-    with patch("osprey.utils.config.get_config_value", side_effect=_get_config_value):
+    with patch("osprey_connectors.config.get_config_value", side_effect=_get_config_value):
         connector = await ConnectorFactory.create_control_system_connector(spec["connector_config"])
         result: dict[str, Any] = {"write_outcome": None, "write_error_message": None}
 

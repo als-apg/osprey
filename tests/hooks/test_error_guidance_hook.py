@@ -932,7 +932,7 @@ async def _attachment_view_response(workdir, monkeypatch, attachment_id, row):
     )
     from osprey.mcp_server.ariel.tools.attachment import attachment_view
     from osprey.services.ariel_search.database.repository import SchemaFacts
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     workdir.mkdir(exist_ok=True)
     monkeypatch.chdir(workdir)

@@ -17,9 +17,9 @@ from zoneinfo import ZoneInfo
 import pytest
 from PIL import Image
 
-from osprey.simulation.machine import PlotSpec, ScenarioLogEntry, parse_machine
 from osprey.simulation.plots import render_plot_spec
-from osprey.utils.relative_time import RelativeTimestamp, resolve_relative_timestamp
+from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
+from osprey_connectors.simulation.machine import PlotSpec, ScenarioLogEntry, parse_machine
 from tests.simulation.conftest import TEMPLATE_SIM
 
 #: Upper bound on a picture: a shipped one travels in every wheel and image, and

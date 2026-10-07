@@ -20,8 +20,8 @@ import click
 from osprey.cli import output
 from osprey.cli.styles import Styles, console
 from osprey.deployment.errors import DeploymentPreconditionError
-from osprey.utils.config import load_project_config
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import load_project_config
+from osprey_connectors.logger import get_logger
 
 from .repo_resolver import repo_option
 
@@ -400,7 +400,7 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
                 f"No .env in {repo_root}. Seed one from your shell ({names})?", default=True
             )
         if seed_it:
-            from osprey.utils.dotenv import append_profile_env
+            from osprey_connectors.dotenv import append_profile_env
 
             append_profile_env(env_path, harvest, _UP_SEEDED_ENV_BANNER)
             _report_fact(f"Seeded {env_path} (mode 0600) with {names}")

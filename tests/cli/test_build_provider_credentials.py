@@ -61,7 +61,7 @@ def profile_dir(repo):
 def _clear_provider_keys(monkeypatch):
     """Drop every provider key from the process env.
 
-    ``osprey.utils.config`` eagerly loads a cwd ``.env`` into ``os.environ`` at
+    ``osprey_connectors.config`` eagerly loads a cwd ``.env`` into ``os.environ`` at
     import time, so a developer's real keys would otherwise leak into these
     assertions.
     """
@@ -306,7 +306,7 @@ class TestResolverNoLongerSpamsBuildOutput:
     """The generic ``${VAR}`` resolver reports misses at DEBUG, not INFO."""
 
     def test_unresolved_placeholder_is_not_logged_at_info(self, caplog, monkeypatch):
-        from osprey.utils.config import resolve_env_vars
+        from osprey_connectors.config import resolve_env_vars
 
         monkeypatch.delenv("SOME_UNSET_VAR", raising=False)
 
@@ -317,7 +317,7 @@ class TestResolverNoLongerSpamsBuildOutput:
         assert "SOME_UNSET_VAR" not in caplog.text
 
     def test_unresolved_placeholder_is_still_available_at_debug(self, caplog, monkeypatch):
-        from osprey.utils.config import resolve_env_vars
+        from osprey_connectors.config import resolve_env_vars
 
         monkeypatch.delenv("SOME_UNSET_VAR", raising=False)
 

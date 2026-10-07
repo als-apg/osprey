@@ -28,9 +28,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from osprey.errors import BuildProfileError
-from osprey.utils.dotenv import parse_dotenv_file
-from osprey.utils.logger import get_logger
+from osprey_connectors.dotenv import parse_dotenv_file
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 
 from .repo_resolver import PROFILE_FILENAME
 

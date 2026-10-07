@@ -28,7 +28,7 @@ def _entry(raw_text: str) -> dict:
 
 def test_an_uncut_entry_keeps_its_shape():
     text = "beam loss on the north arc"
-    with patch("osprey.utils.config.get_config_value", _no_template):
+    with patch("osprey_connectors.config.get_config_value", _no_template):
         out = serialize_entry(
             _entry(text),
             text_limit=len(text) + 10,
@@ -42,7 +42,7 @@ def test_an_uncut_entry_keeps_its_shape():
 
 
 def test_a_cut_entry_says_so_and_gives_its_length():
-    with patch("osprey.utils.config.get_config_value", _no_template):
+    with patch("osprey_connectors.config.get_config_value", _no_template):
         out = serialize_entry(
             _entry("abcdefghi"),
             text_limit=4,
@@ -93,7 +93,7 @@ def _serialize(entry: dict, **overrides):
         "file_source": False,
     }
     kwargs.update(overrides)
-    with patch("osprey.utils.config.get_config_value", _no_template):
+    with patch("osprey_connectors.config.get_config_value", _no_template):
         return serialize_entry(entry, **kwargs)
 
 

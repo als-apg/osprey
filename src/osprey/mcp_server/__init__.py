@@ -12,7 +12,7 @@ Shared utilities are split across focused modules:
 - ``http`` — HTTP/IPC helpers (``post_json``, ``gallery_url``, etc.)
 - ``session`` — session metadata collection (``gather_session_metadata``)
 
-Cross-layer config/workspace utilities live in ``osprey.utils.workspace``.
+Cross-layer config/workspace utilities live in ``osprey_connectors.workspace``.
 Storage infrastructure (ArtifactStore, BaseStore, type_registry,
 notebook_renderer) lives in ``osprey.stores``.
 """

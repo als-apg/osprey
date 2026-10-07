@@ -21,9 +21,6 @@ try:
 except ImportError:
     pass
 
-# Backward compatibility alias
-LegacyChannelDatabase = FlatChannelDatabase
-
 __all__ = [
     "FlatChannelDatabase",
     "TemplateChannelDatabase",

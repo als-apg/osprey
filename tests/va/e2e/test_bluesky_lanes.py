@@ -91,8 +91,8 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.bluesky.tools import queue as queue_tools
 from osprey.mcp_server.control_system import target_state
 from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
-from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.workspace import reset_config_cache
 from tests._control_context_fixtures import write_control_context
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._queue_drive import wait_for_worker_environment

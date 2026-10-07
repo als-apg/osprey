@@ -7,7 +7,7 @@ plain read-only record with no wired write behavior -- GOLDEN references,
 STATUS flags, temperatures, pressures, and any other channel with no lattice
 physics and no SP->RB echo pairing. This module is their only value source:
 on each poll tick it reads the effective value for every partition-(c)
-address through the SAME :class:`~osprey.simulation.engine.SimulationEngine`
+address through the SAME :class:`~osprey_connectors.simulation.engine.SimulationEngine`
 used by the mock connector (never a second implementation -- see the module
 docstring on ``engine.py``), and pushes it onto the record with ``.set()``.
 
@@ -15,7 +15,7 @@ Not every partition-(c) address is necessarily defined in the bind-mounted
 ``machine.json`` (only a scenario-relevant subset is -- see
 ``machine-json-lattice-augment``); addresses the engine doesn't serve fall
 back to the same generic channel-taxonomy synthesis the mock connector itself uses
-for unknown channels (``osprey.connectors.channel_taxonomy.classify_channel``): mock
+for unknown channels (``osprey_connectors.channel_taxonomy.classify_channel``): mock
 and VA run the same synthesis path for anything neither one has real data for.
 What each one puts on top of it -- the noise level in particular -- is
 configured separately, so the two agree on the method and not necessarily on
@@ -39,9 +39,9 @@ from typing import Any
 
 import numpy as np
 
-from osprey.connectors.channel_taxonomy import ChannelKind, classify_channel
 from osprey.services.virtual_accelerator.manifest import PARTITION_STATIC_NOISY, RECORD_TYPE_BINARY
-from osprey.simulation.engine import SimulationEngine, engine_serves
+from osprey_connectors.channel_taxonomy import ChannelKind, classify_channel
+from osprey_connectors.simulation.engine import SimulationEngine, engine_serves
 
 ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
 #: Seconds between telemetry ticks when ``VA_POLL_INTERVAL_S`` is unset. The
@@ -204,7 +204,7 @@ class EngineSource:
             # mtime-only signature didn't move (see module docstring): the
             # same escape hatch SimulationEngine.set_active_scenarios() uses
             # internally ("Force a re-read even if filesystem mtime
-            # granularity hides the write" -- osprey/simulation/engine.py).
+            # granularity hides the write" -- osprey_connectors/simulation/engine.py).
             self._engine._state_signature = ("", -1)
 
         return changed

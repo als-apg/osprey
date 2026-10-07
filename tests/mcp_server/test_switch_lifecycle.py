@@ -23,7 +23,6 @@ import time
 
 import pytest
 
-from osprey.connectors.control_system.base import WriteOutcome
 from osprey.mcp_server.control_system import connector_host_manager, target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
     DEFAULT_DRAIN_TIMEOUT_S,
@@ -45,7 +44,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
 )
-from osprey_connectors.control_system.base import ChannelValue
+from osprey_connectors.control_system.base import ChannelValue, WriteOutcome
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.launch import host_env
 from osprey_connectors.ipc.proxy import ConnectorHostProxy

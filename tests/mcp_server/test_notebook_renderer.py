@@ -271,7 +271,7 @@ TOKYO = ZoneInfo("Asia/Tokyo")  # UTC+9, no DST
 def test_header_timestamp_is_in_the_facility_zone(monkeypatch):
     """The header an operator opens carries the facility offset, not a UTC literal."""
     monkeypatch.setattr(
-        "osprey.utils.config.get_facility_timezone",
+        "osprey_connectors.config.get_facility_timezone",
         lambda: TOKYO,
     )
     nb = create_notebook_from_code(code="print(1)", description="Zone test")

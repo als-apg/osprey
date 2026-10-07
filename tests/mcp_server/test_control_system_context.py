@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
-from osprey.errors import ConfigurationError
 from osprey.mcp_server.control_system.server_context import (
     ControlSystemContext,
     MCPServerConfig,
@@ -19,6 +18,7 @@ from osprey.mcp_server.control_system.server_context import (
     initialize_server_context,
     reset_server_context,
 )
+from osprey_connectors.errors import ConfigurationError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -134,7 +134,7 @@ async def test_connector_caching(tmp_path, monkeypatch):
 
     mock_connector = AsyncMock()
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         return_value=mock_connector,
     ):
@@ -154,7 +154,7 @@ async def test_archiver_connector_caching(tmp_path, monkeypatch):
 
     mock_connector = AsyncMock()
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
         new_callable=AsyncMock,
         return_value=mock_connector,
     ):
@@ -179,7 +179,7 @@ async def test_connector_invalidation(tmp_path, monkeypatch):
     mock_c2 = AsyncMock()
 
     with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,
         side_effect=[mock_c1, mock_c2],
     ):
@@ -270,12 +270,12 @@ async def test_shutdown_disconnects_all(tmp_path, monkeypatch):
 
     with (
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
             new_callable=AsyncMock,
             return_value=mock_cs,
         ),
         patch(
-            "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
+            "osprey_connectors.factory.ConnectorFactory.create_archiver_connector",
             new_callable=AsyncMock,
             return_value=mock_arch,
         ),

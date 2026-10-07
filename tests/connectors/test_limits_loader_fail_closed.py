@@ -12,8 +12,8 @@ import json
 
 import pytest
 
-from osprey.connectors.control_system.limits_validator import LimitsValidator
-from osprey.errors import ChannelLimitsViolationError
+from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.errors import ChannelLimitsViolationError
 
 
 def _patch_config(monkeypatch, db_file, allow_unlisted: bool = False):
@@ -36,9 +36,10 @@ def _patch_config(monkeypatch, db_file, allow_unlisted: bool = False):
         "project_root": None,
     }
     monkeypatch.setattr(
-        "osprey.utils.config.get_config_value", lambda key, default=None: values.get(key, default)
+        "osprey_connectors.config.get_config_value",
+        lambda key, default=None: values.get(key, default),
     )
-    monkeypatch.setattr("osprey.utils.config.default_config_path", lambda: None)
+    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
 
 
 def _write_db(tmp_path, db: dict):

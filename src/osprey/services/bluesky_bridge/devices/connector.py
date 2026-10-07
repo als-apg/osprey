@@ -8,7 +8,7 @@ Phase 4's complete-mediation mandate OVERRIDES that ruling: direct CA from
 mediation is closing. This module is the replacement device layer — every
 plan read and every plan write, for every device built here, goes through
 the OSPREY connector
-(:class:`osprey.connectors.control_system.base.ControlSystemConnector`):
+(:class:`osprey_connectors.control_system.base.ControlSystemConnector`):
 reads via ``connector.read_channel``, writes via
 ``connector.write_channel_checked``, which raises on any refused, failed,
 mismatched or unconfirmed write so a bad write aborts the RunEngine rather

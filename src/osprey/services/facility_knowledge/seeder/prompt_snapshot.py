@@ -51,7 +51,7 @@ from typing import Any
 from osprey.services.facility_knowledge.seeder.graph_seeder import NARAD_PREFIXES
 from osprey.services.facility_knowledge.seeder.ttl_seeder import local_name
 from osprey.services.facility_knowledge.ttl_generator.direction import WRITE_SUBFIELD
-from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -540,7 +540,7 @@ def snapshot_targets(render_dir: Path) -> list[Path]:
     ``.claude/agents/``; one directory level down, where attached persona
     renders (the operator terminals sharing this deployment's store) keep
     theirs; and the container-path copies ``osprey build`` stages as each
-    image's build context (:func:`osprey.utils.workspace.container_image_context`),
+    image's build context (:func:`osprey_connectors.workspace.container_image_context`),
     which the images are built from.
 
     Deliberately not a recursive walk: a render carries a ``.venv`` that makes

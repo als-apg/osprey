@@ -25,7 +25,7 @@ def create_server() -> FastMCP:
         prime_config_builder,
         startup_timer,
     )
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey_connectors.workspace import resolve_agent_data_root
 
     # Prime the main ConfigBuilder and registry so downstream services
     # (LimitsValidator, pattern_detection) find their config when tools
@@ -35,7 +35,7 @@ def create_server() -> FastMCP:
     # Session working root used by other tools at call time; the artifact
     # store itself is rooted at the shared data root inside
     # initialize_workspace_singletons().
-    logger.info("Workspace root: %s", resolve_workspace_root())
+    logger.info("Workspace root: %s", resolve_agent_data_root())
     initialize_workspace_singletons()
 
     # Import tool modules (each registers itself via @mcp.tool())

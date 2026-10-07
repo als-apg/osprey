@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from osprey.connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.base import WriteOutcome
 from tests.connectors._epics_fakes import (
     ca_connector,
     fake_p4p_module,

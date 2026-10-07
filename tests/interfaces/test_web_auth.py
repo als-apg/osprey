@@ -43,7 +43,7 @@ from osprey.interfaces.web_auth import (
     peek_supplied_panel_token,
     reset_web_credentials,
 )
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 
 #: Length of ``secrets.token_urlsafe(32)``, the minting recipe every absent
 #: credential falls back to. Still the length of the id ``create_session``

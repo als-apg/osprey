@@ -23,7 +23,7 @@ import sys
 
 import pytest
 
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system.epics_connector import EPICSConnector
 from tests.connectors._epics_fakes import (
     EPICS_PVA_VARS,
     clean_epics_env,  # noqa: F401 - fixture, used by name

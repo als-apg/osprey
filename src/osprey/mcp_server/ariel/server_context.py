@@ -238,7 +238,7 @@ class ARIELContext:
         Returns:
             The raw config dict (empty when no config file is reachable).
         """
-        from osprey.utils.workspace import load_osprey_config, resolve_config_path
+        from osprey_connectors.workspace import load_osprey_config, resolve_config_path
 
         raw = load_osprey_config()
         config_path = resolve_config_path()

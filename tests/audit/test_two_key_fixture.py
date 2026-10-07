@@ -46,7 +46,7 @@ from osprey.audit.protected import (
     SURFACE_SETUP_PATCH,
 )
 from osprey.interfaces.common_middleware import HTTP_MUTATION_SURFACE, HttpAuditMiddleware
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 
 #: Two protected config keys, in two different blocks. Different blocks on
 #: purpose: a recorder that keyed on the top-level section would collapse two

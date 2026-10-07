@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 import osprey_connectors.dotenv
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     BUILD_DERIVED_KEYS,
     VA_LATTICE_DEFAULT,
     _dotenv_raw_lines,

@@ -57,7 +57,7 @@ from osprey.build.claude_code_telemetry import (
 )
 from osprey.cli import output
 from osprey.deployment.qmd_service import DEFAULT_BIND_ADDRESS, dial_address
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, MutableMapping
@@ -618,7 +618,7 @@ def _write_token(env_path: Path, token: str) -> None:
     dead credential in the file for every rotation the deployment ever does.
     """
     from osprey.deployment.container_lifecycle import _append_env_block
-    from osprey.utils.dotenv import atomic_write, dotenv_line_var, format_env_line
+    from osprey_connectors.dotenv import atomic_write, dotenv_line_var, format_env_line
 
     line = format_env_line(INGEST_TOKEN_VAR, token)
     if env_path.is_file():
@@ -731,7 +731,7 @@ def provision_ingest_identity(
 
     from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
     from osprey.deployment.service_tokens import _effective_value
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = Path(env_path)
     on_disk = parse_dotenv_file(env_path) if env_path.is_file() else {}

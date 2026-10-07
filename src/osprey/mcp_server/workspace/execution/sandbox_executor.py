@@ -416,10 +416,10 @@ def create_sandbox_execution_folder() -> Path:
 
     The folder is named for the facility-zone start time.
     """
-    from osprey.utils.config import get_facility_timezone
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors.workspace import resolve_agent_data_root
 
-    base = resolve_workspace_root() / "data" / "sandbox_executions"
+    base = resolve_agent_data_root() / "data" / "sandbox_executions"
     base.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now(get_facility_timezone()).strftime("%Y%m%d_%H%M%S")
@@ -481,13 +481,13 @@ async def execute_sandbox_code(
 
     # 2. Generate wrapper
     from osprey.mcp_server.python_executor.executor import resolve_secret_roots
-    from osprey.utils.workspace import (
+    from osprey_connectors.workspace import (
         load_osprey_config,
+        resolve_agent_data_root,
         resolve_project_root,
-        resolve_workspace_root,
     )
 
-    workspace_root = resolve_workspace_root()
+    workspace_root = resolve_agent_data_root()
     # Resolved directly, NOT as the parent of the agent-data root: that only
     # agreed with the repo root while agent data sat exactly one level below it.
     # Under the four-zone layout the root is `<repo>/var/agent_data`, so the

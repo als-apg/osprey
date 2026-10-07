@@ -39,14 +39,14 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.connectors import types
-from osprey.connectors.factory import (
+from osprey.registry.builtins import FrameworkRegistryProvider
+from osprey_connectors import types
+from osprey_connectors.factory import (
     _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
     ConnectorFactory,
     isolated_connector_registries,
 )
-from osprey.registry.builtins import FrameworkRegistryProvider
 
 
 def _provider_names(connector_type: str) -> set[str]:
@@ -102,7 +102,7 @@ class TestBuiltinConnectorParity:
         entry = _provider_entry(types.LIVE_STANDIN)
 
         assert entry.connector_type == "control_system"
-        assert entry.module_path == "osprey.connectors.control_system.epics_connector"
+        assert entry.module_path == "osprey_connectors.control_system.epics_connector"
         assert entry.class_name == "EPICSConnector"
         assert entry.name != types.EPICS
 
@@ -115,7 +115,7 @@ class TestBuiltinConnectorParity:
         loaded = getattr(importlib.import_module(entry.module_path), entry.class_name)
 
         with isolated_connector_registries(clear=True):
-            from osprey.connectors.factory import register_builtin_connectors
+            from osprey_connectors.factory import register_builtin_connectors
 
             register_builtin_connectors()
             assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is loaded
@@ -184,7 +184,7 @@ class TestRegistryInitializationRegistersTheStandIn:
     @pytest.mark.usefixtures("framework_registry")
     def test_initialize_registry_registers_the_stand_in(self) -> None:
         """The bug: the sandbox's own setup step leaves the type unregistered."""
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
+        from osprey_connectors.control_system.epics_connector import EPICSConnector
 
         assert types.LIVE_STANDIN in ConnectorFactory.list_control_systems()
         assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is EPICSConnector
@@ -204,7 +204,7 @@ class TestRegistryInitializationRegistersTheStandIn:
         before any posture was read, which is what a run stamped
         ``OSPREY_CONTROL_TARGET=standin`` died on.
         """
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
+        from osprey_connectors.control_system.epics_connector import EPICSConnector
 
         # No gateways: connect() then touches no EPICS_* environment variable
         # and opens no CA context, so nothing here reaches a network.

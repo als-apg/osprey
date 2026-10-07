@@ -53,7 +53,7 @@ from osprey.services.virtual_accelerator.manifest.standin_defaults import (
     read_standin_bpm_errors,
     served_data_root,
 )
-from osprey.utils.dotenv import VA_LATTICE_DEFAULT
+from osprey_connectors.dotenv import VA_LATTICE_DEFAULT
 
 # The helpers that render the packaged VA compose template the way the
 # deployment does. Imported from the instance-axis suite that owns them rather

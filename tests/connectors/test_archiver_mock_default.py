@@ -19,9 +19,9 @@ import pytest
 
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
-from osprey.connectors import types
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors import types
+from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 
 FACTORY_LOGGER = "connector_factory"
 
@@ -84,7 +84,7 @@ class TestArchiverTypeFallback:
     @pytest.mark.asyncio
     async def test_config_none_loads_global_config_and_falls_back(self, caplog, monkeypatch):
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda path, default=None, config_path=None: {},
         )
 

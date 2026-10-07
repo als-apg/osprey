@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system.epics_connector import EPICSConnector
 
 EPICS_CA_VARS = (
     "EPICS_CA_ADDR_LIST",
@@ -60,7 +60,7 @@ def patch_writes_enabled(monkeypatch, enabled: bool) -> None:
             return enabled
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
 
 @pytest.fixture

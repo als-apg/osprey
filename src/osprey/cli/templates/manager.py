@@ -16,13 +16,13 @@ from osprey.build.build_tiers import (
 )
 from osprey.cli.templates import claude_code, manifest, scaffolding
 from osprey.cli.templates._rendering import render_template as _render_template
-from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.profiles.web_panels import BUILTIN_PANELS
-from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
-from osprey.utils.workspace import repo_root_for_config
 from osprey_connectors import yaml_loader
+from osprey_connectors.config import resolve_env_vars
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import repo_root_for_config
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -662,7 +662,7 @@ class TemplateManager:
             dry_run: If True, report what would change without writing files
             project_root_override: The repo root the regenerated artifacts must
                 name. Defaults to the repo *of the config being read*, resolved
-                through :func:`osprey.utils.workspace.repo_root_for_config` —
+                through :func:`osprey_connectors.workspace.repo_root_for_config` —
                 see the note below. Pass it explicitly only to render for a
                 root other than the one this render sits in.
             runtime_venv_dir: Directory holding the ``.venv`` the regenerated

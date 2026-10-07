@@ -340,7 +340,7 @@ def _hints() -> list[str]:
     base_url = None
     try:
         from osprey.deployment.qmd_service import ARIEL_CORPUS, resolve_qmd_corpus_config
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         qmd_config = resolve_qmd_corpus_config(load_osprey_config(), ARIEL_CORPUS)
         base_url = qmd_config.base_url if qmd_config is not None else None

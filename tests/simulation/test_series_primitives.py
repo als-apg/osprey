@@ -16,9 +16,9 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pytest
 
-from osprey.simulation import series as series_module
-from osprey.simulation.expressions import ExpressionError
-from osprey.simulation.series import (
+from osprey_connectors.simulation import series as series_module
+from osprey_connectors.simulation.expressions import ExpressionError
+from osprey_connectors.simulation.series import (
     apply_events,
     channel_key_bytes,
     clamp,

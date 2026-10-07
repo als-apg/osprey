@@ -284,7 +284,7 @@ async def test_none_config_falls_back_to_global_archiver_block(
 ) -> None:
     """CLI/standalone: with no per-run config the block comes from the global
     singleton via ``get_config_value("archiver", ...)`` and the run proceeds."""
-    import osprey.utils.config as config_module
+    import osprey_connectors.config as config_module
 
     block = {"type": "mock_archiver"}
     keys_asked: list[str] = []
@@ -321,7 +321,7 @@ async def test_none_config_with_unusable_global_config_is_error(
 ) -> None:
     """Config unavailability -- a raising loader or a scalar ``archiver:`` value
     -- degrades to the misconfiguration error, not a crash."""
-    import osprey.utils.config as config_module
+    import osprey_connectors.config as config_module
 
     monkeypatch.setattr(config_module, "get_config_value", get_config_value)
     runtime = _SpyRuntime(_SpyArchiver())

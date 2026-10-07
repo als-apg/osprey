@@ -20,7 +20,7 @@ from osprey.services.virtual_accelerator.manifest import (
     RECORD_TYPE_ANALOG,
     RECORD_TYPE_BINARY,
 )
-from osprey.simulation.engine import SimulationEngine
+from osprey_connectors.simulation.engine import SimulationEngine
 
 VAC_RB = "ZZTEST:VAC:PRESSURE:01:RB"
 FAULT_BI = "ZZTEST:STATUS:01:FAULT"

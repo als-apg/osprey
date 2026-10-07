@@ -80,7 +80,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
-from osprey.utils.workspace import container_image_context
+from osprey_connectors.workspace import container_image_context
 from tests._container_support import docker_cli_unavailable_reason
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -65,7 +65,7 @@ _PV_NAME = "OSPREY:E2E:ACCOUNT-PROBE"
 
 _CA_CLIENT = """
 import os
-from osprey.connectors.control_system.epics_connector import _configure_pyepics_libca
+from osprey_connectors.control_system.epics_connector import _configure_pyepics_libca
 
 _configure_pyepics_libca()
 import epics.ca as ca

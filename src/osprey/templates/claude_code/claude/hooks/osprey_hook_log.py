@@ -197,7 +197,7 @@ def get_project_dir(hook_input=None):
 
 #: The marker that makes a directory a deployment repo root, and the name of the
 #: render zone inside it. Kept in step with ``osprey.cli.repo_resolver`` and
-#: ``osprey.utils.workspace``; spelled out here rather than imported because a
+#: ``osprey_connectors.workspace``; spelled out here rather than imported because a
 #: hook can be executed by a bare system ``python3`` with no ``osprey`` on its
 #: path, and the derivation below has to work under exactly that interpreter.
 PROFILE_MARKER = "profile.yml"
@@ -278,7 +278,7 @@ def get_repo_root(hook_input=None):
     ``build/`` is re-created wholesale by every ``osprey build``. Anything a hook
     writes for the rest of OSPREY to read — the pending-review store the feedback
     app serves, the focus/artifact state the gallery owns — must anchor one level
-    up, on the repo, exactly as ``osprey.utils.workspace.resolve_project_root``
+    up, on the repo, exactly as ``osprey_connectors.workspace.resolve_project_root``
     does for code that can import osprey. This is that rule, restated with the
     standard library only.
 
@@ -292,7 +292,7 @@ def get_repo_root(hook_input=None):
        control-context record, the audit ledger, the feedback store — outside
        every mount, where the writer that shares those files never looks.
        Qualified the same way, and for the same reason, as
-       ``osprey.utils.workspace.resolve_project_root``.
+       ``osprey_connectors.workspace.resolve_project_root``.
     2. The config's own directory — or its parent when that directory is the
        build zone. Same rule as ``workspace.repo_root_for_config``, and it comes
        *before* any walk because that is where ``resolve_project_root`` puts it:
@@ -367,7 +367,7 @@ def load_osprey_config(hook_input=None):
 # cannot drift apart. The literal serves a hook running with osprey off the
 # path, the one case where guessing beats crashing.
 try:
-    from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR as _DEFAULT_AGENT_DATA_ROOT
+    from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR as _DEFAULT_AGENT_DATA_ROOT
 except Exception:  # pragma: no cover - hooks must never crash the agent
     _DEFAULT_AGENT_DATA_ROOT = "var/agent_data"
 

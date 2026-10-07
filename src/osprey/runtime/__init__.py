@@ -71,14 +71,14 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from osprey.connectors.control_system.limits_validator import LimitsValidator
     from osprey_connectors.control_context import ControlContext
+    from osprey_connectors.control_system.limits_validator import LimitsValidator
 
 logger = get_logger("runtime")
 
@@ -352,7 +352,7 @@ async def _get_connector():
             await _disconnect_locked()
 
         if _runtime_connector is None:
-            from osprey.connectors.factory import ConnectorFactory
+            from osprey_connectors.factory import ConnectorFactory
 
             config = _target_connector_config()
             if config is None:
@@ -495,7 +495,7 @@ def _phase_for_outcome(outcome: Any) -> str | None:
     ``unconfirmed``, ``failed`` and ``unrequested`` all put the value on the
     wire without verifying it held (``sent``); ``refused`` sent nothing.
     """
-    from osprey.connectors.control_system import WriteOutcome
+    from osprey_connectors.control_system import WriteOutcome
 
     if outcome is None or outcome == WriteOutcome.REFUSED:
         return None
@@ -547,7 +547,7 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     # on a refusal, on a failed write, AND on a write whose confirming re-read
     # did not hold the setpoint. Calling write_channel directly would let an
     # unconfirmed write return silently and get logged as "Wrote ...".
-    from osprey.errors import ChannelWriteFailedError
+    from osprey_connectors.errors import ChannelWriteFailedError
 
     _notify_write(channel_address, _WRITE_PHASE_ATTEMPT)
     try:
@@ -588,7 +588,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         # through _write_channel_async.
         _assert_target_pin()
 
-        from osprey.connectors.control_system import raise_for_write_result
+        from osprey_connectors.control_system import raise_for_write_result
 
         connector = await _get_connector()
 

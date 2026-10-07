@@ -659,11 +659,11 @@ class TestEnhancementModulesInit:
 class TestIngestionAdaptersInit:
     """Tests for ingestion adapter initialization."""
 
-    def test_base_adapter_import(self) -> None:
-        """BaseAdapter can be imported."""
-        from osprey.services.ariel_search.ingestion.base import BaseAdapter
+    def test_facility_adapter_import(self) -> None:
+        """FacilityAdapter can be imported."""
+        from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 
-        assert BaseAdapter is not None
+        assert FacilityAdapter is not None
 
     def test_ingestion_adapters_in_registry(self) -> None:
         """Ingestion adapters are discoverable via the Osprey registry."""

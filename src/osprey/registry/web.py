@@ -379,7 +379,7 @@ def resolve_web_server_address(
     definition = FRAMEWORK_WEB_SERVERS[key]
 
     if config is None:
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         config = load_osprey_config() or {}
         if not config:

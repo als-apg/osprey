@@ -296,7 +296,7 @@ def is_offline() -> bool:
     if override is not None:
         return override
     try:
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         cfg = load_osprey_config() or {}
     except Exception:

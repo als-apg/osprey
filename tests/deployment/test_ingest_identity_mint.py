@@ -66,7 +66,7 @@ _SERVER_TOKEN = "Fak3T0kenFak3T0k"
 
 
 def _parse_dotenv(path: Path) -> dict[str, str]:
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     return parse_dotenv_file(path) if path.is_file() else {}
 

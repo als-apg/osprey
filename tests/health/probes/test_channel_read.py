@@ -14,11 +14,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from osprey.connectors.control_system.base import ChannelMetadata, ChannelValue
 from osprey.health.models import Status
 from osprey.health.probes import ProbeContext, get_probe
 from osprey.health.probes.channel_read import run
 from osprey.health.runtime import HealthRuntime
+from osprey_connectors.control_system.base import ChannelMetadata, ChannelValue
 
 
 class _SpyConnector:

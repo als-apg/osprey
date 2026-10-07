@@ -9,7 +9,7 @@ appends through :func:`append_envelope` instead.
 
 **Routing is (identity, surface).** A record lands in
 ``var/audit/<identity>/<surface>.jsonl``, where the identity comes from
-:func:`~osprey.utils.identity.acting_identity` — the shared ladder
+:func:`~osprey_connectors.identity.acting_identity` — the shared ladder
 ``OSPREY_TERMINAL_USER`` → ``OSPREY_AUDIT_IDENTITY`` → local account →
 ``unknown``, and **never** the hostname. That helper also fills the envelope's
 ``actor``, so the two read the same answer from the same rung by default.
@@ -86,8 +86,8 @@ from typing import Any
 
 from osprey.audit.call import current_tool_use_id
 from osprey.audit.envelope import DECISION_REFUSED, SURFACE_EXECUTOR, AuditEnvelope
-from osprey.utils.identity import acting_identity
-from osprey.utils.logger import get_logger
+from osprey_connectors.identity import acting_identity
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("audit_writer")
 
@@ -166,7 +166,7 @@ _OPEN_FLAGS: int = os.O_WRONLY | os.O_APPEND | os.O_CREAT
 # Characters that would let a surface escape its identity's directory or split
 # into several, plus the two names that are a path component syntactically but
 # resolve elsewhere. Spelled here rather than imported from
-# :mod:`osprey.utils.identity`, whose equivalent is private and whose job is
+# :mod:`osprey_connectors.identity`, whose equivalent is private and whose job is
 # the ladder rather than validation — and whose contract is that its own output
 # already passed this test.
 _UNSAFE_IN_COMPONENT: tuple[str, ...] = ("/", "\\", "\0")
@@ -179,7 +179,7 @@ def audit_dir() -> Path:
     Anchored on the project root resolver, so a record lands in the repo whose
     operation was audited rather than in whatever directory the emitting
     process happens to run from, and spelled with
-    :data:`~osprey.utils.workspace.AUDIT_DIR_RELPATH` so the writer's path and
+    :data:`~osprey_connectors.workspace.AUDIT_DIR_RELPATH` so the writer's path and
     the container's mounted path come from one constant.
 
     Imported lazily and kept as its own function for the same two reasons the
@@ -188,7 +188,7 @@ def audit_dir() -> Path:
     the MCP middleware and the HTTP layer without dragging the workspace
     resolver (and its config load) behind it.
     """
-    from osprey.utils.workspace import (
+    from osprey_connectors.workspace import (
         AUDIT_DIR_RELPATH,
         load_osprey_config,
         resolve_project_root,
@@ -289,7 +289,7 @@ def ledger_name(surface: str) -> str:
 def ledger_path(surface: str, identity: str | None = None) -> Path:
     """Full path of the ledger a record on *surface* belongs in.
 
-    *identity* defaults to :func:`~osprey.utils.identity.acting_identity`; it
+    *identity* defaults to :func:`~osprey_connectors.identity.acting_identity`; it
     is a parameter only so a caller that already resolved the identity for the
     envelope's ``actor`` does not have to resolve it twice.
 
@@ -539,7 +539,7 @@ def record(**fields: Any) -> Path | None:
     The entry point for emitters that have facts rather than an envelope. Two
     things it does that a bare constructor call cannot:
 
-    * ``actor`` defaults to :func:`~osprey.utils.identity.acting_identity`, so
+    * ``actor`` defaults to :func:`~osprey_connectors.identity.acting_identity`, so
       no emitter re-implements the ladder or accidentally names the process
       account where the container has a service identity.
     * ``tool_use_id`` defaults to the id of the tool call in scope

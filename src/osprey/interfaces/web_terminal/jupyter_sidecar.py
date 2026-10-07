@@ -150,7 +150,7 @@ def _deployment_config() -> Mapping[str, Any]:
     Imported at call time: the loader pulls in the workspace machinery, which
     a sidecar has no other reason to carry.
     """
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     return load_osprey_config()
 

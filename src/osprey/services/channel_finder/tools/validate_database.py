@@ -384,8 +384,8 @@ def run_validation(
         validate, so the graph guidance is printed and 0 returned.
     """
     console = console or _default_console
-    from osprey.utils.config import load_config as get_config
-    from osprey.utils.workspace import resolve_path
+    from osprey_connectors.config import load_config as get_config
+    from osprey_connectors.workspace import resolve_path
 
     pipeline_type: str
 

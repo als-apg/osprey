@@ -46,8 +46,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 logger = get_logger("deployment.staleness")
 
@@ -56,7 +56,7 @@ _MANIFEST_FILENAME = ".osprey-manifest.json"
 #: Where ``osprey build`` renders the deployment repo's output zone. The
 #: manifest sits at its root: ``build/`` *is* the rendered project, so there is
 #: exactly one place a repo's build provenance can be. Aliased to
-#: :data:`osprey.utils.workspace.BUILD_DIR_NAME` rather than spelled again — a
+#: :data:`osprey_connectors.workspace.BUILD_DIR_NAME` rather than spelled again — a
 #: second literal for the same directory is a second thing to get wrong.
 BUILD_DIRNAME = BUILD_DIR_NAME
 

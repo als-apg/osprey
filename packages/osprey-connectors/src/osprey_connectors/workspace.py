@@ -496,10 +496,6 @@ def resolve_shared_data_root(config: Mapping[str, Any] | None = None) -> Path:
     return resolved
 
 
-# Backward-compatible alias
-resolve_workspace_root = resolve_agent_data_root
-
-
 def resolve_path(path_str: str) -> Path:
     """Resolve a path relative to the project root from config.
 

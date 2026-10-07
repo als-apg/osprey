@@ -93,12 +93,14 @@ def _pin_loaded_config(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make ``load_osprey_config()`` return :data:`CONFIG`.
 
     The resolvers that load the project config themselves (rather than being
-    handed one) import :func:`osprey.utils.workspace.load_osprey_config` inside
+    handed one) import :func:`osprey_connectors.workspace.load_osprey_config` inside
     the function body, so patching it at its source reaches all of them.
     """
-    import osprey.utils.workspace
+    import osprey_connectors.workspace
 
-    monkeypatch.setattr(osprey.utils.workspace, "load_osprey_config", lambda *a, **k: dict(CONFIG))
+    monkeypatch.setattr(
+        osprey_connectors.workspace, "load_osprey_config", lambda *a, **k: dict(CONFIG)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -172,12 +174,12 @@ def _pin_config_values(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make ``get_config_value`` serve :data:`CONFIG`'s deployment block.
 
     The ARIEL CLI operations read the project config through
-    :func:`osprey.utils.config.get_config_value` inside the function body, so
+    :func:`osprey_connectors.config.get_config_value` inside the function body, so
     patching it at its source reaches both the Postgres block and the base.
     """
-    import osprey.utils.config
+    import osprey_connectors.config
 
-    monkeypatch.setattr(osprey.utils.config, "get_config_value", _config_value_reader())
+    monkeypatch.setattr(osprey_connectors.config, "get_config_value", _config_value_reader())
 
 
 def _ariel_cli_config(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
@@ -224,13 +226,15 @@ def _ariel_store_config(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tup
 
 def _ariel_mcp_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``mcp_server.ariel.server_context`` — the config every ARIEL MCP tool holds."""
-    import osprey.utils.workspace
+    import osprey_connectors.workspace
     from osprey.mcp_server.ariel.server_context import ARIELContext
 
     raw = {**CONFIG, "ariel": dict(_ARIEL_SECTION)}
-    monkeypatch.setattr(osprey.utils.workspace, "load_osprey_config", lambda *a, **k: dict(raw))
     monkeypatch.setattr(
-        osprey.utils.workspace, "resolve_config_path", lambda *a, **k: tmp_path / "config.yml"
+        osprey_connectors.workspace, "load_osprey_config", lambda *a, **k: dict(raw)
+    )
+    monkeypatch.setattr(
+        osprey_connectors.workspace, "resolve_config_path", lambda *a, **k: tmp_path / "config.yml"
     )
     context = ARIELContext()
     context.initialize()

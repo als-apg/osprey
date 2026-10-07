@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 from .base import BaseProvider
 from .litellm_adapter import (

@@ -811,7 +811,7 @@ class TestSemanticProcessorConfigureModelResolution:
         def boom(*_args, **_kwargs):
             raise AssertionError("configure must not load config.yml")
 
-        monkeypatch.setattr("osprey.utils.config.load_config", boom)
+        monkeypatch.setattr("osprey_connectors.config.load_config", boom)
 
         module = SemanticProcessorModule()
         module.configure({"provider": "ollama", "model": {"temperature": 0.2}})

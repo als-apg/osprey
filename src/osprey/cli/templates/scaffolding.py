@@ -407,7 +407,7 @@ def copy_template_data(
             "data_root=BuildProfile.resolved_data_root(profile_dir)."
         )
 
-    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
+    from osprey_connectors.workspace import RUNTIME_DATA_DIR_NAME
 
     dst_data = project_dir / "data"
 

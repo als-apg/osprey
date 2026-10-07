@@ -82,7 +82,7 @@ def run_validate(monkeypatch: pytest.MonkeyPatch, in_context_database: str):
     — it writes an ancestor ``.env`` straight into ``os.environ``, outliving the
     test — and ``_setup_config`` is stubbed so the run needs no built project.
     """
-    monkeypatch.setattr("osprey.utils.config.load_project_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
     monkeypatch.setattr("osprey.cli.channel_finder_cmd._setup_config", lambda *a, **k: None)
     runner = CliRunner()
 

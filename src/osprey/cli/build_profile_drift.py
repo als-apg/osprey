@@ -38,13 +38,13 @@ from typing import Any
 from ruamel.yaml import YAML, CommentedMap, CommentedSeq
 
 from osprey import __version__
-from osprey.errors import BuildProfileError
 from osprey.profiles.providers import (
     PROVIDERS_FILENAME,
     compute_providers_hash,
     load_provider_catalog,
     packaged_catalog_path,
 )
+from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_document import _read_profile_document
 from .build_profile_emit import materialized_profile, persona_catalog

@@ -30,7 +30,7 @@ from osprey.services.ariel_search.enhancement.semantic_processor.processor impor
 @pytest.fixture
 def provider_models(monkeypatch) -> None:
     """A deployment whose ``cborg`` entry names its default model."""
-    import osprey.utils.config as config_mod
+    import osprey_connectors.config as config_mod
 
     config = {
         "claude_code": {"provider": "als-apg", "default_model": "claude-sonnet-5"},

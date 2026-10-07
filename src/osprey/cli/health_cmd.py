@@ -10,7 +10,7 @@ runs the async health suite, and renders the report. All check logic lives in
 Design contracts honored here:
 
 * **Single config load.** The CLI loads ``config.yml`` exactly once via
-  :func:`osprey.utils.config.get_config_builder` and reports on the outcome
+  :func:`osprey_connectors.config.get_config_builder` and reports on the outcome
   through a :class:`~osprey.health.core.configuration.ConfigState`. A load
   failure never crashes the command — it degrades into configuration error rows
   while the rest of the report still renders.
@@ -110,10 +110,10 @@ def _resolve_anchors(project_path: Path) -> tuple[Path, Path, list[Path]]:
     So the config is looked up through
     :func:`osprey.cli.project_utils.project_config_path` (render first, then the
     flat spelling a container project directory uses — the same order
-    :func:`osprey.utils.workspace.resolve_config_path` reads, and the same one
+    :func:`osprey_connectors.workspace.resolve_config_path` reads, and the same one
     the ``channel-finder`` group resolves through), the repo root is derived from
     wherever that landed, and the env chain comes from
-    :func:`osprey.utils.workspace.deployment_env_chain` — the same
+    :func:`osprey_connectors.workspace.deployment_env_chain` — the same
     repo-root-with-container-fallback rule the loader uses, spelled once so the
     two cannot disagree. The CHAIN, not just ``.env``: resolved through the
     config path rather than the working directory, so ``--project`` from
@@ -124,7 +124,7 @@ def _resolve_anchors(project_path: Path) -> tuple[Path, Path, list[Path]]:
         ``(config_path, repo_root, env_paths)``. Nothing is required to exist;
         a missing config is reported by the ``configuration`` category.
     """
-    from osprey.utils.workspace import deployment_env_chain, repo_root_for_config
+    from osprey_connectors.workspace import deployment_env_chain, repo_root_for_config
 
     from .project_utils import project_config_path
 

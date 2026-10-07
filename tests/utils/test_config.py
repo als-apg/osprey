@@ -9,7 +9,7 @@ untouched.
 
 from __future__ import annotations
 
-from osprey.utils.config import ConfigBuilder
+from osprey_connectors.config import ConfigBuilder
 
 _CONFIG_YML = "project_root: /test/project\n"
 

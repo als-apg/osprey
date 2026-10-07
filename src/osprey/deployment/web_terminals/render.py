@@ -78,8 +78,8 @@ from osprey.services.auth_sidecar.roster_env import env_var_suffix, env_var_suff
 # validity predicate, shared with the sidecar that builds the throttle.
 from osprey.services.auth_sidecar.throttle import THROTTLE_DEFAULTS, throttle_problems
 from osprey.utils.facility import resolve_facility_name
-from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_DIR_NAME
+from osprey_connectors.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed
@@ -537,10 +537,10 @@ def _container_agent_data_dir(config: Any, container_project_dir: str) -> str:
 
     The mount target has to be the directory the process inside the container
     actually writes to, and that directory is decided by ``agent_data.base_dir``
-    — the same key :func:`osprey.utils.workspace.resolve_agent_data_root`
+    — the same key :func:`osprey_connectors.workspace.resolve_agent_data_root`
     resolves at runtime, anchored on the config's ``project_root`` (in-container:
     *container_project_dir*). Derived through the shared
-    :func:`~osprey.utils.workspace.agent_data_base_dir` reader for that reason:
+    :func:`~osprey_connectors.workspace.agent_data_base_dir` reader for that reason:
     a literal here is a second, silent spelling of the same setting, and a
     project that relocates its agent-data root would mount the volume at the old
     path while the agent writes to the new one — an unbacked directory in the
@@ -712,7 +712,7 @@ def _control_context_mount_source(config: Any, identity: str) -> str:
     The same directory as :func:`_container_control_context_dir` names inside
     the container, spelled for the host — ``./var/agent_data/control_target/<identity>``
     for a stock project. Read from ``agent_data.base_dir`` through the shared
-    :func:`~osprey.utils.workspace.agent_data_base_dir` reader, because that key
+    :func:`~osprey_connectors.workspace.agent_data_base_dir` reader, because that key
     is what the deploy path provisions the tree under at 2770
     (``_ensure_agent_data_structure`` on build, ``deploy_up_web_terminals`` on
     the way up). A literal ``var/agent_data`` here would bind a host directory

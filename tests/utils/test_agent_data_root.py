@@ -8,7 +8,7 @@ literal ``_agent_data`` regardless, so a project that overrode the ``file_paths`
 copy silently desynced its container mounts from its data.
 
 The ``file_paths`` copy is retired.  Every reader now resolves the root through
-:func:`osprey.utils.workspace.agent_data_base_dir`, and ``file_paths`` is left
+:func:`osprey_connectors.workspace.agent_data_base_dir`, and ``file_paths`` is left
 holding only the *subdirectory* names below that root.  These tests pin that
 split from both sides: the root follows ``agent_data.base_dir`` and ignores the
 retired key, and a subdirectory name declared in ``file_paths`` reaches both the
@@ -33,8 +33,8 @@ import pytest
 from osprey.deployment.compose_generator import _ensure_agent_data_structure
 from osprey.health.core.file_system import file_system
 from osprey.health.models import Status
-from osprey.utils.config import get_agent_dir
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR, agent_data_base_dir
+from osprey_connectors.config import get_agent_dir
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, agent_data_base_dir
 
 # The shipped templates' declarations, as rendered into every project.
 TEMPLATE_BASE_DIR = "./_agent_data"
@@ -293,7 +293,7 @@ class TestScenarioStateMountPoint:
 
     def test_matches_what_the_engine_resolves(self, project: Path) -> None:
         """The pre-created mount point and the runtime write target are one path."""
-        from osprey.simulation.engine import resolve_state_dir
+        from osprey_connectors.simulation.engine import resolve_state_dir
 
         config: dict[str, Any] = {
             "project_root": str(project),

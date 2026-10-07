@@ -17,7 +17,7 @@ import pytest
 from rich.logging import RichHandler
 
 from osprey.services.bluesky_bridge import session_dir as _session_plan_dir
-from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
+from osprey_connectors.logger import QUIET_THIRD_PARTY_LOGGERS
 from tests import _env_scope_guard, _live_threads, _repo_cleanliness, ci_diagnostics
 from tests._env_scope_guard import restore_module_environment
 
@@ -771,7 +771,7 @@ def reset_state_between_tests():
     """
     # Reset before test
     from osprey.registry import reset_registry
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_registry()
     reset_config_cache()
@@ -1105,7 +1105,7 @@ def restore_cwd():
 def restore_root_logging():
     """Return root logging to its pre-collection state before and after every test.
 
-    Leak guarded: ``configure_logging()`` (``src/osprey/utils/logger.py``) makes
+    Leak guarded: ``configure_logging()`` (``osprey_connectors/logger.py``) makes
     three process-global changes — it sets the root logger level, installs an
     Osprey ``RichHandler``, and raises six third-party loggers to WARNING. Any
     test that reaches an entry point triggers all three, and they would then

@@ -391,9 +391,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         if not self._auto_launch:
             return
         try:
-            from osprey.infrastructure.server_launcher import ensure_artifact_server
+            from osprey.infrastructure.server_launcher import ensure_web_server
 
-            ensure_artifact_server()
+            ensure_web_server("artifact")
         except Exception as exc:
             logger.warning("Artifact server auto-launch failed: %s", exc, exc_info=True)
 

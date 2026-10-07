@@ -79,7 +79,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from osprey.utils.identity import TERMINAL_USER_ENV, _usable, acting_identity
+from osprey_connectors.identity import TERMINAL_USER_ENV, _usable, acting_identity
 
 logger = logging.getLogger(__name__)
 
@@ -826,7 +826,7 @@ def _own_secret_operator() -> OperatorIdentity:
     """Who this process's OWN operator secret names, if it names anyone.
 
     Read per call rather than settled at population, for the reason
-    :func:`osprey.utils.identity.acting_identity` is: the markers are set per
+    :func:`osprey_connectors.identity.acting_identity` is: the markers are set per
     process by compose and by the entrypoint, and this module is populated by
     whichever request arrives first.
 
@@ -837,11 +837,11 @@ def _own_secret_operator() -> OperatorIdentity:
     of it: there is one account at the console and it is the process's own.
 
     Everything else is the shared sidecar reached directly with the
-    deployment-wide secret. Its :data:`~osprey.utils.identity.AUDIT_IDENTITY_ENV`
+    deployment-wide secret. Its :data:`~osprey_connectors.identity.AUDIT_IDENTITY_ENV`
     names the SERVICE, so falling through to ``acting_identity()`` there would
     file a human's work under ``bluesky-web``; it names nobody instead.
 
-    The container test asks :func:`~osprey.utils.identity._usable` rather than
+    The container test asks :func:`~osprey_connectors.identity._usable` rather than
     whether the marker is merely non-blank, because the answer comes from the
     ladder that applies that same rule: a marker the ladder rejects would
     otherwise take this branch and be answered from the rung below it, which in
@@ -1083,7 +1083,7 @@ def _roster_owners_from_env() -> dict[str, str]:
     value carrying any unreadable entry names nobody at all. Both halves are
     checked for that reason: a suffix against the shape a roster variable can
     have (see :func:`_usable_suffix`), an account against the shape
-    :mod:`osprey.utils.identity` holds an identity to — the account becomes a
+    :mod:`osprey_connectors.identity` holds an identity to — the account becomes a
     directory name under the control-target tree — with non-ASCII and
     non-printable values excluded on top, because an owner also travels as an
     HTTP header value.

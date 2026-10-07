@@ -211,7 +211,7 @@ async def test_sandbox_subprocess_env_excludes_launch_token(
 
     with (
         patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ),
         patch(
@@ -240,7 +240,7 @@ async def test_sandbox_subprocess_env_excludes_event_dispatcher_token(
 
     with (
         patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ),
         patch(
@@ -271,7 +271,7 @@ async def test_sandbox_subprocess_env_keeps_unrelated_vars(
 
     with (
         patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ),
         patch(
@@ -308,7 +308,7 @@ async def _sandbox_child_env(execution_folder, workspace_root) -> dict[str, str]
 
     with (
         patch(
-            "osprey.utils.workspace.resolve_workspace_root",
+            "osprey_connectors.workspace.resolve_agent_data_root",
             return_value=workspace_root,
         ),
         patch(
@@ -380,7 +380,7 @@ async def test_real_execution_cannot_see_launch_token(
     """)
 
     with patch(
-        "osprey.utils.workspace.resolve_workspace_root",
+        "osprey_connectors.workspace.resolve_agent_data_root",
         return_value=workspace_root,
     ):
         result = await execute_sandbox_code(code=code, execution_folder=execution_folder)

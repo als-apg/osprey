@@ -29,7 +29,7 @@ from osprey.simulation.apply import (
     render_scenario_physics_env,
     write_scenario_physics_env,
 )
-from osprey.simulation.engine import SimulationEngine, resolve_active_scenarios
+from osprey_connectors.simulation.engine import SimulationEngine, resolve_active_scenarios
 from tests.simulation.conftest import stage_sim_project
 
 

@@ -309,7 +309,7 @@ def test_resolve_bridge_url_reads_the_config_when_the_env_is_empty(monkeypatch, 
     variable reaches the server EMPTY and must count as no override."""
     import yaml
 
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     (tmp_path / "config.yml").write_text(
         yaml.safe_dump({"services": {"bluesky": {"port": 18090}}}), encoding="utf-8"

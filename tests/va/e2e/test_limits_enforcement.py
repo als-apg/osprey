@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.errors import ChannelLimitsViolationError
 from osprey.services.virtual_accelerator.bindings import Binding
 from osprey_connectors.control_system import WriteOutcome
+from osprey_connectors.errors import ChannelLimitsViolationError
 from tests.va.e2e import conftest as e2e_conftest
 
 #: Which writable corrector this lane drives, as a slot in the served tree's

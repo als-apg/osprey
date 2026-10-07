@@ -41,8 +41,8 @@ from osprey.mcp_server.sandbox_env import (
     scrub_sandbox_child_env,
 )
 from osprey.stores.artifact_manifest import collect_artifacts
-from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS, get_facility_timezone
 from osprey_connectors import posture_store
+from osprey_connectors.config import EXECUTION_METHOD_SUBPROCESS, get_facility_timezone
 
 if TYPE_CHECKING:
     from osprey_connectors.control_context import ControlContext
@@ -211,9 +211,8 @@ def _read_config() -> dict:
         dict: ``execution_method`` (always the resolved backend name, never the
         raw config string) and ``timeout`` in seconds.
     """
-    from osprey.utils.config import resolve_execution_method
-    from osprey.utils.workspace import load_osprey_config
-    from osprey_connectors.config import DEFAULT_EXECUTION_TIMEOUT_SECONDS
+    from osprey_connectors.config import DEFAULT_EXECUTION_TIMEOUT_SECONDS, resolve_execution_method
+    from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
 
@@ -237,7 +236,7 @@ def _resolve_project_root() -> Path:
     exactly one level below it, which stopped being true when it moved under
     ``var/`` and was never true for a project that relocated it.
     """
-    from osprey.utils.workspace import load_osprey_config, resolve_project_root
+    from osprey_connectors.workspace import load_osprey_config, resolve_project_root
 
     return resolve_project_root(load_osprey_config())
 
@@ -281,7 +280,7 @@ def resolve_protected_roots(
         Absolute, resolved paths — de-duplicated, order preserved. The child
         gets these as literals and never re-derives them.
     """
-    from osprey.utils.workspace import AUDIT_DIR_RELPATH, BUILD_DIR_NAME
+    from osprey_connectors.workspace import AUDIT_DIR_RELPATH, BUILD_DIR_NAME
 
     root = Path(project_root) if project_root is not None else _resolve_project_root()
     root = root.resolve()
@@ -315,7 +314,7 @@ def resolve_permitted_roots(
     Returns:
         Absolute, resolved paths.
     """
-    from osprey.utils.workspace import agent_data_base_dir, anchored_path, load_osprey_config
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path, load_osprey_config
 
     root = Path(project_root) if project_root is not None else _resolve_project_root()
     root = root.resolve()
@@ -381,9 +380,9 @@ def resolve_agent_interpreter(project_root: Path | None = None) -> Path:
 
 def _create_execution_folder() -> Path:
     """Create a folder under the workspace, named for the facility-zone start time."""
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey_connectors.workspace import resolve_agent_data_root
 
-    base = resolve_workspace_root() / "data" / "python_executions"
+    base = resolve_agent_data_root() / "data" / "python_executions"
     base.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now(get_facility_timezone()).strftime("%Y%m%d_%H%M%S")
@@ -430,7 +429,7 @@ def _load_limits_validator(target: str | None):
             that asked for checking.
     """
     try:
-        from osprey.connectors.control_system.limits_validator import LimitsValidator
+        from osprey_connectors.control_system.limits_validator import LimitsValidator
 
         return LimitsValidator.from_config(target=target)
     except (ImportError, FileNotFoundError, KeyError, RuntimeError):
@@ -805,7 +804,7 @@ async def _execute_via_local(
 ) -> ExecutionResult:
     """Execute code in a host subprocess with the ExecutionWrapper."""
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     # cwd = project root so user code can access workspace files via relative
     # paths (e.g. "_agent_data/data/002_archiver_read.json"). Resolved here,

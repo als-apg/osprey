@@ -201,11 +201,11 @@ def test_passthrough_key_rejects_a_bad_entry(value):
 @pytest.fixture
 def reset_config_caches(monkeypatch):
     """Reset every config cache around a test that writes its own ``config.yml``."""
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_config_cache()
 
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     monkeypatch.setattr(_cfg, "_default_config", None)
     monkeypatch.setattr(_cfg, "_default_configurable", None)

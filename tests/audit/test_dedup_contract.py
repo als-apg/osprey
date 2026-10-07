@@ -32,7 +32,7 @@ from osprey.audit import dedup, writer
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, SURFACE_EXECUTOR
 from osprey.mcp_server import audit_middleware as am
 from osprey.mcp_server.python_executor.tools import _execution_gates as gates
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 
 # --------------------------------------------------------------------------
 # Fixtures and helpers

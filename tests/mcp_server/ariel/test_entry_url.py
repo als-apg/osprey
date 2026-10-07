@@ -52,41 +52,41 @@ def test_native_source_system_constant():
 
 def test_build_entry_url_renders_with_template():
     """FR1/FR2: a facility entry renders the template with its id."""
-    with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
+    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         url = server.build_entry_url("175353", "Facility eLog")
     assert url == "https://logbook.example/olog.php?id=175353"
 
 
 def test_build_entry_url_source_system_defaults_to_facility():
     """A facility entry with no explicit source_system still renders (default None)."""
-    with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
+    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         url = server.build_entry_url("42")
     assert url == "https://logbook.example/olog.php?id=42"
 
 
 def test_build_entry_url_url_encodes_id():
     """FR4: entry_id is URL-encoded with safe='' when substituted."""
-    with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
+    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         url = server.build_entry_url("a b/c?d&e", "Facility eLog")
     assert url == "https://logbook.example/olog.php?id=a%20b%2Fc%3Fd%26e"
 
 
 def test_build_entry_url_none_when_template_unset():
     """FR3: no template configured -> None."""
-    with patch("osprey.utils.config.get_config_value", _fake_config(None)):
+    with patch("osprey_connectors.config.get_config_value", _fake_config(None)):
         assert server.build_entry_url("175353", "Facility eLog") is None
 
 
 def test_build_entry_url_none_for_native_source():
     """FR7: ARIEL-native entries emit no url even with a template set."""
-    with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
+    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         assert server.build_entry_url("ariel-deadbeef", "ARIEL MCP") is None
 
 
 @pytest.mark.parametrize("empty", ["", "   ", None])
 def test_build_entry_url_none_for_empty_id(empty):
     """An empty/blank entry_id yields no url."""
-    with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
+    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         assert server.build_entry_url(empty, "Facility eLog") is None
 
 
@@ -97,7 +97,7 @@ def test_build_entry_url_fails_safe_when_config_unavailable():
     def _boom(_path, _default=None, _config_path=None):
         raise FileNotFoundError("No config.yml found in current directory")
 
-    with patch("osprey.utils.config.get_config_value", _boom):
+    with patch("osprey_connectors.config.get_config_value", _boom):
         assert server.build_entry_url("175353", "Facility eLog") is None
 
 
@@ -110,7 +110,7 @@ def test_build_entry_url_fails_safe_when_config_unavailable():
 )
 def test_build_entry_url_malformed_template_fails_safe(bad_template):
     """FR6: a malformed template returns None and never raises."""
-    with patch("osprey.utils.config.get_config_value", _fake_config(bad_template)):
+    with patch("osprey_connectors.config.get_config_value", _fake_config(bad_template)):
         assert server.build_entry_url("175353", "Facility eLog") is None
 
 
@@ -134,7 +134,7 @@ def _entry(entry_id="e1", source_system="Facility eLog"):
 
 def test_serialize_entry_includes_entry_url_when_configured():
     """FR2: serialize_entry carries entry_url for a facility entry."""
-    with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
+    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         result = server.serialize_entry(
             _entry(entry_id="175353"),
             text_limit=DEFAULT_LISTING_TEXT_CHARS,
@@ -148,7 +148,7 @@ def test_serialize_entry_includes_entry_url_when_configured():
 
 def test_serialize_entry_omits_entry_url_when_unset():
     """FR3: no template -> no entry_url key at all."""
-    with patch("osprey.utils.config.get_config_value", _fake_config(None)):
+    with patch("osprey_connectors.config.get_config_value", _fake_config(None)):
         result = server.serialize_entry(
             _entry(),
             text_limit=DEFAULT_LISTING_TEXT_CHARS,
@@ -162,7 +162,7 @@ def test_serialize_entry_omits_entry_url_when_unset():
 
 def test_serialize_entry_omits_entry_url_for_native():
     """FR7: an ARIEL-native entry carries no entry_url even when configured."""
-    with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
+    with patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         result = server.serialize_entry(
             _entry(source_system="ARIEL MCP"),
             text_limit=DEFAULT_LISTING_TEXT_CHARS,
@@ -219,7 +219,7 @@ async def test_entry_get_includes_entry_url(tmp_path, monkeypatch):
 
     with (
         _patch_service(mock_service),
-        patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
+        patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
     ):
         fn = get_tool_fn(_import_entry_get())
         result = await fn(entry_id="175353")
@@ -239,7 +239,7 @@ async def test_entry_get_omits_entry_url_for_native(tmp_path, monkeypatch):
 
     with (
         _patch_service(mock_service),
-        patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
+        patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
     ):
         fn = get_tool_fn(_import_entry_get())
         result = await fn(entry_id="ariel-deadbeef")
@@ -266,7 +266,7 @@ async def test_sql_query_rows_gain_entry_url(tmp_path, monkeypatch):
             "osprey.mcp_server.ariel.tools.sql_query.execute_sql_query",
             new=AsyncMock(return_value=mock_rows),
         ),
-        patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
+        patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
     ):
         fn = get_tool_fn(_import_sql_query())
         result = await fn(sql="SELECT entry_id, source_system, author FROM enhanced_entries")
@@ -293,7 +293,7 @@ async def test_entry_publish_includes_entry_url(tmp_path, monkeypatch):
 
     with (
         _patch_service(mock_service),
-        patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
+        patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
     ):
         fn = get_tool_fn(_import_entry_publish())
         result = await fn(entry_id="e1", logbook="Operations")
@@ -311,7 +311,7 @@ async def test_entry_create_emits_no_entry_url(tmp_path, monkeypatch):
 
     with (
         _patch_service(mock_service),
-        patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
+        patch("osprey_connectors.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
     ):
         fn = get_tool_fn(_import_entry_create())
         result = await fn(subject="s", details="d", draft=False)

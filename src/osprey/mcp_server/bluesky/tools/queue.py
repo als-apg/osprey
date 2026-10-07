@@ -387,7 +387,7 @@ def _writes_enabled(lane_target: str | None) -> bool:
     posture must not arm hardware.
     """
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         section = get_config_value("control_system", {})
         target = lane_target or baseline_target(section)
@@ -431,7 +431,7 @@ def _any_lane_writes_enabled() -> bool:
     Same broad except clause, and the same reason, as :func:`_writes_enabled`.
     """
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         section = get_config_value("control_system", {})
         # `discover_lanes`, not `resolve_lane_situation`: the rendered set is
@@ -472,7 +472,7 @@ def _session_narrowed(lane_target: str | None) -> bool:
         if lane_target is not None:
             targets: list[str] = [lane_target]
         else:
-            from osprey.utils.config import get_config_value
+            from osprey_connectors.config import get_config_value
 
             section = get_config_value("control_system", {})
             targets = [lane.target for lane in discover_lanes(baseline_target(section))]
@@ -498,7 +498,7 @@ def _writes_enabled_key(lane_target: str | None) -> str:
     deployment-wide key IS the whole posture that deployment has.
     """
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         section = get_config_value("control_system", {})
         return target_writes_enabled_key(section, lane_target or baseline_target(section))

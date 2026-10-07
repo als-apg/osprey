@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from .base import BaseProvider
 
 FailureReason = Literal["unreachable", "auth", "model"]
-HealthReason = Literal["unreachable", "auth", "model", "config"]
 
 _AUTH_STATUSES = frozenset({401, 403})
 _MODEL_STATUSES = frozenset({404})

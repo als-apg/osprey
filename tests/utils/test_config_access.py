@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.config import (
+from osprey_connectors.config import (
     get_agent_dir,
     get_config_builder,
     get_config_value,

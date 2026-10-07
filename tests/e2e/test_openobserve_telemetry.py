@@ -60,7 +60,7 @@ import yaml
 from osprey.build.claude_code_telemetry import _build_telemetry_env
 from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
 from osprey.deployment.openobserve_provision import INGEST_TOKEN_VAR
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 

@@ -261,7 +261,7 @@ def create_server() -> FastMCP:
     global _bundle, _bundle_error
 
     from osprey.services.facility_knowledge.okf.bundle import OKFBundle, OKFBundleError
-    from osprey.utils.workspace import load_osprey_config, resolve_config_path
+    from osprey_connectors.workspace import load_osprey_config, resolve_config_path
 
     config_path = resolve_config_path()
     config = load_osprey_config()

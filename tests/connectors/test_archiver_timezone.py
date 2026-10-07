@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
 
 TEMPLATE_SIM = (
     Path(__file__).parents[1].parent / "src/osprey/templates/apps/control_assistant/data/simulation"
@@ -26,7 +26,7 @@ SR07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
 @pytest.fixture(autouse=True)
 def _state_dir(tmp_path, monkeypatch):
     """Scenario state resolves from the ambient config; keep it inside tmp_path."""
-    from osprey.simulation import engine as engine_module
+    from osprey_connectors.simulation import engine as engine_module
 
     path = tmp_path / "_agent_data" / "simulation"
     path.mkdir(parents=True, exist_ok=True)

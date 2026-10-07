@@ -2,7 +2,7 @@
 
 import pytest
 
-from osprey.connectors.channel_taxonomy import classify_channel
+from osprey_connectors.channel_taxonomy import classify_channel
 
 
 @pytest.mark.parametrize(

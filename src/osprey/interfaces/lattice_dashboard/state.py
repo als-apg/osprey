@@ -294,29 +294,6 @@ class LatticeState:
             self._save_unlocked(state)
             return state
 
-    # ── Ring loader (with overrides) ──────────────────────────
-
-    def get_ring(self) -> Any:
-        """Load the pyAT ring with current overrides applied."""
-        import at
-
-        state = self.load()
-        lattice_path = state.get("base_lattice")
-        if not lattice_path:
-            raise ValueError("No lattice loaded — call initialize() first")
-
-        ring = at.load_lattice(lattice_path)
-        overrides = state.get("overrides", {})
-
-        for fam_name, value in overrides.items():
-            fam_info = state["families"].get(fam_name, {})
-            param = fam_info.get("param", "K")
-            for elem in ring:
-                if getattr(elem, "FamName", None) == fam_name:
-                    setattr(elem, param, value)
-
-        return ring
-
     # ── Figure status ─────────────────────────────────────────
 
     def mark_computing(self, figure: str) -> None:
@@ -429,11 +406,6 @@ class LatticeState:
             # Also write a separate baseline.json for workers
             self._baseline_path.write_text(json.dumps(baseline, indent=2, default=str))
             return baseline
-
-    def get_baseline(self) -> dict[str, Any] | None:
-        if self._baseline_path.exists():
-            return cast(dict[str, Any], json.loads(self._baseline_path.read_text()))
-        return None
 
     def clear_baseline(self) -> None:
         with self._lock:

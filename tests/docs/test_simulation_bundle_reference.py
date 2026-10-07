@@ -16,7 +16,7 @@ import textwrap
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
-from osprey.simulation.engine import SimulationEngine, resolve_active_scenarios
+from osprey_connectors.simulation.engine import SimulationEngine, resolve_active_scenarios
 
 PAGE = (
     Path(__file__).resolve().parents[2]

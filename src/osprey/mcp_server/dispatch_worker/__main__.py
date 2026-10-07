@@ -19,8 +19,8 @@ def main() -> None:
     base: a hand-started worker on a host running two deployments must not bind
     the other one's port.
     """
-    from osprey.utils.logger import configure_logging
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.logger import configure_logging
+    from osprey_connectors.workspace import load_osprey_config
 
     configure_logging()
 

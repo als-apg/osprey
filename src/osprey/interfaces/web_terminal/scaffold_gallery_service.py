@@ -47,7 +47,7 @@ from osprey.interfaces.web_terminal.ownership import (
     reserved_write_channel,
     resolve_ownership,
 )
-from osprey.utils.config import resolve_env_vars
+from osprey_connectors.config import resolve_env_vars
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime, annotation only
     from osprey.cli.scaffold_cmd import ClaimTarget

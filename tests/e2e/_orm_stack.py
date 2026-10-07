@@ -691,7 +691,7 @@ def minted_launch_token(project_dir: Path) -> str:
     deployed service that declares it, and the arming action on the queue is
     gated by exactly that value.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = project_dir / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"

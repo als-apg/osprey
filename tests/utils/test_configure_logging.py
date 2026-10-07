@@ -17,8 +17,8 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 import osprey
-import osprey.utils.logger
-from osprey.utils.logger import (
+import osprey_connectors.logger
+from osprey_connectors.logger import (
     QUIET_THIRD_PARTY_LOGGERS,
     _build_rich_handler,
     configure_logging,
@@ -97,7 +97,7 @@ class TestHandlerInstallation:
         def boom(*args, **kwargs):
             raise RuntimeError("config unavailable")
 
-        monkeypatch.setattr("osprey.utils.logger.get_config_value", boom)
+        monkeypatch.setattr("osprey_connectors.logger.get_config_value", boom)
 
         configure_logging()
 
@@ -197,7 +197,7 @@ class TestPackageRootExport:
     """``osprey.configure_logging`` is exported, and resolving it stays lazy."""
 
     def test_export_is_the_same_function(self):
-        assert osprey.configure_logging is osprey.utils.logger.configure_logging
+        assert osprey.configure_logging is osprey_connectors.logger.configure_logging
 
     def test_dir_advertises_the_export(self):
         # PEP 562 lazy attributes are invisible to the default dir(); the
@@ -209,13 +209,13 @@ class TestPackageRootExport:
 
         The package resolves this export through ``__getattr__`` precisely so
         that importing the framework does not drag in rich and the config
-        system. An eager ``from osprey.utils.logger import configure_logging``
+        system. An eager ``from osprey_connectors.logger import configure_logging``
         in ``__init__.py`` would satisfy every other test in this file while
         silently undoing that.
         """
         probe = (
             "import sys; import osprey; "
-            "print('rich' in sys.modules, 'osprey.utils.logger' in sys.modules)"
+            "print('rich' in sys.modules, 'osprey_connectors.logger' in sys.modules)"
         )
         result = subprocess.run(
             [sys.executable, "-c", probe],
@@ -227,7 +227,7 @@ class TestPackageRootExport:
 
         assert result.stdout.strip() == "False False", (
             f"bare `import osprey` should import neither rich nor "
-            f"osprey.utils.logger; got {result.stdout.strip()!r}"
+            f"osprey_connectors.logger; got {result.stdout.strip()!r}"
         )
 
 

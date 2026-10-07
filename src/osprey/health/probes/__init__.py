@@ -46,7 +46,7 @@ class ProbeContext:
             from it — so a caller (the web surface) can drive a suite against an
             explicit config without touching the process-default config
             singletons. ``None`` (the CLI/standalone default) leaves probes to
-            their global :func:`~osprey.utils.config.get_config_value` fallback.
+            their global :func:`~osprey_connectors.config.get_config_value` fallback.
     """
 
     runtime: HealthRuntime

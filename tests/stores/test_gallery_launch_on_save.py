@@ -19,7 +19,7 @@ from osprey.stores.artifact_store import ArtifactStore
 PNG_BYTES = b"\x89PNG\r\n\x1a\n-rendered-frame"
 NPY_BYTES = b"\x93NUMPY-raw-payload"
 
-LAUNCHER = "osprey.infrastructure.server_launcher.ensure_artifact_server"
+LAUNCHER = "osprey.infrastructure.server_launcher.ensure_web_server"
 
 
 @pytest.fixture
@@ -75,7 +75,7 @@ def test_a_save_launches_the_gallery_by_default(agent_data_root, save):
         entry = save(store)
 
     assert store.get_entry(entry.id) is not None
-    launch.assert_called_once_with()
+    launch.assert_called_once_with("artifact")
 
 
 @SAVES

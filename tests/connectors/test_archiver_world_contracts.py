@@ -67,7 +67,7 @@ from osprey.simulation.apply import (
     event_subwindows,
     event_window,
 )
-from osprey.simulation.archiver_seed import (
+from osprey_connectors.simulation.archiver_seed import (
     DATE_FIELD,
     EXPIRE_FIELD,
     MANIFEST_ID,
@@ -80,8 +80,8 @@ from osprey.simulation.archiver_seed import (
     synthesize_documents,
     tier_expiry,
 )
-from osprey.simulation.procedural import DEFAULT_NOISE_LEVEL
-from osprey.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.procedural import DEFAULT_NOISE_LEVEL
+from osprey_connectors.simulation.series import epoch_seconds_array
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 
@@ -365,13 +365,13 @@ class World:
     # -- the engines ---------------------------------------------------------
 
     def _engine(self, state_dir: Path):
-        from osprey.simulation.engine import SimulationEngine
+        from osprey_connectors.simulation.engine import SimulationEngine
 
         return SimulationEngine.from_file(self.machine_path, state_dir=state_dir)
 
     def seed_engine(self):
         """The engine a deploy seeds with: the project's own scenario state."""
-        from osprey.simulation.engine import resolve_state_dir
+        from osprey_connectors.simulation.engine import resolve_state_dir
 
         return self._engine(resolve_state_dir(self.config(), self.root))
 
@@ -421,7 +421,7 @@ class World:
 
     async def stored(self, channels, start: datetime, end: datetime) -> pd.DataFrame:
         """Read the store through the connector a deployed agent uses."""
-        from osprey.connectors.archiver.mongodb_archiver_connector import (
+        from osprey_connectors.archiver.mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
 
@@ -459,7 +459,7 @@ class World:
         the file explicitly would not be reading the same machine model the
         store was seeded from for the same reason a deployment does.
         """
-        from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
+        from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
 
         connector = MockArchiverConnector()
         await connector.connect({"noise_level": NOISE, "sample_rate_hz": 1.0})

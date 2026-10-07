@@ -56,9 +56,9 @@ from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
 from osprey.docs_links import installer_remedy
-from osprey.errors import ConfigurationError
-from osprey.utils.config import load_project_config
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import load_project_config
+from osprey_connectors.errors import ConfigurationError
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("scaffold")
 
@@ -97,7 +97,7 @@ def _load_config(project_dir: Path) -> dict[str, Any]:
     """Load ``config.yml`` from ``project_dir`` through the shared project loader.
 
     The single config loader in this module, and deliberately the same one the
-    deploy path uses (:func:`osprey.utils.config.load_project_config`), so these
+    deploy path uses (:func:`osprey_connectors.config.load_project_config`), so these
     verbs report on — and render from — exactly the config a deploy would have
     produced.
 
@@ -1680,7 +1680,7 @@ def _reject_retired_config_option(config_path: str | None) -> None:
             missing path, or empty string. A bare exit rather than an exception
             carrying the text, because the message has already been reported on
             the operator's error channel by the line above; raising a
-            :class:`~osprey.errors.ConfigurationError` here printed the refusal
+            :class:`~osprey_connectors.errors.ConfigurationError` here printed the refusal
             and then a traceback on top of it, which reads as a crash rather
             than as the deliberate tombstone it is.
     """

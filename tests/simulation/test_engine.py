@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from osprey.simulation import SimulationEngine, engine_serves
-from osprey.simulation.expressions import ExpressionError
+from osprey_connectors.simulation import SimulationEngine, engine_serves
+from osprey_connectors.simulation.expressions import ExpressionError
 
 QUAD_DRIFT_TRANS = 98.5 - 0.85 * abs(28.4 - 42.0)  # 86.94
 
@@ -277,7 +277,9 @@ class TestLiveReadSignalModel:
     @staticmethod
     def _freeze_now(monkeypatch, epoch):
         """Freeze the engine module's wall clock without touching stdlib time."""
-        monkeypatch.setattr("osprey.simulation.engine.time", SimpleNamespace(time=lambda: epoch))
+        monkeypatch.setattr(
+            "osprey_connectors.simulation.engine.time", SimpleNamespace(time=lambda: epoch)
+        )
 
     def test_live_read_matches_synthesis_at_frozen_now(
         self, machine_dict, make_machine_file, monkeypatch
@@ -386,7 +388,8 @@ class TestExprRefTextureSemantics:
         texture would apply (T:DERIVED declares none, so the read is exact)."""
         engine = SimulationEngine.from_file(make_machine_file(self._machine(machine_dict)))
         monkeypatch.setattr(
-            "osprey.simulation.engine.time", SimpleNamespace(time=lambda: 1_764_000_000.0)
+            "osprey_connectors.simulation.engine.time",
+            SimpleNamespace(time=lambda: 1_764_000_000.0),
         )
         # Texture is alive on the referenced channel at this frozen instant...
         assert engine.read("T:TEX").value != 5.0

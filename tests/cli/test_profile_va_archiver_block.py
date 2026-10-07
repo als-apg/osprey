@@ -43,7 +43,7 @@ from osprey.cli.build_profile_archiver import (
 )
 from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, load_profile
 from osprey.cli.profile_cmd import profile
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 
 @pytest.fixture

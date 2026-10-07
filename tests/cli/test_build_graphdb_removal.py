@@ -44,7 +44,7 @@ from click.testing import CliRunner, Result
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import load_profile
 from osprey.cli.init_cmd import init
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 #: The preset that ships the graph store. Every project here starts from it.
 PRESET = "control-assistant"

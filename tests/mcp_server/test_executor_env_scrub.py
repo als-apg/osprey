@@ -30,11 +30,11 @@ from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 @pytest.fixture(autouse=True)
 def _reset_all_config_caches(monkeypatch):
     """Reset ALL config caches before each test (see test_executor_adapter.py)."""
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_config_cache()
 
-    import osprey.utils.config as _cfg
+    import osprey_connectors.config as _cfg
 
     monkeypatch.setattr(_cfg, "_default_config", None)
     monkeypatch.setattr(_cfg, "_default_configurable", None)

@@ -61,7 +61,7 @@ def web_terminal_url() -> str:
     import os
 
     from osprey.port_layout import default_port, resolve_port_base
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
     wt = config.get("web_terminal", {})
@@ -104,7 +104,7 @@ def phoebus_bridge_url() -> str:
     """
     import os
 
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     full = os.environ.get("PHOEBUS_BRIDGE_URL")
     if full:
@@ -139,7 +139,7 @@ def _panel_auth_headers() -> dict[str, str]:
     The last non-blank value seen is also latched, because this process can
     lose the carrier from under itself: saving an artifact auto-launches the
     artifact companion app (``osprey.stores.artifact_store`` ->
-    ``ensure_artifact_server``), and when that happens in-process the app's
+    ``ensure_web_server("artifact")``), and when that happens in-process the app's
     construction closes both credential carriers in ``os.environ`` — the
     same scrub every interface app performs so a child it spawns cannot
     inherit them.  Without the latch every panel call after that point would

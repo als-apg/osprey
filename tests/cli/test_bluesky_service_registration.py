@@ -20,8 +20,8 @@ from osprey.cli.build_cmd import _inject_bluesky
 from osprey.cli.build_profile import BlueskyConfig, _parse_profile
 from osprey.deployment.compose_generator import find_service_config
 from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
-from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+from osprey_connectors.errors import BuildProfileError
 
 
 def _write_config(project_path: Path) -> None:

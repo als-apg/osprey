@@ -59,7 +59,7 @@ from osprey.services.ariel_search.enhancement.vision_errors import (
     failed_call_outcome,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -109,7 +109,7 @@ def hybrid_search_enabled() -> bool | None:
     loaded (tests, bare library use): unknown never reads as ``no_reader``.
     """
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         modules = get_config_value("ariel.search_modules", None)
     except Exception:  # no config.yml (tests, bare library use)

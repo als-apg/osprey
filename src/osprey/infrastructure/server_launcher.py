@@ -28,7 +28,7 @@ from osprey.registry.web import (
     resolve_web_server_address,
     web_server_config_section,
 )
-from osprey.utils.workspace import load_osprey_config
+from osprey_connectors.workspace import load_osprey_config
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
@@ -569,7 +569,7 @@ class ServerLauncher:
                 import uvicorn
 
                 if self._pass_workspace:
-                    from osprey.utils.workspace import resolve_shared_data_root
+                    from osprey_connectors.workspace import resolve_shared_data_root
 
                     # Launched servers are daemons serving the shared store (they
                     # may be auto-launched from a session-scoped MCP process on
@@ -818,34 +818,3 @@ def is_auto_launch_enabled(key: str) -> bool:
     a live panel that 502s.
     """
     return _auto_launch_checkers[key]()
-
-
-# Backward-compatible named aliases (used by web_terminal/app.py, artifact_store.py)
-def ensure_artifact_server() -> None:
-    """Ensure the artifact server is running; launch if needed."""
-    ensure_web_server("artifact")
-
-
-def ensure_ariel_server() -> None:
-    """Ensure the ARIEL server is running; launch if needed."""
-    ensure_web_server("ariel")
-
-
-def ensure_channel_finder_server() -> None:
-    """Ensure the Channel Finder web server is running; launch if needed."""
-    ensure_web_server("channel_finder")
-
-
-def ensure_lattice_dashboard_server() -> None:
-    """Ensure the lattice dashboard server is running; launch if needed."""
-    ensure_web_server("lattice_dashboard")
-
-
-def ensure_okf_server() -> None:
-    """Ensure the OKF knowledge panel server is running; launch if needed."""
-    ensure_web_server("okf")
-
-
-def ensure_system_health_server() -> None:
-    """Ensure the system-health dashboard server is running; launch if needed."""
-    ensure_web_server("system_health")

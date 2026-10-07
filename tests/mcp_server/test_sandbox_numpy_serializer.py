@@ -43,7 +43,7 @@ def workspace_root(tmp_path):
 async def _run(code: str, execution_folder, workspace_root):
     """Execute sandboxed user code and return the result."""
     with patch(
-        "osprey.utils.workspace.resolve_workspace_root",
+        "osprey_connectors.workspace.resolve_agent_data_root",
         return_value=workspace_root,
     ):
         return await execute_sandbox_code(

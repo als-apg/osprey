@@ -386,7 +386,7 @@ async def run_dispatch(
         narrow_allowed_tools,
     )
     from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
-    from osprey.utils.config import get_facility_timezone
+    from osprey_connectors.config import get_facility_timezone
 
     sdk_env = build_clean_env(project_cwd=render_dir)
 

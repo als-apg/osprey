@@ -8,8 +8,8 @@ from osprey.mcp_server.channel_finder_in_context.server_context import reset_cf_
 @pytest.fixture(autouse=True)
 def _reset_registry():
     """Reset registry singletons and config caches between tests."""
-    import osprey.utils.config as _cfg
-    from osprey.utils.workspace import reset_config_cache
+    import osprey_connectors.config as _cfg
+    from osprey_connectors.workspace import reset_config_cache
 
     reset_config_cache()
     _cfg._default_config = None

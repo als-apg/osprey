@@ -7,7 +7,7 @@ reproducible-render manifest primitives.
 
 Layering rule: ``build`` may be imported by any layer, but it must **not**
 import from ``cli``, ``interfaces``, or ``services`` (nor ``agent_runner``).
-It depends only on lower-level kernels (``osprey.errors``, ``osprey.models``,
+It depends only on lower-level kernels (``osprey_connectors.errors``, ``osprey.models``,
 ``osprey.profiles``, ``osprey.utils``). Keeping it a leaf is what lets the
 build/runtime layers reuse it without an inversion.
 """

@@ -232,14 +232,14 @@ async def test_a_limits_violation_arrives_as_the_real_class_with_every_field(rai
 
 
 async def test_the_envelopes_isinstance_branch_fires_on_the_reconstructed_class(raising_pair):
-    """``osprey.errors`` is an alias of the connectors module, and it has to stay one.
+    """``osprey_connectors.errors`` is an alias of the connectors module, and it has to stay one.
 
-    The handler's ``except`` clauses name the classes through ``osprey.errors``;
+    The handler's ``except`` clauses name the classes through ``osprey_connectors.errors``;
     the child rebuilt this instance from ``osprey_connectors.errors``. If those
     ever stopped being the same module object, every refusal would fall through
     to ``internal_error`` — silently, and only across the process boundary.
     """
-    from osprey.errors import ChannelLimitsViolationError as ShimLimitsError
+    from osprey_connectors.errors import ChannelLimitsViolationError as ShimLimitsError
 
     with pytest.raises(ShimLimitsError):
         await raising_pair.write_channel(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])

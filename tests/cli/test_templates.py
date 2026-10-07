@@ -150,7 +150,7 @@ class TestTemplateManager:
         """An explicit ``tier=1`` paired with a non-in_context paradigm is
         rejected with the rule-naming error at the creation boundary, not left
         to surface as an opaque FileNotFoundError inside the materializer."""
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         manager = TemplateManager()
 
@@ -169,7 +169,7 @@ class TestTemplateManager:
     def test_create_project_explicit_tier2_rejected(self, tmp_path):
         """An out-of-range explicit ``tier`` is rejected with the {1,3} rule
         error at the creation boundary, mirroring BuildProfile.validate()."""
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         manager = TemplateManager()
 
@@ -248,7 +248,7 @@ class TestTemplateManager:
     def test_create_project_explicit_tier_with_graph_rejected(self, tmp_path):
         """An explicit ``tier`` paired with graph is rejected at the creation
         boundary with the graph rule, not the in_context tier-1 rule."""
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         manager = TemplateManager()
 

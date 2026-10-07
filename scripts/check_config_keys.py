@@ -866,7 +866,7 @@ class ConfigKeyGuard:
 
     def loader_default_paths(self) -> set[str]:
         """Paths the config loader synthesizes when the file omits them."""
-        from osprey.utils.config import ConfigBuilder
+        from osprey_connectors.config import ConfigBuilder
 
         with tempfile.TemporaryDirectory() as tmp:
             probe = Path(tmp) / "config.yml"

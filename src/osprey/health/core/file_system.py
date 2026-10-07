@@ -49,10 +49,10 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.errors import ConfigurationError
 from osprey.health.config import DiskThresholds, parse_disk_thresholds
 from osprey.health.models import CheckResult, Status
-from osprey.utils.workspace import agent_data_base_dir
+from osprey_connectors.errors import ConfigurationError
+from osprey_connectors.workspace import agent_data_base_dir
 
 _CATEGORY = "file_system"
 

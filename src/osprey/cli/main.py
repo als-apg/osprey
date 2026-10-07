@@ -197,8 +197,8 @@ def cli(ctx, verbose):
     """
     import logging
 
-    from osprey.utils.config import load_project_dotenv
-    from osprey.utils.logger import configure_logging, set_handler_console
+    from osprey_connectors.config import load_project_dotenv
+    from osprey_connectors.logger import configure_logging, set_handler_console
 
     from .altitude import install_gate
     from .styles import err_console, initialize_theme_from_config

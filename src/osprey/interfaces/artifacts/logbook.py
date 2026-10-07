@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from osprey.mcp_server.session import gather_session_metadata
-from osprey.utils.workspace import resolve_shared_data_root
+from osprey_connectors.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.interfaces.artifacts.logbook")
 
@@ -343,7 +343,7 @@ def _composition_provider() -> tuple[str, dict[str, Any], dict[str, Any]]:
             absent from ``api.providers``.
     """
     from osprey.models.config import get_provider_config
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     comp = get_config_value("logbook.composition", {})
     if not isinstance(comp, dict):
@@ -386,7 +386,7 @@ def _default_composition_model(
         HTTPException: 503 when neither names a model.
     """
     from osprey.models.config import main_model_id
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     if comp.get("model"):
         return str(comp["model"])

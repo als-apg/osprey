@@ -317,7 +317,7 @@ def reset_registry_between_tests():
 
     # CRITICAL: Clear config cache to prevent stale config from previous tests
     # The config module has global caches that persist across registry resets
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     config_module._default_config = None
     config_module._default_configurable = None

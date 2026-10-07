@@ -54,7 +54,7 @@ def _clean_token_env(monkeypatch):
 
 
 def _parse_env(tmp_path):
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     path = tmp_path / ".env"
     return parse_dotenv_file(path) if path.is_file() else {}
@@ -95,7 +95,7 @@ def test_ariel_db_password_mints_under_writes_enabled_and_subprocess_execution(
     bluesky-scoped test to generalize across the token map.
 
     Both spellings are covered: ``local`` is the legacy name for the same
-    subprocess backend (see ``osprey.utils.config.resolve_execution_method``)
+    subprocess backend (see ``osprey_connectors.config.resolve_execution_method``)
     and is the value the deleted guard keyed on.
     """
     monkeypatch.setattr(

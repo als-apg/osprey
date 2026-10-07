@@ -27,7 +27,7 @@ import tempfile
 from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 
-from osprey.utils.config import get_facility_timezone
+from osprey_connectors.config import get_facility_timezone
 
 from .models import PlotConfig
 

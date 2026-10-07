@@ -2,7 +2,7 @@
 
 import pytest
 
-from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.types import (
     archiver_settings_errors,
     archiver_settings_key,

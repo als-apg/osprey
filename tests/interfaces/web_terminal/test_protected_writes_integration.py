@@ -67,7 +67,7 @@ from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_reserved_w
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
 from osprey.interfaces.web_terminal.app import create_app
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:

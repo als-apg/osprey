@@ -1103,7 +1103,7 @@ def _audit_records(zone):
     import json
 
     from osprey.audit.protected import SURFACE_HTTP_CONFIG
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     path = zone / acting_identity() / f"{SURFACE_HTTP_CONFIG}.jsonl"
     if not path.is_file():

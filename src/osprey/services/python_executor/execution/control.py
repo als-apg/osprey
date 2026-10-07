@@ -46,14 +46,14 @@ Examples:
 from dataclasses import dataclass
 from enum import Enum
 
-from osprey.connectors.types import (
+from osprey_connectors.logger import get_logger
+from osprey_connectors.types import (
     MOCK,
     WRITES_ENABLED_KEY,
     baseline_target,
     target_writes_enabled,
     target_writes_enabled_key,
 )
-from osprey.utils.logger import get_logger
 
 logger = get_logger("execution_control")
 
@@ -191,7 +191,7 @@ def get_execution_control_config(target: str | None = None) -> ExecutionControlC
     """
     try:
         # Import here to avoid circular imports
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         control_system_config = get_config_value("control_system", {})
         active_target = target if target is not None else baseline_target(control_system_config)

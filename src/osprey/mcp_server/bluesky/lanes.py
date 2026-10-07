@@ -152,7 +152,7 @@ def discover_lanes(baseline_target: str) -> tuple[Lane, ...]:
         :data:`~osprey_connectors.types.CONTROL_TARGETS`.
     """
     try:
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         config = load_osprey_config()
     except Exception:

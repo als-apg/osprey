@@ -45,7 +45,7 @@ from osprey.services.ariel_search.attachments.copy import (
 )
 from osprey.services.ariel_search.attachments.fetch import is_file_source
 from osprey.services.ariel_search.attachments.formats import OCTET_STREAM, is_viewable, kind
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("ariel")
 

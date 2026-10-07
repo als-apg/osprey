@@ -15,10 +15,10 @@ import logging
 
 import pytest
 
-from osprey.connectors import types
-from osprey.connectors.control_system.mock_connector import MockConnector
-from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey.services.python_executor.execution.control import get_execution_control_config
+from osprey_connectors import types
+from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 
 FACTORY_LOGGER = "connector_factory"
 EXECUTION_CONTROL_LOGGER = "execution_control"
@@ -70,7 +70,7 @@ class TestFactoryTypeFallback:
     @pytest.mark.asyncio
     async def test_config_none_loads_global_config_and_falls_back(self, caplog, monkeypatch):
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda path, default=None, config_path=None: {},
         )
 
@@ -106,7 +106,7 @@ class TestExecutionControlTypeFallback:
     )
     def test_unset_type_resolves_to_mock(self, caplog, monkeypatch, control_system):
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda path, default=None, config_path=None: control_system,
         )
 
@@ -119,7 +119,7 @@ class TestExecutionControlTypeFallback:
 
     def test_explicit_type_is_honoured_without_warning(self, caplog, monkeypatch):
         monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             lambda path, default=None, config_path=None: {"type": types.EPICS},
         )
 

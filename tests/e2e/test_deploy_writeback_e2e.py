@@ -100,7 +100,7 @@ import pytest
 import yaml
 
 from osprey.deployment.reset import MINTED_ENV_BANNERS
-from osprey.utils.dotenv import parse_dotenv_text
+from osprey_connectors.dotenv import parse_dotenv_text
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]

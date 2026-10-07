@@ -24,7 +24,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system.epics_connector import EPICSConnector
 from tests.connectors._epics_fakes import (
     FakeDisconnected,
     FakeRemoteError,

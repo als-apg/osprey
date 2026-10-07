@@ -1065,7 +1065,7 @@ class TestSetupCapabilityConditional:
     def test_the_build_refuses_a_floor_that_denies_the_setup_tool(self, monkeypatch):
         """And the build says so rather than shipping the widened chown."""
         from osprey.cli.templates import claude_code
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         monkeypatch.setattr(
             claude_code, "DENY_DEFAULTS", (*claude_code.DENY_DEFAULTS, "mcp__osprey_workspace__*")

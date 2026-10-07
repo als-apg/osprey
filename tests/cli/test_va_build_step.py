@@ -32,7 +32,7 @@ from osprey.services.virtual_accelerator.manifest.build import (
 )
 from osprey.services.virtual_accelerator.manifest.loaders import load_manifest_file
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.dotenv import parse_dotenv_file
 
 #: The name ``VA_LATTICE`` carries over a tree that stages a model — the ring's
 #: own file name, read off the paths object the build derives the value through

@@ -6,7 +6,7 @@ gating, channel write limits validation, and robust JSON serialization of
 scientific results.
 """
 
-from osprey.connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.control_system.limits_validator import LimitsValidator
 
 from .analysis import (
     detect_control_system_operations,

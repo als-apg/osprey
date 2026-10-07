@@ -28,8 +28,8 @@ from osprey.cli.scaffold_pull import (
     plan_pull,
 )
 from osprey.cli.templates.manager import TemplateManager
-from osprey.errors import BuildProfileError
 from osprey.services.facility_knowledge.okf.index import check_indexes
+from osprey_connectors.errors import BuildProfileError
 
 # The forward check the emitted CI files already get, borrowed rather than
 # rewritten: one extraction and one resolver, so a verb named in help text and a

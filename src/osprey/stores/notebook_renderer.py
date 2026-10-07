@@ -12,7 +12,7 @@ from pathlib import Path
 
 import nbformat
 
-from osprey.utils.config import to_facility_iso
+from osprey_connectors.config import to_facility_iso
 
 logger = logging.getLogger("osprey.stores.notebook_renderer")
 

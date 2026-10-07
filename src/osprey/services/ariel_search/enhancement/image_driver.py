@@ -32,7 +32,7 @@ from osprey.services.ariel_search.attachments import attachment_id_for
 from osprey.services.ariel_search.enhancement import availability
 from osprey.services.ariel_search.enhancement._offload import offload_busy
 from osprey.services.ariel_search.enhancement.base import ImageEntryOutcome
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.database.repository import ARIELRepository

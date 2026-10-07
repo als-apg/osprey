@@ -22,8 +22,8 @@ from typing import Any
 
 import pytest
 
-from osprey.connectors import factory
 from osprey.health.runtime import HealthRuntime
+from osprey_connectors import factory
 
 
 class _SpyConnector:
@@ -53,7 +53,7 @@ def _patch_factory(
     """Spy `register_builtin_connectors` + `create_control_system_connector`.
 
     `HealthRuntime.get_connector` imports both names from
-    ``osprey.connectors.factory`` at call time, so patching the module
+    ``osprey_connectors.factory`` at call time, so patching the module
     attributes here intercepts them.
     """
 

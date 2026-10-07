@@ -3,7 +3,7 @@
 A normal ``osprey`` run should read as a report, not as a transcript. The
 policy that makes that true is a single :class:`logging.Filter` installed on the
 ``RichHandler`` **instance** that renders log records to stderr — never inside
-:func:`~osprey.utils.logger.configure_logging`, so the entry points that are not
+:func:`~osprey_connectors.logger.configure_logging`, so the entry points that are not
 the CLI (MCP servers, bridges, services, workers) and every external consumer of
 the ``osprey-connectors`` distribution keep today's logging behavior exactly.
 
@@ -31,7 +31,7 @@ class _AltitudeGate(logging.Filter):
     dropped too and only ERROR and above still paint.
 
     The policy is deliberately level-based. Records emitted through
-    :class:`~osprey.utils.logger.ComponentLogger` also carry an
+    :class:`~osprey_connectors.logger.ComponentLogger` also carry an
     ``osprey_intent`` attribute naming the method that emitted them, but the
     shipped policy does not read it — INFO-family intents are separated by
     rewriting their call sites as report lines, not by filtering on intent.
@@ -69,8 +69,8 @@ class _AltitudeGate(logging.Filter):
 def _root_rich_handler() -> RichHandler | None:
     """Return the first ``RichHandler`` on the root logger, if there is one.
 
-    This is the same predicate :func:`~osprey.utils.logger.configure_logging`
-    and :func:`~osprey.utils.logger.set_handler_console` use, so all three
+    This is the same predicate :func:`~osprey_connectors.logger.configure_logging`
+    and :func:`~osprey_connectors.logger.set_handler_console` use, so all three
     resolve to the same handler instance.
     """
     for handler in logging.getLogger().handlers:

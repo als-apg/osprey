@@ -537,7 +537,7 @@ def _default_worker_port() -> int:
         The ``worker`` slot at index 1, at the resolved base.
     """
     from osprey.port_layout import default_port, resolve_port_base
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     return default_port("worker", 1, base=resolve_port_base(load_osprey_config()))
 
@@ -764,7 +764,7 @@ def create_server() -> FastMCP:
             timeline_hours = 24.0
         since_seconds = max(0.0, timeline_hours) * 3600.0
 
-        from osprey.utils.config import get_facility_timezone
+        from osprey_connectors.config import get_facility_timezone
 
         zone = get_facility_timezone()
 

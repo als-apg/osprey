@@ -44,9 +44,9 @@ from osprey.deployment.compose_generator import resolve_repo_root
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.personas import as_dict, normalize_users, resolve_personas
-from osprey.utils.config import ConfigBuilder
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors.config import ConfigBuilder
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 logger = get_logger("deployment.web_terminals.seeding")
 

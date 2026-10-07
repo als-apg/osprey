@@ -50,7 +50,7 @@ from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
 from tests._graph_index import build_index_from_ttl
 from tests.deployment.web_terminals.test_golden_render import EXAMPLE_CONFIG
 
@@ -1085,7 +1085,7 @@ def test_va_state_mount_matches_what_the_engine_writes(
     — so resolving it from there must land on exactly the path
     ``resolve_state_dir`` hands the engine.
     """
-    from osprey.simulation.engine import resolve_state_dir
+    from osprey_connectors.simulation.engine import resolve_state_dir
 
     config: dict[str, Any] = {"project_root": str(tmp_path), **relocation}
     rendered = _render_va_template(config)
@@ -6789,7 +6789,7 @@ def test_the_worker_address_is_the_one_the_connector_would_dial() -> None:
     container port — which is what `archiver_read` inside the worker connects
     to. The Docker-level proof of the same claim rides the archiver-world e2e.
     """
-    from osprey.connectors.archiver.mongodb_archiver_connector import address_overrides
+    from osprey_connectors.archiver.mongodb_archiver_connector import address_overrides
 
     rendered = _render_worker_template(
         env_present=True, deployed_services=["dispatch_worker", "mongodb"]
@@ -10031,8 +10031,11 @@ class TestBuildPathProvisionsTheControlTree:
         environment here — the record the build provisions for has to be the
         record that account's own process writes.
         """
-        from osprey.utils.identity import acting_identity
-        from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+        from osprey_connectors.identity import (
+            AUDIT_IDENTITY_ENV,
+            TERMINAL_USER_ENV,
+            acting_identity,
+        )
 
         monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "rung-two")
@@ -10056,8 +10059,7 @@ class TestBuildPathProvisionsTheControlTree:
         container may be unable to read.
         """
         from osprey.deployment.compose_generator import CONTROL_TREE_MARKER_NAME
-        from osprey.utils.identity import acting_identity
-        from osprey_connectors.identity import TERMINAL_USER_ENV
+        from osprey_connectors.identity import TERMINAL_USER_ENV, acting_identity
 
         monkeypatch.setenv(TERMINAL_USER_ENV, "BuildAcct")
         assert acting_identity() == "BuildAcct", "the ladder accepts what the seam refuses"

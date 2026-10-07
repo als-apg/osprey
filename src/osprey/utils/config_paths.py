@@ -39,7 +39,7 @@ back and nothing mounts it, which is why the argument above does not apply.
 
 Note that :func:`osprey.cli.project_utils.resolve_config_path` is a *different*
 function that happens to share a name with the workspace helper used below; the
-one consulted here is :func:`osprey.utils.workspace.resolve_config_path`, which
+one consulted here is :func:`osprey_connectors.workspace.resolve_config_path`, which
 answers "which ``config.yml`` is this process running against".
 """
 
@@ -71,7 +71,7 @@ def resolve_config_dir() -> Path | None:
         take the caller down.
     """
     try:
-        from osprey.utils.workspace import resolve_config_path
+        from osprey_connectors.workspace import resolve_config_path
 
         return Path(resolve_config_path()).parent
     except Exception:
@@ -83,7 +83,7 @@ def project_root_for_config_dir(config_dir: Path) -> Path:
 
     The one place the "is this the build zone?" question is asked for
     config-relative paths, delegating to the workspace helper that answers it
-    for every other runtime path (:func:`osprey.utils.workspace.repo_root_for_config`)
+    for every other runtime path (:func:`osprey_connectors.workspace.repo_root_for_config`)
     so the two cannot disagree: the parent when *config_dir* is the render
     zone, *config_dir* itself otherwise.
 
@@ -94,7 +94,7 @@ def project_root_for_config_dir(config_dir: Path) -> Path:
         The project root — ``<repo>`` for a host render at ``<repo>/build``, the
         directory itself for a container project or a flat legacy one.
     """
-    from osprey.utils.workspace import repo_root_for_config
+    from osprey_connectors.workspace import repo_root_for_config
 
     return repo_root_for_config(Path(config_dir) / "config.yml")
 
@@ -114,7 +114,7 @@ def resolve_config_relative_path(value: str | Path, config_dir: Path | None = No
             config themselves should pass its parent; the project root is
             derived from it here (:func:`project_root_for_config_dir`). When
             omitted it is derived from
-            :func:`osprey.utils.workspace.resolve_config_path`, which falls
+            :func:`osprey_connectors.workspace.resolve_config_path`, which falls
             back to the process CWD when ``OSPREY_CONFIG`` is unset.
 
     Returns:
@@ -142,7 +142,7 @@ def resolve_render_relative_path(value: str | Path, config_dir: Path | None = No
     Args:
         value: The configured value, as read from the config file.
         config_dir: Directory containing ``config.yml``. When omitted it is
-            derived from :func:`osprey.utils.workspace.resolve_config_path`,
+            derived from :func:`osprey_connectors.workspace.resolve_config_path`,
             which falls back to the process CWD when ``OSPREY_CONFIG`` is unset.
 
     Returns:

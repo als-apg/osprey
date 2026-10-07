@@ -83,7 +83,7 @@ def _overlay_repo_env(repo_root: Path) -> None:
         from dotenv import load_dotenv
     except ImportError:
         return
-    from osprey.utils.dotenv import chain_files
+    from osprey_connectors.dotenv import chain_files
 
     for env_file in chain_files(repo_root):
         load_dotenv(env_file, override=True)

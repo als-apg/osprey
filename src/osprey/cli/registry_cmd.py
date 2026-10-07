@@ -14,7 +14,7 @@ def display_registry_contents(verbose: bool = False):
         verbose: Whether to display verbose information (descriptions, etc.)
     """
     try:
-        from osprey.utils.log_filter import quiet_logger
+        from osprey_connectors.log_filter import quiet_logger
 
         # Get registry (initialize if needed) - suppress initialization logs
         with quiet_logger(["registry", "CONFIG"]):

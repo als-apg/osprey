@@ -43,7 +43,7 @@ from osprey.services.ariel_search.search.patterns import (
     is_glob,
     strip_trailing_question,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig

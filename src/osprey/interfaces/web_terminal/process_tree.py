@@ -38,7 +38,7 @@ from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("process_tree")
 

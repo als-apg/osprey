@@ -155,7 +155,7 @@ def worker_writes_enabled() -> bool:
     whatever the deployment says.
     """
     from osprey.services.bluesky_bridge.queue_backend import resolve_lane_connector_type
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
     from osprey_connectors.control_system.base import is_readonly_run
     from osprey_connectors.types import WRITES_ENABLED_KEY, type_writes_enabled
 
@@ -206,11 +206,11 @@ async def create_connector() -> Any:
     "connector is the single control-system interface" shape the bridge used
     when it executed plans in-process.
     """
-    from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
     from osprey.services.bluesky_bridge.queue_backend import (
         resolve_lane_connector_type,
         resolve_lane_identity,
     )
+    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
     control_system_type, lane_degraded = resolve_lane_connector_type()
     if lane_degraded:
@@ -954,7 +954,7 @@ def build_namespace(
 # guard is exactly "am I being run as the startup script?" — importing this
 # module normally, as the unit tests do, leaves the wiring untouched.
 if __name__ == "__main__":  # pragma: no cover - exercised only by a real RE worker
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     configure_logging()
     globals().update(build_namespace())

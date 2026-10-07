@@ -27,7 +27,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from osprey.connectors.control_system.epics_connector import (
+from osprey_connectors.control_system.epics_connector import (
     _ChannelSubscription,
 )
 from tests.connectors._epics_fakes import FakeDisconnected, FakeValue

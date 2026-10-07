@@ -44,7 +44,7 @@ from osprey.deployment.compose_generator import (
     repo_identity,
 )
 from osprey.deployment.web_terminals import provision
-from osprey.utils.workspace import container_image_context
+from osprey_connectors.workspace import container_image_context
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -308,7 +308,7 @@ def test_host_side_work_during_a_start_reads_the_render_not_the_working_director
     what a facility that configures nothing gets anyway: the bug is only visible
     as a WRONG ANSWER when the render names a real zone.
     """
-    from osprey.utils.config import get_facility_timezone
+    from osprey_connectors.config import get_facility_timezone
 
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(
@@ -754,7 +754,7 @@ def test_minted_tokens_land_in_the_repo_env_and_are_copied_nowhere(lifecycle_rep
 
     assert run_up(lifecycle_repo, "-d").exit_code == 0
 
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env = parse_dotenv_file(lifecycle_repo / ".env")
     assert env["EVENT_DISPATCHER_TOKEN"]
@@ -777,7 +777,7 @@ def test_the_mint_is_idempotent_across_starts(lifecycle_repo, monkeypatch):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
 
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     assert run_up(lifecycle_repo, "-d").exit_code == 0
     first = parse_dotenv_file(lifecycle_repo / ".env")
@@ -1325,7 +1325,7 @@ def test_minting_targets_the_repo_env_from_any_directory(lifecycle_repo, started
 
     container_lifecycle.up_as_built(lifecycle_repo, detached=True)
 
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     assert parse_dotenv_file(lifecycle_repo / ".env")["EVENT_DISPATCHER_TOKEN"]
     assert not (elsewhere / ".env").exists()
@@ -1389,7 +1389,7 @@ def test_a_real_build_lands_compose_where_up_looks_for_it(built_repo):
 
     # And `up`'s discovery finds them, from the repo root, off the shipped
     # config — the half that would have gone on reading an empty directory.
-    from osprey.utils.config import load_project_config
+    from osprey_connectors.config import load_project_config
 
     config = load_project_config(str(built_repo / "build" / "config.yml"), wrap_errors=True)
     discovered = container_lifecycle.as_built_compose_files(config, built_repo)

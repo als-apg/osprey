@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 from osprey.infrastructure import server_launcher
 from osprey.interfaces.web_terminal.app import _launch_panel_server
 from osprey.interfaces.web_terminal.routes import panels
-from osprey.utils import workspace
+from osprey_connectors import workspace
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def config(monkeypatch) -> dict:
 
 
 @pytest.fixture(autouse=True)
-def ensure_artifact_server(monkeypatch) -> MagicMock:
+def stub_web_server(monkeypatch) -> MagicMock:
     """Stub out the real launch so no server is started."""
     mock = MagicMock()
     monkeypatch.setattr(server_launcher, "ensure_web_server", mock)

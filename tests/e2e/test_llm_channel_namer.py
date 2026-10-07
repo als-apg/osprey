@@ -187,7 +187,7 @@ def setup_llm_test_environment(test_config):
 
     # Initialize registry
     from osprey.registry import initialize_registry, reset_registry
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     reset_registry()
     config_module._default_config = None
@@ -221,7 +221,7 @@ class TestLLMChannelNamerImport:
     def test_load_config_is_importable(self):
         """Test that load_config is properly importable (the issue #103 fix)."""
         # This is the core fix - load_config must be a public function
-        from osprey.utils.config import get_config_builder, load_config
+        from osprey_connectors.config import get_config_builder, load_config
 
         # Both should be importable without error
         assert callable(get_config_builder)
@@ -230,8 +230,8 @@ class TestLLMChannelNamerImport:
     def test_channel_finder_config_exposes_load_config(self, test_config):
         """Test that the channel_finder config module exposes load_config."""
         # The channel_finder config module should expose load_config
-        # We test via the osprey.utils.config since templates use Jinja2
-        from osprey.utils.config import load_config
+        # We test via the osprey_connectors.config since templates use Jinja2
+        from osprey_connectors.config import load_config
 
         raw_config = load_config(str(test_config))
         assert isinstance(raw_config, dict)

@@ -987,7 +987,7 @@ jobs:
             detect_compose_provider,
             get_runtime_command,
         )
-        from osprey.utils.config import load_config
+        from osprey_connectors.config import load_config
 
         config = load_config("build/config.yml")
         root = Path(resolve_repo_root(config)).resolve()

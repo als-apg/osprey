@@ -6,7 +6,7 @@ from typing import Any
 import openai
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 from .base import BaseProvider
 from .litellm_adapter import _clean_json_response, _structured_reply

@@ -97,7 +97,7 @@ def test_explicit_load_does_publish_the_sentinel(tmp_path):
 
     seen = _probe(
         """
-        from osprey.utils.config import load_project_dotenv
+        from osprey_connectors.config import load_project_dotenv
         load_project_dotenv()
         """,
         cwd=tmp_path,
@@ -118,7 +118,7 @@ def test_a_process_stamped_as_handed_its_environment_does_not_load_the_chain(tmp
 
     seen = _probe(
         """
-        from osprey.utils.config import load_project_dotenv
+        from osprey_connectors.config import load_project_dotenv
         load_project_dotenv()
         """,
         cwd=tmp_path,
@@ -136,7 +136,7 @@ def test_explicit_load_overrides_an_existing_value(tmp_path):
         """
         import os
         os.environ["OSPREY_IMPORT_HYGIENE_SENTINEL"] = "from-the-shell"
-        from osprey.utils.config import load_project_dotenv
+        from osprey_connectors.config import load_project_dotenv
         load_project_dotenv()
         """,
         cwd=tmp_path,
@@ -153,7 +153,7 @@ def test_explicit_load_records_what_it_overrode(tmp_path, monkeypatch):
     reconstruct the shell from this record. A key the shell never set, or set
     to the file's own value, is not recorded — nothing was shadowed.
     """
-    import osprey.utils.config as config
+    import osprey_connectors.config as config
 
     (tmp_path / ".env").write_text(
         "OSPREY_HYGIENE_DIFFERS=from-the-file\n"
@@ -194,7 +194,7 @@ def test_explicit_load_reads_the_whole_chain_with_local_winning(tmp_path, monkey
     host overrides them with. Loading only one of the two would either drop the
     defaults or let them shadow the operator's own settings.
     """
-    import osprey.utils.config as config
+    import osprey_connectors.config as config
 
     (tmp_path / ".env.shared").write_text(
         "OSPREY_HYGIENE_BOTH=from-shared\nOSPREY_HYGIENE_SHARED_ONLY=shared-only\n",
@@ -229,7 +229,7 @@ def test_chain_records_the_shell_value_once_per_key(tmp_path, monkeypatch):
     comparison is against the *winning* (local) value: a shell export that
     agrees with it shadowed nothing, however the shared defaults spelled it.
     """
-    import osprey.utils.config as config
+    import osprey_connectors.config as config
 
     (tmp_path / ".env.shared").write_text(
         "OSPREY_HYGIENE_DIFFERS=from-shared\nOSPREY_HYGIENE_SHELL_WINS_TIE=from-shared\n",
@@ -259,13 +259,13 @@ def test_chain_records_the_shell_value_once_per_key(tmp_path, monkeypatch):
     "module",
     [
         # The config machinery itself, and the package __init__ that pulls it in.
-        "osprey.utils.config",
+        "osprey_connectors.config",
         "osprey.utils",
         # A module-level `logger = get_logger(...)` site. ~70 of these exist;
         # each one used to build a Config to resolve a colour nothing read.
-        "osprey.connectors.archiver.mock_archiver_connector",
+        "osprey_connectors.archiver.mock_archiver_connector",
         # A connector an application imports without asking for any config.
-        "osprey.connectors.control_system.mock_connector",
+        "osprey_connectors.control_system.mock_connector",
     ],
 )
 def test_import_does_not_publish_dotenv(tmp_path, module):
@@ -284,7 +284,7 @@ def test_import_does_not_clobber_a_caller_value(tmp_path):
         """
         import os
         os.environ["OSPREY_IMPORT_HYGIENE_SENTINEL"] = "set-by-the-caller"
-        import osprey.utils.config  # noqa: F401
+        import osprey_connectors.config  # noqa: F401
         """,
         cwd=tmp_path,
     )

@@ -224,7 +224,7 @@ def rag_config_env(e2e_config_file):
     os.environ["CONFIG_FILE"] = e2e_config_file
 
     # Clear config cache to force reload with new CONFIG_FILE
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     config_module._default_config = None
     config_module._default_configurable = None
@@ -633,7 +633,7 @@ def vocabulary_mcp_context(vocabulary_project_dir: Path, monkeypatch):
         reset_ariel_context,
     )
     from osprey.registry import initialize_registry, reset_registry
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.chdir(vocabulary_project_dir)
@@ -716,7 +716,7 @@ async def test_vocabulary_mcp_server_refuses_to_start_without_vocabulary_file(
         initialize_ariel_context,
         reset_ariel_context,
     )
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     _write_vocabulary_project(
         tmp_path,

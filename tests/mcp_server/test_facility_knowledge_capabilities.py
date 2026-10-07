@@ -274,7 +274,7 @@ class TestBundleFailureCause:
 
     def _run_create_server(self, monkeypatch, tmp_path: Path, config: dict):
         import osprey.mcp_server.facility_knowledge.server as srv
-        import osprey.utils.workspace as workspace
+        import osprey_connectors.workspace as workspace
 
         monkeypatch.setattr(workspace, "resolve_config_path", lambda: tmp_path / "config.yml")
         monkeypatch.setattr(workspace, "load_osprey_config", lambda: config)

@@ -377,7 +377,7 @@ def _patch_bridge_config(monkeypatch, *, section, lane_targets, limits_enabled, 
     """Patch the config keys ``_assert_limits_readable_if_writable`` reads.
 
     The guard does its lookups through a function-body import of
-    ``osprey.utils.config``, so patching the module attribute is what takes
+    ``osprey_connectors.config``, so patching the module attribute is what takes
     effect — the same convention ``test_startup_assertion.py`` uses.
 
     Limits checking is per connector type and the guard resolves it out of the
@@ -409,7 +409,7 @@ def _patch_bridge_config(monkeypatch, *, section, lane_targets, limits_enabled, 
             return lane_targets.get(key.split(".")[1], default)
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
 
 def test_the_bridge_startup_guard_refuses_a_writable_lane_with_no_limits_db(tmp_path, monkeypatch):

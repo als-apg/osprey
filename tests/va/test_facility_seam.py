@@ -296,7 +296,7 @@ class TestSetpointEchoEngineSync:
 
     def test_expression_channel_follows_synced_setpoint(self, tmp_path: Path):
         from osprey.services.virtual_accelerator.ioc.engine_source import EngineSource
-        from osprey.simulation.engine import SimulationEngine
+        from osprey_connectors.simulation.engine import SimulationEngine
 
         machine = tmp_path / "machine.json"
         machine.write_text(
@@ -350,7 +350,7 @@ class TestSetpointEchoEngineSync:
 
     def test_without_sync_map_behaviour_is_unchanged(self, tmp_path: Path):
         from osprey.services.virtual_accelerator.ioc.engine_source import EngineSource
-        from osprey.simulation.engine import SimulationEngine
+        from osprey_connectors.simulation.engine import SimulationEngine
 
         machine = tmp_path / "machine.json"
         machine.write_text(

@@ -8,7 +8,7 @@ to enable appropriate recovery strategies.
 
 from enum import Enum
 
-from osprey.errors import ConfigurationError as _FrameworkConfigurationError
+from osprey_connectors.errors import ConfigurationError as _FrameworkConfigurationError
 
 
 class ErrorCategory(Enum):

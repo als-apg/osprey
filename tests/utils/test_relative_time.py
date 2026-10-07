@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from datetime import time as dtime
 from zoneinfo import ZoneInfo
 
-from osprey.utils.relative_time import RelativeTimestamp, resolve_relative_timestamp
+from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 
 
 def test_resolves_days_ago_and_pins_time_of_day():

@@ -353,7 +353,7 @@ def effective_standin_bpm_errors(project_root: Path, build_dir: Path | None = No
         default_bpm_errors_for_lattice,
         served_data_root,
     )
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, merge_chain, resolved_va_lattice
+    from osprey_connectors.dotenv import VA_LATTICE_DEFAULT, merge_chain, resolved_va_lattice
 
     chain: dict[str, str] = merge_chain(Path(project_root))
     if STANDIN_BPM_ERRORS_ENV in chain:
@@ -375,7 +375,7 @@ def live_standin_lattice_errors(project_root: Path, build_dir: Path | None = Non
 
     Both halves are read the way the deployment will read them —
     :func:`effective_standin_bpm_errors` for the perturbation,
-    :func:`~osprey.utils.dotenv.resolved_va_lattice` for the lattice — which
+    :func:`~osprey_connectors.dotenv.resolved_va_lattice` for the lattice — which
     narrows this to exactly one shape: a chain that ASKED for a fault set, on a
     lattice that cannot apply it. A deployment that never asked has nothing to
     refuse, because a tree's own default belongs to a served lattice and the
@@ -399,7 +399,7 @@ def live_standin_lattice_errors(project_root: Path, build_dir: Path | None = Non
         The accumulated failures, empty when the stand-in has a lattice or
         ships no perturbation to need one.
     """
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
+    from osprey_connectors.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
 
     if not effective_standin_bpm_errors(project_root, build_dir):
         return []

@@ -39,11 +39,11 @@ from typing import TYPE_CHECKING
 import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
-from osprey.errors import BuildProfileError
-from osprey.utils.dotenv import ENV_SHARED_FILENAME
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import STATE_ZONE_DIRS
+from osprey_connectors.dotenv import ENV_SHARED_FILENAME
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 from osprey_connectors.types import CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN
+from osprey_connectors.workspace import STATE_ZONE_DIRS
 
 from . import output
 from .profile_conventions import BUILD_OUTPUT_DIR, STATE_DIR, convention_for
@@ -832,7 +832,7 @@ def _reinstate_held_source_zone(target: Path) -> None:
     way instead of silently left to fail that rename. Failing to put a source
     zone back is the one outcome this function must never reach quietly.
     """
-    from osprey.utils.workspace import STATE_DIR_NAME
+    from osprey_connectors.workspace import STATE_DIR_NAME
 
     from .build_cmd import _clear_leftover
     from .profile_cmd import MATERIALIZED_SOURCE_ENTRIES
@@ -1784,7 +1784,7 @@ def _env_note(target: Path, materialized: _MaterializedProfile) -> str:
     which is which), nothing was exported at all, or what was exported belongs
     to providers this assistant does not use.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     from .templates.scaffolding import provider_api_key_entries
 

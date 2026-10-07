@@ -263,7 +263,7 @@ def facility_prefix(fixture: Path) -> str:
 
 def env_values(repo: Path) -> dict[str, str]:
     """The deployment ``.env`` the build appended its derived keys to."""
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     return parse_dotenv_file(repo / ".env")
 

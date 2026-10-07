@@ -40,12 +40,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.utils.logger import get_logger
 from osprey_connectors.control_system.limits_validator import (
     LIMITS_DATABASE_CONFIG_KEY,
     LimitsValidator,
     mapping_config_lookup,
 )
+from osprey_connectors.logger import get_logger
 
 from .records import (
     ADDRESS_SEPARATOR,

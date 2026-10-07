@@ -45,9 +45,9 @@ def _run_clean(code: str) -> None:
 
 def test_control_system_chain_imports_without_heavy_deps():
     code = (
-        "import osprey.connectors.control_system.epics_connector;"
-        "import osprey.connectors.control_system.limits_validator;"
-        "import osprey.errors, osprey.utils.config, osprey.utils.logger;"
+        "import osprey_connectors.control_system.epics_connector;"
+        "import osprey_connectors.control_system.limits_validator;"
+        "import osprey_connectors.errors, osprey_connectors.config, osprey_connectors.logger;"
         "import osprey.simulation, sys;"
         f"bad = sorted({{m.split('.')[0] for m in sys.modules}} & set({FORBIDDEN!r}));"
         "assert not bad, f'lean connector chain eagerly imported: {bad}';"

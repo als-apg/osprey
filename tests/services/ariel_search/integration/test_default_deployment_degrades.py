@@ -425,7 +425,7 @@ def _mirror_hit(tmp_path: Path) -> tuple[str, str]:
 def _isolated(monkeypatch, tmp_path):
     """Fresh process state, ``cwd`` in ``tmp_path``, every server URL closed by default."""
     from osprey.mcp_server.ariel.server_context import reset_ariel_context
-    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.workspace import reset_config_cache
 
     availability.reset_availability()
     _offload.reset_offload_state()

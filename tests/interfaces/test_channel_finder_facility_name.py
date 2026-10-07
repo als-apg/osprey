@@ -51,7 +51,7 @@ def _launch(config: dict):
     mock_reg.facility_name = _REGISTRY_FACILITY
 
     with (
-        patch("osprey.utils.workspace.load_osprey_config", return_value=config),
+        patch("osprey_connectors.workspace.load_osprey_config", return_value=config),
         patch(
             "osprey.mcp_server.channel_finder_in_context.server_context.initialize_cf_ic_context",
             return_value=mock_reg,

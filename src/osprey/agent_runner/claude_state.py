@@ -47,7 +47,7 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("agent_runner.claude_state")
 

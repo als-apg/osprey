@@ -251,12 +251,6 @@ def test_the_wrapper_defaults_to_the_chat_limit():
     assert all(len(chunk) <= MAX_CHARS for chunk in chunk_text(text))
 
 
-def test_the_fence_helper_is_still_importable_from_here():
-    # Re-exported rather than reimplemented: the name moved to the core with the
-    # chunker, and importers of this module should not have had to notice.
-    assert client_module._fence_spans is core_text._fence_spans
-
-
 # --- the service seam ------------------------------------------------------
 
 

@@ -8,8 +8,8 @@ context manager must classify as a dedicated ``write_refused`` error type
 
 from __future__ import annotations
 
-from osprey.errors import ChannelWriteBlockedError
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
+from osprey_connectors.errors import ChannelWriteBlockedError
 from tests.mcp_server.conftest import assert_raises_error
 
 

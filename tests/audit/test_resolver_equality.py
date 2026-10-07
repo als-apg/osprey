@@ -16,7 +16,7 @@ Two anchors, two groups of tests:
    :attr:`osprey.deployment.reset.ResetPlan.audit_dir`, and the hook's own
    ``get_repo_root() / AUDIT_DIR_RELPATH`` must all name the same directory.
    ``ResetPlan.audit_dir`` does not import
-   :data:`~osprey.utils.workspace.AUDIT_DIR_RELPATH` — it is spelled as
+   :data:`~osprey_connectors.workspace.AUDIT_DIR_RELPATH` — it is spelled as
    ``STATE_DIR_NAME / "audit"`` — so this is the test that would catch the two
    spellings drifting apart; it is included in the equality on purpose.
 
@@ -39,7 +39,7 @@ from osprey.audit import writer
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment.reset import ResetPlan
 from osprey.mcp_server import audit_middleware as am
-from osprey.utils import workspace
+from osprey_connectors import workspace
 from tests.hooks.conftest import import_hook
 
 

@@ -207,7 +207,7 @@ def _launch_web_terminal(
         # The store seam. Patched at the resolver, never through
         # OSPREY_AGENT_DATA_ROOT -- see test_bar_items_routes.py's fixture.
         patch(
-            "osprey.utils.workspace.resolve_shared_data_root",
+            "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=agent_data,
         ),
     ]

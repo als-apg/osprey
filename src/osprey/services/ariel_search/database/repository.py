@@ -39,7 +39,7 @@ from osprey.services.ariel_search.models import (
     SearchDiagnostic,
     enhanced_entry_from_row,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection

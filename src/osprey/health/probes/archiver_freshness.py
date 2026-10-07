@@ -174,14 +174,14 @@ def _archiver_block(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
     an explicit per-run *config* (from ``ctx.config``, e.g. the web surface) is
     authoritative when present — the global singleton is never consulted in that
     case — otherwise the block falls back to the global singleton via
-    :func:`~osprey.utils.config.get_config_value`. Any failure to load config is
+    :func:`~osprey_connectors.config.get_config_value`. Any failure to load config is
     swallowed to an empty block, which the caller grades as a misconfiguration.
     """
     if config is not None:
         block = config.get("archiver")
         return block if isinstance(block, Mapping) else {}
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         block = get_config_value("archiver", {})
     except Exception:  # config unavailability degrades to no block

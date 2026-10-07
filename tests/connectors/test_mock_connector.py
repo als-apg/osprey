@@ -13,9 +13,9 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system.mock_connector import MockConnector
 
 
 def _config_with_writes_enabled(key, default=None):
@@ -43,7 +43,7 @@ class TestMockConnector:
     @pytest.mark.asyncio
     async def test_read_pv_accepts_any_name(self):
         """Test that mock connector accepts any PV name."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0})
 
@@ -62,7 +62,7 @@ class TestMockConnector:
         """Live-read timestamps carry an explicit offset (facility zone), not a
         naive datetime — guards the connector render sites against silent
         reversion to ``datetime.now()``."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0})
 
@@ -84,7 +84,7 @@ class TestMockConnector:
     )
     async def test_read_pv_infers_units(self, channel, units):
         """The connector infers each channel's exact unit from its name."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0})
 
@@ -98,7 +98,7 @@ class TestMockConnector:
         """Test that mock connector maintains state between writes and reads."""
         connector = MockConnector()
         with patch(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
             await connector.connect(
@@ -124,7 +124,7 @@ class TestMockConnector:
     async def test_write_disabled(self):
         """Test that writes are blocked via base class when config says false."""
         connector = MockConnector()
-        with patch("osprey.utils.config.get_config_value", return_value=False):
+        with patch("osprey_connectors.config.get_config_value", return_value=False):
             await connector.connect({"response_delay_ms": 0})
 
             result = await connector.write_channel("TEST:PV", 100.0)
@@ -135,7 +135,7 @@ class TestMockConnector:
     @pytest.mark.asyncio
     async def test_read_multiple_channels(self):
         """Test reading multiple PVs concurrently."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0})
 
@@ -163,7 +163,7 @@ class TestMockConnector:
     @pytest.mark.asyncio
     async def test_read_multiple_channels_omits_a_failed_read(self):
         """A read that fails with an ordinary error is left out of the result."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0})
             self._fail_read_of(connector, "PV:2", RuntimeError("read failed"))
@@ -176,7 +176,7 @@ class TestMockConnector:
     @pytest.mark.asyncio
     async def test_read_multiple_channels_propagates_a_cancelled_read(self):
         """A cancelled read raises the cancellation instead of returning it as a value."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0})
             self._fail_read_of(connector, "PV:2", asyncio.CancelledError())
@@ -188,7 +188,7 @@ class TestMockConnector:
     @pytest.mark.asyncio
     async def test_validate_pv_always_true(self):
         """Test that all PV names are valid in mock mode."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0})
 
@@ -200,7 +200,7 @@ class TestMockConnector:
     @pytest.mark.asyncio
     async def test_metadata(self):
         """Test getting PV metadata."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0})
 
@@ -461,7 +461,7 @@ class TestMockArchiverReproducibility:
         script = textwrap.dedent("""
             import asyncio, json
             from datetime import datetime
-            from osprey.connectors.archiver.mock_archiver_connector import (
+            from osprey_connectors.archiver.mock_archiver_connector import (
                 MockArchiverConnector,
             )
 
@@ -510,7 +510,7 @@ def _captured_sigmas():
         sigmas.append(scale)
         return real_normal(loc, scale, *args, **kwargs)
 
-    with patch("osprey.connectors.control_system.mock_connector.np.random.normal", recorder):
+    with patch("osprey_connectors.control_system.mock_connector.np.random.normal", recorder):
         yield sigmas
 
 
@@ -538,7 +538,7 @@ class TestKindAwareNoiseFloor:
     )
     async def test_non_position_kind_sigma_is_exactly_unchanged(self, channel, base_value):
         """Regression guard: the floor must not perturb any kind with a non-zero base."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
             with _captured_sigmas() as sigmas:
@@ -549,7 +549,7 @@ class TestKindAwareNoiseFloor:
 
     @pytest.mark.asyncio
     async def test_position_channel_sigma_at_zero_baseline_is_the_kind_floor(self):
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
             with _captured_sigmas() as sigmas:
@@ -560,7 +560,7 @@ class TestKindAwareNoiseFloor:
 
     @pytest.mark.asyncio
     async def test_position_channel_at_zero_baseline_varies_across_reads(self):
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
 
@@ -575,7 +575,7 @@ class TestKindAwareNoiseFloor:
         """Above the floor the sigma is purely relative again -- the floor is a
         minimum, not an added noise source."""
         with patch(
-            "osprey.utils.config.get_config_value",
+            "osprey_connectors.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
             connector = MockConnector()
@@ -594,7 +594,7 @@ class TestKindAwareNoiseFloor:
         """``noise_level: 0`` is an explicit request for determinism; the kind
         floor exists to fix the zero-base degeneracy, not to override that
         request, so it does not apply when the relative level is zero."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
             with _captured_sigmas() as sigmas:
@@ -608,7 +608,7 @@ class TestKindAwareNoiseFloor:
     async def test_position_channel_at_zero_noise_level_is_deterministic(self):
         """True determinism, not merely small variance: repeated reads of a
         0.0-baseline position channel must return the exact same value."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
+        with patch("osprey_connectors.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
 
@@ -636,7 +636,9 @@ class TestMockWriteConfirmationContract:
         The writes_enabled gate is re-read on every write, so the config patch
         has to outlive connect().
         """
-        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        monkeypatch.setattr(
+            "osprey_connectors.config.get_config_value", _config_with_writes_enabled
+        )
         connector = MockConnector()
         await connector.connect({"response_delay_ms": 0, "noise_level": noise_level})
         return connector

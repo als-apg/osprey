@@ -18,16 +18,16 @@ from osprey import bluesky_tool_names as bsky
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT, POSTURE_ENV_VAR
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.phoebus_agent_access import DRIVE_TOOL, READ, READ_WRITE, SERVER_TEMPLATE
-from osprey.utils.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
-from osprey.utils.identity import IDENTITY_ENV_LADDER
 from osprey.utils.owner_header import OWNER_HEADER
-from osprey.utils.workspace import RENDERED_CONFIG_RELPATH
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
+from osprey_connectors.identity import IDENTITY_ENV_LADDER
 from osprey_connectors.posture_store import (
     CONTROL_CONTEXT_DIR_ENV_VAR,
     CONTROL_CONTEXT_TREE_ENV_VAR,
     CONTROL_OWNER_ENV_VAR,
     LAUNCH_POSTURE_ENV_VAR,
 )
+from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH
 
 logger = logging.getLogger(__name__)
 
@@ -326,7 +326,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.workspace",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # osprey.utils.config reads CONFIG_FILE (not OSPREY_CONFIG); set both
+            # osprey_connectors.config reads CONFIG_FILE (not OSPREY_CONFIG); set both
             # so the server resolves config even when launched with a CWD other
             # than the project dir (e.g. the dispatch worker's /app WORKDIR).
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
@@ -423,7 +423,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.ariel",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
             "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
         },
@@ -604,7 +604,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         default_enabled=False,
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         permissions_allow=["health_check"],
@@ -616,7 +616,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         condition="channel_finder_pipeline",
@@ -635,7 +635,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.graph",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
-            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         # Conditional on a declared graph store: ``graphdb_configured`` is a
@@ -1023,7 +1023,7 @@ TOOL_PREFIX_ENV = "OSPREY_MCP_TOOL_PREFIX"
 # assignment.
 #
 # The set is spelled off its AUTHORITATIVE SOURCES, not off hand-picked
-# markers: the whole identity ladder (``osprey.utils.identity``, every rung —
+# markers: the whole identity ladder (``osprey_connectors.identity``, every rung —
 # stripping only the lower rung left the winning ``OSPREY_TERMINAL_USER``
 # pinnable, which misrouted a server's entire ledger into an unmounted
 # subdirectory) and the posture value itself (``osprey.audit.posture``). Both

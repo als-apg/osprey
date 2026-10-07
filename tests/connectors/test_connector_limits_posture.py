@@ -24,8 +24,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.connectors.types import DOOCS, EPICS, LIVE_STANDIN, VIRTUAL_ACCELERATOR
-from osprey.errors import ChannelLimitsViolationError
+from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors.types import DOOCS, EPICS, LIVE_STANDIN, VIRTUAL_ACCELERATOR
 
 DEPLOYMENT_WIDE_ALLOW_KEY = "control_system.limits_checking.allow_unlisted_channels"
 
@@ -80,8 +80,8 @@ def _patch_config(monkeypatch, section: dict[str, Any], db_path: Path) -> None:
             return section.get("writes_enabled", default)
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
-    monkeypatch.setattr("osprey.utils.config.default_config_path", lambda: None)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
 
 
 def _posture(connector) -> tuple[Any, Any]:
@@ -96,7 +96,7 @@ def _posture(connector) -> tuple[Any, Any]:
 
 
 async def _connected_mock(monkeypatch, section, db_path, connector_type):
-    from osprey.connectors.control_system.mock_connector import MockConnector
+    from osprey_connectors.control_system.mock_connector import MockConnector
 
     _patch_config(monkeypatch, section, db_path)
     connector = MockConnector()
@@ -199,7 +199,7 @@ class TestEPICSConnectorPosture:
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_stand_in_reads_its_own_block(self, monkeypatch, tmp_path):
         """``live_standin`` is a type of its own, served by this same connector."""
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
+        from osprey_connectors.control_system.epics_connector import EPICSConnector
 
         _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
         connector = EPICSConnector()
@@ -211,7 +211,7 @@ class TestEPICSConnectorPosture:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_live_type_inherits_deployment_wide(self, monkeypatch, tmp_path):
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
+        from osprey_connectors.control_system.epics_connector import EPICSConnector
 
         _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
         connector = EPICSConnector()
@@ -223,7 +223,7 @@ class TestEPICSConnectorPosture:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
     async def test_unstamped_connector_reads_the_deployment_wide_block(self, monkeypatch, tmp_path):
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
+        from osprey_connectors.control_system.epics_connector import EPICSConnector
 
         _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
         connector = EPICSConnector()
@@ -237,7 +237,7 @@ class TestEPICSConnectorPosture:
         self, monkeypatch, tmp_path
     ):
         """``VirtualAcceleratorConnector`` builds no validator of its own."""
-        from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
+        from osprey_connectors.control_system.va_connector import VirtualAcceleratorConnector
 
         _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
         connector = VirtualAcceleratorConnector()
@@ -263,7 +263,7 @@ def _mock_doocs4py() -> MagicMock:
 async def _connected_doocs(monkeypatch, section, db_path, connector_type):
     _patch_config(monkeypatch, section, db_path)
     with patch.dict(sys.modules, {"doocs4py": _mock_doocs4py()}):
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system.doocs_connector import DOOCSConnector
 
         connector = DOOCSConnector()
         connector._connector_type = connector_type

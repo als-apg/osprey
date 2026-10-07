@@ -36,14 +36,14 @@ def artifact_config(monkeypatch):
     """Install a config.yml mapping for every loader call, and hand it back.
 
     Patches the loader itself rather than writing a file, so the module-level
-    config cache in ``osprey.utils.workspace`` cannot serve a stale answer.
+    config cache in ``osprey_connectors.workspace`` cannot serve a stale answer.
     """
     config: dict = {"artifact_server": {"host": "127.0.0.1", "port": 8600}}
 
     def _fake_loader(*_args, **_kwargs):
         return config
 
-    monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", _fake_loader)
+    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", _fake_loader)
     return config
 
 
@@ -113,7 +113,7 @@ class TestResolver:
     def test_nested_web_subkey_and_its_own_env_var(self, monkeypatch):
         """Servers configured under a ``web`` subkey resolve the same way."""
         monkeypatch.setattr(
-            "osprey.utils.workspace.load_osprey_config",
+            "osprey_connectors.workspace.load_osprey_config",
             lambda *a, **k: {"ariel": {"web": {"host": "0.0.0.0", "port": 8610}}},
         )
         monkeypatch.setenv("OSPREY_ARIEL_PORT", "8611")
@@ -127,7 +127,7 @@ class TestResolver:
         def _explode(*_args, **_kwargs):
             raise AssertionError("loader called despite a config being supplied")
 
-        monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", _explode)
+        monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", _explode)
         monkeypatch.setenv(ENV_VAR, "8601")
 
         address = resolve_web_server_address(

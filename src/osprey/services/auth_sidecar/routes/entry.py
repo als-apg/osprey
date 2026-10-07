@@ -101,9 +101,6 @@ TEMPLATE_NAME = "enter.html"
 FIELD_USERNAME = "username"
 """The form's username field, where the person types their own roster name."""
 
-NO_CARD_MESSAGE = "No terminal for this account."
-"""The refusal a verified person no card admits is told."""
-
 
 @dataclass(frozen=True)
 class OpenedCard:

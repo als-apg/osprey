@@ -315,7 +315,7 @@ class TestPreparedFromFacilityTree:
         assert reconciliation["invalid"] == []
 
     def test_an_unreadable_machine_state_list_raises_naming_the_file(self, editable_tree):
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         (editable_tree / "machine_state_channels.json").write_text("not json {")
 
@@ -325,7 +325,7 @@ class TestPreparedFromFacilityTree:
         assert "machine_state_channels.json" in str(excinfo.value)
 
     def test_a_machine_state_list_that_is_not_an_object_raises_naming_the_file(self, editable_tree):
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         (editable_tree / "machine_state_channels.json").write_text("[]")
 
@@ -342,7 +342,7 @@ class TestPreparedFromFacilityTree:
         ids=["scenario-seed", "machine-state-list"],
     )
     def test_an_unreadable_per_tree_source_is_repaired_never_removed(self, editable_tree, source):
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         (editable_tree / source).write_text("not json {")
 
@@ -1865,7 +1865,7 @@ class TestGraphYieldsNothing:
 
     def test_an_unreadable_scenario_seed_raises_naming_the_file(self, tmp_path):
         """Same rule as the paradigm path: a broken per-tree source stops the build."""
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         root, config = _graph_tree(tmp_path / "data")
         (root / "simulation" / "machine.json").write_text("not json {")
@@ -1879,7 +1879,7 @@ class TestGraphYieldsNothing:
     def test_a_graph_tree_machine_state_list_that_is_not_an_object_raises_naming_the_file(
         self, tmp_path
     ):
-        from osprey.errors import BuildProfileError
+        from osprey_connectors.errors import BuildProfileError
 
         root, config = _graph_tree(tmp_path / "data")
         (root / "machine_state_channels.json").write_text("[]")

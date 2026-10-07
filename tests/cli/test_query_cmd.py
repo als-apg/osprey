@@ -21,7 +21,7 @@ from osprey.agent_runner import (
     ToolTrace,
 )
 from osprey.cli.query_cmd import query
-from osprey.utils.logger import configure_logging, get_logger
+from osprey_connectors.logger import configure_logging, get_logger
 from tests.cli._lifecycle_build import stub_build
 
 # ---------------------------------------------------------------------------

@@ -18,8 +18,8 @@ from dataclasses import dataclass
 import pytest
 from click.testing import CliRunner
 
-from osprey.connectors import types
-from osprey.connectors.factory import (
+from osprey_connectors import types
+from osprey_connectors.factory import (
     ConnectorFactory,
     isolated_connector_registries,
     register_builtin_connectors,
@@ -40,21 +40,21 @@ _ROWS = [
         types.DOOCS,
         "doocs",
         "DOOCSConnector",
-        "osprey.connectors.control_system.doocs_connector",
+        "osprey_connectors.control_system.doocs_connector",
         "control_system",
     ),
     _Row(
         types.DOOCS_ARCHIVER,
         "doocs_archiver",
         "DOOCSArchiverConnector",
-        "osprey.connectors.archiver.doocs_archiver_connector",
+        "osprey_connectors.archiver.doocs_archiver_connector",
         "archiver",
     ),
     _Row(
         types.TANGO,
         "tango",
         "TangoConnector",
-        "osprey.connectors.control_system.tango_connector",
+        "osprey_connectors.control_system.tango_connector",
         "control_system",
     ),
 ]

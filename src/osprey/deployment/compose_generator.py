@@ -63,16 +63,16 @@ from osprey.deployment.wheel_build import (
     _reset_wheel_build_cache as _reset_wheel_build_cache,
 )
 from osprey.port_layout import layout_ports, resolve_port_base
-from osprey.utils import dotenv
-from osprey.utils.config import ConfigBuilder, load_project_config
-from osprey.utils.log_filter import quiet_logger
-from osprey.utils.logger import get_logger
+from osprey_connectors import dotenv
+from osprey_connectors.config import ConfigBuilder, load_project_config
 
 # The single config key naming the channel-limits database, spelled once in the
 # validator that enforces it: the bind source on the host, the mount target in
 # the container and every refusal that names the key back to the operator all
 # read it from there.
 from osprey_connectors.control_system.limits_validator import LIMITS_DATABASE_CONFIG_KEY
+from osprey_connectors.log_filter import quiet_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.compose")
 
@@ -103,7 +103,7 @@ COMPOSE_ENV_FILENAME = ".env"
 
 #: The committed, non-secret defaults file beside it — lower precedence than
 #: :data:`COMPOSE_ENV_FILENAME` wherever both are delivered. Taken from
-#: :mod:`osprey.utils.dotenv` rather than re-typed, so the renderer that lists
+#: :mod:`osprey_connectors.dotenv` rather than re-typed, so the renderer that lists
 #: the chain and the helpers that merge it cannot disagree about the filename.
 ENV_SHARED_FILENAME = dotenv.ENV_SHARED_FILENAME
 
@@ -213,7 +213,7 @@ def resolve_repo_root(config=None, config_path=None):
 
     1. The config *path*, when the caller has one: the repo is the directory
        holding it, or its parent when the config sits in the ``build/`` zone
-       (:func:`osprey.utils.workspace.repo_root_for_config`). Filesystem truth,
+       (:func:`osprey_connectors.workspace.repo_root_for_config`). Filesystem truth,
        and the only answer immune to a rewritten ``project_root``.
     2. The config's ``project_root`` key — but only when it names a directory
        that exists here. A project built with ``--runtime-root`` records the
@@ -232,7 +232,7 @@ def resolve_repo_root(config=None, config_path=None):
     Returns:
         An absolute path to the deployment repo root.
     """
-    from osprey.utils.workspace import repo_root_for_config
+    from osprey_connectors.workspace import repo_root_for_config
 
     if config_path:
         return repo_root_for_config(Path(config_path).expanduser().absolute())
@@ -411,7 +411,7 @@ def read_rendered_env_chain(repo_root, build_dir=None):
         ``build``.
     :return: Recorded chain filenames in chain order, or ``None``.
     """
-    from osprey.utils.workspace import BUILD_DIR_NAME
+    from osprey_connectors.workspace import BUILD_DIR_NAME
 
     marker = Path(repo_root) / (build_dir or BUILD_DIR_NAME) / ENV_CHAIN_MARKER_FILENAME
     try:
@@ -430,7 +430,7 @@ def labels_override_path(repo_root):
     :param repo_root: The deployment repo root.
     :return: Path of :data:`LABELS_OVERRIDE_FILENAME` in the render zone.
     """
-    from osprey.utils.workspace import BUILD_DIR_NAME
+    from osprey_connectors.workspace import BUILD_DIR_NAME
 
     return Path(repo_root) / BUILD_DIR_NAME / LABELS_OVERRIDE_FILENAME
 
@@ -1197,7 +1197,7 @@ def _resolve_archive_render_context(config):
     from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
     from osprey.deployment.openobserve_provision import store_org
     from osprey.deployment.web_terminals.personas import roster_user_names
-    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, AUDIT_DIR_RELPATH
+    from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH, AUDIT_DIR_RELPATH
 
     config = config or {}
     deployed = {str(name) for name in config.get("deployed_services") or []}
@@ -1602,7 +1602,7 @@ def _standin_perturbation(config, repo_root):
         default_bpm_errors_for_lattice,
         served_data_root,
     )
-    from osprey.utils.workspace import BUILD_DIR_NAME
+    from osprey_connectors.workspace import BUILD_DIR_NAME
 
     build_dir = Path(str(config.get("build_dir", f"./{BUILD_DIR_NAME}")))
     if not build_dir.is_absolute():
@@ -1860,7 +1860,7 @@ def _inject_project_metadata(config):
     # with an explicit ``./`` — a bind source that is neither absolute nor
     # dot-prefixed is not reliably read as a path by every runtime. A state dir
     # outside the repo has no relative spelling and is emitted absolute.
-    from osprey.utils.workspace import (
+    from osprey_connectors.workspace import (
         AUDIT_DIR_RELPATH,
         agent_data_base_dir,
         resolve_simulation_state_dir,
@@ -2577,7 +2577,7 @@ def audit_identity_dir(repo_root, identity):
         reject on their own account.
     """
     from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
-    from osprey.utils.workspace import AUDIT_DIR_RELPATH
+    from osprey_connectors.workspace import AUDIT_DIR_RELPATH
 
     if not isinstance(identity, str) or not USERNAME_CHARSET_RE.fullmatch(identity):
         raise ValueError(
@@ -2673,7 +2673,7 @@ def ensure_archive_dir(repo_root, relative_to=None):
     :return: The archive root, or ``None`` when it could not be provisioned
     :rtype: pathlib.Path | None
     """
-    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH
+    from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH
 
     target = Path(repo_root) / ARCHIVE_DIR_RELPATH
     try:
@@ -2878,14 +2878,13 @@ def control_target_tree_dir(config, repo_root):
     :return: The control-context tree root
     :rtype: pathlib.Path
     """
-    from osprey.utils.workspace import agent_data_base_dir, anchored_path
-
-    # Aliased on import: ``osprey.utils.workspace`` — already imported here for
+    # Aliased on import: ``osprey_connectors.workspace`` — already imported here for
     # two other names — exports a ``STATE_DIR_NAME`` of its own, spelled "var".
     # Under one name, folding this constant into that import line is a one-word
     # edit that silently repoints the whole tree at <agent-data root>/var, which
     # is the single class of drift this seam exists to make impossible.
     from osprey_connectors.posture_store import STATE_DIR_NAME as CONTROL_TREE_DIR_NAME
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
     return anchored_path(agent_data_base_dir(config), Path(repo_root)) / CONTROL_TREE_DIR_NAME
 
@@ -3195,7 +3194,7 @@ def _control_tree_build_account(config, repo_root):
     :return: The identity to provision a directory for, or ``None``
     :rtype: str | None
     """
-    from osprey.utils.identity import acting_identity
+    from osprey_connectors.identity import acting_identity
 
     identity = acting_identity()
     try:
@@ -3298,7 +3297,7 @@ def _ensure_agent_data_structure(config):
     directories. The root comes from ``agent_data.base_dir`` — ``var/agent_data``
     under the repo root unless a profile moved it; each subdirectory below
     is created only when ``file_paths`` declares its name, so the created structure
-    matches what :func:`osprey.utils.config.get_agent_dir` resolves at runtime. The
+    matches what :func:`osprey_connectors.config.get_agent_dir` resolves at runtime. The
     scenario state directory is the one addition outside ``file_paths``, created only
     for a Virtual Accelerator deployment — the one compose service that mounts it.
     The control-context tree is the other: its root, its marker and one directory
@@ -3308,8 +3307,8 @@ def _ensure_agent_data_structure(config):
     :param config: Configuration dictionary containing agent_data and file_paths settings
     :type config: dict
     """
-    from osprey.connectors.types import VIRTUAL_ACCELERATOR
-    from osprey.utils.workspace import (
+    from osprey_connectors.types import VIRTUAL_ACCELERATOR
+    from osprey_connectors.workspace import (
         agent_data_base_dir,
         anchored_path,
         resolve_simulation_state_dir,
@@ -3830,7 +3829,7 @@ def _plan_derived_devices(config):
     :return: The decision, with the inputs it was made from
     :rtype: _DerivedDevices
     """
-    from osprey.connectors.types import MOCK, resolve_control_system_type
+    from osprey_connectors.types import MOCK, resolve_control_system_type
 
     raw = _configured_devices_file(config)
     configured = Path(raw).expanduser() if raw is not None else None

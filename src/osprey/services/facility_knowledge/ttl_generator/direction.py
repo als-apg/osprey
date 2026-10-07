@@ -43,9 +43,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-# ``osprey.utils.config`` is a compatibility shim whose module object *is*
-# ``osprey_connectors.config``; importing from the real module keeps the two
-# connector-side helpers below spelled from one place.
 from osprey_connectors.config import default_config_path, get_config_value
 from osprey_connectors.control_system.limits_validator import (
     LIMITS_DATABASE_CONFIG_KEY,

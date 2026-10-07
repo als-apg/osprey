@@ -156,7 +156,7 @@ def reconcile_interval_seconds() -> float:
     process see the value their config declares.
     """
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         configured = get_config_value(
             "web.file_watch_reconcile_interval_s", DEFAULT_RECONCILE_SECONDS

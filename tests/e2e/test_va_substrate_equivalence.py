@@ -289,7 +289,7 @@ def _monitor_motion_bands(repo: Path, truths: dict[str, float]) -> dict[str, flo
     """
     from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
     from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
-    from osprey.simulation.machine import parse_machine
+    from osprey_connectors.simulation.machine import parse_machine
 
     data_root = served_data_root(repo, repo / "build")
     assert data_root is not None, f"the deployment at {repo} serves no machine.json"
@@ -631,7 +631,7 @@ def _wait_for_container_health(container: str, timeout: float) -> None:
 
 
 def _minted_token(repo: Path) -> str:
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"

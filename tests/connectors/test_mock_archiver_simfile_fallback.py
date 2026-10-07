@@ -20,7 +20,7 @@ of the path.
 A note on the virtual-accelerator cases below, which would otherwise read as
 contradicting the honesty rule: pairing a ``virtual_accelerator`` control system
 with the mock archiver is refused at build, at deploy and at MCP startup
-(see :mod:`osprey.connectors.honesty`), so no deployment can reach that
+(see :mod:`osprey_connectors.honesty`), so no deployment can reach that
 configuration. These tests still exercise it, and legitimately — they construct
 the connector directly, below the level where any of those three refusals live,
 to pin the *resolution* rule: given a mock archiver and a VA-typed control
@@ -41,7 +41,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector, _anchor
+from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector, _anchor
 
 ARCHIVER_LOGGER = "mock_archiver_connector"
 

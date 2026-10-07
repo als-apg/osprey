@@ -39,7 +39,7 @@ from osprey.interfaces.web_terminal.routes import audit as audit_routes
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
 from osprey.interfaces.web_terminal.routes.config import _require_config_panel
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 RECENT = "/api/audit/recent"
 

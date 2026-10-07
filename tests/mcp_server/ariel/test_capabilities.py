@@ -6,7 +6,7 @@ import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context, reset_ariel_context
 from osprey.registry import get_registry
-from osprey.utils.workspace import reset_config_cache
+from osprey_connectors.workspace import reset_config_cache
 from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by name
     example_descriptors,
     example_entry_fields_fixture,

@@ -10,7 +10,7 @@ import yaml
 from osprey.audit.envelope import POSTURE_SOURCE_APP
 from osprey.audit.protected import SURFACE_CLAUDE_SETUP, record_protected_refusal
 from osprey.interfaces.web_terminal.ownership import reserved_write_channel
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("claude_code_files")
 
@@ -99,7 +99,6 @@ class ClaudeCodeFileService:
     """
 
     ALLOWED_DIRS = {"rules", "agents", "commands", "hooks", "skills", "output-styles"}
-    ROOT_FILES = {"CLAUDE.md", ".mcp.json"}
 
     # Category assignments for well-known files
     _KNOWN_CATEGORIES: dict[str, str] = {

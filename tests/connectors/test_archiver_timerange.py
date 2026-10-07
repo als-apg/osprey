@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from pandas.api.types import is_string_dtype
 
-from osprey.connectors.archiver._timerange import (
+from osprey_connectors.archiver._timerange import (
     LONG_COLUMNS,
     PROCESSING_MODES,
     aggregate_long_frame,
@@ -69,7 +69,7 @@ class TestToUtc:
 
     def test_naive_reads_as_facility_zone(self, monkeypatch):
         monkeypatch.setattr(
-            "osprey.utils.config.get_facility_timezone",
+            "osprey_connectors.config.get_facility_timezone",
             lambda: ZoneInfo("America/Los_Angeles"),
         )
         assert to_utc(datetime(2026, 7, 30, 11, 0, 0)) == datetime(

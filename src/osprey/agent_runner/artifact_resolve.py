@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.utils.workspace import agent_data_base_dir, anchored_path, rendered_config_path
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path, rendered_config_path
 
 if TYPE_CHECKING:
     from osprey.mcp_server.ariel.converters import ConverterFn

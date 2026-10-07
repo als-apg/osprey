@@ -127,7 +127,7 @@ def client(agent_data_root, workspace_dir, config_path):
             return_value={"watch_dir": str(workspace_dir)},
         ),
         patch(
-            "osprey.utils.workspace.resolve_shared_data_root",
+            "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=agent_data_root,
         ),
     ):
@@ -635,7 +635,7 @@ def _app_over(stored: bytes | None, *, agent_data_root: Path, workspace_dir: Pat
             return_value={"watch_dir": str(workspace_dir)},
         ),
         patch(
-            "osprey.utils.workspace.resolve_shared_data_root",
+            "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=agent_data_root,
         ),
     ):
