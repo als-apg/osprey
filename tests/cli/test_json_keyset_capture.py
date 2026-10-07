@@ -1,11 +1,13 @@
 """Pre-migration capture of every ``--json`` payload shape the CLI emits.
 
-Five verbs have a ``--json`` path: ``audit``, ``health``, ``query``,
-``ariel status`` and ``ariel search``. The output-hierarchy work reroutes each
-verb's *human* output through a single renderer; none of it is allowed to move
-a key in the *machine* output. These tests record what each payload looks like
-today so that a later migration which quietly reshapes one is caught here
-rather than in a downstream consumer.
+Six verbs have a ``--json`` path: ``audit``, ``health``, ``query``,
+``ariel status``, ``ariel search`` and ``facility show``, whose two documents
+(the facility, and one record under an ID) have a golden each; ``facility
+show`` is captured in ``test_facility_show.py``, over a real build. The
+output-hierarchy work reroutes each verb's *human* output through a single
+renderer; none of it is allowed to move a key in the *machine* output. These
+tests record what each payload looks like today so that a later migration which
+quietly reshapes one is caught here rather than in a downstream consumer.
 
 **What is captured.** Payload *values* are non-deterministic by construction
 (timestamps, live probes, model text), so only the key set is pinned. Each
@@ -32,6 +34,9 @@ so equality is a real contract rather than a fixture artifact:
   counts. Its sibling ``orphaned_enhancement_modules`` is deliberately not
   nested — those keys are store contents rather than a schema.
 * ``ariel search`` → ``entries[]`` (``_entry_summary``'s fixed projection).
+* ``facility show`` → ``counts`` and ``models[]``, both literal dicts in
+  ``facility_cmd``. ``views[]`` is not nested: ``reason`` is present only on a
+  view the render does not carry, so the element key set varies.
 
 Deliberately **not** nested: ``health``'s ``results[]`` rows, whose ``value`` /
 ``latency_ms`` / ``details`` keys are emitted only when truthy, so the row key
@@ -104,6 +109,8 @@ _NESTED: dict[str, tuple[str, ...]] = {
         "search_modules",
     ),
     "ariel_search": ("entries[]",),
+    "facility_show": ("counts", "models[]"),
+    "facility_show_record": (),
 }
 
 
@@ -494,7 +501,7 @@ def test_ariel_search_json_keyset(
 # --------------------------------------------------------------------------- #
 
 
-def test_goldens_are_exactly_the_five_json_verbs() -> None:
+def test_goldens_are_exactly_the_json_documents() -> None:
     """The golden directory covers every ``--json`` verb and nothing else."""
     assert {p.stem for p in _GOLDEN_DIR.glob("*.json")} == set(_NESTED)
 

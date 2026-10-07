@@ -15,6 +15,15 @@ count per reason (unwired, no width, unsolved, table calibration); it does not
 change the verdict or the exit code. Persona and image renders are checked by ``osprey build``
 alone.
 
+``osprey facility show [--json] [ID]`` builds in memory as ``validate`` does
+and prints what the build holds: the identity, the records per kind and the
+wiring records per model, each model's engine, served flag and solve setting,
+and each view with its path and whether the main render, the ``config.yml``
+``osprey build`` writes into ``build/``, carries it, with the reason when it
+does not. With an ID it prints that record, its provenance and the fixes
+applied to it. ``--json`` prints one document on stdout and every other line on
+stderr; an error leaves stdout empty.
+
 ``osprey facility import mml EXPORT...`` writes MML exports as the mml layer's
 sources under ``data/facility/imported/mml/`` and seeds each authored file that
 does not exist yet. An authored record source merges against the layer's
@@ -35,8 +44,9 @@ command body, so ``osprey --help`` does not load them.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -50,7 +60,7 @@ if TYPE_CHECKING:
 
 @click.group()
 def facility() -> None:
-    """Import into and check the facility description under data/facility/."""
+    """Import into, check and show the facility description under data/facility/."""
 
 
 @facility.command("validate")
@@ -68,6 +78,38 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     (unwired, no width, unsolved, table calibration); it does not change the
     verdict or the exit code.
     """
+    _build_in_memory(ctx, repo)
+
+
+@dataclass(frozen=True)
+class _InMemoryBuild:
+    """What a build made in memory leaves behind once its render is discarded.
+
+    Attributes:
+        repo_root: The deployment repo.
+        document: The facility file.
+        facility_dir: The repo's ``data/facility`` directory.
+        rendered_config: The main render's ``config.yml``, as a nested mapping;
+            empty unless the caller asked for it.
+        primary_config: Where ``osprey build`` writes that ``config.yml``.
+    """
+
+    repo_root: Path
+    document: dict[str, Any]
+    facility_dir: Path
+    rendered_config: dict[str, Any]
+    primary_config: Path
+
+
+def _build_in_memory(
+    ctx: click.Context, repo: Path | None, *, read_config: bool = False
+) -> _InMemoryBuild:
+    """Run every check of ``osprey build`` and render the main profile in a scratch directory.
+
+    Exits 1 through ``ctx`` on the first failing check, after printing its
+    lines on stderr. ``read_config`` keeps the render's ``config.yml`` before
+    the scratch directory goes.
+    """
     import tempfile
 
     from osprey.errors import BuildProfileError
@@ -77,7 +119,7 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     from osprey.facility.response_check import report as report_responses
     from osprey.facility.validate import report, run_stages
 
-    from .build_cmd import _render_project, _render_zones, _SharedRenderInputs
+    from .build_cmd import _render_project, _render_zones, _rendered_config, _SharedRenderInputs
     from .profile_conventions import (
         PROJECT_MIRROR_DIR,
         facility_mirror_violation,
@@ -116,9 +158,10 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     if not report_responses(responses):
         ctx.exit(1)
 
+    build_dir = _render_zones(repo_root).build_dir
     shared = _SharedRenderInputs(
         repo_root=repo_root,
-        build_dir=_render_zones(repo_root).build_dir,
+        build_dir=build_dir,
         runtime_root=None,
         project_deps=list(build_profile.dependencies or []),
         skip_deps=True,
@@ -138,7 +181,7 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
             current_reporter().out().capture(),
             tempfile.TemporaryDirectory(prefix="osprey-facility-") as scratch,
         ):
-            _render_project(
+            render_dir = _render_project(
                 shared,
                 resolved,
                 profile_path=profile_path,
@@ -148,9 +191,209 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
                 progress=lambda *_args: None,
                 repair=False,
             )
+            rendered = _rendered_config(render_dir) if read_config else {}
     except (BuildProfileError, ValueError) as error:
         fail("The profile does not render.", str(error))
         ctx.exit(1)
+    return _InMemoryBuild(
+        repo_root=repo_root,
+        document=document,
+        facility_dir=facility_dir,
+        rendered_config=rendered,
+        primary_config=build_dir / "config.yml",
+    )
+
+
+#: Each record kind of the facility file: its key in the file and its id field.
+_RECORD_KINDS: tuple[tuple[str, str, str], ...] = (
+    ("place", "places", "id"),
+    ("device", "devices", "id"),
+    ("channel", "channels", "id"),
+    ("group", "groups", "id"),
+    ("model", "models", "name"),
+)
+
+
+def _counts(document: dict[str, Any]) -> dict[str, Any]:
+    """The records per kind, and the wiring records per model."""
+    counts: dict[str, Any] = {
+        key: len(document.get(key) or []) for _kind, key, _id in _RECORD_KINDS[:4]
+    }
+    counts["wiring"] = {
+        str(model["name"]): len(model.get("wiring") or [])
+        for model in sorted(document.get("models") or [], key=lambda model: str(model["name"]))
+    }
+    return counts
+
+
+def _views(built: _InMemoryBuild, served: list[str]) -> list[dict[str, Any]]:
+    """Every view with its path and whether the main render carries it.
+
+    ``reason`` is present only on a view the render does not carry.
+    """
+    from osprey.facility import views
+
+    inputs = views.ViewInputs(
+        doc=built.document,
+        rendered_config=built.rendered_config,
+        facility_dir=built.facility_dir,
+        served=served,
+    )
+    rows = []
+    for view in views.VIEWS:
+        written, reason = view.written_when(inputs)
+        row: dict[str, Any] = {
+            "name": view.name,
+            "path": (Path("data") / view.path).as_posix(),
+            "written": written,
+        }
+        if not written:
+            row["reason"] = reason
+        rows.append(row)
+    return rows
+
+
+def _overview(built: _InMemoryBuild) -> dict[str, Any]:
+    """The ``facility show`` document of the whole facility."""
+    from osprey.facility.served import resolve_served
+    from osprey.facility.views.facts import facts_document
+
+    served = resolve_served(built.rendered_config, built.document)
+    project_name = built.rendered_config.get("project_name")
+    facts = facts_document(built.document, served, str(project_name) if project_name else None)
+    return {
+        "identity": facts["identity"],
+        "counts": _counts(built.document),
+        "models": facts["models"],
+        "views": _views(built, served),
+    }
+
+
+def _record(document: dict[str, Any], record_id: str) -> dict[str, Any] | str:
+    """The ``facility show ID`` document, or the line that says why there is none."""
+    found = [
+        (kind, record)
+        for kind, key, id_field in _RECORD_KINDS
+        for record in document.get(key) or []
+        if str(record.get(id_field)) == record_id
+    ]
+    if not found:
+        return f"facility show: no record {record_id}"
+    if len(found) > 1:
+        kinds = [f"a {kind}" for kind, _record in found]
+        named = ", ".join(kinds[:-1]) + f" and {kinds[-1]}"
+        return f"facility show: {record_id} names {named}"
+    ((kind, record),) = found
+    provenance = dict(record.get("provenance") or {})
+    return {
+        "record": {key: value for key, value in record.items() if key != "provenance"},
+        "kind": kind,
+        "provenance": provenance,
+        "fixes_applied": list(provenance.get("fixes") or []),
+    }
+
+
+def _yaml_lines(value: Any) -> list[str]:
+    import yaml
+
+    text = yaml.safe_dump(value, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    return text.rstrip("\n").splitlines()
+
+
+def _print_overview(document: dict[str, Any], primary_config: str) -> None:
+    from .output import section
+
+    identity = document["identity"]
+    section(
+        "identity",
+        [(str(key), value) for key, value in identity.items() if value is not None],
+    )
+    counts = document["counts"]
+    rows: list[tuple[str, object]] = [
+        (key, value) for key, value in counts.items() if key != "wiring"
+    ]
+    rows += [(f"wiring {model}", value) for model, value in counts["wiring"].items()]
+    section("counts", rows)
+    section(
+        "models",
+        [
+            (
+                model["name"],
+                f"{model['engine']}, {'served' if model['served'] else 'not served'}, "
+                f"solve {model['solve'] if model['solve'] is not None else 'unset'}",
+            )
+            for model in document["models"]
+        ],
+    )
+    section(
+        f"views of {primary_config}",
+        [
+            (
+                view["name"],
+                f"{view['path']}, written"
+                if view["written"]
+                else f"{view['path']}, not written: {view['reason']}",
+            )
+            for view in document["views"]
+        ],
+    )
+
+
+def _print_record(document: dict[str, Any]) -> None:
+    record = document["record"]
+    id_field = "name" if document["kind"] == "model" else "id"
+    fields = {key: value for key, value in record.items() if key != id_field}
+    provenance = {key: value for key, value in document["provenance"].items() if key != "fixes"}
+    fixes = [f"  {fix['op']}: {fix['why']}" for fix in document["fixes_applied"]]
+    lines = [
+        f"{document['kind']} {record[id_field]}",
+        *(f"  {line}" for line in _yaml_lines(fields)),
+        "provenance",
+        *(f"  {line}" for line in _yaml_lines(provenance)),
+        "fixes applied",
+        *(fixes or ["  none"]),
+    ]
+    for line in lines:
+        report(line)
+
+
+@facility.command("show")
+@click.argument("record_id", metavar="[ID]", required=False)
+@click.option("--json", "as_json", is_flag=True, help="Print one JSON document on stdout.")
+@repo_option
+@click.pass_context
+def show(ctx: click.Context, record_id: str | None, as_json: bool, repo: Path | None) -> None:
+    """Print the facility the repo builds, or the record ID names.
+
+    Builds in memory as ``osprey facility validate`` does and exits 1 like it
+    on an error. Without ID it prints the identity, the records per kind, the
+    wiring per model, each model's engine, served flag and solve setting, and
+    each view with its path and whether the main render carries it. With ID it
+    prints that record with its provenance and the fixes applied to it; an ID
+    that names no record, or more than one, exits 1. Under ``--json`` stdout
+    holds one document and every other line goes to stderr.
+    """
+    import json
+    from contextlib import nullcontext
+
+    from . import output
+
+    with output.machine_mode() if as_json else nullcontext():
+        built = _build_in_memory(ctx, repo, read_config=True)
+        if record_id is None:
+            document = _overview(built)
+        else:
+            found = _record(built.document, record_id)
+            if isinstance(found, str):
+                click.echo(found, err=True)
+                ctx.exit(1)
+            document = found
+    if as_json:
+        click.echo(json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False))
+    elif record_id is None:
+        _print_overview(document, _shown(built.primary_config, built.repo_root))
+    else:
+        _print_record(document)
 
 
 @facility.group("import")
