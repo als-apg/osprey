@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 06, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 07, 2026"/>
   </head>
   
   
@@ -604,6 +604,22 @@ EPICS</label><div class="sd-tab-content docutils">
 <p><code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> bounds every Channel Access call given no timeout of its
 own. A <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> that is not a positive number of seconds is refused
 when the connector connects.</p>
+<p class="rubric">Fresh reads</p>
+<p>An ordinary Channel Access read answers from pyepics’ monitor cache,
+which moves only when the IOC posts an update. An IOC that computes a
+readback when it is read – a caproto getter, for example – posts none,
+so a cached read of it keeps returning the first value it saw. Set
+<code class="docutils literal notranslate"><span class="pre">fresh_reads:</span> <span class="pre">true</span></code> on the connector block and every Channel Access
+read asks the IOC instead, at one network round trip per read:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">epics</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">fresh_reads</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>The option is per block, so a stand-in simulator can have it while the
+live machine does not. Write confirmation and the <code class="docutils literal notranslate"><span class="pre">max_step</span></code> check
+already read fresh whatever it says, and pvAccess reads are never cached.</p>
 <p class="rubric">PVAccess channels (PVA)</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">epics</span></code> connector speaks Channel Access by default. Some data –
 camera frames above all – is served only over pvAccess, EPICS’ second
