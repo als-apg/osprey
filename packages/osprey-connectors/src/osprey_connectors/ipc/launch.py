@@ -17,6 +17,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import signal
+import sys
 from collections.abc import Mapping
 from typing import Any
 
@@ -91,17 +93,38 @@ async def terminate_host(process: Any, grace_s: float) -> None:
     """``SIGTERM``, then ``SIGKILL`` after the grace period. Never raises."""
     if process.returncode is not None:
         return
-    with contextlib.suppress(OSError):
-        process.terminate()
+    _signal_unreaped(process.pid, signal.SIGTERM)
     try:
         await asyncio.wait_for(process.wait(), grace_s)
         return
     except TimeoutError:
         pass
-    with contextlib.suppress(OSError):
-        process.kill()
+    _signal_unreaped(process.pid, signal.SIGKILL)
     with contextlib.suppress(Exception):
         await asyncio.wait_for(process.wait(), grace_s)
+
+
+def _signal_unreaped(pid: int, sig: int) -> None:
+    """Send *sig* to a child that is still running, without ever reaping it.
+
+    ``Process.terminate()`` and ``kill()`` go through ``Popen.send_signal``,
+    which polls first. A child that has already exited, the usual case when
+    the supervisor puts down a child whose stream just ended, is reaped by that
+    poll behind the event loop's child watcher, and asyncio then reports its
+    exit status as 255 instead of the code the child exited with. ``WNOWAIT``
+    only looks: an exited child is left for the watcher to reap. Where there is
+    no ``waitid`` (macOS before 3.13) the signal goes out unchecked; a child
+    that has exited but is not yet reaped is a zombie, and signalling one is a
+    no-op.
+    """
+    if sys.platform != "darwin" or sys.version_info >= (3, 13):
+        try:
+            if os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None:
+                return
+        except ChildProcessError:
+            return
+    with contextlib.suppress(OSError):
+        os.kill(pid, sig)
 
 
 class AttributedReader:
