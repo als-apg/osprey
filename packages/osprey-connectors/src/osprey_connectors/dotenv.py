@@ -120,46 +120,8 @@ def _dotenv_raw_lines(text: str) -> dict[str, str]:
     return raw
 
 
-# Keys whose value the build derives from the project's own content rather than
-# from the user's environment: the pointers at the virtual-accelerator channel
-# manifest `osprey build` generates into the output zone. They are named here,
-# once, because two places need the same answer to "which keys does the build
-# speak for?" -- the build appends them when it generates a manifest, and it
-# scans for them to report a pointer left over from a build that no longer can
-# (`osprey.cli.build_cmd`). Their VALUES are not here: they come from the
-# virtual-accelerator manifest module, and this module is deliberately the
-# bottom of the import graph.
-#
-# Owning a key does not mean overwriting it. The repo `.env` is the
-# deployment's one secret store -- hand-edited, and written back to by
-# `osprey up` -- so the build appends through `append_profile_env` like every
-# other writer of that file, and a value already on file always wins.
-BUILD_DERIVED_KEYS = frozenset({"VA_CHANNELS_FILE", "VA_LATTICE"})
-
-#: The chain key naming the virtual accelerator's lattice source.
-VA_LATTICE_KEY = "VA_LATTICE"
-
-#: What :func:`resolved_va_lattice` answers when no chain file pins the key.
-#:
-#: ``VA_LATTICE`` names a lattice file relative to the virtual accelerator's
-#: data directory, and ``none`` is the one value naming no file at all. A chain
-#: no build has written the key into names no file, so it serves no lattice —
-#: the same reading the container's entrypoint gives an empty value, rather
-#: than a second answer the render side has to reconcile with it. A deployed
-#: container only ever starts on a chain carrying the key, because the deploy
-#: preflight (``container_lifecycle._preflight_build_derived_env``) refuses to
-#: start a stack whose manifest is on disk and whose derived keys are not.
-VA_LATTICE_DEFAULT = "none"
-
-
 #: Section header the deploy write-back groups its minted secrets under.
 DEPLOY_MINTED_BANNER = "# ── Minted by deploy ──"
-
-#: Section header the build groups :data:`BUILD_DERIVED_KEYS` under. A separate
-#: banner from the deploy's, because the two sections answer different questions
-#: for whoever opens the file: one holds secrets no rebuild can reproduce, this
-#: one holds pointers at artifacts in ``build/`` that every build regenerates.
-BUILD_DERIVED_BANNER = "# ── Derived by build ──"
 
 #: Permission bits a ``.env`` this module creates is born with (and tightened
 #: to on every rewrite): the profile ``.env`` holds facility secrets.
@@ -311,9 +273,8 @@ def env_file_lock(env_path: Path) -> Iterator[None]:
     :func:`atomic_write`, so a writer that reads, filters and replaces without
     the lock silently DISCARDS anything a concurrent writer committed in
     between. Several processes append to the same repo ``.env`` as a matter of
-    course -- ``osprey up`` persisting a minted service token, ``osprey build``
-    writing its derived keys, profile seeding -- so this is a routine race, not
-    a theoretical one.
+    course -- ``osprey up`` persisting a minted service token, profile seeding
+    -- so this is a routine race, not a theoretical one.
 
     The lock lives in a sibling ``<name>.lock`` rather than on the ``.env``
     itself precisely because :func:`atomic_write`'s ``os.replace`` swaps the
@@ -490,8 +451,6 @@ def format_env_line(key: str, value: str) -> str:
 def merge_env_preserving_existing(
     rendered_text: str,
     existing_text: str,
-    *,
-    build_derived_keys: frozenset[str] = BUILD_DERIVED_KEYS,
 ) -> str:
     """Merge a freshly rendered ``.env`` with an existing one; existing wins.
 
@@ -502,15 +461,8 @@ def merge_env_preserving_existing(
     service tokens/passwords that live containers and docker volumes were
     initialized with). Keys present only in the existing file are appended at
     the end so nothing the user set is ever dropped.
-
-    ``build_derived_keys`` are the exception in both directions: the rendered
-    value wins, and a key the rendered text no longer carries is dropped
-    instead of preserved. Pass an empty set for a merge whose rendered side is
-    a fragment rather than the build's own full render.
     """
     existing = _dotenv_raw_lines(existing_text)
-    for derived in build_derived_keys:
-        existing.pop(derived, None)
     consumed: set[str] = set()
     out_lines: list[str] = []
     for line in rendered_text.splitlines():
@@ -569,42 +521,6 @@ def merge_chain(repo_root: Path) -> dict[str, str]:
     for path in chain_files(repo_root):
         merged.update(parse_dotenv_file(path))
     return merged
-
-
-def resolved_va_lattice(repo_root: Path, build_dir: Path | None = None) -> str:
-    """The ``VA_LATTICE`` a deployment's env chain resolves to.
-
-    THE single answer to "which lattice will the virtual accelerator boot
-    with", for every caller that has to know before a container exists: the
-    stand-in's readout default
-    (:func:`osprey.cli.build_profile_va_faults.effective_standin_bpm_errors`)
-    and the deployment layer (``compose_generator``, ``container_lifecycle``)
-    render and probe against the same value. One resolver rather than several
-    readings of the same two files, because two callers reading one deployment
-    two ways is worse than either reading on its own.
-
-    The value is a lattice file's name relative to the virtual accelerator's
-    data directory, or :data:`VA_LATTICE_DEFAULT` (``none``), which names no
-    file. Unset resolves to that default: ``VA_LATTICE`` is a
-    :data:`BUILD_DERIVED_KEYS` member, so a chain carrying no value is one no
-    build has pointed at a lattice. A chain that DOES pin the key wins, at
-    build time as at run time, because every writer of these files appends and
-    none overwrite.
-
-    :param repo_root: Directory the chain lives in (the deployment repo root).
-    :param build_dir: A published render carrying a chain of its own, when the
-        caller works from one rather than from the source repo. Read after
-        *repo_root*'s chain, so it wins on a key both set — the same later-wins
-        precedence :data:`ENV_CHAIN_FILENAMES` gives within one root, extended
-        to the tree the containers are actually handed.
-    :return: The value as written, stripped of surrounding whitespace and with
-        its case preserved (the served tree is searched for that file name);
-        :data:`VA_LATTICE_DEFAULT` when no chain file sets it.
-    """
-    value = merge_chain(Path(repo_root)).get(VA_LATTICE_KEY, "")
-    if build_dir is not None:
-        value = merge_chain(Path(build_dir)).get(VA_LATTICE_KEY, value)
-    return value.strip() or VA_LATTICE_DEFAULT
 
 
 def write_env_merged(repo_root: Path, dest: Path) -> Path:
