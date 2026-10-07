@@ -290,6 +290,37 @@ class TestStuckSetpointInTheComposite:
 
         assert composite.held([STUCK_RB]) == {STUCK_RB: BOOT}
 
+    def test_the_stuck_setpoint_reads_the_demand_on_every_get(self, composite: Any) -> None:
+        """Each read goes through the composite as each publishing pass does."""
+        composite.set({STUCK_SP: 7.25})
+
+        assert [composite.get(STUCK_SP) for _ in range(3)] == [7.25, 7.25, 7.25]
+
+    def test_the_stuck_setpoint_holds_the_demand(self, composite: Any) -> None:
+        composite.set({STUCK_SP: 7.25})
+
+        assert composite.held([STUCK_SP]) == {STUCK_SP: 7.25}
+        assert composite.held([STUCK_RB]) == {STUCK_RB: BOOT}
+
+    def test_the_model_holds_its_boot_value_under_the_demand(self, composite: Any) -> None:
+        composite.set({STUCK_SP: 7.25})
+
+        assert BUILT[-1].inputs[STUCK_SP] == BOOT
+
+    def test_clearing_the_fault_drops_the_demand(self, composite: Any, state_dir: Path) -> None:
+        composite.set({STUCK_SP: 7.25})
+
+        _activate(state_dir)
+
+        assert composite.held([STUCK_SP, STUCK_RB]) == {STUCK_SP: BOOT, STUCK_RB: BOOT}
+
+    def test_a_reset_drops_the_demand(self, composite: Any) -> None:
+        composite.set({STUCK_SP: 7.25})
+
+        composite.reset()
+
+        assert composite.held([STUCK_SP, STUCK_RB]) == {STUCK_SP: BOOT, STUCK_RB: BOOT}
+
     def test_the_unfaulted_sibling_reaches_the_model(self, composite: Any) -> None:
         composite.set({LIVE_SP: 4.5})
 

@@ -25,8 +25,8 @@ plane reads its partner too. A texture channel reads as the texture serves it.
 ``value_type``, then sets the physics children in name order and the texture
 last. When any child refuses, every earlier child gets its previous inputs back
 and the refusal is raised as a ``ValueError`` carrying the child's text. A
-setpoint the active scenarios mark ``stuck`` accepts a write and does not
-forward it.
+setpoint the active scenarios mark ``stuck`` accepts a write, reads the value
+written, and forwards none of it; its readback shows the model where it was.
 
 **A failed child.** A child whose engine raises while it is built or read is
 failed, with the engine's error text as its status (``ok`` otherwise), capped
@@ -611,7 +611,17 @@ class Composite(LUMEModel):
         )
         for address in readbacks:
             truth[address] = float(moved[address][0])
+        truth.update(self._stuck_demands(child, names))
         return {name: truth[name] for name in names}
+
+    @staticmethod
+    def _stuck_demands(child: _Child, names: Sequence[str]) -> dict[str, Any]:
+        """The value last written to each of ``names`` the child holds stuck."""
+        return {
+            name: child.inputs[name]
+            for name in names
+            if name in child.stuck and name in child.inputs
+        }
 
     def _moving_readbacks(
         self, child: _Child, levels: Mapping[str, np.ndarray], times: np.ndarray
@@ -751,7 +761,8 @@ class Composite(LUMEModel):
         """Each channel's held value: no motion, no readout, no clamp.
 
         A texture channel returns the value the texture holds; a physics
-        channel its child's plain read; a status address its status.
+        channel its child's plain read, a stuck setpoint the value last
+        written to it; a status address its status.
 
         Args:
             names: Channel or status addresses.
@@ -770,7 +781,11 @@ class Composite(LUMEModel):
         for model, owned in physics.items():
             child = self._children[model]
             read = self._plain_get(child, owned)
-            outputs.update(read if read is not None else self._failed_values(child, owned))
+            if read is None:
+                outputs.update(self._failed_values(child, owned))
+            else:
+                outputs.update(read)
+                outputs.update(self._stuck_demands(child, owned))
         return {name: outputs[name] for name in wanted}
 
     def output_severity(self, names: Sequence[str]) -> dict[str, dict[str, str]]:
@@ -862,9 +877,13 @@ class Composite(LUMEModel):
             raise ValueError(str(exc) or type(exc).__name__) from exc
 
     def _set_child(self, child: _Child, batch: Mapping[str, Any]) -> Callable[[], None]:
-        """Write one child's batch; returns what puts its previous inputs back."""
+        """Write one child's batch; returns what puts its previous inputs back.
+
+        Every name of the batch lands in the child's inputs; only the names it
+        does not hold stuck reach the model.
+        """
         forward = {name: value for name, value in batch.items() if name not in child.stuck}
-        previous = {name: child.inputs[name] for name in forward if name in child.inputs}
+        previous = {name: child.inputs[name] for name in batch if name in child.inputs}
         model = child.model
         if model is not None and forward:
             model.set(
@@ -873,16 +892,17 @@ class Composite(LUMEModel):
                     for name, value in forward.items()
                 }
             )
-        child.inputs.update(forward)
+        child.inputs.update(batch)
+        undo = {name: value for name, value in previous.items() if name in forward}
 
         def restore() -> None:
             child.inputs.update(previous)
-            if child.model is not None and previous:
+            if child.model is not None and undo:
                 try:
                     child.model.set(
                         {
                             name: _for_variable(child.model.supported_variables[name], value)
-                            for name, value in previous.items()
+                            for name, value in undo.items()
                         }
                     )
                 except Exception as exc:
