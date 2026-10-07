@@ -5,14 +5,15 @@ Virtual Accelerator
 ===================
 
 The Virtual Accelerator is a single container that puts a whole facility on
-real EPICS. One process serves the facility's entire channel namespace, with
-the physics behind the storage-ring channels supplied through the `LUME
-<https://www.lume.science/>`_ model interface: a pyAT lattice, wrapped as a
-``LUMEModel`` via ``lume-pyat``, sits behind the magnet and BPM channels so
-that writing a corrector moves the orbit that the BPMs report. Everything else
-on the namespace is composed by the same simulation engine the ``mock``
-connector uses, so a client sees one machine rather than a physics island
-surrounded by dead addresses.
+real EPICS. One process serves the facility's entire channel namespace from the
+simulator view ``osprey build`` writes. Behind the channels a facility wires to
+a deck sits a physics model built through the `LUME
+<https://www.lume.science/>`_ model interface: the shipped pyat engine wraps a
+pyAT lattice as a ``LUMEModel`` via ``lume-pyat``, so that writing a corrector
+moves the orbit that the BPMs report. The texture model serves every channel no
+model wires, so a client sees one machine rather than a physics island
+surrounded by dead addresses. The ``mock`` connector serves the same view
+in-process.
 
 This page is about how those pieces fit. Running one, and the
 ``control_system.type`` switch that selects it, are in
@@ -26,37 +27,25 @@ The service lives at ``src/osprey/services/virtual_accelerator/``:
 .. raw:: html
    :file: ../_diagrams/va-layer-map.html
 
-``serving/`` is typed against ``lume.model.LUMEModel`` and never imports
-``model/``; ``entrypoint.py`` joins the halves. That boundary under
-``model/`` is the one that matters: everything downstream reaches the ring only
-through a ``LUMEModel``'s public ``set()`` and ``get()``, which is what makes
-the physics replaceable (see `Bringing your own model`_).
+``entrypoint.py`` builds one composite over the simulator view and hands it to
+``ModelRunner`` in ``serving/``, which serves it on both transports. Under the
+composite, each physics model is an engine plug-in reached only through its
+``set()`` and ``get()``; that boundary is what makes the physics replaceable
+(see `Bringing your own model`_).
 
 What gets served
 ================
 
-``manifest/`` derives the served channel set from the facility's channel
-databases rather than listing it, and classifies every address into one of
-three physics-fidelity partitions:
-
-**pyat-coupled**
-   Storage-ring magnet currents and BPM positions. A write re-solves the
-   closed orbit and pushes the new BPM readings before its completion is
-   signalled, so a readback taken after a completed write is already the new
-   orbit.
-
-**sp-echo**
-   Booster and transfer-line magnets, RF and vacuum setpoints. The setpoint
-   echoes onto its readback immediately, with no physics behind it.
-
-**static-noisy**
-   Everything else, driven by the in-image simulation engine from the mounted
-   ``machine.json`` — with the ``mock`` connector's synthesis as the fallback,
-   so the two backends never disagree about a channel neither has data for.
-
-The authoritative channel count lives in the manifest's
-``_metadata.total_channels`` — a few thousand addresses — rather than in prose
-that would rot.
+The served list is the simulator view's ``addresses.json``: its ``channels``,
+every channel address the facility declares, then one
+``<code>:SIM:<model>:STATUS`` address for each served physics model. Which
+models are served is the view's ``served_models.json``, with the texture model
+always last. A physics model is one child of the composite, built from the
+view's ``variables.json`` and its deck, ``decks/<model>.json``, through the
+engine plug-in its record names; the texture serves every channel no model
+wires. The container's ready line prints how many channels it serves, so the
+count is read off the running service rather than kept in prose that would
+rot.
 
 Two transports, one write path
 ==============================
@@ -80,13 +69,13 @@ surface belongs to the ``virtual_accelerator`` instance.
 Physics is optional
 ===================
 
-``VA_LATTICE`` names the lattice file the container serves; ``osprey build``
-writes it, and the value ``none`` boots the same service with no lattice: pyAT
-is never imported. The Channel Access
-namespace is *identical* to a lattice-backed boot; the only difference is that
-a pyat-coupled setpoint simply latches its written value. That is what makes
-the service usable for a facility that has a channel list but no model behind
-it yet.
+Which models are served is the view's ``served_models.json``, written from the
+profile's ``simulation.models``; the texture model is always served, last. A
+render whose served set is ``texture`` alone boots the same service with no
+physics model built. It serves the same channels, without the status address a
+physics model adds: a setpoint latches its written value and a readback
+follows its seed. That is what makes the service usable for a facility that has
+a channel list but no model behind it yet.
 
 The LUME stack and its pins
 ===========================
@@ -131,59 +120,68 @@ The live Channel Access suites run in the container venue under
 ``scripts/va/live_ca/``.
 
 What OSPREY ships on top of ``lume-pyat`` is the *facility adapter*, not the
-pyAT machinery: ``PyATRingModel`` supplies only the facts upstream cannot know
-— which lattice to build, how a commanded current becomes a magnet strength,
-which variables exist, and how a boot failure should read.
+pyAT machinery: the pyat engine plug-in (``osprey.simulation.engines.pyat``,
+with ``variable_from_wiring`` in ``pyat_variables``) supplies only the facts
+upstream cannot know — which deck to build, how a hardware value becomes a
+strength through its record's calibration, which variables exist, and how a
+failed build reads on the model's ``STATUS`` channel.
 
 Bringing your own model
 =======================
 
-The runner is built around one ``LUMEModel``, and the entrypoint is what
-chooses it. The shipped ``entrypoint.py`` builds ``PyATRingModel`` when
-``VA_LATTICE`` names a lattice, and hands that to the runner. Nothing in a profile, ``config.yml`` or ``.env`` passes it
-another.
+The runner serves one composite, and the composite builds one child per
+served physics model from the view's ``variables.json`` and the model's deck,
+``decks/<model>.json``, through the engine plug-in the model's record names:
+its ``engine``, looked up in the ``osprey.simulation.engines`` entry-point
+group. Nothing in the entrypoint, a profile or ``.env`` names an engine.
 
-**A pyAT ring is data.** Any facility's pyAT deck is served by the shipped
-model. The served tree stages it as ``data/simulation/lattice.json`` beside the
-``va_bindings.json`` that ties channels to it, and ``osprey build`` writes that
-file's name into ``VA_LATTICE``. How a tree comes to carry one is in
+**A pyAT deck is data.** Any facility's pyAT deck is served by the shipped
+``pyat`` engine. The facility tree stages it beside the model record that names
+it and the wiring that ties channels to its elements, and ``osprey build``
+copies it byte for byte into the view. How a tree comes to carry one is in
 :doc:`/how-to/control-systems/use-virtual-accelerator`.
 
-**Any other backend is a different entrypoint.** A surrogate, Cheetah or Bmad
-is a different ``LUMEModel``, so it arrives as a replacement entrypoint module.
-The image's ``CMD`` runs ``osprey.services.virtual_accelerator.entrypoint`` by
-name, so a replacement module ships in an image the facility builds, whose own
-``CMD`` names it.
+**Any other backend is a plug-in.** A surrogate, Cheetah or Bmad is a different
+``LUMEModel``, so it arrives as an engine module registered under that group,
+whose ``build(model, wiring, deck, settings, active=...)`` returns it. The image
+the facility builds installs the plug-in beside OSPREY; the entrypoint stays
+the shipped one.
 
-Either way the serving layer does not change. Model variables are keyed by
-their full channel address and resolved before the backend sees them, so a
-backend parses no channel names. The contract a replacement entrypoint honours
-is under :ref:`extending-lume-model`.
+Either way the serving layer does not change. Each variable is named for the
+channel address its wiring record claims before the engine sees it, so a
+backend parses no channel names. The extension seam is under
+:ref:`extending-lume-model`.
 
 Served and model-only variables
 -------------------------------
 
 A model declares more variables than the facility serves as channels. The line
-between the two is drawn once, at boot, and by name alone: a variable is
-**served** when its name is an address the channel manifest already serves,
-and **model-only** when it is not. Served variables are read and written like
-any other channel, on either transport. Model-only variables sit on no channel
-at all; the model RPC is the only way to reach them.
+between the two is drawn by name alone: a variable is **served** when its name
+is an address of ``addresses.json``, and **model-only** when it is not. Served
+variables are read and written like any other channel, on either transport.
+Model-only variables sit on no channel at all; the model RPC is the only way to
+reach them, as ``<model>/<name>``.
 
-Where the line falls here is not a judgement call. Every variable the model
-builds from the served tree is named for the channel address its binding
-claims, so the served half is exactly the machine's own pyat-coupled
-addresses. Everything on the model-only half is something the model or the
-serving layer added beside them: the simulated imperfections, the optics of
-the whole solved ring, and the set of setpoints currently stuck.
+Where the line falls here is not a judgement call. The pyat engine names every
+variable it builds from a wiring record for the channel address that record
+claims, so the served half is exactly the model's wired addresses. Everything
+on the model-only half is something the model declares beside them: the faults
+every wired monitor and magnet can carry, and the optics of the whole solved
+lattice.
 
 That RPC is one pvAccess channel, ``model_rpc``, and it takes six verbs.
-``info`` lists the model's variables and says which side of the line each one
-is on; ``get`` reads what the model holds for any of them, served side
-included; ``diff`` puts the value the control system serves beside the model's
-own for each served variable; ``status`` reports on the server itself. ``set``
-writes model-only variables, and ``reset`` returns them to the values they
-were seeded with at boot.
+``info`` lists every served address with ``surface: served``, then each built
+model's own variables as ``<model>/<name>`` with ``surface: model``, each with
+its name, unit, value range and whether it is read-only. ``get`` reads served
+addresses from the composite and model variables from their model. ``diff``
+puts the value the control system serves beside the composite's own for every
+channel of ``addresses.json``, the composite's read without motion or readout.
+``status`` reports on the server itself: ``instance``, ``endpoint``,
+``last_cycle_ms``, ``queue_depth``, ``uptime_s`` and ``last_refused_write``.
+``set`` writes model variables only: a served address, a value that is not
+finite and a name the composite refuses are each refused. ``reset`` writes
+every drifted writable model variable back to the value it held when its model
+was built at the active scenarios, and returns the names it reset.
 
 Those two write verbs ask for an administrative token. The container reads it
 from ``VA_MODEL_WRITE_TOKEN`` at startup and compares what a caller presents
@@ -191,33 +189,31 @@ against it; a call carrying no token, or a token that does not match, is
 refused before any model is touched, and a container started without the
 variable set refuses model writes outright. The read verbs are not gated.
 
-The model-only roster is the served tree's own. Every monitor the bindings
-publish a reading for carries nine reading-error fields, and every magnet they
-drive a calibration factor and offset; a device the tree does not serve
-carries neither. Each is named for the element the deck spells it at, with a
-dot between element and field (``<element>.offset_x``,
-``<element>.cal_factor``), so no fault name parses as a channel address. A
-seed names its device either way the facility knows it — by an address the
-control system carries, or by the element it sits at — and a name the served
-bindings know under neither ends the boot rather than perturbing nothing.
-Where one element is driven by two setpoints, one calibration scales both,
-which is what a miscalibrated magnet does.
+The model-only roster is the wiring's own. Each fault is named
+``<address>/<field>`` after the wired address it perturbs, so no fault name is
+a channel address. A monitor reading carries ``offset``, ``gain``, ``noise``
+and ``polarity`` on its own axis, and a monitor one ``roll``, on its x-axis
+reading or its only one. A setpoint on ``PolynomB`` or ``KickAngle`` carries
+``cal_factor`` and ``cal_offset``; a calibration is the supply's, so where one
+element is driven by two setpoints, each is miscalibrated alone.
 
-Three read-only arrays sit beside them: the transverse tunes, and beta and the
-true orbit at each monitor, one row per monitor in ring order. They are
-computed when one of them is read and served from memory until the next solve,
-so a setpoint write never pays for them.
+Four read-only arrays sit beside them: ``tunes``, ``chromaticity``,
+``beta_at_monitors`` and ``orbit_at_monitors``, the last two one row per
+monitor element in lattice order. A ``single_pass`` model has no tunes, so it
+declares neither of the first two. They are computed when one of them is read
+and served from memory until the next solve, so a setpoint write never pays
+for them.
 
-The last model-only variable is the serving layer's, not the model's:
-``stuck_setpoints``, the addresses whose readbacks are frozen, written as text
-and settable at runtime. It is the one fault a deployment with no lattice
-behind it can still take.
+The imperfections a machine starts from are scenario faults. A scenario under
+``data/facility/scenarios/`` names them in its ``faults`` block, keyed by model
+and then by address, each a value, ``stuck``, or a map of fault fields to
+values; the composite seeds them into its models when the scenario is
+active. ``stuck`` is a fault of the composite's write path rather than of a
+model: a stuck setpoint accepts a write and does not forward it.
 
-Writing a fault changes what the model holds, and the served readings derived
-from it are recomputed as the write lands — a magnet whose calibration moved is
-re-commanded with the value its operator last asked for, so the ring ends where
-the new calibration puts it. ``diff`` is where a readout fault becomes visible,
-as a served reading that has parted from the model's own value.
+A readout fault never moves the orbit; it changes what a monitor reports.
+``diff`` is where it becomes visible, as a served reading that has parted from
+the composite's own value.
 
 .. seealso::
 

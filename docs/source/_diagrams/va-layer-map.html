@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 448" role="img" aria-labelledby="va-layer-map-title va-layer-map-desc">
   <title id="va-layer-map-title">Virtual Accelerator layer map</title>
-  <desc id="va-layer-map-desc">Values flow down five layers — manifest, lattice, model, physics bridge, serving — with the LUME model as the replaceable seam, and the serving layer publishing to Channel Access and PVAccess.</desc>
+  <desc id="va-layer-map-desc">Values flow down five layers — simulator view, deck, engine plug-in, composite, serving — with the engine plug-in as the replaceable seam, and the serving layer publishing to Channel Access and PVAccess.</desc>
   <defs>
     <marker id="va-layer-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -23,16 +23,16 @@
   <line class="divider" x1="136" y1="248" x2="824" y2="248"/>
   <!-- bands: tag · name · note -->
   <text class="te" x="160" y="56">01</text>
-  <text class="tn" x="200" y="56">manifest/</text>
-  <text class="ts" x="800" y="56" text-anchor="end">channel set, generated from the facility databases</text>
+  <text class="tn" x="200" y="56">simulator/</text>
+  <text class="ts" x="800" y="56" text-anchor="end">the view osprey build writes: addresses.json · variables.json · served_models.json · decks/</text>
   <text class="te" x="160" y="112">02</text>
-  <text class="tn" x="200" y="112">lattice/</text>
-  <text class="ts" x="800" y="112" text-anchor="end">the ring: inventory · calibration · orbit solve</text>
-  <!-- focal band: the LUME seam -->
+  <text class="tn" x="200" y="112">decks/&lt;model&gt;.json</text>
+  <text class="ts" x="800" y="112" text-anchor="end">the deck a served physics model names, a byte copy from the facility tree</text>
+  <!-- focal band: the engine plug-in seam -->
   <rect class="nb-foc" x="136" y="136" width="688" height="56"/>
   <text class="te" x="160" y="168">03</text>
-  <text class="tn" x="200" y="168">model/</text>
-  <text class="ts" x="800" y="168" text-anchor="end">PyATRingModel — a LUMEModel, via lume-pyat</text>
+  <text class="tn" x="200" y="168">engine plug-in</text>
+  <text class="ts" x="800" y="168" text-anchor="end">pyat — a LUMEModel via lume-pyat, found under the osprey.simulation.engines entry-point group</text>
   <text class="te" x="160" y="224">04</text>
   <text class="tn" x="200" y="224">composite</text>
   <text class="ts" x="800" y="224" text-anchor="end">setpoint → calibration → solve → BPM readings</text>
