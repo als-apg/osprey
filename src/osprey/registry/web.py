@@ -132,7 +132,6 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         config_key="lattice_dashboard",
         panel_id="lattice",
         pass_workspace=True,
-        require_section=True,
         port_family="lattice",
     ),
     # OKF "KNOWLEDGE" panel. config_key is the shared facility_knowledge section

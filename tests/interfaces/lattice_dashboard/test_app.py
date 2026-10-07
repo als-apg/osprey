@@ -102,6 +102,28 @@ def client(tmp_path, render):
     return TestClient(create_app(workspace_root=tmp_path / "ws", render_root=render))
 
 
+class TestLaunch:
+    def test_launcher_starts_without_a_section_and_no_worker(
+        self, tmp_path, render, monkeypatch, launched
+    ):
+        """The launcher's own checker and factory, over a config with no section."""
+        from osprey.infrastructure import server_launcher
+        from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+
+        definition = FRAMEWORK_WEB_SERVERS["lattice_dashboard"]
+        monkeypatch.setattr(server_launcher, "load_osprey_config", lambda: {})
+        monkeypatch.setattr(app_mod, "default_config_path", lambda: str(render / "config.yml"))
+
+        assert server_launcher._make_auto_launch_checker(definition)() is True
+        app = server_launcher._make_app_factory(definition)(workspace_root=tmp_path / "ws")
+        response = TestClient(app).get("/health")
+
+        assert response.status_code == 200
+        assert response.json()["service"] == "lattice_dashboard"
+        assert launched == []
+        assert not (tmp_path / "ws" / "lattice" / "state.json").exists()
+
+
 class TestNoView:
     def test_no_config_loaded_gives_the_no_view_state(self, tmp_path, monkeypatch, launched):
         monkeypatch.setattr(app_mod, "default_config_path", lambda: None)
