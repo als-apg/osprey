@@ -242,6 +242,68 @@ def test_non_list_device_section_is_skipped(tmp_path: Path) -> None:
     assert [s.name for s in readables] == ["d"]
 
 
+# --- settle_tolerance ---------------------------------------------------------
+
+
+def test_a_settable_carries_its_settle_tolerance(tmp_path: Path) -> None:
+    """``settle_tolerance`` is read as a float onto the spec; an int is a number."""
+    path = _write(
+        tmp_path,
+        {
+            "settables": [
+                {"name": "m", "setpoint": "A:SP", "readback": "A:RB", "settle_tolerance": 0.011},
+                {"name": "z", "setpoint": "B:SP", "settle_tolerance": 0},
+                {"name": "n", "setpoint": "C:SP"},
+            ]
+        },
+    )
+    settables, _ = specs_from_file(path)
+    assert [(s.name, s.settle_tolerance) for s in settables] == [
+        ("m", 0.011),
+        ("z", 0.0),
+        ("n", None),
+    ]
+    assert isinstance(settables[1].settle_tolerance, float)
+
+
+@pytest.mark.parametrize("bad", [True, "0.01", -0.5, [0.1], float("nan")])
+def test_a_bad_settle_tolerance_skips_the_entry(tmp_path: Path, caplog, bad: Any) -> None:
+    """A bool, a non-number or a negative tolerance skips the entry with a warning,
+    the same way a bad ``readback`` does."""
+    path = _write(
+        tmp_path,
+        {
+            "settables": [
+                {"name": "bad", "setpoint": "A:SP", "settle_tolerance": bad},
+                {"name": "good", "setpoint": "B:SP"},
+            ]
+        },
+    )
+    with caplog.at_level("WARNING"):
+        settables, _ = specs_from_file(path)
+    assert [s.name for s in settables] == ["good"]
+    assert "settle_tolerance" in caplog.text
+
+
+@pytest.mark.parametrize("bad", [True, "0.01", -0.5, [0.1], float("nan")])
+def test_validate_reports_a_bad_settle_tolerance(bad: Any) -> None:
+    """The validator names the entry and the key for every value the loader skips."""
+    problems = validate_device_document(
+        {"settables": [{"name": "m", "setpoint": "A:SP", "settle_tolerance": bad}]}
+    )
+    assert problems == ["settables[0]: 'settle_tolerance' must be a number >= 0 when present"]
+
+
+def test_validate_accepts_a_settle_tolerance() -> None:
+    doc = {
+        "settables": [
+            {"name": "m", "setpoint": "A:SP", "readback": "A:RB", "settle_tolerance": 3.91},
+            {"name": "z", "setpoint": "B:SP", "settle_tolerance": 0},
+        ]
+    }
+    assert validate_device_document(doc) == []
+
+
 # --- validate_device_document ----------------------------------------------
 
 
