@@ -210,10 +210,6 @@ class _SSEBroadcaster:
 # ── Request models ────────────────────────────────────────
 
 
-class InitRequest(BaseModel):
-    lattice_path: str
-
-
 class ParamRequest(BaseModel):
     family: str
     value: float
@@ -424,21 +420,6 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
         broadcaster.broadcast({"type": "state_updated"})
         compute.refresh_fast()
         return state_payload()
-
-    @app.post("/api/state/init")
-    async def init_lattice(body: InitRequest) -> dict[str, Any]:
-        try:
-            result = state.initialize(body.lattice_path)
-        except Exception as exc:
-            logger.exception("Failed to initialize lattice")
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        broadcaster.broadcast({"type": "state_updated"})
-
-        # Auto-refresh fast figures after init
-        compute.refresh_fast()
-
-        return result
 
     @app.post("/api/state/param")
     async def set_param(body: ParamRequest) -> dict[str, Any]:
