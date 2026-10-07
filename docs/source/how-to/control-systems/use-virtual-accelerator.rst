@@ -6,7 +6,8 @@ Use the Virtual Accelerator
 
 How to run the Control Assistant tutorial against a **Virtual Accelerator** — a
 containerized simulator that serves real EPICS Channel Access, with PyAT physics
-behind the storage-ring lattice channels, so correctors move and BPMs respond.
+behind the channels your facility wires to a lattice, so correctors move and
+BPMs respond.
 How it is put together is :doc:`/architecture/virtual-accelerator`.
 
 .. dropdown:: What You'll Learn
@@ -44,8 +45,9 @@ the deployment **starts** on:
        returns a synthesized value. The fallback for environments with no
        containers to depend on; plans are browse-only there (below).
    * - ``virtual_accelerator`` *(default)*
-     - A containerized simulator serving real EPICS Channel Access. Storage-
-       ring magnet setpoints drive a live pyAT lattice and BPM readbacks respond;
+     - A containerized simulator serving real EPICS Channel Access. The magnet
+       setpoints your facility wires to a deck drive a live pyAT lattice and BPM
+       readbacks respond;
        every other channel is composed by the same simulation engine the mock
        uses. The tutorial's default, and deployed as part of its stack.
    * - ``epics``
@@ -61,46 +63,39 @@ The Virtual Accelerator is a **local physics simulator**, not a digital twin —
 it is not synced to any real machine. The OSPREY agent reads and writes it
 exactly as it does the mock or a real machine; only the backend changes.
 
-The physics behind the ring channels is one of two things: the shipped pyAT
-ring model, built on the facility-agnostic ``lume-pyat`` package, over the
-lattice your data tree stages, which ``osprey build`` names in ``VA_LATTICE``;
-or none, with ``VA_LATTICE=none``. A backend other than pyAT is a replacement
-entrypoint, covered in :ref:`va-serving-your-own-model`.
+The physics behind the channels comes from the profile's
+``simulation.models``: the container builds each served physics model through
+the engine its record names and serves them together with the texture model as
+one composite. The shipped engine is pyAT, built on the facility-agnostic
+``lume-pyat`` package, over the deck your facility tree stages. A render that
+serves ``texture`` alone serves the same channels with no physics behind them:
+a setpoint holds the value written to it and a readback follows its seed. A
+physics engine other than pyAT is an engine plug-in, covered in
+:ref:`va-serving-your-own-model`.
 
 What channels it serves
 =======================
 
-Your project's own. At build time OSPREY expands whatever channel databases the
-project's ``data/`` tree stages at the tier being built — ``hierarchical``,
-``in_context``, ``middle_layer``, in any combination — into the channel
-manifest the container serves, and reports which of them fed the set and which
-the tree does not stage at that tier.
+Your project's own. Every ``osprey build`` renders the facility definition
+under ``data/facility/`` into the simulator view, ``build/data/simulator/``,
+which the compose file mounts at ``/data/simulator/``. The container serves the
+``channels`` of the view's ``addresses.json`` --- every channel address the
+facility declares --- and one ``<code>:SIM:<model>:STATUS`` channel for each
+served physics model; its ready line in ``docker logs`` prints the count.
+Nothing is invented and no other channel list feeds the set: a data mount
+without the view refuses the boot and names the missing file, and a facility
+tree the build cannot render stops in ``osprey facility validate``'s own stops
+before the view is written.
 
-There is no fallback. A build that deploys services and declares a
-``virtual_accelerator:`` block does not quietly come up serving the framework's
-demo machine under your facility's name — where the tree cannot back a channel
-set, ``osprey build`` refuses and names the gap. Five things count as a gap: no
-channel database staged at that tier; a database staged but one of the files
-the manifest is generated from missing — the scenario seed, the machine-state
-list or the drive limits; databases that are all present and name no channel;
-databases present that disagree about which channels the facility has; and a
-staged database that is there and unreadable, which stops the build rather than
-being read past. Either the accelerator serves the project's own channels, or
-the build stops there.
+A channel's role, not its address, says what it is. A channel record with
+``role: setpoint`` is written, and its readback is the record's ``pair``; a
+setpoint that names no ``pair`` is its own readback. A channel with no role is
+a readback. The address text is the facility's own and is served as it is
+written: no token inside it means anything to OSPREY.
 
-One absence changes what the simulator can *do*, so the build spells it out
-rather than leaving it to be inferred. ``hierarchical`` is the only database
-that carries a hierarchy path, and those identity keys are what pair a readback
-with its setpoint and what every partition rule reads. A tree staging the
-others without it gets an accelerator that serves no setpoints, pairs no
-readback with a setpoint, and drives every channel as static noise rather than
-physics.
-
-A channel's *address* text is free — any facility's namespace is served as it
-is written. Its ``subfield`` *value* is not: that field is a reserved
-vocabulary, where ``SP`` marks the writable channel and ``RB`` marks its
-readback, and a channel carrying any other token is neither written nor paired
-with one.
+A facility whose models wire no channel is served by the texture alone: a
+setpoint holds the value written to it, a readback follows its seed, and no
+physics runs behind either.
 
 Quickstart
 ==========
@@ -259,7 +254,7 @@ environment setup is needed.
 What the IOC serves, and how often
 ==================================
 
-Three settings reach the container through the deployment's ``.env`` rather
+Three settings reach the container through its compose environment rather
 than being fixed in the image, because each is a property of the machine you
 are standing in for, or of who may alter it, rather than of OSPREY:
 
@@ -270,8 +265,10 @@ are standing in for, or of who may alter it, rather than of OSPREY:
    * - Variable
      - What it does
    * - ``VA_POLL_INTERVAL_S``
-     - Seconds between telemetry ticks --- how often the IOC republishes the
-       values it reads out of the simulation engine. Default ``1.0``. Lower it
+     - Seconds between the served model's passes --- how often the IOC
+       republishes the values it reads out of the composite. Set by
+       ``simulation.tick_s`` (default ``1.0``), which ``osprey build`` renders
+       into the compose file; a project ``.env`` value is not read. Lower it
        for a demo that should look live; raise it on a very large namespace.
    * - ``VA_NOISE_LEVEL``
      - Fractional noise on the synthesised channel values, default ``0.01``.
@@ -290,10 +287,10 @@ are standing in for, or of who may alter it, rather than of OSPREY:
 
 The two numbers are refused at boot if they are not a number, or out of range,
 rather than being clamped --- so a typo shows up in ``docker logs`` instead of
-quietly changing what the machine looks like. Leave either empty and the
-default applies. A variable exported in the deployment's own ``.env`` outranks
-the rendered default, so a single run can be made noisier or quieter without
-editing the configuration.
+quietly changing what the machine looks like. Leave ``VA_NOISE_LEVEL`` empty
+and its default applies. A ``VA_NOISE_LEVEL`` exported in the deployment's own
+``.env`` outranks the rendered default, so a single run can be made noisier or
+quieter without editing the configuration.
 
 .. _va-serving-your-own-model:
 
@@ -303,29 +300,47 @@ Serving your facility's own model
 A pyAT lattice
 --------------
 
-Stage the deck as ``data/simulation/lattice.json`` with the
-``va_bindings.json`` that ties your channels to it. ``osprey mml emit`` writes
-both from an export that carries a virtual accelerator (see
-:doc:`/how-to/use-channel-finder`). Then ``osprey build`` writes the file's
-name into ``VA_LATTICE`` in the project ``.env``. A tree without bindings gets
-``VA_LATTICE=none``. No code and no image are involved.
+Stage the deck in the facility tree as ``data/facility/decks/<model>.json``
+and name it in the model's record in ``data/facility/models.yaml``, with the
+``wiring`` that ties each channel to an element of the deck:
+
+.. code-block:: yaml
+
+   - name: <model>
+     engine: pyat
+     deck: decks/<model>.json
+
+``osprey build`` copies the deck into the simulator view as
+``decks/<model>.json``, and the container builds the model from that copy when
+``simulation.models`` serves it. No code and no image are involved.
 
 Another backend
 ---------------
 
-1. Write the entrypoint module to the contract in :ref:`extending-lume-model`.
-2. Build an image that carries OSPREY's virtual-accelerator install and your
-   module. The usual shape is a Dockerfile ``FROM`` the image OSPREY builds
+A physics engine other than pyAT is an engine plug-in. The container looks up
+the ``engine`` each model record names in the ``osprey.simulation.engines``
+entry-point group and calls the registered module's ``build``, which returns
+the ``LUMEModel`` serving that model's wiring over its deck; ``osprey build``
+reaches the same module through the same group when it checks the facility
+tree. The shipped ``osprey.simulation.engines.pyat`` is the reference
+implementation of the contract.
+
+1. Write the engine module to the contract ``osprey.simulation.engines.pyat``
+   implements.
+2. Register it under the entry-point group in your package's metadata, and
+   install the package where ``osprey build`` runs:
+
+   .. code-block:: toml
+
+      [project.entry-points."osprey.simulation.engines"]
+      my_engine = "my_facility.engine"
+
+3. Build an image that carries OSPREY's virtual-accelerator install and your
+   package. The usual shape is a Dockerfile ``FROM`` the image OSPREY builds
    for the project, adding your package.
-3. Name it as the service's image with ``services.virtual_accelerator.image``,
+4. Name it as the service's image with ``services.virtual_accelerator.image``,
    or ``OSPREY_VA_IMAGE`` for one shell (:ref:`deployment-image-overrides`).
-4. Set ``VA_ENTRYPOINT_MODULE=<your.module>`` in the project ``.env``. Empty
-   or unset runs the shipped entrypoint. ``osprey build`` never writes it.
-
-   .. code-block:: bash
-
-      # project .env
-      VA_ENTRYPOINT_MODULE=my_facility.va_entrypoint
+5. Name the engine in the model's record: ``engine: my_engine``.
 
 Naming the image in ``services.virtual_accelerator.image`` renders the service
 without a build, so no deploy rebuilds it from OSPREY's recipe.
