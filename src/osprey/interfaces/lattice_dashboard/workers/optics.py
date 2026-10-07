@@ -19,6 +19,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from osprey.interfaces.lattice_dashboard.state import SINGLE_PASS, twiss_in_arrays
 from osprey.interfaces.lattice_dashboard.workers._base import (
     load_baseline_ring,
     load_ring,
@@ -30,23 +31,34 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
 
 def compute_optics(
     ring: at.Lattice,
+    twiss_in: dict[str, Any] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
     """Return (s_pos, beta_x, beta_y, eta_x, summary_updates).
 
     The trailing dict carries the header-summary quantities this solve also
     produces, in the shapes ``LatticeState.initialize`` builds them.
+
+    Args:
+        ring: The lattice to solve.
+        twiss_in: A ``single_pass`` model's ``settings.pyat.twiss_in``; the
+            optics then start from it, and the summary carries no tunes or
+            chromaticity. None solves the lattice periodically.
     """
     refpts = range(len(ring) + 1)
-    _, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
+    if twiss_in is not None:
+        _, rd, ld = at.get_optics(ring, refpts=refpts, twiss_in=twiss_in_arrays(twiss_in))
+    else:
+        _, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
     s_pos = ring.get_s_pos(refpts)
     beta_x, beta_y = ld.beta[:, 0], ld.beta[:, 1]
-    summary_updates = {
-        "tunes": [float(rd.tune[0]), float(rd.tune[1])],
-        "chromaticity": [float(rd.chromaticity[0]), float(rd.chromaticity[1])],
+    summary_updates: dict[str, Any] = {
         "beta_max": (
             [float(np.max(beta_x)), float(np.max(beta_y))] if ld.beta.size > 0 else [0.0, 0.0]
         ),
     }
+    if twiss_in is None:
+        summary_updates["tunes"] = [float(rd.tune[0]), float(rd.tune[1])]
+        summary_updates["chromaticity"] = [float(rd.chromaticity[0]), float(rd.chromaticity[1])]
     return s_pos, beta_x, beta_y, ld.dispersion[:, 0], summary_updates
 
 
@@ -158,7 +170,8 @@ def main() -> None:
     state = load_state(state_path)
 
     ring = load_ring(state)
-    s_pos, beta_x, beta_y, eta_x, summary_updates = compute_optics(ring)
+    twiss_in = (state.get("twiss_in") or {}) if state.get("solve") == SINGLE_PASS else None
+    s_pos, beta_x, beta_y, eta_x, summary_updates = compute_optics(ring, twiss_in)
 
     raw: dict = {
         "s_pos": s_pos.tolist(),
@@ -172,7 +185,7 @@ def main() -> None:
 
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
-        bs, bbx, bby, bex, _ = compute_optics(baseline_ring)
+        bs, bbx, bby, bex, _ = compute_optics(baseline_ring, twiss_in)
         raw["baseline"] = {
             "s_pos": bs.tolist(),
             "beta_x": bbx.tolist(),

@@ -21,6 +21,51 @@ FAST_FIGURES = ("optics", "resonance", "chromaticity", "footprint")
 VERIFICATION_FIGURES = ("da", "lma")
 ALL_FIGURES = FAST_FIGURES + VERIFICATION_FIGURES
 
+#: The solve a model without ``settings.pyat.solve`` uses.
+PERIODIC = "periodic"
+
+#: The solve whose optics start from ``settings.pyat.twiss_in``.
+SINGLE_PASS = "single_pass"
+
+#: The only figure a ``single_pass`` model draws: it has no tune, so no figure
+#: built on tunes, chromaticity or turn-by-turn tracking applies to it.
+SINGLE_PASS_FIGURES = ("optics",)
+
+#: The refusal a figure route gives a figure the selected model cannot draw.
+SINGLE_PASS_UNAVAILABLE = "not available for a single-pass model"
+
+
+def fast_figures(solve: str | None) -> tuple[str, ...]:
+    """Return the fast figures a model with *solve* draws."""
+    return SINGLE_PASS_FIGURES if solve == SINGLE_PASS else FAST_FIGURES
+
+
+def figure_available(name: str, solve: str | None) -> bool:
+    """Return whether a model with *solve* draws figure *name*."""
+    return solve != SINGLE_PASS or name in SINGLE_PASS_FIGURES
+
+
+def twiss_in_arrays(twiss_in: dict[str, Any]) -> dict[str, Any]:
+    """Return *twiss_in* as the float arrays ``at.get_optics`` takes.
+
+    Each key is padded with zeros to the length the pyAT engine normalises
+    it to; a key the model omits is left for pyAT to default.
+    """
+    import numpy as np
+
+    from osprey.simulation.engines.pyat import TWISS_LENGTHS
+
+    arrays: dict[str, Any] = {}
+    for key, lengths in TWISS_LENGTHS.items():
+        if twiss_in.get(key) is None:
+            continue
+        values = np.asarray(twiss_in[key], dtype=float).reshape(-1)
+        if values.size < lengths[0]:
+            values = np.concatenate([values, np.zeros(lengths[0] - values.size)])
+        arrays[key] = values
+    return arrays
+
+
 DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
     "da": {
         "nturns": 512,
@@ -169,6 +214,10 @@ class LatticeState:
     def _empty_state() -> dict[str, Any]:
         return {
             "base_lattice": None,
+            "model": None,
+            "solve": PERIODIC,
+            "twiss_in": None,
+            "deck_sha256": None,
             "overrides": {},
             "summary": {},
             "families": {},
@@ -179,21 +228,40 @@ class LatticeState:
 
     # ── Initialize ────────────────────────────────────────────
 
-    def initialize(self, lattice_path: str) -> dict[str, Any]:
+    def initialize(
+        self,
+        lattice_path: str,
+        *,
+        model: str | None = None,
+        solve: str = PERIODIC,
+        twiss_in: dict[str, Any] | None = None,
+        deck_sha256: str | None = None,
+    ) -> dict[str, Any]:
         """Load a lattice file, discover magnet families, compute summary.
 
         This performs the heavy pyAT import inside the call so the
         import cost is only paid when actually initializing.
+
+        Args:
+            lattice_path: The deck to load.
+            model: The model the deck belongs to, recorded for the dashboard.
+            solve: ``periodic`` or ``single_pass``. A ``single_pass`` deck's
+                optics start from *twiss_in* and its summary has no tunes or
+                chromaticity.
+            twiss_in: The model's ``settings.pyat.twiss_in``.
+            deck_sha256: The deck's digest, recorded so a changed deck is noticed.
         """
         import at
         import numpy as np
 
         ring = at.load_lattice(lattice_path)
         refpts = range(len(ring) + 1)
-        ld0, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
+        single_pass = solve == SINGLE_PASS
+        if single_pass:
+            _, rd, ld = at.get_optics(ring, refpts=refpts, twiss_in=twiss_in_arrays(twiss_in or {}))
+        else:
+            _, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
 
-        tunes = [float(rd.tune[0]), float(rd.tune[1])]
-        chrom = [float(rd.chromaticity[0]), float(rd.chromaticity[1])]
         energy_gev = float(ring.energy) / 1e9
         circumference = float(ring.get_s_pos(len(ring))[0])
         sect_count = sum(
@@ -241,12 +309,10 @@ class LatticeState:
                     "range": [-5.0, 5.0],
                 }
 
-        summary = {
+        summary: dict[str, Any] = {
             "energy_gev": energy_gev,
             "circumference_m": circumference,
             "periodicity": periodicity,
-            "tunes": tunes,
-            "chromaticity": chrom,
             "num_elements": len(ring),
             "beta_max": (
                 [float(np.max(ld.beta[:, 0])), float(np.max(ld.beta[:, 1]))]
@@ -254,6 +320,9 @@ class LatticeState:
                 else [0.0, 0.0]
             ),
         }
+        if not single_pass:
+            summary["tunes"] = [float(rd.tune[0]), float(rd.tune[1])]
+            summary["chromaticity"] = [float(rd.chromaticity[0]), float(rd.chromaticity[1])]
 
         # Preserve existing settings across re-init
         existing = self.load() if self._state_path.exists() else {}
@@ -261,6 +330,10 @@ class LatticeState:
 
         state = {
             "base_lattice": str(lattice_path),
+            "model": model,
+            "solve": solve,
+            "twiss_in": twiss_in if single_pass else None,
+            "deck_sha256": deck_sha256,
             "overrides": {},
             "summary": summary,
             "families": families,
