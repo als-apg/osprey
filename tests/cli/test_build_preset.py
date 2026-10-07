@@ -831,9 +831,21 @@ def _attached_presets() -> list[str]:
     ]
 
 
+@pytest.fixture(scope="module")
+def host_render_configs() -> dict[str, dict]:
+    """Rendered ``config.yml`` of each host preset, filled by the first test to build it.
+
+    Filled from inside a test rather than built here, so the host render runs
+    under the same function-scoped fixtures (the session graph-index cache) it
+    always has. A host render is a function of its preset alone: the only path
+    in it is the repo's own, and nothing read from it below is a path.
+    """
+    return {}
+
+
 @pytest.mark.parametrize("preset", _attached_presets())
 def test_attached_preset_built_alone_is_told_its_templates_defaults(
-    preset: str, runner: CliRunner, tmp_path: Path
+    preset: str, runner: CliRunner, tmp_path: Path, host_render_configs: dict[str, dict]
 ) -> None:
     """A persona preset materialized on its own — no hosting deployment in the
     repo — still builds, and is told what its app template deploys.
@@ -857,8 +869,10 @@ def test_attached_preset_built_alone_is_told_its_templates_defaults(
 
     parent = _load_preset_raw(preset)[0].get("extends")
     assert parent, f"{preset} extends nothing — which deployment is its host?"
-    assert _materialize(runner, str(tmp_path), "host", Path(parent).stem).exit_code == 0
-    host = _config_yaml(_project(tmp_path, "host"))
+    host = host_render_configs.get(Path(parent).stem)
+    if host is None:
+        assert _materialize(runner, str(tmp_path), "host", Path(parent).stem).exit_code == 0
+        host = host_render_configs[Path(parent).stem] = _config_yaml(_project(tmp_path, "host"))
     assert config["services"]["qmd"]["port"] == host["services"]["qmd"]["port"]
     # The tabs the preset selects are told their address too — what a
     # deployment of the template derives when it injects the sidecars, read
