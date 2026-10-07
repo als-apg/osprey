@@ -22,7 +22,11 @@ REPO = Path(__file__).resolve().parents[2]
 SERVING_RUNNER = REPO / "src/osprey/services/virtual_accelerator/serving/runner.py"
 
 #: Repo-relative paths that no longer exist.
-DELETED_PATHS: tuple[str, ...] = ("src/osprey/services/virtual_accelerator/ioc",)
+DELETED_PATHS: tuple[str, ...] = (
+    "src/osprey/services/virtual_accelerator/ioc",
+    "src/osprey/services/virtual_accelerator/serving/model_stub.py",
+    "src/osprey/services/virtual_accelerator/serving/write_path.py",
+)
 
 #: Surviving module -> names it no longer defines.
 DELETED_NAMES: dict[str, tuple[str, ...]] = {

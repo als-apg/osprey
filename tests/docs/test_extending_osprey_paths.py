@@ -1,8 +1,8 @@
 """Every in-repo pointer on ``contributing/extending-osprey`` must still resolve.
 
 That page is the developer entry point: it is almost entirely pointers — "the
-connector base class lives in ``src/osprey/connectors/base.py``", "the write
-path is ``osprey.services.virtual_accelerator.serving.write_path``". Pointers
+connector base class lives in ``src/osprey/connectors/base.py``", "the
+shipped entrypoint is ``osprey.services.virtual_accelerator.entrypoint``". Pointers
 of that shape are exactly the prose that rots silently. Sphinx renders a stale
 one as a perfectly formatted inline literal, no warning, and a developer loses
 an afternoon before concluding the docs are wrong.

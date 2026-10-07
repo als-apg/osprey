@@ -202,9 +202,9 @@ class TestSubfieldVocabularyHasOneProducer:
 
         from osprey.services.virtual_accelerator.manifest import build, classify
         from osprey.services.virtual_accelerator.model import catalog
-        from osprey.services.virtual_accelerator.serving import pvdb, write_path
+        from osprey.services.virtual_accelerator.serving import pvdb
 
-        for module in (build, pvdb, catalog, write_path):
+        for module in (build, pvdb, catalog):
             source = inspect.getsource(module)
             assert "SETPOINT_SUBFIELD = " not in source, module.__name__
             assert "READBACK_SUBFIELD = " not in source, module.__name__

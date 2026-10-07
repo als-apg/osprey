@@ -145,7 +145,6 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/services/virtual_accelerator/model/pyat.py": "delete:7e",
     "src/osprey/services/virtual_accelerator/model/variables.py": "delete:7e",
     "src/osprey/services/virtual_accelerator/serving/pvdb.py": "delete:7d",
-    "src/osprey/services/virtual_accelerator/serving/write_path.py": "delete:7d",
     "src/osprey/simulation/channel_schema.py": "delete:7d2",
     "src/osprey/simulation/facility_spec.py": "delete:7d2",
     "src/osprey/simulation/lattice/__init__.py": "delete:7d2",
