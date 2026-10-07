@@ -61,7 +61,10 @@ MCP_SERVERS: tuple[str, ...] = (
     "workspace",
 )
 
-SOURCES = MCP_SERVERS + ("ariel_search",)
+#: The event dispatcher's tools, registered by ``osprey.dispatch.mcp_tools``.
+DISPATCH = "dispatch"
+
+SOURCES = MCP_SERVERS + (DISPATCH, "ariel_search")
 
 #: The source of a rendered file's text; its name is the path under the render root.
 RENDERED = "rendered"
@@ -84,14 +87,30 @@ def _registered_tools(package: str) -> dict[str, Any]:
     return {t.name: t for t in asyncio.run(server.mcp.list_tools())}
 
 
+def _dispatch_tools() -> dict[str, Any]:
+    """The event dispatcher's tools, registered on a fresh FastMCP that is never started."""
+    from fastmcp import FastMCP
+
+    from osprey.dispatch.mcp_tools import register_tools
+    from osprey.dispatch.pool import DispatchPool
+    from osprey.dispatch.registry import TriggerRegistry
+
+    mcp = FastMCP(DISPATCH)
+    register_tools(mcp, TriggerRegistry(), DispatchPool(max_concurrent=1, max_queue_depth=1), None)
+    tools = {t.name: t for t in asyncio.run(mcp.list_tools())}
+    assert tools, "no tools registered for the dispatcher; the fixture is not registering"
+    return tools
+
+
 @pytest.fixture(scope="module")
 def server_tools() -> dict[str, dict[str, Any]]:
-    """Registered tools per MCP server, keyed by server and then by tool name."""
+    """Registered tools per MCP server and the dispatcher, keyed by source and then tool name."""
     registered: dict[str, dict[str, Any]] = {}
     for server in MCP_SERVERS:
         tools = _registered_tools(f"osprey.mcp_server.{server}")
         assert tools, f"no tools registered for {server}; the fixture is not registering"
         registered[server] = tools
+    registered[DISPATCH] = _dispatch_tools()
     return registered
 
 
@@ -102,11 +121,28 @@ def variant_tools(server_tools) -> dict[str, dict[str, Any]]:
 
 
 def test_every_mcp_server_is_guarded():
-    """A server package the guard does not list would offer unread text."""
+    """A server package the guard does not list would offer unread text.
+
+    The event dispatcher is the one FastMCP server outside ``osprey.mcp_server``;
+    the guard reads it as the ``dispatch`` source. The project templates are
+    scaffolds rendered into user projects, not servers OSPREY runs.
+    """
+    import osprey
     import osprey.mcp_server
 
     root = Path(osprey.mcp_server.__path__[0])
     assert sorted(path.parent.name for path in root.glob("*/server.py")) == list(MCP_SERVERS)
+
+    package = Path(osprey.__path__[0])
+    outside = sorted(
+        path.relative_to(package).as_posix()
+        for path in package.rglob("*.py")
+        if not path.is_relative_to(root)
+        and not path.is_relative_to(package / "templates")
+        and "FastMCP(" in path.read_text(encoding="utf-8")
+    )
+    assert outside == ["dispatch/server.py"]
+    assert DISPATCH in SOURCES
 
 
 def test_no_variant_still_registers_query_channels(variant_tools):
@@ -245,9 +281,9 @@ def ratchet_violations(
 @pytest.mark.parametrize("source", SOURCES)
 def test_agent_facing_text_names_no_protocol_word(source, agent_facing_texts):
     """The text an agent reads before calling a tool names no protocol word or demo address."""
-    offenders = protocol_offenders(
-        {key: text for key, text in agent_facing_texts.items() if key[0] == source}
-    )
+    texts = {key: text for key, text in agent_facing_texts.items() if key[0] == source}
+    assert texts, f"no text read for {source}; the guard is not reading it"
+    offenders = protocol_offenders(texts)
     assert offenders == {}, (
         f"{offenders} name a protocol word or demo address; "
         "the text an agent reads should call it a channel or channel address"
