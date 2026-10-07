@@ -1548,6 +1548,27 @@ def test_bump_plan_does_not_trim_the_terminal_restore_step() -> None:
         assert asyncio.run(devices[name].readback.get_value()) == working_point
 
 
+def test_bump_plan_reads_its_working_points_from_the_setpoints_not_the_readbacks() -> None:
+    """Correctors with their own readback channels are restored to the
+    setpoints they report — never to the readback samples beside them.
+
+    The terminal step and the `finally` both command the recorded working
+    points as setpoint writes, so the run ends with each setpoint channel
+    holding exactly what it held before the run, not that value shifted by
+    its readback's offset.
+    """
+    fake = _OffsetReadbackConnector(_BUMP_WORKING_POINTS)
+    devices = _bump_devices(**fake.devices())
+
+    commands: list[tuple[str, float]] = []
+    RE = RunEngine(context_managers=[])
+    RE.msg_hook = _record_writes(commands)
+    RE(bump_plan(devices, _bump_run_params()))
+
+    assert commands[-3:] == _bump_restore_writes()
+    for name, working_point in _BUMP_WORKING_POINTS.items():
+        assert fake.setpoints[f"{name}:SP"] == working_point
+
 
 def _arm_after_baseline(bpm: _ArmableBpm, baseline_reads: int) -> Callable[[Any], None]:
     """A `msg_hook` arming *bpm* the moment the baseline's last row is saved,
