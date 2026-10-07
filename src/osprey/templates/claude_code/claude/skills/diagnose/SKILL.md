@@ -82,7 +82,36 @@ never an error). Note which of the two the transcript supports. `osprey health`
 probes the same store from outside (graphdb category: bolt reachability,
 resource count) — cite it when the user has run it.
 
-### 2e. Direct Evidence
+### 2e. Simulator Models (when the session reads a simulated machine)
+
+If the failure involves channels served by a simulator — the `va` target, the
+`standin` target (the live stand-in) or the in-process mock — and readings came
+back NaN or INVALID, check each served physics model:
+
+1. **Status addresses** — `Read` `data/simulator/addresses.json`. Its `status`
+   list holds one address per served physics model, `<code>:SIM:<model>:STATUS`.
+2. **Status values** — read those addresses with `channel_read` (the `controls`
+   server's tool, `mcp__controls__channel_read`). A value of `ok` means the
+   model's engine serves it; any other value is the engine's own error text.
+3. **Model log** — `Read` each model's log, one JSON record per line
+   (`instance`, `pid`, `model`, `event`, ...):
+   - the `standin` target: `var/simulator/standin/<model>.log`
+   - the `va` target and the in-process mock: `var/simulator/<model>.log`,
+     keeping only records whose `instance` is `virtual_accelerator` or
+     `inprocess` (records with instance `live_standin` belong to the stand-in)
+
+State a model's failure reason only from its status value, quoted verbatim. A
+log record, or a `<model> (log, instance <i>, pid <p>): ...` line, is context
+(when, which process), never the reason. A status of `ok` means the model did
+not fail. A status channel that cannot be read is a gap for What Was NOT Found,
+never a reason to infer one from the log.
+
+The operator's terminal equivalent is `osprey sim status` (add `--target va` or
+`--target standin` for another target): it prints each model's status and a
+`log:` line naming each model's log. This session cannot run it; name it in
+the Suggested Next Steps when a model status is not `ok` or not readable.
+
+### 2f. Direct Evidence
 
 Extract concrete details from conversation-visible tool responses:
 - Exact error messages and error codes
@@ -173,6 +202,7 @@ After saving, present a brief inline summary: the failure summary and suggested 
 - **NEVER attempt to fix the problem.** This skill produces a report, not a resolution.
 - **NEVER read source code.** You don't have access to OSPREY internals and shouldn't try.
 - **NEVER speculate beyond evidence.** If you don't have evidence for a cause, don't list it.
+- **NEVER state a simulator model's failure reason from anything but its status value.** Log lines are context.
 - **NEVER stop after the first empty result.** Every source in Phase 2 must be queried.
 - **NEVER use the word "debug."** This is diagnosis and evidence gathering, not debugging.
 - **NEVER suggest actions for yourself.** Next steps are for humans.
