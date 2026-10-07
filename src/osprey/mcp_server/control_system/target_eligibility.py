@@ -367,7 +367,9 @@ def _selected_role_missing(
     )
 
 
-def narrowing_refusal(config: Any, target: str) -> Eligibility | None:
+def narrowing_refusal(
+    config: Any, target: str, *, config_path: str | None = None
+) -> Eligibility | None:
     """What narrowing *target* to read-only would cost the deployment, if anything.
 
     A narrowing moves the selected gateway role, and a deployment whose block
@@ -385,6 +387,7 @@ def narrowing_refusal(config: Any, target: str) -> Eligibility | None:
     Args:
         config: The full rendered config mapping.
         target: The target the operator is considering narrowing.
+        config_path: See :func:`derive_endpoints`.
 
     Returns:
         The refusal narrowing would earn, or ``None`` when the target stays
@@ -395,7 +398,9 @@ def narrowing_refusal(config: Any, target: str) -> Eligibility | None:
         # ``readonly_run`` is pinned false rather than read: the question is
         # what the *narrowing* costs, and a run that is already read-only would
         # otherwise answer it for every target at once.
-        derivation = derive_endpoints(config, target, writes_enabled=False, readonly_run=False)
+        derivation = derive_endpoints(
+            config, target, writes_enabled=False, readonly_run=False, config_path=config_path
+        )
     except ValueError as exc:
         return Eligibility(False, REASON_TARGET_UNRESOLVABLE, str(exc))
     return _selected_role_missing(config, derivation, target)
@@ -419,6 +424,7 @@ def evaluate_eligibility(
     direction: str = DIRECTION_AWAY,
     writes_enabled: bool | None = None,
     readonly_run: bool | None = None,
+    config_path: str | None = None,
 ) -> Eligibility:
     """Whether *target* could be switched to, from config alone.
 
@@ -489,6 +495,10 @@ def evaluate_eligibility(
             which is what check 3 is asked about; it never makes a target
             eligible or ineligible on its own. The effective *writes_enabled*
             above already folds it in, so overriding it alone changes nothing.
+        config_path: The project config the child reads, which an unset
+            virtual-accelerator gateway port is filled from; see
+            :func:`derive_endpoints`. ``None`` reads ``CONFIG_FILE``, else
+            ``./config.yml``.
 
     Returns:
         The verdict, its machine-readable reason, and a sentence naming the fix.
@@ -499,6 +509,7 @@ def evaluate_eligibility(
             target,
             writes_enabled=_resolved_writes(config, target, writes_enabled),
             readonly_run=readonly_run,
+            config_path=config_path,
         )
     except ValueError as exc:
         # Fail-closed at the resolver becomes a reason here: eligibility is the
@@ -598,7 +609,7 @@ def evaluate_eligibility(
             "machine this facility authored.",
         )
 
-    collision = live_collision(config, derivation)
+    collision = live_collision(config, derivation, config_path=config_path)
     if collision is not None:
         chosen, live = collision.selected, collision.live
         return Eligibility(
@@ -687,6 +698,7 @@ def target_availability(
     *,
     writes_enabled: bool | None = None,
     readonly_run: bool | None = None,
+    config_path: str | None = None,
 ) -> TargetAvailability:
     """The roster's session-relative answer for one target.
 
@@ -712,6 +724,7 @@ def target_availability(
             a posture read twice could differ between them if the operator
             narrowed the target in between.
         readonly_run: See :func:`derive_endpoints`.
+        config_path: See :func:`evaluate_eligibility`.
     """
     resolved_writes = _resolved_writes(config, target, writes_enabled)
     direction = switch_direction(target, control_target, baseline_target)
@@ -721,6 +734,7 @@ def target_availability(
         direction=direction,
         writes_enabled=resolved_writes,
         readonly_run=readonly_run,
+        config_path=config_path,
     )
     from_baseline = evaluate_eligibility(
         config,
@@ -728,6 +742,7 @@ def target_availability(
         direction=switch_direction(target, baseline_target, baseline_target),
         writes_enabled=resolved_writes,
         readonly_run=readonly_run,
+        config_path=config_path,
     )
 
     if target == control_target:
@@ -1143,6 +1158,7 @@ def evaluate_switch(
     reports: Sequence[Any] = (),
     writes_enabled: bool | None = None,
     kernel_name: KernelNameResolver | None = None,
+    config_path: str | None = None,
 ) -> GateVerdict:
     """Whether this deployment may switch to *wanted* right now.
 
@@ -1195,6 +1211,7 @@ def evaluate_switch(
             busy-client refusal. The gate calls it and opens nothing itself:
             the sidecar the answer comes from is the terminal's, and the tool
             inside a controls server has none to ask.
+        config_path: See :func:`evaluate_eligibility`.
 
     Returns:
         The verdict. ``allowed`` is the flag to branch on; ``reachability``
@@ -1248,6 +1265,7 @@ def evaluate_switch(
         baseline,
         writes_enabled=resolved_writes,
         readonly_run=False,
+        config_path=config_path,
     )
     if not availability.available_now:
         return GateVerdict(

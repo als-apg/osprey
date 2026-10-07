@@ -696,6 +696,7 @@ class SessionControlReconciler:
 
         config = context.config.raw
         section = config.get("control_system") if isinstance(config, dict) else None
+        config_path = getattr(context.config, "config_path", None)
         return target_eligibility.evaluate_switch(
             config,
             wanted,
@@ -704,6 +705,7 @@ class SessionControlReconciler:
             in_flight=target_state.in_flight_executions(),
             reports=reports,
             writes_enabled=target_eligibility.effective_writes_for_target(section, wanted),
+            config_path=str(config_path) if config_path else None,
         )
 
     # -- the terminus ------------------------------------------------------

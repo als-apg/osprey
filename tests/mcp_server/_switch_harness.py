@@ -168,6 +168,21 @@ class FixtureConnector(MockConnector):
                 error_message="the read-only gateway refused the write",
             )
         return await super().write_channel(channel_address, value, timeout=timeout, **kwargs)
+
+
+class VirtualAcceleratorFixtureConnector(FixtureConnector):
+    """The fixture as the virtual accelerator: unset gateway ports are filled.
+
+    The real virtual-accelerator connector fills an unset gateway port from
+    ``services.virtual_accelerator.port`` in the project config the child
+    reads; this does the same through the same helper, so a child here reports
+    the port the parent's derivation expects.
+    """
+
+    async def connect(self, config):
+        from osprey_connectors.control_system.va_connector import fill_gateway_ports
+
+        await super().connect(fill_gateway_ports(config))
 '''
 
 SITECUSTOMIZE = '''\
@@ -180,11 +195,13 @@ connect() — with no EPICS anywhere.
 """
 
 try:
-    from switch_fixture_connectors import FixtureConnector
+    from switch_fixture_connectors import VirtualAcceleratorFixtureConnector
 
     from osprey_connectors.factory import ConnectorFactory
 
-    ConnectorFactory.register_control_system("virtual_accelerator", FixtureConnector)
+    ConnectorFactory.register_control_system(
+        "virtual_accelerator", VirtualAcceleratorFixtureConnector
+    )
 except Exception:  # a child that cannot register it fails loudly in the test
     pass
 '''

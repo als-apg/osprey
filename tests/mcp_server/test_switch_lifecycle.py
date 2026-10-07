@@ -22,6 +22,7 @@ import tempfile
 import time
 
 import pytest
+import yaml
 
 from osprey.connectors.control_system.base import WriteOutcome
 from osprey.mcp_server.control_system import connector_host_manager, target_state
@@ -981,6 +982,62 @@ class TestRespawn:
 
         assert instance.disconnected is True
         assert context._connectors["control_system"].instance is None
+
+
+# ---------------------------------------------- the config file the child reads
+
+
+class TestTheChildsConfigFile:
+    """Parent and child derive a VA gateway's unset port from one file.
+
+    The manager's config was loaded from file A; this process's ``CONFIG_FILE``
+    names file B, which deploys the simulator on another port. The child is
+    handed A, so the parent must derive against A too, or the two disagree on
+    the port and a correct switch is refused.
+    """
+
+    PORT_A = 5071
+    PORT_B = 5072
+
+    def _files(self, tmp_path):
+        def write(name, port):
+            directory = tmp_path / name
+            directory.mkdir()
+            path = directory / "config.yml"
+            path.write_text(
+                yaml.safe_dump(
+                    {
+                        "control_system": {"writes_enabled": False},
+                        "services": {"virtual_accelerator": {"port": port}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return path
+
+        return write("a", self.PORT_A), write("b", self.PORT_B)
+
+    def _raw(self):
+        raw = raw_config()
+        va_block = raw["control_system"]["connector"]["virtual_accelerator"]
+        va_block["gateways"] = {"read_only": {"address": GATEWAY_HOST, "use_name_server": False}}
+        return raw
+
+    async def test_the_switch_derives_and_sends_the_file_the_manager_loaded(
+        self, make_manager, tmp_path, monkeypatch
+    ):
+        file_a, file_b = self._files(tmp_path)
+        monkeypatch.setenv("CONFIG_FILE", str(file_b))
+        manager = await started_on(make_manager, "live", raw=self._raw(), config_path=file_a)
+
+        derived = manager._derive("va")
+        payload = manager._init_kwargs("va", VIRTUAL_ACCELERATOR)
+        result = await manager.switch("va")
+
+        assert derived.derivation.endpoints["read_only"].port == self.PORT_A
+        assert payload["config_file"] == str(file_a.resolve())
+        assert result["target"] == "va"
+        assert int(result["endpoint"]["port"]) == self.PORT_A
 
 
 # ------------------------------------------ the destination already answers
