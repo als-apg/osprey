@@ -48,6 +48,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.launch import host_env
+from osprey_connectors.ipc.pool import DEFAULT_CALL_DEADLINE_S
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.ipc.verification import (
     Endpoint,
@@ -925,6 +926,11 @@ class TestDraining:
 
 
 class TestRespawn:
+    async def test_the_launched_child_has_the_reference_call_deadline(self, make_manager):
+        manager = await started_on(make_manager, "live")
+
+        assert manager.active_proxy()._deadline_s == DEFAULT_CALL_DEADLINE_S
+
     async def test_a_same_target_respawn_replaces_the_process_without_a_generation_bump(
         self, make_manager
     ):
