@@ -7553,6 +7553,24 @@ def test_workflow_fires_when_the_full_ci_label_is_applied__mutation_drops_labele
         test_workflow_fires_when_the_full_ci_label_is_applied(mutated)
 
 
+def test_workflow_fires_on_prs_into_an_integration_base(workflow: dict[str, Any]) -> None:
+    """An ``integration/<name>`` base collects item PRs ahead of one PR into
+    main. Each item PR is where a red that the item causes must show; without
+    this trigger it first shows on the integration PR, after the item that
+    caused it has merged."""
+    branches = workflow[True]["pull_request"]["branches"]
+    assert "integration/**" in branches, (
+        f"the workflow must fire on PRs into an integration base; got {branches}"
+    )
+
+
+def test_workflow_fires_on_prs_into_an_integration_base__mutation_drops_the_branch() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated[True]["pull_request"]["branches"] = ["main", "epic/**"]
+    with pytest.raises(AssertionError, match="must fire on PRs into an integration base"):
+        test_workflow_fires_on_prs_into_an_integration_base(mutated)
+
+
 def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(workflow: dict[str, Any]) -> None:
     """Same rule as the Dependabot block: a green gate with skipped lanes says
     so where a reviewer sees it, and prints the one command that runs them."""

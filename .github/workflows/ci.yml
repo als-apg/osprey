@@ -7,8 +7,9 @@ on:
     # Epic phase branches merge into an epic/<name> integration base, not
     # main, and their PRs are where the phase's CI certification happens --
     # the full lane set must run there, not only on the final epic-to-main
-    # PR.
-    branches: [ main, 'epic/**' ]
+    # PR. An integration/<name> base collects item PRs ahead of one PR into
+    # main, and each item PR is where a red that the item causes must show.
+    branches: [ main, 'epic/**', 'integration/**' ]
     # `labeled` on top of the three defaults: the model-spending lanes run on
     # a pull request only under the `full-ci` label (see "Model-spending
     # lanes" below), and applying a label does not start a run unless the
