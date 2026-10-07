@@ -490,7 +490,12 @@ def test_closing_stdin_before_the_init_frame_exits_the_child_cleanly(child):
 
 
 def test_closing_stdin_lets_a_call_in_flight_reply_before_the_child_exits(child):
-    slow = {**CONTROL_SYSTEM, "connector": {MOCK_TYPE: {"response_delay_ms": 500}}}
+    view = served_tree(child.cwd / "served", readings=["SR:BEAM:CURRENT"])
+    slow = {
+        "type": MOCK_TYPE,
+        "writes_enabled": False,
+        "connector": {MOCK_TYPE: mock_config(view, response_delay_ms=500)},
+    }
     child.init(control_system=slow)
 
     request_id = child.send("read_channel", channel_address="SR:BEAM:CURRENT")
