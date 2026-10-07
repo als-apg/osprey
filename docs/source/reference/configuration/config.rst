@@ -905,7 +905,7 @@ control system's own data. The fields are listed in
 .. _config-ariel-demo-narrative:
 
 ``ariel.demo_narrative`` — a demo logbook from the facility's scenarios
-----------------------------------------------------------------------
+-----------------------------------------------------------------------
 
 ``ariel.demo_narrative`` is ``all`` or a list of scenario names. The logbook
 entries of those scenarios are read from the built simulator view, with the
