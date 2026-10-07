@@ -16,9 +16,9 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.interfaces.lattice_dashboard.state import (
     ALL_FIGURES,
-    FAST_FIGURES,
     VERIFICATION_FIGURES,
     LatticeState,
+    fast_figures,
 )
 
 if TYPE_CHECKING:
@@ -68,9 +68,12 @@ class ComputeManager:
         self._lock = threading.Lock()
 
     def refresh_fast(self) -> list[str]:
-        """Cancel running fast workers and recompute all 4 fast figures."""
+        """Cancel running fast workers and recompute the loaded model's fast figures.
+
+        A ``single_pass`` model draws optics only, so only that worker runs.
+        """
         launched = []
-        for name in FAST_FIGURES:
+        for name in fast_figures(self._state.load().get("solve")):
             self._launch_worker(name)
             launched.append(name)
         return launched

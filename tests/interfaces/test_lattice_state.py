@@ -93,3 +93,43 @@ class TestInitializeRefpts:
         call_kwargs = mock_at.get_optics.call_args
         assert call_kwargs.kwargs.get("refpts") == range(n_elements + 1)
         assert call_kwargs.kwargs.get("get_chrom") is True
+
+
+class TestInitializeSinglePass:
+    """A ``single_pass`` deck's optics start from the model's ``twiss_in``."""
+
+    TWISS_IN = {"beta": [10.0, 5.0], "alpha": [0.5, -0.5]}
+
+    def _initialize(self, state):
+        n_elements = 10
+        ring = _make_mock_ring(n_elements)
+        ld = _make_lindata(n_elements + 1)
+        mock_at = _make_mock_at(ring, SimpleNamespace(), ld)
+        with patch.dict(sys.modules, {"at": mock_at}):
+            result = state.initialize(
+                "/fake/line.json",
+                model="LINE",
+                solve="single_pass",
+                twiss_in=self.TWISS_IN,
+                deck_sha256="abc",
+            )
+        return result, mock_at
+
+    def test_twiss_in_passed_to_get_optics(self, state):
+        _, mock_at = self._initialize(state)
+
+        kwargs = mock_at.get_optics.call_args.kwargs
+        assert "get_chrom" not in kwargs
+        twiss_in = kwargs["twiss_in"]
+        assert twiss_in["beta"].tolist() == [10.0, 5.0]
+        assert twiss_in["alpha"].tolist() == [0.5, -0.5]
+
+    def test_summary_has_no_tune_or_chromaticity(self, state):
+        result, _ = self._initialize(state)
+
+        assert "tunes" not in result["summary"]
+        assert "chromaticity" not in result["summary"]
+        assert result["model"] == "LINE"
+        assert result["solve"] == "single_pass"
+        assert result["twiss_in"] == self.TWISS_IN
+        assert result["deck_sha256"] == "abc"
