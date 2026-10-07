@@ -47,8 +47,7 @@ from osprey.cli.build_cmd import build
 from osprey.cli.templates.manager import TemplateManager
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from tests._preset_data import bundle_data_root
-
-from ._vocabulary_guard import hardcoded_vocabulary_hits
+from tests._vocabulary import hardcoded_vocabulary_hits
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:

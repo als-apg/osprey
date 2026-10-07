@@ -40,8 +40,7 @@ from osprey.cli.validate_claude_artifacts import (
 )
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE, FRAMEWORK_SERVERS
 from tests._preset_data import bundle_data_root
-
-from ._vocabulary_guard import hardcoded_vocabulary_hits
+from tests._vocabulary import hardcoded_vocabulary_hits
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
