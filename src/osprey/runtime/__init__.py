@@ -57,16 +57,20 @@ Control Target:
 
     A notebook kernel is the one process that outlives a switch, so it is the
     one exception to "one process, one stamp": its ``pre_run_cell`` rewrites the
-    stamp from the deployment's record before every cell. This module follows
-    that — the connector is rebuilt when the stamp moves, and a cell the kernel
-    could route nowhere at all is refused by :func:`_get_connector` on its first
-    control-system call.
+    stamp from the deployment's record before every cell. On a deployment that
+    can switch, the kernel takes its connector from a
+    :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`, so each stamp is
+    served by a connector-host child of its own: a moved stamp stops the child
+    in hand and selects a fresh one, and the kernel never holds a control-system
+    client itself. A cell the kernel could route nowhere at all is refused by
+    :func:`_get_connector` on its first control-system call.
 """
 
 import asyncio
 import atexit
 import json
 import os
+import threading
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -162,6 +166,17 @@ _runtime_connector: Any | None = None
 #: re-stamps itself every cell, so this is what tells a rebuild from a reuse.
 _connector_stamp: tuple[str | None, int | None] | None = None
 _connector_lock = asyncio.Lock()
+#: Whether this process takes its connector from a connector-host pool when the
+#: deployment can switch. Set only by :func:`_route_connector_through_pool`.
+_pool_routing = False
+#: The pool an opted-in process draws its connector from, built on first need.
+_connector_pool: Any | None = None
+#: The launch pin the pooled connector above was taken under. A child selects
+#: its gateway on the posture it was spawned with, so a moved pin respawns it.
+_connector_launch_pin: str | None = None
+#: The one event loop every pool call of this process runs on, and its guard.
+_pool_loop: asyncio.AbstractEventLoop | None = None
+_pool_loop_guard = threading.Lock()
 #: The in-flight marker this cell holds, or ``None``. Removed by
 #: ``post_run_cell``, which is why the claim below re-checks the file rather
 #: than trusting this name across cells.
@@ -194,6 +209,88 @@ def _stamped_generation() -> int | None:
         return int(raw)
     except ValueError:
         return None
+
+
+def _control_system_section() -> dict[str, Any]:
+    """The deployment's ``control_system`` section, as loaded; empty when absent."""
+    from osprey_connectors.config import get_config_value
+
+    section = get_config_value("control_system", {})
+    return section if isinstance(section, dict) else {}
+
+
+def _route_connector_through_pool() -> None:
+    """Take this process's connector from a connector-host pool.
+
+    For a process whose stamp moves under it: one connector-host child serves
+    each stamp, so a switch never re-points a client library that is already
+    bound to the old target in this address space. It applies only where the
+    deployment can switch (:func:`~osprey_connectors.types.switch_capable`); a
+    deployment with one target builds its connector in process as before.
+
+    The pooled connector is driven from one event loop for the life of the
+    process, and :data:`_limits_validator` is never set where this is called,
+    so the connector's own ``_current_value_reader`` is never asked of the
+    pooled handle: the child's reference monitor checks every write itself.
+    """
+    global _pool_routing
+
+    _pool_routing = True
+
+
+def _pool_mode() -> bool:
+    """Whether this process's connector comes from the pool. Never raises."""
+    if not _pool_routing:
+        return False
+    try:
+        from osprey_connectors.types import switch_capable
+
+        return switch_capable(_control_system_section())
+    except Exception:
+        logger.debug("Control system section unreadable; building in process", exc_info=True)
+        return False
+
+
+def _pool_event_loop() -> asyncio.AbstractEventLoop:
+    """The daemon loop every pool call of this process runs on, started once."""
+    global _pool_loop
+
+    with _pool_loop_guard:
+        if _pool_loop is None:
+            loop = asyncio.new_event_loop()
+            threading.Thread(
+                target=loop.run_forever, name="osprey-runtime-connector-loop", daemon=True
+            ).start()
+            _pool_loop = loop
+        return _pool_loop
+
+
+async def _pooled_connector_locked(target: str | None) -> Any:
+    """The pool's connector for *target*, building the pool on first need.
+
+    An unstamped cell is served the deployment's baseline target, the machine
+    it would read with no switch made. The lock must be held already.
+    """
+    global _connector_pool
+
+    from osprey_connectors.types import baseline_target
+
+    section = _control_system_section()
+    if _connector_pool is None:
+        from osprey_connectors.ipc.pool import ConnectorHostPool
+        from osprey_connectors.workspace import resolve_config_path
+
+        _connector_pool = ConnectorHostPool(section, config_file=str(resolve_config_path()))
+    key = target if target is not None else baseline_target(section)
+    logger.debug("Taking the connector for target %s from the connector-host pool", key)
+    return await _connector_pool.connector(key)
+
+
+def _launch_pin() -> str | None:
+    """The launch posture pin in this process's environment, or ``None``."""
+    from osprey_connectors import posture_store
+
+    return os.environ.get(posture_store.LAUNCH_POSTURE_ENV_VAR)
 
 
 def _target_connector_config() -> dict[str, Any] | None:
@@ -327,10 +424,14 @@ async def _get_connector():
     A sandbox reaches the build once and reuses it for its whole life. A
     notebook kernel does not: it is re-stamped from the deployment's record
     before every cell, so a stamp that no longer matches the connector in hand
-    means the ground moved between cells, and the connector is disconnected and
-    rebuilt rather than re-pointed. The disconnect goes through
-    :func:`_disconnect_locked` because ``_connector_lock`` is already held here
-    and is not reentrant.
+    means the ground moved between cells, and the connector is disconnected
+    rather than re-pointed. In a process routed through the connector-host pool
+    (:func:`_route_connector_through_pool`) that stops the stamp's child, and
+    the next connector is a fresh child's; the launch pin is part of the
+    comparison there, because a child selects its gateway on the posture it was
+    spawned with. Anywhere else the connector is rebuilt in process. The
+    disconnect goes through :func:`_disconnect_locked` because
+    ``_connector_lock`` is already held here and is not reentrant.
 
     Returns:
         ControlSystemConnector instance
@@ -340,16 +441,25 @@ async def _get_connector():
             control-target switch is in flight. Nothing is built, and the
             connector this process already holds is left alone.
     """
-    global _runtime_connector, _connector_stamp
+    global _runtime_connector, _connector_stamp, _connector_launch_pin
 
     _assert_not_refused()
     _claim_cell()
 
     async with _connector_lock:
+        pooled = _pool_mode()
         stamp = (_stamped_target(), _stamped_generation())
-        if _runtime_connector is not None and stamp != _connector_stamp:
-            logger.debug("Control target moved to %s; rebuilding the connector", stamp)
+        launch_pin = _launch_pin() if pooled else None
+        if _runtime_connector is not None and (
+            stamp != _connector_stamp or launch_pin != _connector_launch_pin
+        ):
+            logger.debug("Control target moved to %s; replacing the connector", stamp)
             await _disconnect_locked()
+
+        if _runtime_connector is None and pooled:
+            _runtime_connector = await _pooled_connector_locked(stamp[0])
+            _connector_stamp = stamp
+            _connector_launch_pin = launch_pin
 
         if _runtime_connector is None:
             from osprey.connectors.factory import ConnectorFactory
@@ -408,7 +518,9 @@ def _assert_target_pin() -> None:
     switch that lands in the window between the check and the write itself is
     not caught. That window is not a routing hole: this process's connector was
     bound to its target's gateways at ``connect()`` time and does not follow a
-    switch, so the write still goes where the stamp says. What the pin bounds is
+    switch — in a sandbox, which builds it once, and in a notebook kernel, whose
+    connector is a connector-host child of its own for each stamp — so the write
+    still goes where the stamp says. What the pin bounds is
     how long a superseded process keeps writing there — the switch lifecycle's
     drain, not this check, is what makes that window closed rather than merely
     small.
@@ -624,6 +736,9 @@ def _run_async(coro) -> Any:
     which is a ``RuntimeError`` too — must propagate unchanged from either
     branch, never be mistaken for that signal and retried.
     """
+    if _pool_mode():
+        return _run_on_pool_loop(coro)
+
     try:
         # Try to get running loop (e.g., in Jupyter with nest_asyncio)
         asyncio.get_running_loop()
@@ -637,6 +752,30 @@ def _run_async(coro) -> Any:
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future = executor.submit(asyncio.run, coro)
         return future.result()
+
+
+def _run_on_pool_loop(coro) -> Any:
+    """Run *coro* on the pool's loop and wait for it, from any thread or loop.
+
+    The pool is bound to the first loop it is used on, so every call of a
+    pooled process goes to that one loop. The coroutine's value or exception
+    comes back unchanged.
+
+    Raises:
+        RuntimeError: If called from the pool's own loop, which would wait on
+            itself; the coroutine is closed unrun.
+    """
+    loop = _pool_event_loop()
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is loop:
+        coro.close()
+        raise RuntimeError(
+            "The runtime's synchronous API cannot be called from its own connector loop"
+        )
+    return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
 
 # ========================================================
@@ -762,7 +901,7 @@ async def _disconnect_locked() -> None:
     not reentrant, so a rebuild that called ``cleanup_runtime`` would wait on a
     lock it is holding itself.
     """
-    global _runtime_connector, _connector_stamp
+    global _runtime_connector, _connector_stamp, _connector_launch_pin
 
     if _runtime_connector is None:
         return
@@ -778,6 +917,7 @@ async def _disconnect_locked() -> None:
     finally:
         _runtime_connector = None
         _connector_stamp = None
+        _connector_launch_pin = None
 
 
 async def cleanup_runtime() -> None:
@@ -788,15 +928,46 @@ async def cleanup_runtime() -> None:
 
     This is particularly useful for long-running notebook sessions to
     ensure connections don't become stale.
+
+    A connector-host pool, when this process holds one, is closed on its own
+    loop — whichever loop this is awaited on — and dropped, so a later call
+    builds a fresh one.
     """
+    loop = _pool_loop
+    if _connector_pool is not None and loop is not None:
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is loop:
+            await _close_pool()
+        else:
+            await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(_close_pool(), loop))
+        return
     async with _connector_lock:
         await _disconnect_locked()
+
+
+async def _close_pool() -> None:
+    """Disconnect the pooled connector, close the pool and drop it, on its loop."""
+    global _connector_pool
+
+    async with _connector_lock:
+        await _disconnect_locked()
+        pool, _connector_pool = _connector_pool, None
+        if pool is None:
+            return
+        try:
+            await pool.close()
+            logger.debug("Connector-host pool closed")
+        except Exception as e:
+            logger.warning(f"Error during connector-host pool cleanup: {e}")
 
 
 # Register cleanup on module exit
 def _cleanup_on_exit() -> None:
     """Synchronous cleanup for atexit handler."""
-    if _runtime_connector is not None:
+    if _runtime_connector is not None or _connector_pool is not None:
         try:
             asyncio.run(cleanup_runtime())
         except Exception:
