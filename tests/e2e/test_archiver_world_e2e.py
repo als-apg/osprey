@@ -5,7 +5,7 @@ whole thing — store, seeder, recorder, virtual accelerator — and asks the
 questions an operator would: is the history there, is it affordable, does what I
 just did to the machine show up in it, and does it admit what it does not know.
 
-Eight claims, in the order a deployment makes them true:
+Seven claims, in the order a deployment makes them true:
 
 * **The seed is affordable.** A first ``osprey up`` seeds the base series inside
   a measured budget and says so while it works. This lane keeps DEFAULT
@@ -19,10 +19,6 @@ Eight claims, in the order a deployment makes them true:
 * **The archive admits its edges.** A window before coverage begins returns no
   points, and ``get_metadata`` reports the oldest sample it really holds rather
   than a declared window.
-* **The seam is invisible.** Where seeded history ends and recorded reality
-  begins, the step in every fidelity partition is attributable to noise — the
-  threshold quoted from :func:`~osprey.simulation.procedural.deviation_bound`
-  per channel, never a constant embedded here.
 * **A scenario apply stays bounded.** Activating an eventful scenario rewrites
   event windows, not the archive; the document count is asked to stay inside a
   ratio, which is the budget the disk assertion above rests on.
@@ -80,7 +76,6 @@ from typing import Any
 
 import pytest
 
-from osprey.simulation.procedural import DEFAULT_NOISE_LEVEL, deviation_bound
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [
@@ -141,17 +136,6 @@ APPLY_GROWTH_RATIO = 1.25
 # See the assertion in the scenario-apply test for why this is not zero: a real
 # outage sits nowhere near 5%, while the archive's leading edge routinely does.
 UNCOVERED_FRACTION = 0.05
-
-# Channels are sampled per fidelity partition straight from the manifest's own
-# `partition` field, so the test needs no classification logic of its own and
-# cannot drift from how the manifest classifies.
-PARTITIONS = ("pyat-coupled", "sp-echo", "static-noisy")
-SEAM_SAMPLES_PER_PARTITION = 3
-
-# How far before the seed anchor the seam window starts. Only needs to be wide
-# enough to hold a few seeded samples at the hot cadence; the window's other end
-# is the newest sample, so the recorded side needs no allowance.
-SEAM_LEAD_TIME = timedelta(minutes=5)
 
 # `seeded 1,234 documents x 2,908 channels (... ) in 12.3s` -- the seeder's own
 # report line. Parsed rather than timing `osprey up` as a whole, which would
@@ -576,52 +560,9 @@ def _await_recorder_transition(
         time.sleep(RECORDER_POLL_SEC)
 
 
-def _as_utc(moment: datetime) -> datetime:
-    """Pin the zone on a datetime pymongo may have handed back naive.
-
-    Read as UTC, which is what the store holds. Naive and aware values do not
-    compare, so a value that crosses into arithmetic with ``datetime.now(UTC)``
-    has to be pinned once, deliberately, rather than depending on which layer
-    happened to attach a zone.
-    """
-    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment
-
-
-def _seed_anchor(world: DeployedArchiverWorld) -> datetime:
-    """The instant seeded history ends and recorded reality begins.
-
-    Read from the seed manifest the seeder writes into the store, so the seam
-    test can put its window ACROSS the seam rather than wherever the clock
-    happens to be when it runs.
-    """
-    from osprey_connectors.simulation.archive import MANIFEST_ID
-
-    with _collection(world) as collection:
-        manifest = collection.find_one({"_id": MANIFEST_ID})
-    assert manifest is not None, "the store holds no seed manifest, so there is no seam to locate"
-    anchor = manifest.get("seeded_at")
-    assert anchor is not None, "the seed manifest carries no seeded_at anchor"
-    return _as_utc(anchor)
-
-
-def _manifest_channels(world: DeployedArchiverWorld) -> list[dict[str, Any]]:
-    path = world.repo / "build" / "data" / "simulation" / "channel_manifest.json"
+def _served_addresses(world: DeployedArchiverWorld) -> list[str]:
+    path = world.repo / "build" / "data" / "simulator" / "addresses.json"
     return json.loads(path.read_text(encoding="utf-8"))["channels"]
-
-
-def _sample_per_partition(world: DeployedArchiverWorld) -> dict[str, list[dict[str, Any]]]:
-    """A few channels from each fidelity partition, taken in manifest order.
-
-    Deterministic rather than random: a seam failure has to be reproducible from
-    the test name alone, and a random sample turns "this partition is broken"
-    into "this run was unlucky".
-    """
-    by_partition: dict[str, list[dict[str, Any]]] = {name: [] for name in PARTITIONS}
-    for channel in _manifest_channels(world):
-        bucket = by_partition.get(str(channel.get("partition")))
-        if bucket is not None and len(bucket) < SEAM_SAMPLES_PER_PARTITION:
-            bucket.append(channel)
-    return by_partition
 
 
 # ---------------------------------------------------------------------------
@@ -795,7 +736,7 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     reading its conclusion.
     """
     connector = _connector(archiver_world)
-    channel = str(_manifest_channels(archiver_world)[0]["address"])
+    channel = str(_served_addresses(archiver_world)[0])
 
     # "The oldest sample really held" is a moving target: every document carries
     # its own expireAt (sample time + retention span), and mongod's TTL monitor
@@ -880,79 +821,6 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
         f"the store held ({oldest_after_tool}); the agent-facing bound must be "
         f"real history, not a declared window"
     )
-
-
-# ---------------------------------------------------------------------------
-# The seam
-# ---------------------------------------------------------------------------
-
-
-def test_seam_between_seeded_and_recorded_history_is_within_the_noise_band(archiver_world):
-    """Across all three fidelity partitions, the seam is attributable to noise.
-
-    Seeded history ends at the seed anchor and recorded reality begins there. If
-    the two halves were generated from different baselines -- a different epoch
-    convention, a different boot value, a retuned generator -- the step at that
-    instant is a discontinuity no operator could read as anything but an event
-    that never happened.
-
-    The threshold is quoted per channel from ``deviation_bound`` and its own
-    default headroom, never a constant written here: a band embedded in this file
-    would keep passing after a generator retune it no longer describes.
-    """
-    # The bound is only meaningful if both halves were generated with the same
-    # noise level. The two constants are duplicated deliberately (osprey.simulation
-    # must stay importable without the VA service package), so nothing structural
-    # stops them drifting -- and a drift would widen this tolerance silently
-    # instead of failing. Retuning either side must red THIS lane.
-    from osprey.services.virtual_accelerator.ioc.engine_source import (
-        DEFAULT_NOISE_LEVEL as VA_NOISE_LEVEL,
-    )
-
-    assert DEFAULT_NOISE_LEVEL == VA_NOISE_LEVEL, (
-        "the simulation and VA noise levels have drifted "
-        f"({DEFAULT_NOISE_LEVEL} vs {VA_NOISE_LEVEL}); the seam bound below describes "
-        "the seeded half only, so it would pass against a mismatched recorded half"
-    )
-
-    connector = _connector(archiver_world)
-    sampled = _sample_per_partition(archiver_world)
-    # The window is anchored on the SEAM, not on the clock. Ending it at
-    # `archival_end` and reaching back a fixed span looked equivalent and is
-    # not: everything before the anchor is seeded and everything after it is
-    # recorded, so once more than that span separates the seed from this test --
-    # a cold image cache is enough, and CI has a 45-minute allowance -- the
-    # window holds recorded samples only. The step assertion then passes without
-    # a seam anywhere near it, which is the vacuous green this lane exists to
-    # refuse.
-    anchor = _seed_anchor(archiver_world)
-    for partition in PARTITIONS:
-        channels = sampled[partition]
-        assert channels, f"no channels found in the {partition!r} partition"
-        for channel in channels:
-            address = str(channel["address"])
-            metadata = asyncio.run(connector.get_metadata(address))
-            if metadata.archival_end is None:
-                pytest.fail(f"{address} ({partition}) holds no samples at all")
-
-            archival_end = _as_utc(metadata.archival_end)
-            assert archival_end >= anchor, (
-                f"{address} ({partition}) holds nothing at or after the seed anchor, so "
-                "this window covers seeded history only and crosses no seam"
-            )
-            frame = asyncio.run(
-                connector.get_data([address], anchor - SEAM_LEAD_TIME, archival_end)
-            )
-            values = [float(v) for v in frame["value"]] if len(frame) else []
-            if len(values) < 2:
-                continue  # a channel with one sample in the window has no seam to cross
-
-            step = max(abs(b - a) for a, b in zip(values, values[1:], strict=False))
-            bound = deviation_bound(address)
-            assert step <= 2 * bound, (
-                f"{address} ({partition}) steps by {step:.6g} across the seed/record "
-                f"seam, beyond the {2 * bound:.6g} the generator's own noise band allows"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -1042,7 +910,7 @@ def test_health_reports_the_archive_fresh_while_the_recorder_writes(archiver_wor
     """
     from tests.e2e import _orm_stack
 
-    served = {str(channel["address"]) for channel in _manifest_channels(archiver_world)}
+    served = set(_served_addresses(archiver_world))
     assert FRESHNESS_CANARY in served, (
         f"{FRESHNESS_CANARY} is not a channel this machine model serves, so the derived "
         f"freshness check would report 'no samples' for a reason that has nothing to do "

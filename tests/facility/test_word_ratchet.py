@@ -128,8 +128,6 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/services/mml/va/verify.py": "delete:7e",
     "src/osprey/services/virtual_accelerator/__init__.py": "rename:12",
     "src/osprey/services/virtual_accelerator/bindings.py": "delete:7e",
-    "src/osprey/services/virtual_accelerator/ioc/__init__.py": "delete:7d",
-    "src/osprey/services/virtual_accelerator/ioc/physics_bridge.py": "delete:7d",
     "src/osprey/services/virtual_accelerator/lattice/__init__.py": "delete:7e",
     "src/osprey/services/virtual_accelerator/lattice/calibration.py": "delete:7e",
     "src/osprey/services/virtual_accelerator/lattice/response.py": "delete:7e",

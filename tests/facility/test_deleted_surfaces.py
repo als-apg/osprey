@@ -21,6 +21,9 @@ REPO = Path(__file__).resolve().parents[2]
 #: module level, so it is parsed, never imported.
 SERVING_RUNNER = REPO / "src/osprey/services/virtual_accelerator/serving/runner.py"
 
+#: Repo-relative paths that no longer exist.
+DELETED_PATHS: tuple[str, ...] = ("src/osprey/services/virtual_accelerator/ioc",)
+
 #: Surviving module -> names it no longer defines.
 DELETED_NAMES: dict[str, tuple[str, ...]] = {
     "osprey.cli.build_profile_va_faults": (
@@ -59,8 +62,17 @@ def test_the_deleted_name_is_gone(module: str, name: str) -> None:
     assert not hasattr(importlib.import_module(module), name)
 
 
+@pytest.mark.parametrize("path", DELETED_PATHS)
+def test_the_deleted_path_is_gone(path: str) -> None:
+    # A directory left holding only bytecode caches is gone as source.
+    target = REPO / path
+    assert not target.is_file()
+    assert not any(target.rglob("*.py"))
+
+
 def test_the_rows_are_sorted() -> None:
     assert list(DELETED_NAMES) == sorted(DELETED_NAMES)
+    assert list(DELETED_PATHS) == sorted(DELETED_PATHS)
     for module, names in DELETED_NAMES.items():
         assert list(names) == sorted(names), module
 
