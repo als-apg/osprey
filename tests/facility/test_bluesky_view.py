@@ -86,6 +86,27 @@ def test_no_channel_is_an_empty_document() -> None:
     assert bluesky_document({"channels": []}) == {"settables": [], "readables": []}
 
 
+def test_a_seeded_readback_settles_its_settable_within_its_motion() -> None:
+    readback = {
+        **_channel("A:RB", "readback"),
+        "simulation": {"noise": 0.001, "drift": {"amplitude": 0.005, "period_s": 600.0}},
+    }
+    document = bluesky_document(
+        {
+            "channels": [
+                _channel("A:SP", "setpoint", "A:RB"),
+                readback,
+                _channel("B:SP", "setpoint", "B:RB"),
+                {**_channel("B:RB", "readback"), "simulation": {"nominal": 1.0}},
+            ]
+        }
+    )
+
+    first, second = document["settables"]
+    assert first["settle_tolerance"] == pytest.approx(0.005 + 6.0 * 0.001)
+    assert "settle_tolerance" not in second
+
+
 # --- the file ----------------------------------------------------------------------
 
 

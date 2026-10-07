@@ -5,13 +5,18 @@ Written to ``<render>/data/bluesky_devices.yml``::
     schema: osprey.facility.bluesky_devices/1
     # generated-file header
     settables:
-      - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>}
+      - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, settle_tolerance: <band>}
     readables:
       - {name: <readback>, pv: <readback>}
 
 One settable per setpoint channel, whose ``readback`` is the channel's ``pair``
 when the pair is another channel and is absent otherwise; one readable per
 readback channel, paired or not; a channel whose role is ``none`` is no device.
+A settable carries ``settle_tolerance`` when the channel it reads back declares
+motion in its ``simulation`` seed: the band
+:func:`osprey.facility.motion.settle_band` derives from that seed. A settable
+whose readback declares none carries no key and settles within the profile's
+floor.
 A device's name is its address. Entries follow the facility file's channel
 order. A render carries the view when it runs a Bluesky lane, under every
 control system: the compose generator stages it for a connector that drives
@@ -54,7 +59,15 @@ def _records(doc: Mapping[str, Any], facility_file: Path) -> list[Any]:
     return [channel_record(channel, source) for channel in doc.get("channels", [])]
 
 
-def bluesky_document(doc: Mapping[str, Any]) -> dict[str, list[dict[str, str]]]:
+def _settle_bands(doc: Mapping[str, Any]) -> dict[str, float]:
+    from osprey.facility.motion import settle_band
+
+    return {
+        channel["id"]: settle_band(channel.get("simulation")) for channel in doc.get("channels", [])
+    }
+
+
+def bluesky_document(doc: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """The device document of one facility file.
 
     Args:
@@ -65,7 +78,7 @@ def bluesky_document(doc: Mapping[str, Any]) -> dict[str, list[dict[str, str]]]:
     """
     from osprey.services.bluesky_bridge.substrate_devices import devices_document
 
-    return devices_document(_records(doc, Path(FACILITY_FILE)))
+    return devices_document(_records(doc, Path(FACILITY_FILE)), _settle_bands(doc))
 
 
 def bluesky_configured(inputs: ViewInputs) -> bool:
@@ -106,5 +119,6 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
         _records(inputs.doc, facility_file),
         source=_source(facility_file),
         schema=BLUESKY_DEVICES_SCHEMA,
+        settle_bands=_settle_bands(inputs.doc),
     )
     return [target]
