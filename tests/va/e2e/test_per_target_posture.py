@@ -305,10 +305,10 @@ def _serving(prefix: str):
     number also names the container, which is what keeps two concurrent runs
     from destroying each other. Nothing here goes near 5064.
 
-    ``VA_LATTICE`` is stated rather than left to the image's default, so both
-    boots differ in nothing at all: this module's subject is which machine a
-    write reaches, and two instances that were not identical would leave a
-    reader wondering whether something else told them apart.
+    Both boots carry the same instance and data root and differ only in their
+    port: this module's subject is which machine a write reaches, and two
+    instances that were not identical would leave a reader wondering whether
+    something else told them apart.
     """
     port = _free_port()
     name = f"{prefix}-{port}"
@@ -323,16 +323,12 @@ def _serving(prefix: str):
         name,
         "-e",
         f"EPICS_CA_SERVER_PORT={port}",
-        "-e",
-        f"VA_LATTICE={e2e_conftest.DEMO_LATTICE_FILENAME}",
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
         *e2e_conftest.demo_data_run_args(),
         # The namespace, named: the IOC refuses to boot without one rather
-        # than picking the framework's demo channels on its own. VA_LATTICE
-        # is already stated above, so only the manifest is added here.
-        "-e",
-        f"VA_CHANNELS_FILE={e2e_conftest.DEMO_MANIFEST_FILENAME}",
+        # than picking the framework's demo channels on its own.
+        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
         IMAGE,
     )
     if started.returncode != 0:
