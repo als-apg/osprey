@@ -506,6 +506,14 @@ class TestLiveStuckSetpoint:
         assert _caget(STUCK_RB) == pytest.approx(BOOT)
 
     @pytest.mark.usefixtures("live")
+    def test_the_setpoint_reads_the_demand_across_ticks(self) -> None:
+        assert _caput(STUCK_SP, 4.0) == 1
+        time.sleep(3 * TICK_S)
+
+        assert _caget(STUCK_SP) == pytest.approx(4.0)
+        assert _caget(STUCK_RB) == pytest.approx(BOOT)
+
+    @pytest.mark.usefixtures("live")
     def test_repeated_writes_never_move_it(self) -> None:
         """Frozen means frozen, not merely lagging by one write."""
         for value in (1.0, -3.0, 11.5):
