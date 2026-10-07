@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import errno
+import functools
 import json
 import logging
 import os
@@ -3283,13 +3284,23 @@ def _packaged_compose_template(rel_path: str):
     Undefined mode is production's, so ``| default(...)`` chains behave exactly
     as they do under ``osprey up``, and the lookup stays CWD-independent.
     """
+    return _packaged_templates_environment().get_template(rel_path)
+
+
+@functools.cache
+def _packaged_templates_environment():
+    """The one Environment :func:`_packaged_compose_template` compiles through.
+
+    Shared so each template, and each macro file it imports, is parsed once per
+    module rather than once per call; Jinja's own cache still reloads a template
+    whose file changed.
+    """
     from importlib import resources
 
     from jinja2 import Environment, FileSystemLoader
 
     templates_root = resources.files("osprey").joinpath("templates")
-    env = Environment(loader=FileSystemLoader(str(templates_root)), autoescape=False)
-    return env.get_template(rel_path)
+    return Environment(loader=FileSystemLoader(str(templates_root)), autoescape=False)
 
 
 def _render_service_template(rel_path: str, project_name: str, **overrides: object) -> str:

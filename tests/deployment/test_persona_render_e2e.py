@@ -94,16 +94,32 @@ def _persona_project(repo: Path, persona: str) -> Path:
     return repo / "build" / f"{EXEMPLAR_DIRNAME}-{persona}"
 
 
-@pytest.fixture
-def built_repo(tmp_path: Path) -> Path:
-    """The exemplar deployment repo, seeded and with a real ``build/`` in it.
+@pytest.fixture(scope="module")
+def _pristine_build(tmp_path_factory) -> tuple[Path, Path]:
+    """One real build, shared by the module: ``(repo, pristine copy of it)``.
 
     ``seed_env=True`` because the secrets are the half of a deployment that
     lives outside ``build/`` entirely: a repo with no ``.env`` could not show
     that the persona renders leave them where they are.
     """
-    repo = build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME, seed_env=True)
+    base = tmp_path_factory.mktemp("persona-render")
+    repo = build_exemplar_repo(base / EXEMPLAR_DIRNAME, seed_env=True)
     _run_build(repo)
+    pristine = base / "pristine"
+    shutil.copytree(repo, pristine, symlinks=True)
+    return repo, pristine
+
+
+@pytest.fixture
+def built_repo(_pristine_build) -> Path:
+    """The exemplar deployment repo, seeded and with a real ``build/`` in it.
+
+    Restored byte-for-byte (mtimes included) from the module's one build, at
+    the path it was built at, so every absolute path the build recorded holds.
+    """
+    repo, pristine = _pristine_build
+    shutil.rmtree(repo, ignore_errors=True)
+    shutil.copytree(pristine, repo, symlinks=True)
     return repo
 
 

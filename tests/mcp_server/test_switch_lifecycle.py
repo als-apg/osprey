@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 import pytest
@@ -1412,6 +1413,10 @@ class TestStartupSweep:
             encoding="utf-8",
         )
 
+        # Reap the orphan the moment it exits: it is this process's child, so
+        # unreaped it lingers as a zombie the sweep's liveness check still
+        # sees, and the sweep would wait out its whole SIGTERM grace.
+        threading.Thread(target=orphan.wait, daemon=True).start()
         try:
             manager = make_manager()  # reset_state() runs in the factory
 
