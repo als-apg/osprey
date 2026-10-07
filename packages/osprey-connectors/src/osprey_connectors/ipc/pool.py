@@ -155,6 +155,7 @@ in it sets an ``EPICS_*`` variable.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import logging
 import sys
@@ -727,6 +728,12 @@ class ConnectorHostPool:
                 ) from exc
             except Exception as exc:
                 if isinstance(exc, ConnectionError) and not raised_by_child(exc):
+                    # The pipe closed, so the child is exiting: its status is
+                    # reaped before anything signals it. A signal sent to an
+                    # exited, unreaped child reaps it out from under the event
+                    # loop's watcher, which then reports exit code 255.
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(process.wait(), self._terminate_grace_s)
                     await terminate_host(process, self._terminate_grace_s)
                     raise failure(
                         STAGE_INIT,
