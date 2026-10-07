@@ -126,7 +126,14 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.ipc import frames
-from osprey_connectors.ipc.launch import CHILD_MODULE, AttributedReader, host_env, spawn_host
+from osprey_connectors.ipc.launch import (
+    CHILD_MODULE,
+    REAP_WINDOW_S,
+    AttributedReader,
+    host_env,
+    reap_exit_code,
+    spawn_host,
+)
 from osprey_connectors.ipc.launch import terminate_host as _terminate_host
 from osprey_connectors.ipc.pool import DEFAULT_CALL_DEADLINE_S
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
@@ -353,10 +360,10 @@ class _LaunchChannel:
             except TimeoutError:
                 raise self._failure(stage, f"did not answer {method!r} within {timeout}s") from None
             if not chunk:
+                returncode = await reap_exit_code(self._process, REAP_WINDOW_S)
                 raise self._failure(
                     stage,
-                    f"closed its output stream while answering {method!r} "
-                    f"(exit code {self._process.returncode})",
+                    f"closed its output stream while answering {method!r} (exit code {returncode})",
                 )
             decoded = self._frames.feed(chunk)
             if not decoded:
