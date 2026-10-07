@@ -35,6 +35,10 @@ it on the host and receives the model write token.
 
 from __future__ import annotations
 
+import json
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -366,14 +370,56 @@ def test_va_compose_serves_channel_access_on_each_instance_port(
     )
 
 
-def test_va_compose_probes_each_instance_on_its_own_port(
+def test_va_compose_healthcheck_reads_the_entrypoints_health_file(
     two_instances: dict[str, Any],
 ) -> None:
-    """A healthcheck aimed at the other machine's port would never go red."""
-    baseline = two_instances["services"]["virtual-accelerator"]["healthcheck"]["test"]
-    standin = two_instances["services"]["live-standin"]["healthcheck"]["test"]
-    assert "'localhost', 5064" in baseline[-1]
-    assert "'localhost', 5074" in standin[-1]
+    """Each instance's probe reads the record its own runner rewrites."""
+    from osprey.services.virtual_accelerator import entrypoint
+
+    for key in ("virtual-accelerator", "live-standin"):
+        healthcheck = two_instances["services"][key]["healthcheck"]
+        assert healthcheck["test"][0] == "CMD-SHELL"
+        assert f"open('{entrypoint.HEALTH_FILE}')" in healthcheck["test"][-1]
+        assert "localhost" not in healthcheck["test"][-1]
+        assert (
+            healthcheck["interval"],
+            healthcheck["timeout"],
+            healthcheck["retries"],
+            healthcheck["start_period"],
+        ) == ("10s", "5s", 5, "20s")
+
+
+@pytest.mark.parametrize(
+    ("state", "healthy"),
+    [("serving", True), ("degraded", True), ("failed", False), (None, False), ("garbled", False)],
+)
+def test_the_rendered_healthcheck_fails_a_failed_record_and_passes_serving_and_degraded(
+    two_instances: dict[str, Any], tmp_path: Path, state: str | None, healthy: bool
+) -> None:
+    """Only a record that is serving or degraded passes; failed, missing or bad JSON fail."""
+    from osprey.services.virtual_accelerator import entrypoint
+
+    record = tmp_path / "health.json"
+    if state == "garbled":
+        record.write_text("{not json", encoding="utf-8")
+    elif state is not None:
+        record.write_text(json.dumps({"state": state}), encoding="utf-8")
+    command = two_instances["services"]["virtual-accelerator"]["healthcheck"]["test"][-1]
+    program, _, rest = command.partition(" ")
+    assert program == "python"
+    rest = rest.replace(str(entrypoint.HEALTH_FILE), str(record))
+    assert str(record) in rest
+
+    # CMD-SHELL runs the string under sh -c; the image's python is this
+    # interpreter here.
+    probe = subprocess.run(
+        ["/bin/sh", "-c", f"{shlex.quote(sys.executable)} {rest}"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert (probe.returncode == 0) is healthy, probe.stderr
 
 
 def test_va_compose_builds_the_image_on_the_first_instance_only(

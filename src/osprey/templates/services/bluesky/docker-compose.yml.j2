@@ -176,8 +176,9 @@ services:
     same failure: a `standin` lane's devices connect to the `live-standin` soft
     IOC this deployment runs for itself, so the bridge must not open its
     environment before that IOC's CA listener is answering. The stand-in
-    declares a healthcheck of its own (a raw TCP connect to its Channel Access
-    port, `services/virtual_accelerator/docker-compose.yml.j2`), which is what
+    declares a healthcheck of its own (it reads the health record its runner
+    rewrites after every publishing pass,
+    `services/virtual_accelerator/docker-compose.yml.j2`), which is what
     makes `service_healthy` the right condition rather than `service_started`.
 
     Keyed on the LANE's target and not on the co-deployment alone — a project
