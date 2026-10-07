@@ -10,6 +10,7 @@ import asyncio
 import atexit
 import fnmatch
 import os
+import sys
 import threading
 from collections.abc import Callable
 from datetime import datetime
@@ -59,6 +60,40 @@ def _configure_pyepics_libca() -> None:
         logger.debug("Configured PYEPICS_LIBCA from epicscorelibs: %s", os.environ["PYEPICS_LIBCA"])
     except Exception:  # epicscorelibs absent/failed -> pyepics falls back to its own resolution
         logger.debug("epicscorelibs libca unavailable; using pyepics default libca resolution")
+
+
+def _keep_shared_ca_context(epics: Any) -> None:
+    """Stop aioca destroying a Channel Access context pyepics also uses.
+
+    A CA context belongs to a thread. When aioca makes the first CA call on a
+    thread, it creates the context there and registers an ``atexit`` hook that
+    destroys it. If pyepics later loads libca on that same thread, it adopts
+    that context instead of making its own. At exit aioca destroys the
+    context, and the interpreter then garbage-collects pyepics' cached PVs,
+    whose ``__del__`` clears subscriptions on the freed context: a segfault.
+
+    So aioca is told not to destroy the shared context. That matches this
+    connector's choice to skip pyepics' own ``finalize_libca``: nobody tears CA
+    down at exit, and the OS reclaims the sockets. aioca still clears its own
+    channels at exit, on a context that is still alive. A no-op when aioca is
+    not loaded, when it adopted a context rather than creating one, or when
+    pyepics runs on a context of its own.
+    """
+    catools = sys.modules.get("aioca._catools")
+    if catools is None:
+        return
+    context = getattr(catools, "_Context", None)
+    initial = getattr(epics.ca, "initial_context", None)
+    if (
+        context is not None
+        and getattr(context, "_should_destroy", False)
+        and initial
+        and getattr(context, "_ca_context", None) == initial
+    ):
+        context._should_destroy = False
+        logger.debug(
+            "EPICS connector: pyepics shares aioca's CA context; aioca will not destroy it"
+        )
 
 
 def _alarm_name(code: Any) -> str:
@@ -467,8 +502,15 @@ class EPICSConnector(ControlSystemConnector):
 
             os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
 
-            # Clear EPICS cache to pick up new environment
-            self._epics.ca.clear_cache()
+            # Clear EPICS cache to pick up new environment. Only once libca is
+            # loaded: before that there is nothing to clear, and the context
+            # pyepics creates on first use reads the environment set above.
+            # Calling it anyway would load libca on this thread, where it
+            # would adopt (then detach this thread from) any CA context aioca
+            # already made here.
+            if getattr(self._epics.ca, "libca", None) is not None:
+                self._epics.ca.clear_cache()
+                _keep_shared_ca_context(self._epics)
 
             logger.debug(f"Configured EPICS gateway: {address}:{port}")
             self._epics_configured = True
