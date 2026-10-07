@@ -569,13 +569,26 @@ def test_a_scenario_change_rebuilds_the_children_at_its_writes(tmp_path: Path) -
     assert composite.get("M:BPM:Y") == pytest.approx(-plain)
     assert composite.held(["M:SP", "T:SP", "T:RB"]) == {"M:SP": 6.0, "T:SP": 9.0, "T:RB": 9.0}
     composite.set({"M:STUCK:SP": 50.0})
-    assert composite.held(["M:STUCK:SP"]) == {"M:STUCK:SP": 1.0}
+    assert composite.held(["M:STUCK:SP"]) == {"M:STUCK:SP": 50.0}
+    assert composite.get("M:STUCK:SP") == 50.0
     composite.set({"M:SP": 3.0})
     composite.reset()
     assert composite.held(["M:SP"]) == {"M:SP": 6.0}
     _activate(tmp_path / "state")
     assert composite.get("M:BPM:Y") == pytest.approx(plain)
     assert composite.held(["M:SP"]) == {"M:SP": 2.0}
+
+
+def test_a_refused_batch_puts_the_stuck_demand_back(tmp_path: Path) -> None:
+    scenarios = [{"name": "stuck", "faults": {"M": {"writes": {"M:STUCK:SP": "stuck"}}}}]
+    composite = _composite(tmp_path, scenarios=scenarios)
+    _activate(tmp_path / "state", "stuck")
+
+    with pytest.raises(ValueError, match="int"):
+        composite.set({"M:STUCK:SP": 50.0, "T:STEP:SP": 3.5})
+
+    assert composite.held(["M:STUCK:SP"]) == {"M:STUCK:SP": 1.0}
+    assert composite.get("M:STUCK:SP") == 1.0
 
 
 def test_a_failed_child_is_rebuilt_on_a_scenario_change(tmp_path: Path) -> None:
