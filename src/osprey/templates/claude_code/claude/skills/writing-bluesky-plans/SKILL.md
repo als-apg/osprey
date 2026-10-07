@@ -95,11 +95,15 @@ about a point the machine is not at, and one that "restores" to `0.0` does
 not restore anything — it drives the machine to zero, which on a stored beam
 is the orbit gone.
 
-The idiom, per device, is three lines (`orm`'s `build_plan` is the worked
-version):
+The idiom, per device (`orm`'s `build_plan` is the worked version):
 
 ```python
-working_point = float((yield from bps.rd(device)))   # before the try
+reading = yield from bps.read(device)                # before the try
+demand = (reading or {}).get(getattr(device, "setpoint_key", None))
+if demand is not None:                               # the reported setpoint
+    working_point = float(demand["value"])
+else:                                                # no separate setpoint
+    working_point = float((yield from bps.rd(device)))
 try:
     for step in steps:                               # steps are OFFSETS
         yield from bps.mv(device, working_point + step)
@@ -107,6 +111,10 @@ try:
 finally:
     yield from bps.mv(device, working_point)         # never a literal
 ```
+
+The working point is the setpoint the device reports, not its readback: the
+restore is a setpoint write, so it restores what was demanded, not a noisy
+sample.
 
 Read **before** the `try`, not inside it, so a device whose read fails is
 never entered and the `finally` can never run without a target. Your range
