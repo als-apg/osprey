@@ -27,6 +27,9 @@
     <div class="topbar-left">
       <span class="topbar-logo">LATTICE</span>
       <span id="lattice-name" class="topbar-lattice">No lattice loaded</span>
+      <!-- Model choice, filled from GET /api/models by js/models.js; hidden
+           while the build lists no model. -->
+      <select id="model-select" class="action-btn" title="Lattice model" style="display:none"></select>
     </div>
     <div class="topbar-actions">
       <button id="btn-refresh" class="action-btn" title="Refresh fast figures">
