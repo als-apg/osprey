@@ -1,5 +1,5 @@
 {
-  "_reproduce": "uv run python scripts/facility_demo/fingerprint.py --in-context-size --write tests/facility/golden/in_context_size.json",
+  "_reproduce": "Frozen: no command rewrites this golden; its rows are the tier-1 in-context database pinned by this file.",
   "_sources": [
     "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier1/in_context.json"
   ],

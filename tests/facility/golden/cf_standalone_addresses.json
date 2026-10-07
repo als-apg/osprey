@@ -1,5 +1,5 @@
 {
-  "_reproduce": "uv run python scripts/facility_demo/fingerprint.py --standalone-addresses --write tests/facility/golden/cf_standalone_addresses.json",
+  "_reproduce": "Frozen: no command rewrites this golden; its addresses are the set the channel-finder-standalone preset served.",
   "_sources": [
     "src/osprey/templates/apps/channel_finder_standalone/data/channel_databases/hierarchical.json"
   ],

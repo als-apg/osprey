@@ -9,24 +9,20 @@ them and hold them to the committed records and the limits golden.
 
 from __future__ import annotations
 
-import importlib.util
-import json
 from functools import cache
-from types import ModuleType
+from pathlib import Path
 from typing import Any
 
-from osprey.facility.sources import slot_names
+from osprey.facility.build import build_facility
+from osprey.facility.sources import read_yaml, slot_names
+from osprey.facility.views.limits import limits_document
 from tests._builds import BuiltProject
 from tests.facility.test_cf_view_parity import load_golden
-from tests.facility.test_generator_records import (
-    REPO_ROOT,
-    committed,
-    committed_files,
-    records_by_id,
-    wired_devices,
-)
 
-LIMITS_MODULE = REPO_ROOT / "scripts" / "facility_demo" / "_limits.py"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FACILITY_TREE = REPO_ROOT / "src/osprey/templates/facilities/example"
+
+_NARAD_PROPERTY = "https://narad.example.org/property/"
 
 #: The three records, as the file states them.
 TEACHING_RECORDS = [
@@ -73,13 +69,52 @@ _MEASUREMENT_ROLES = {"kinds", "groups", "instruments"}
 
 
 @cache
-def limits_module() -> ModuleType:
-    """``scripts/facility_demo/_limits.py`` as a module."""
-    spec = importlib.util.spec_from_file_location("facility_demo_limits_test", LIMITS_MODULE)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def committed_files() -> dict[str, str]:
+    """Relative path -> text of every YAML source of the committed tree.
+
+    Returns:
+        Each file's path relative to the facility tree and its text.
+    """
+    return {
+        path.relative_to(FACILITY_TREE).as_posix(): path.read_text(encoding="utf-8")
+        for path in sorted(FACILITY_TREE.rglob("*.yaml"))
+    }
+
+
+@cache
+def committed(name: str) -> Any:
+    """One committed file, parsed as the facility loader parses it."""
+    return read_yaml(committed_files()[name])
+
+
+def records_by_id(kind: str) -> dict[str, dict[str, Any]]:
+    """``records/<kind>s.yaml`` keyed by id."""
+    return {record["id"]: record for record in committed(f"records/{kind}s.yaml")}
+
+
+def wired_devices(view: Path, facility: dict[str, Any]) -> frozenset[str]:
+    """The devices owning an address the facility's ``SR`` model wires.
+
+    Args:
+        view: The graph view the build writes.
+        facility: The build's facility file.
+
+    Returns:
+        The device id of every device-bound binding of a wired address.
+    """
+    import rdflib
+
+    prop = rdflib.Namespace(_NARAD_PROPERTY)
+    graph = rdflib.Graph()
+    graph.parse(view, format="turtle")
+    device_of = {}
+    for device, binding in graph.subject_objects(prop.hasBinding):
+        if graph.value(device, prop.sourceName) is None:
+            continue
+        device_of[str(graph.value(binding, prop.fullPv))] = str(graph.value(device, prop.deviceId))
+    [model] = [model for model in facility["models"] if model["name"] == "SR"]
+    wired = {record["address"] for record in model["wiring"]}
+    return frozenset(device_of[address] for address in wired if address in device_of)
 
 
 def measurement() -> dict[str, Any]:
@@ -123,24 +158,14 @@ def test_limits_golden_holds_the_three_resolved_rows() -> None:
 
 
 def test_limits_golden_resolves_the_committed_records() -> None:
-    module = limits_module()
-    roles = {
-        address: record.get("role", "readback")
-        for address, record in records_by_id("channel").items()
+    """The limits view of the committed tree is the golden, a bound left unstated absent."""
+    resolved = limits_document(build_facility(FACILITY_TREE, project_name="ca"))
+    del resolved["_version"]
+    golden = {
+        address: {slot: value for slot, value in row.items() if value is not None}
+        for address, row in load_golden("limits.json")["channels"].items()
     }
-    resolved = {
-        record["address"]: module.resolve(record, roles[record["address"]])
-        for record in committed("limits.yaml")["records"]
-    }
-    assert resolved == load_golden("limits.json")["channels"]
-
-
-def test_limits_golden_is_what_its_reproduce_command_writes() -> None:
-    golden_path = REPO_ROOT / "tests" / "facility" / "golden" / "limits.json"
-    assert limits_module().golden() == golden_path.read_bytes()
-    assert json.loads(golden_path.read_text(encoding="utf-8"))["_reproduce"] == (
-        "uv run python scripts/facility_demo/_limits.py --write tests/facility/golden/limits.json"
-    )
+    assert resolved == golden
 
 
 # --- measurement -----------------------------------------------------------------
@@ -160,7 +185,10 @@ def test_each_measurement_group_is_a_deck_machine_family_with_a_wired_member(
     built_control_assistant: BuiltProject,
 ) -> None:
     groups = records_by_id("group")
-    wired = wired_devices(built_control_assistant.build_dir / "data" / "graph" / "facility.ttl")
+    wired = wired_devices(
+        built_control_assistant.build_dir / "data" / "graph" / "facility.ttl",
+        built_control_assistant.facility,
+    )
     named = measurement()["groups"]
     assert sorted(named) == ["bpm", "hcor", "quad", "sext", "vcor"]
     for role, group_id in named.items():
