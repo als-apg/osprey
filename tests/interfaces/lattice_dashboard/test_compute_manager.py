@@ -95,7 +95,7 @@ class _NoopThread:
 class TestRefresh:
     def test_refresh_fast_launches_all_fast(self, manager):
         mgr, state, broadcaster = manager
-        launched = mgr.refresh_fast()
+        launched = mgr.refresh_fast(served=True)
         assert launched == list(FAST_FIGURES)
         assert len(FakePopen.instances) == len(FAST_FIGURES)
         # Each launch marks the figure computing and broadcasts status
@@ -294,5 +294,5 @@ def test_no_worker_threads_leak(manager):
     """The manager under test must not spawn real monitor threads."""
     mgr, _, _ = manager
     before = threading.active_count()
-    mgr.refresh_fast()
+    mgr.refresh_fast(served=True)
     assert threading.active_count() == before

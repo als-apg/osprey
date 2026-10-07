@@ -22,6 +22,7 @@ from osprey.interfaces.lattice_dashboard.state import (
     ALL_FIGURES,
     FAST_FIGURES,
     SINGLE_PASS_UNAVAILABLE,
+    UNSERVED_UNAVAILABLE,
 )
 
 at = pytest.importorskip("at")
@@ -312,4 +313,60 @@ class TestSinglePass:
 
     def test_optics_still_refreshes(self, transfer, launched):
         assert transfer.post("/api/refresh/optics").status_code == 200
+        assert launched == ["optics"]
+
+
+class TestUnserved:
+    @pytest.fixture
+    def booster(self, client, launched):
+        client.get("/api/state")
+        launched.clear()
+        client.post("/api/models/select", json={"name": "BOOSTER"})
+        return client
+
+    def test_served_model_state(self, client):
+        assert client.get("/api/state").json()["served"] is True
+
+    def test_state_names_optics_only(self, booster):
+        state = booster.get("/api/state").json()
+
+        assert state["model"] == "BOOSTER"
+        assert state["served"] is False
+        assert state["fast_figures"] == ["optics"]
+
+    @pytest.mark.usefixtures("booster")
+    def test_select_launches_only_optics(self, launched):
+        assert launched == ["optics"]
+
+    def test_refresh_launches_only_optics(self, booster, launched):
+        launched.clear()
+        r = booster.post("/api/refresh")
+
+        assert r.json()["launched"] == ["optics"]
+        assert launched == ["optics"]
+
+    @pytest.mark.parametrize("name", [n for n in ALL_FIGURES if n != "optics"])
+    def test_every_route_refuses_figures_beyond_optics(self, booster, launched, name):
+        launched.clear()
+        for method, path in (
+            ("get", f"/api/figures/{name}"),
+            ("get", f"/api/data/{name}"),
+            ("post", f"/api/refresh/{name}"),
+        ):
+            r = getattr(booster, method)(path)
+            assert r.status_code == 409, path
+            assert r.json()["detail"] == UNSERVED_UNAVAILABLE.format(model="BOOSTER")
+        assert launched == []
+
+    def test_verify_409(self, booster, launched):
+        launched.clear()
+        r = booster.post("/api/verify")
+
+        assert r.status_code == 409
+        assert r.json()["detail"] == "not available: BOOSTER is not served"
+        assert launched == []
+
+    def test_optics_still_refreshes(self, booster, launched):
+        launched.clear()
+        assert booster.post("/api/refresh/optics").status_code == 200
         assert launched == ["optics"]

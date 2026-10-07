@@ -28,21 +28,37 @@ PERIODIC = "periodic"
 SINGLE_PASS = "single_pass"
 
 #: The only figure a ``single_pass`` model draws: it has no tune, so no figure
-#: built on tunes, chromaticity or turn-by-turn tracking applies to it.
-SINGLE_PASS_FIGURES = ("optics",)
+#: built on tunes, chromaticity or turn-by-turn tracking applies to it. A model
+#: the render does not serve draws this figure only too.
+OPTICS_ONLY = ("optics",)
 
 #: The refusal a figure route gives a figure the selected model cannot draw.
 SINGLE_PASS_UNAVAILABLE = "not available for a single-pass model"
 
+#: The refusal a figure route gives a figure beyond optics for a model the
+#: render does not serve; ``{model}`` is the model's name.
+UNSERVED_UNAVAILABLE = "not available: {model} is not served"
 
-def fast_figures(solve: str | None) -> tuple[str, ...]:
-    """Return the fast figures a model with *solve* draws."""
-    return SINGLE_PASS_FIGURES if solve == SINGLE_PASS else FAST_FIGURES
+
+def fast_figures(solve: str | None, *, served: bool) -> tuple[str, ...]:
+    """Return the fast figures a model with *solve* draws.
+
+    Args:
+        solve: The model's solve.
+        served: Whether the render serves the model.
+    """
+    return OPTICS_ONLY if solve == SINGLE_PASS or not served else FAST_FIGURES
 
 
-def figure_available(name: str, solve: str | None) -> bool:
-    """Return whether a model with *solve* draws figure *name*."""
-    return solve != SINGLE_PASS or name in SINGLE_PASS_FIGURES
+def figure_available(name: str, solve: str | None, *, served: bool) -> bool:
+    """Return whether a model with *solve* draws figure *name*.
+
+    Args:
+        name: The figure.
+        solve: The model's solve.
+        served: Whether the render serves the model.
+    """
+    return name in OPTICS_ONLY or (solve != SINGLE_PASS and served)
 
 
 def twiss_in_arrays(twiss_in: dict[str, Any]) -> dict[str, Any]:
