@@ -137,7 +137,6 @@ if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
     raise SystemExit(0)
 
 import math  # noqa: E402
-import socket  # noqa: E402
 import subprocess  # noqa: E402
 from collections.abc import Iterator, Mapping  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
@@ -635,12 +634,6 @@ def test_a_failed_scenario_reads_with_the_composites_severity(
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
 def _docker(*args: str, timeout: float = 60.0) -> subprocess.CompletedProcess:
     return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
 
@@ -697,23 +690,23 @@ def noisy_va(tmp_path_factory: pytest.TempPathFactory) -> Iterator[NoisyVa]:
     root = e2e_conftest.stage_demo_data_dir(
         tmp_path_factory.mktemp("va_noise_data"), still_monitors=False
     )
-    port = _free_port()
-    _docker("rm", "-f", NOISE_CONTAINER)
-    started = _docker(
-        "run",
-        "-d",
-        "--name",
-        NOISE_CONTAINER,
-        "-p",
-        f"127.0.0.1:{port}:{e2e_conftest.CONTAINER_CA_PORT}/tcp",
-        *e2e_conftest.data_root_run_args(root),
-        "-e",
-        f"VA_POLL_INTERVAL_S={NOISE_TICK_S}",
-        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        e2e_conftest.IMAGE,
-    )
-    if started.returncode != 0:
-        raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
+
+    def container(port: int) -> tuple[str, list[str]]:
+        return NOISE_CONTAINER, [
+            "run",
+            "-d",
+            "--name",
+            NOISE_CONTAINER,
+            "-p",
+            f"127.0.0.1:{port}:{e2e_conftest.CONTAINER_CA_PORT}/tcp",
+            *e2e_conftest.data_root_run_args(root),
+            "-e",
+            f"VA_POLL_INTERVAL_S={NOISE_TICK_S}",
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            e2e_conftest.IMAGE,
+        ]
+
+    port, _ = e2e_conftest.run_on_free_port(container)
     try:
         deadline = time.monotonic() + e2e_conftest.CONTAINER_BOOT_TIMEOUT_S
         while not _served(port):
@@ -721,7 +714,9 @@ def noisy_va(tmp_path_factory: pytest.TempPathFactory) -> Iterator[NoisyVa]:
                 logs = _docker("logs", "--tail", "40", NOISE_CONTAINER)
                 raise RuntimeError(
                     f"{NOISE_CONTAINER} never served {e2e_conftest.READINESS_ADDRESS} within "
-                    f"{e2e_conftest.CONTAINER_BOOT_TIMEOUT_S}s.\n{logs.stdout}\n{logs.stderr}"
+                    f"{e2e_conftest.CONTAINER_BOOT_TIMEOUT_S}s.\n"
+                    f"{e2e_conftest.boot_report(NOISE_CONTAINER, port)}\n"
+                    f"{logs.stdout}\n{logs.stderr}"
                 )
             time.sleep(0.5)
         yield NoisyVa(port=port, view=View.read(root / "simulator"))
