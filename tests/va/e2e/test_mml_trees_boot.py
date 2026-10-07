@@ -751,7 +751,10 @@ class TestTheServedTree:
 
         The wired set is the view's own: every setpoint a physics model takes
         and every reading it answers. A channel in it that does not answer is
-        a mount the container could not resolve a model over.
+        a mount the container could not resolve a model over. Each setpoint
+        serves exactly what the oracle holds for it: setpoints carry no
+        declared motion and no write has reached the machine yet. A server
+        that answers with values it never computed is not a served machine.
         """
         wired = sorted(served.tree.wired())
         assert wired, f"{served.tree.name} wires no channel at all"
@@ -764,6 +767,16 @@ class TestTheServedTree:
         )
         missing = [address for address, value in answer["values"].items() if value is None]
         assert not missing, f"{served.tree.name}: served with no value: {missing}"
+
+        setpoints = [
+            address for address in wired if served.tree.channel(address)["role"] == "setpoint"
+        ]
+        owed = served.owed(*setpoints)
+        for address in setpoints:
+            value = answer["values"][address]
+            assert value == pytest.approx(owed[address], rel=READBACK_RTOL), (
+                f"{served.tree.name}: {address} serves {value}, and the model owes {owed[address]}"
+            )
 
     def test_a_setpoint_carrying_its_own_readback_serves_what_was_written(
         self, served: ServedTree
