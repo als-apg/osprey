@@ -13,12 +13,12 @@ unchanged into ``build/services/bluesky/bluesky_devices.yml``
 worker: every setpoint channel a settable, every readback channel a readable.
 A lane chooses the correctors and BPMs its plans drive from that staged view
 (:func:`select_correctors`/:func:`select_bpms`), never from a hardcoded preset
-channel, restricted to the channels the repo's bindings document binds as a
-kick or as a monitor, since the ORM plan sweeps correctors and reads monitors
+channel, restricted to the channels the repo's simulator view wires as a
+corrector or as a monitor, since the ORM plan sweeps correctors and reads monitors
 rather than arbitrary writable setpoints.
 
 The builders take a ``pre_build`` hook for a lane that edits the repo's source
-zone -- its facility tree, its bindings -- after ``osprey init`` has created
+zone -- its facility tree -- after ``osprey init`` has created
 that zone and before ``osprey build`` renders it.
 
 Not a test module itself (no ``test_`` functions) -- the single source of
@@ -36,7 +36,7 @@ tests need a live stack).
 Where the work is split. The build's view says which channels the worker
 holds; ``select_correctors``/``select_bpms`` are the HARNESS's own, because
 which of them a corrector-sweeping plan can do physics with is a question a
-lane asks of the repo's own bindings document (:func:`repo_bindings`) and has
+lane asks of the repo's own simulator view (:func:`repo_view`) and has
 no place in a framework that must stay facility-agnostic. The limits table is
 the view of ``data/facility/limits.yaml``, the same table the render enforces,
 readable before the build through :func:`channel_limits`.
@@ -62,13 +62,10 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
 
-from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS, ManifestPaths
 from tests.e2e.profile_edits import set_pairs
 
 if TYPE_CHECKING:
     from click.testing import CliRunner, Result
-
-    from osprey.services.virtual_accelerator.bindings import BindingsDocument
 
 #: What :func:`_keyed_by_address` keys -- a corrector ``(sp, rb)`` pair or a
 #: BPM address, both of which name their device by an address the selector
@@ -846,110 +843,124 @@ def restart_bridge(
     wait_for_health(f"{bridge_url}/health", health_timeout)
 
 
-#: The bound-element attribute component a horizontal kick is written to, in
-#: pyAT's ``KickAngle`` order -- ``(horizontal, vertical)``. Framework
-#: vocabulary rather than a facility's: a lane wanting one plane of corrector
-#: asks the bindings for the component, never the address text for a family
-#: name.
+#: The ``KickAngle`` component a corrector's wiring writes, in pyAT's
+#: ``(horizontal, vertical)`` order. A lane wanting one plane of corrector asks
+#: the wiring for the component, never the address text for a family name.
 KICK_HORIZONTAL = 0
 KICK_VERTICAL = 1
 
-#: The transverse axis a monitor binding reads, in the spelling
-#: ``bindings.ATTRIBUTES_BY_KIND`` reserves for a ``monitor``.
+#: The transverse axis a monitor's wiring reads.
 MONITOR_X = "x"
 MONITOR_Y = "y"
 
+#: The engine attribute a corrector's wiring writes.
+KICK_ATTRIBUTE = "KickAngle"
+
+#: The engine of the view's texture, which wires no channel.
+_TEXTURE_ENGINE = "texture"
+
 
 @cache
-def _bindings_of_resolved(data_root: Path) -> BindingsDocument:
-    """The memoized read behind :func:`_bindings_at`, keyed on a resolved tree."""
-    from osprey.services.virtual_accelerator.bindings import load_bindings
-
-    return load_bindings(ManifestPaths(data_root).va_bindings)
-
-
-def _bindings_at(data_root: Path) -> BindingsDocument:
-    """The bindings document of one facility data tree, read once per tree.
-
-    Memoized because a lane calls the selectors several times and the demo
-    document is some hundreds of bindings.
-
-    The memo is keyed on the RESOLVED tree, so the relative and absolute
-    spellings of one tree -- and a symlinked temporary directory against the
-    path it points at -- are one entry rather than two. The document is read
-    once per tree per process: a lane that rewrites
-    ``simulation/va_bindings.json`` under a tree already read here gets the
-    first read back, and must stage the new document under a fresh path to be
-    served the new one.
-    """
-    return _bindings_of_resolved(data_root.resolve())
+def _view_of_resolved(path: Path) -> dict[str, Any]:
+    """The memoized read behind :func:`repo_view`, keyed on a resolved file."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise AssertionError(f"{path} is not a simulator view document: {document!r}")
+    return document
 
 
-def repo_bindings(repo: Path) -> BindingsDocument:
-    """The bindings document of the deployment repo's own ``data`` tree.
+def repo_view(repo: Path) -> dict[str, Any]:
+    """The ``variables.json`` the build rendered into ``repo``'s simulator view.
 
     The one authority on which channels the accelerator model drives and what
-    each of them does to it: a binding names the element it writes, the
-    attribute it writes there, and the calibration between the facility's
-    hardware unit and the lattice's physics unit. A lane choosing devices with
-    a plane, a kind or a calibration in mind reads them from here.
+    each of them does to it: every wiring record of a served model names the
+    address, its direction, the element it reaches and the engine field it
+    writes or reads there. A lane choosing devices with a plane or a kind in
+    mind reads them from here.
+
+    Read once per file per process, keyed on the resolved path: a lane that
+    rebuilds a repo already read here must build it under a fresh path to be
+    served the new view.
 
     Lives HERE rather than in the product because choosing a physics-appropriate
     subset of a facility's channels is a harness concern: the staged view
     holds every channel and says which way each points, and which of them a
     given plan can do physics with is the lane's own question.
     """
-    return _bindings_at(repo / "data")
+    from osprey.facility.views.simulator import VARIABLES_FILE, simulator_view
+
+    path = simulator_view(repo) / VARIABLES_FILE
+    if not path.is_file():
+        raise AssertionError(f"the build rendered no simulator view at {path}")
+    return _view_of_resolved(path.resolve())
 
 
-def _addresses_of_kind(document: BindingsDocument, kind: str) -> frozenset[str]:
-    """Every address the document binds as ``kind``, by its own ``kind`` field.
+def physics_wiring(document: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every wiring record of the document's physics models, in model then record order.
 
-    Grouping by what a binding DOES -- a kick, a monitor -- rather than by the
-    family name its address spells is what keeps a lane's device choice the
-    same question on every facility.
+    ``document`` is a ``variables.json`` document, or anything carrying its
+    ``models`` list -- a built facility file's own models included.
     """
-    return frozenset(
-        binding.setpoint_address for binding in document.bindings if binding.kind == kind
+    return [
+        record
+        for model in document.get("models") or []
+        if model.get("engine") != _TEXTURE_ENGINE
+        for record in model.get("wiring") or []
+    ]
+
+
+def is_corrector(record: dict[str, Any]) -> bool:
+    """Whether a wiring record writes a corrector: a kick angle at one element."""
+    engine = record.get("engine") or {}
+    return (
+        record.get("direction") == "write"
+        and "element" in record
+        and engine.get("attribute") == KICK_ATTRIBUTE
     )
 
 
-def claimed_addresses(document: BindingsDocument) -> frozenset[str]:
-    """Every address ``document`` claims -- each binding's setpoint, plus the
-    readback it serves where it serves one.
+def is_monitor(record: dict[str, Any]) -> bool:
+    """Whether a wiring record reads a monitor: one axis of the orbit at one element."""
+    engine = record.get("engine") or {}
+    return (
+        record.get("direction") == "read"
+        and "element" in record
+        and "axis" in engine
+        and "attribute" not in engine
+    )
 
-    The single spelling of what "the accelerator model drives this channel"
-    means, so a lane asking whether a channel is coupled and a lane asking for
-    the channels that are not both read the rule from here. A binding kind that
-    one day claims a second readback widens both at once.
+
+def corrector_addresses(document: dict[str, Any], *, index: int | None = None) -> frozenset[str]:
+    """Every corrector setpoint the document wires, optionally of one kick component.
+
+    Grouping by what a record DOES -- a kick, a monitor reading -- rather than
+    by the family name its address spells is what keeps a lane's device choice
+    the same question on every facility.
     """
-    claimed = {binding.setpoint_address for binding in document.bindings}
-    claimed |= {
-        binding.readback_address
-        for binding in document.bindings
-        if binding.readback_address is not None
-    }
-    return frozenset(claimed)
+    return frozenset(
+        str(record["address"])
+        for record in physics_wiring(document)
+        if is_corrector(record) and (index is None or record["engine"].get("index") == index)
+    )
 
 
-def pyat_coupled(address: str, *, data_root: Path | None = None) -> bool:
-    """Whether ``address`` is a channel the accelerator model actually drives.
+def monitor_addresses(document: dict[str, Any], *, axis: str | None = None) -> frozenset[str]:
+    """Every monitor reading the document wires, optionally of one axis."""
+    return frozenset(
+        str(record["address"])
+        for record in physics_wiring(document)
+        if is_monitor(record) and (axis is None or record["engine"]["axis"] == axis)
+    )
 
-    A channel is coupled because a binding claims it -- as the address it
-    writes or reads, or as the readback that binding serves -- and for no other
-    reason. Everything else the deployment serves is either a physics-free
-    software echo or a plausible noisy constant: a plan sweeping one finishes
-    as fast as the network round-trips allow and proves nothing about rows
-    arriving while physics runs. Lanes that read the BUILD's staged device file
-    directly narrow it with this so the device they drive is a modelled one
-    whichever order the build wrote the file in.
 
-    ``data_root`` is the facility tree to ask; it defaults to the bundled demo
-    tree, which is the tree a deployment built from the shipped preset serves.
-    A lane deploying a facility's own tree passes that tree's ``data/``.
+def claimed_addresses(document: dict[str, Any]) -> frozenset[str]:
+    """Every corrector setpoint and monitor reading the document wires.
+
+    The single spelling of the channels a corrector-sweeping plan can do
+    physics with, so a lane narrowing the staged devices and a lane selecting
+    them read the rule from here.
     """
-    document = _bindings_at(PACKAGE_PATHS.data_root if data_root is None else data_root)
-    return address in claimed_addresses(document)
+    return corrector_addresses(document) | monitor_addresses(document)
 
 
 def _keyed_by_address(
@@ -987,10 +998,10 @@ def select_correctors(
     build staged for ``repo`` (:func:`staged_devices`), never a hardcoded
     preset channel.
 
-    A corrector is an address the repo's bindings document binds as a ``kick``
-    (:func:`repo_bindings`): a write to it steers the beam by changing an
-    element's kick angle through the lattice model. The ORM plan sweeps
-    correctors specifically, so a writable channel no binding claims -- a
+    A corrector is a setpoint the repo's simulator view wires as one
+    (:func:`repo_view`, :func:`is_corrector`): a write to it steers the beam by
+    changing an element's kick angle through the lattice model. The ORM plan
+    sweeps correctors specifically, so a writable channel no model wires -- a
     physics-free software echo -- is the wrong device class for it, and the
     kind is the same question on any facility where the address text is not.
     A settable the view names no readback for is skipped: these plans read a
@@ -1004,7 +1015,7 @@ def select_correctors(
     Returns a dict of ``sp_address -> (sp_address, rb_address)`` -- the
     setpoint's device name is its own ``:SP`` address, as it is in the view.
     """
-    kicks = _addresses_of_kind(repo_bindings(repo), "kick")
+    kicks = corrector_addresses(repo_view(repo))
     settables, _ = staged_devices(repo)
     pairs = [
         (setpoint, readback)
@@ -1019,10 +1030,10 @@ def select_bpms(repo: Path, count: int | None = DEFAULT_BPM_COUNT) -> dict[str, 
     staged for ``repo`` -- same view, same no-hardcoded-channel convention as
     :func:`select_correctors`.
 
-    A beam-position readback is an address the repo's bindings document binds
-    as a ``monitor``: a reading the lattice model solves for, which moves when
-    a corrector is swept. A readable no binding claims is static noise and
-    would sit still through any sweep.
+    A beam-position readback is a reading the repo's simulator view wires as a
+    monitor (:func:`is_monitor`): a reading the lattice model solves for, which
+    moves when a corrector is swept. A readable no model wires is static noise
+    and would sit still through any sweep.
 
     If ``count`` is ``None``, returns the FULL available monitor set instead of
     a fixed-size slice -- no assertion is raised in that case. Readbacks are
@@ -1031,7 +1042,7 @@ def select_bpms(repo: Path, count: int | None = DEFAULT_BPM_COUNT) -> dict[str, 
     Returns a dict of ``read_address -> read_address`` -- the readback's device
     name is its own read address, as it is in the view.
     """
-    monitors = _addresses_of_kind(repo_bindings(repo), "monitor")
+    monitors = monitor_addresses(repo_view(repo))
     _, readables = staged_devices(repo)
     addresses = sorted(address for address in readables.values() if address in monitors)
     return _keyed_by_address(addresses, lambda address: address, count, "monitor readbacks")
