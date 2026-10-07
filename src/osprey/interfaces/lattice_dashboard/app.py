@@ -44,6 +44,7 @@ from osprey.interfaces.lattice_dashboard.state import (
     DEFAULT_SETTINGS,
     SINGLE_PASS,
     SINGLE_PASS_UNAVAILABLE,
+    UNSERVED_UNAVAILABLE,
     LatticeState,
     fast_figures,
     figure_available,
@@ -365,20 +366,39 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         if loaded:
             broadcaster.broadcast({"type": "state_updated"})
-            compute.refresh_fast()
+            refresh_fast_figures()
+
+    def selected_served(current: dict[str, Any]) -> bool:
+        """Return whether the render serves the selected model; True with none selected."""
+        model = loader.catalog().get(current.get("model") or "")
+        return model is None or model.served
+
+    def optics_only_reason(current: dict[str, Any]) -> str | None:
+        """Return why the selected model draws optics only, or None when it draws every figure."""
+        if current.get("solve") == SINGLE_PASS:
+            return SINGLE_PASS_UNAVAILABLE
+        if not selected_served(current):
+            return UNSERVED_UNAVAILABLE.format(model=current.get("model"))
+        return None
+
+    def refresh_fast_figures() -> list[str]:
+        return compute.refresh_fast(served=selected_served(state.load()))
 
     def state_payload() -> dict[str, Any]:
         s = state.load()
         if "settings" not in s:
             s["settings"] = copy.deepcopy(DEFAULT_SETTINGS)
         s.setdefault("model", None)
-        s["fast_figures"] = list(fast_figures(s.get("solve")))
+        served = selected_served(s)
+        s["served"] = served
+        s["fast_figures"] = list(fast_figures(s.get("solve"), served=served))
         s["notice"] = loader.catalog().notice()
         return s
 
     def refuse_unavailable(name: str) -> None:
-        if not figure_available(name, state.load().get("solve")):
-            raise HTTPException(status_code=409, detail=SINGLE_PASS_UNAVAILABLE)
+        current = state.load()
+        if not figure_available(name, current.get("solve"), served=selected_served(current)):
+            raise HTTPException(status_code=409, detail=optics_only_reason(current))
 
     app = FastAPI(
         title="Lattice Dashboard",
@@ -426,7 +446,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
             raise HTTPException(status_code=404, detail=f"Unknown model: {body.name}")
 
         broadcaster.broadcast({"type": "state_updated"})
-        compute.refresh_fast()
+        refresh_fast_figures()
         return state_payload()
 
     @app.post("/api/state/param")
@@ -446,7 +466,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
 
     @app.post("/api/refresh")
     async def refresh_fast() -> dict[str, Any]:
-        launched = compute.refresh_fast()
+        launched = refresh_fast_figures()
         return {"status": "ok", "launched": launched}
 
     @app.post("/api/refresh/{figure}")
@@ -462,8 +482,9 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
 
     @app.post("/api/verify")
     async def verify() -> dict[str, Any]:
-        if state.load().get("solve") == SINGLE_PASS:
-            raise HTTPException(status_code=409, detail=SINGLE_PASS_UNAVAILABLE)
+        reason = optics_only_reason(state.load())
+        if reason is not None:
+            raise HTTPException(status_code=409, detail=reason)
         launched = compute.refresh_verification()
         return {"status": "ok", "launched": launched}
 

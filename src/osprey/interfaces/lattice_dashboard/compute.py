@@ -67,13 +67,17 @@ class ComputeManager:
         self._processes: dict[str, subprocess.Popen] = {}
         self._lock = threading.Lock()
 
-    def refresh_fast(self) -> list[str]:
+    def refresh_fast(self, *, served: bool) -> list[str]:
         """Cancel running fast workers and recompute the loaded model's fast figures.
 
-        A ``single_pass`` model draws optics only, so only that worker runs.
+        A ``single_pass`` model and a model the render does not serve draw
+        optics only, so only that worker runs.
+
+        Args:
+            served: Whether the render serves the loaded model.
         """
         launched = []
-        for name in fast_figures(self._state.load().get("solve")):
+        for name in fast_figures(self._state.load().get("solve"), served=served):
             self._launch_worker(name)
             launched.append(name)
         return launched
