@@ -216,7 +216,6 @@ DENIED: tuple[Denied, ...] = (
         # packages' own subject.
         allow=frozenset(
             {
-                "src/osprey/services/channel_finder/naming.py",
                 "src/osprey/services/virtual_accelerator/model/bindings.py",
                 "src/osprey/simulation/channel_schema.py",
                 "src/osprey/simulation/facility_spec.py",
@@ -248,7 +247,6 @@ DENIED: tuple[Denied, ...] = (
         # they load.
         allow=frozenset(
             {
-                "src/osprey/services/channel_finder/naming.py",
                 "src/osprey/services/virtual_accelerator/model/bindings.py",
                 "src/osprey/simulation/channel_schema.py",
                 "src/osprey/simulation/facility_spec.py",

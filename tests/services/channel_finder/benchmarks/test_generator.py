@@ -14,16 +14,21 @@ from osprey.services.channel_finder.benchmarks.generator import (
     expand_hierarchy,
     validate_queries,
 )
-from osprey.services.channel_finder.tools.generate_from_spec import TIER1_FILTER
 
-# The shipped tier databases: tier 1 is the TIER1_FILTER subset of tier 3, and
-# tier 3 is the whole expanded template.
+# The shipped tier databases: tier 1 is a subset of tier 3, and tier 3 is the
+# whole expanded template.
 TIERS_ROOT = TEMPLATE_DATA_DIR / "channel_databases" / "tiers"
+
+#: The addresses the shipped tier-1 database lists.
+TIER1_ADDRESSES = frozenset(
+    entry["address"]
+    for entry in json.loads((TIERS_ROOT / "tier1" / "in_context.json").read_text())["channels"]
+)
 
 
 def _tier1(channels: list[dict]) -> list[dict]:
-    """The tier-1 subset of expanded channels, per :data:`TIER1_FILTER`."""
-    return [ch for ch in channels if TIER1_FILTER.matches(ch["pv"])]
+    """The expanded channels the shipped tier-1 database lists."""
+    return [ch for ch in channels if ch["pv"] in TIER1_ADDRESSES]
 
 
 def _copy_shipped_tiers(dest) -> None:
@@ -251,8 +256,9 @@ class TestMaterializedTierDatabases:
     """Verify the on-disk tier DBs shipped with the control_assistant preset.
 
     The materialized JSON files under
-    src/osprey/templates/.../channel_databases/tiers/{tier1,tier3}/ equal the
-    expanded template and TIER1_FILTER for every (tier, paradigm) combination.
+    src/osprey/templates/.../channel_databases/tiers/{tier1,tier3}/ enumerate
+    the expanded template's channels (tier 3) or the ones of them the tier-1
+    database lists (tier 1), for every (tier, paradigm) combination.
     """
 
     @staticmethod
@@ -345,8 +351,9 @@ class TestMaterializedTierDatabases:
     ):
         """Each shipped tier DB file must enumerate exactly the tier's channels.
 
-        The count equals the expanded template's channels, filtered by
-        TIER1_FILTER for tier 1.
+        The count equals the expanded template's channels, restricted to the
+        tier-1 database's addresses for tier 1, so a tier-1 address missing from
+        the template fails here.
         """
         expected = len(_tier1(all_channels) if tier == 1 else all_channels)
         path = TIERS_ROOT / f"tier{tier}" / f"{paradigm}.json"
@@ -355,5 +362,5 @@ class TestMaterializedTierDatabases:
         n = counter(path)
         assert n == expected, (
             f"tier{tier}/{paradigm}.json has {n} channels, "
-            f"expected {expected} from the expanded template and TIER1_FILTER."
+            f"expected {expected} from the expanded template."
         )

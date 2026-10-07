@@ -110,8 +110,6 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/services/bluesky_bridge/substrate_devices.py": "rename:12",
     "src/osprey/services/channel_finder/benchmarks/generator.py": "rename:12",
     "src/osprey/services/channel_finder/feedback/pending_store.py": "rename:12",
-    "src/osprey/services/channel_finder/naming.py": "rename:12",
-    "src/osprey/services/channel_finder/tools/generate_from_spec.py": "delete:7d2",
     "src/osprey/services/facility_knowledge/okf/document.py": "rename:12",
     "src/osprey/services/facility_knowledge/ttl_generator/emitter.py": "delete:7e",
     "src/osprey/services/facility_knowledge/ttl_generator/mml_source.py": "delete:7e",
