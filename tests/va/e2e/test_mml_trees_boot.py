@@ -29,9 +29,10 @@ What each lane asserts, and why it is not vacuous:
   well-formed echo.
 * **The harvest passed the stops its tree plants.** The imported limits hold
   each band as the export states it, so the build stops ``seed-invalid`` while
-  a setpoint starts outside its band; the harvest widens exactly the records
-  ``facility validate`` names, and the lane holds that set against the tree's
-  own.
+  a setpoint starts outside its band. A tree's import plants the stops its
+  seed module names, possibly none; the harvest widens exactly the records
+  ``facility validate`` names, and the lane holds the first build to exactly
+  that set.
 
 The trees. Naming a facility in ``CRITERION_TREES`` is the claim that its
 export reaches a served machine, so a tree named there that commits no 2.0
@@ -719,10 +720,12 @@ def _write_and_hold(served: ServedTree, device: Device) -> None:
 
 class TestTheServedTree:
     def test_the_harvest_passed_the_seed_stops_its_tree_plants(self, served: ServedTree) -> None:
-        """The first build stopped on one of the tree's own setpoints.
+        """The first build stopped on exactly the stops the tree plants, possibly none.
 
-        The build names the first stop and ``facility validate`` names them
-        all; the harvest widened the record of each, and that set is the tree's.
+        A tree's import plants the stops its seed module names. The build
+        names the first stop and ``facility validate`` names them all; the
+        harvest widened the record of each, and that set is the tree's. A tree
+        that plants none is held to a first build that stopped on none.
 
         The synthetic tree plants one: the corrector its export starts outside
         its own ``Range``. That stop is the only line the first build printed
@@ -734,9 +737,15 @@ class TestTheServedTree:
         expected = recipes.expected_seed_stops(tree.name)
         stops = recipes.seed_stops(tree.stopped)
 
-        assert expected, f"{tree.name} plants no stop to pass"
-        assert stops and set(stops) <= expected
-        assert set(tree.remedied) == expected
+        if not expected:
+            message = (
+                f"{tree.name}: the first build stopped on {sorted(stops)}, and the tree plants none"
+            )
+            assert not stops, message
+            assert not tree.remedied, message
+        else:
+            assert stops and set(stops) <= expected
+            assert set(tree.remedied) == expected
         if tree.name == "synthetic":
             (address,) = expected
             facility_lines = [
