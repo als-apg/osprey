@@ -115,6 +115,8 @@ redirects: dict[str, str] = {
     "how-to/ariel/osprey-integration": "../../reference/contracts/ariel.html",
     # Developer material
     "how-to/use-python-executor": "../architecture/python-executor.html",
+    # Reference: contracts
+    "reference/contracts/simulation-bundle": "../../how-to/run-scenarios.html",
 }
 
 templates_path = ["_templates"]
