@@ -29,7 +29,7 @@ import osprey.facility
 from osprey.cli.main import cli
 from osprey.facility.build import build_facility
 from osprey.facility.errors import KINDS
-from osprey.facility.views import VIEWS
+from osprey.facility.views import VIEWS, ViewInputs
 from tests._builds import init_project, run_build
 from tests.facility._synthetic_trees import (
     BPM,
@@ -2172,10 +2172,15 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
 #: persona renders are checked by the build.
 BUILD_ONLY: frozenset[str] = frozenset({"profile_invalid__persona_served_models"})
 
+#: The view inputs of a render whose config sets nothing.
+_NO_CONFIG = ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[])
+
 #: The lines a build may print before a stop in a persona render: the main render has
 #: written its views and noted, once each, the views it omits that no mode selects.
 MAIN_RENDER_NOTES = frozenset(
-    f"  view {view.name} not written: {view.reason}" for view in VIEWS if view.selected_by is None
+    f"  view {view.name} not written: {view.written_when(_NO_CONFIG)[1]}"
+    for view in VIEWS
+    if view.selected_by is None
 )
 
 IDS = list(CASES)

@@ -238,7 +238,9 @@ def test_the_graph_view_is_always_written() -> None:
     [view] = [view for view in VIEWS if view.name == "graph"]
 
     assert view.path == "graph"
-    assert view.written_when(ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[]))
+    assert view.written_when(
+        ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[])
+    ) == (True, "always written")
 
 
 @pytest.mark.slow

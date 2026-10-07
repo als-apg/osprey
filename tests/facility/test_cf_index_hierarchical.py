@@ -452,9 +452,9 @@ def test_the_view_is_registered_under_channel_finder() -> None:
     from osprey.facility.views import VIEWS
 
     (view,) = [view for view in VIEWS if view.name == "hierarchical"]
-    assert (view.path, view.reason, view.selected_by) == (
-        "channel_finder",
-        "channel_finder.pipeline_mode",
+    assert (view.path, view.selected_by) == ("channel_finder", "channel_finder.pipeline_mode")
+    assert view.written_when(_inputs({"channels": []}, {})) == (
+        False,
         "channel_finder.pipeline_mode",
     )
 

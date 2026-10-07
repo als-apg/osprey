@@ -176,8 +176,7 @@ def test_an_omitted_view_is_named_on_stderr_and_the_run_passes(
     stub = views.View(
         name="stub",
         path="stub",
-        written_when=lambda _inputs: False,
-        reason="stub.enabled",
+        written_when=lambda _inputs: (False, "stub.enabled"),
         write=lambda _root, _inputs: pytest.fail("an omitted view is never written"),
     )
     monkeypatch.setattr(views, "VIEWS", (*views.VIEWS, stub))
