@@ -501,9 +501,9 @@ jobs:
 
     - name: Run live Channel Access suites in isolation
       # One pytest process per module via the live-CA gate — the same venue
-      # rule the local certification uses. --pva asserts pcaspy/p4p/
-      # lume-pva-apg import before running, so the served-boot branch of the
-      # seam test actually executes. The gate fails unless every module exits
+      # rule the local certification uses. --pva asserts pcaspy, p4p and
+      # lume-pva-apg import before pytest runs, because the seam test skips
+      # whole at import when any is missing. The gate fails unless every module exits
       # 0 with zero skips and at least one pass, which closes the gap the
       # in-sweep venue guard cannot: a skipped live suite fails THIS step even
       # if a future marker or fixture skip slips past the import guard. One
@@ -5480,8 +5480,15 @@ jobs:
     #   - seven modules sharing one session-scoped container, whose boot is
     #     bounded by the directory conftest's `CONTAINER_BOOT_TIMEOUT_S` of
     #     120 s (tests/va/e2e/conftest.py), followed by channel reads;
-    #   - test_substrate_parity.py, one module-scoped boot of its own under
-    #     that same bound, then a minute of noise reads from it;
+    #   - test_va_put_surface.py, one module-scoped container of its own, and
+    #     test_planted_journal.py, two (one per instance), each boot under
+    #     that module's own `BOOT_TIMEOUT_S` of 180 s;
+    #   - test_substrate_parity.py, which reads the session container and
+    #     boots one module-scoped container of its own from an unstilled
+    #     render under the 120 s bound, then takes 200 runner passes at a
+    #     0.25 s tick over every served channel: about a minute on an
+    #     amd64-native runner and several times that on a host where the
+    #     image is emulated;
     #   - test_mml_trees_boot.py, which installs a facility export from
     #     scratch for each of its three trees — init, import, emit, set,
     #     validate, build — and boots a container of its own per tree under
@@ -5490,9 +5497,9 @@ jobs:
     # run here: the first pull request must not be reddened by a cap tuned to
     # a laptop. It is larger than va-substrate-equivalence-e2e and
     # archiver-world-e2e, and than the switch lane's 30, because that lane
-    # runs four modules against containers two of its own images serve, while
-    # this one runs nine and boots five. Tighten once there are observed green
-    # timings on a runner.
+    # runs five modules against containers two of its own images serve, while
+    # this one runs eleven and boots eight. Tighten once there are observed
+    # green timings on a runner.
     timeout-minutes: 60
 
     steps:
@@ -5547,7 +5554,7 @@ jobs:
         # instead of a green one over nothing.
         OSPREY_VA_E2E_ENABLE: "1"
       # One pytest process, no xdist: the directory conftest keeps ONE
-      # session-scoped container per process, and six of these modules are
+      # session-scoped container per process, and eight of these modules are
       # written against that single endpoint.
       #
       # Named by path rather than by marker: these modules are the whole
@@ -5558,9 +5565,11 @@ jobs:
       # asserted by its final test), so a file that survives a refactor while
       # losing tests to it reds the step rather than passing on what is left.
       #
-      # Ordered cheapest first — the seven that share the session container, then
-      # the parity module with its own boot, then the harvested-tree module
-      # which installs a facility export from scratch before each of its own
+      # Ordered cheapest first — the seven that only share the session
+      # container, then the put-surface module's one boot and the journal
+      # module's two, then the parity module, which reads the session container
+      # and boots one of its own, then the harvested-tree module, which
+      # installs a facility export from scratch before each of its three
       # boots — so a failure in the cheap set is reported before the expensive
       # work starts.
       run: |
