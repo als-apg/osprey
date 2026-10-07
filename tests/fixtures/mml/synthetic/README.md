@@ -26,8 +26,7 @@ rigidity probe, the energy table, the model read and the joining of refusals —
 and the conversions a real export calls out to the facility for are small Python
 functions at the top of the file. The ring is pyAT's, saved with
 `at.save_mat(use='THERING')` — the variable name `mml_export.m` saves and the
-importer loads; `osprey.simulation.lattice.artifact` makes the same call for the
-demo ring under `use='RING'`.
+importer loads.
 
 `--check` passes with pyAT (`accelerator-toolbox`) 0.8.0 and NumPy 2.4.2, with
 SciPy 1.18.0 on Python 3.12 and 3.13 and SciPy 1.17.1 on Python 3.11, on macOS
