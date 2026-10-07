@@ -86,6 +86,11 @@ PLANTED: dict[str, float] = {
 JOURNAL = ("mock", "writes.json")
 
 
+#: Floor for this module's own test count -- a guard against a refactor that
+#: leaves the file importable but empty, which would otherwise pass silently.
+MIN_COLLECTED_TESTS = 3
+
+
 # ---------------------------------------------------------------------------
 # The served tree, its wiring defaults and the planted journal
 # ---------------------------------------------------------------------------
@@ -344,3 +349,17 @@ async def test_the_mock_connector_replays_the_planted_journal(
             await connector.disconnect()
 
     assert replayed == pytest.approx(PLANTED)
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_planted_journal.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS
