@@ -388,6 +388,19 @@ class _LaunchChannel:
         )
 
 
+@dataclass(frozen=True)
+class _Derived:
+    """A destination's derivation and the posture it was taken under.
+
+    That posture is what the child will select its gateway on, and what its
+    post-connect report is held to.
+    """
+
+    derivation: TargetDerivation
+    readonly_run: bool
+    writes_enabled: bool
+
+
 @dataclass
 class _Child:
     """One live connector-host child and everything the parent holds about it."""
@@ -1379,7 +1392,8 @@ class ConnectorHostManager:
         force: bool,
         generation: int | None,
     ) -> dict[str, Any]:
-        derivation = self._derive(target)
+        derived = self._derive(target)
+        derivation = derived.derivation
         if not force:
             settled = self._already_served(target, derivation)
             if settled is not None:
@@ -1391,7 +1405,7 @@ class ConnectorHostManager:
 
         fallback: dict[str, Any] | None = None
         try:
-            candidate = await self._launch(target, derivation, probe_channel, first_child=not probe)
+            candidate = await self._launch(target, derived, probe_channel, first_child=not probe)
         except SwitchError as exc:
             read_derivation = self._read_role_fallback(derivation, exc)
             dead = derivation.selected_endpoint()
@@ -1410,9 +1424,11 @@ class ConnectorHostManager:
             )
             derivation = read_derivation
             try:
+                # The child is still armed as derived; only the gateway it may
+                # select moved, so the posture it is held to is the same one.
                 candidate = await self._launch(
                     target,
-                    derivation,
+                    replace(derived, derivation=derivation),
                     probe_channel,
                     without_write_gateway=True,
                     first_child=not probe,
@@ -1603,7 +1619,7 @@ class ConnectorHostManager:
         self.publish_display()
         return published
 
-    def _derive(self, target: str) -> TargetDerivation:
+    def _derive(self, target: str) -> _Derived:
         """The destination's derivation, or a refusal naming what is missing.
 
         The write posture handed in is the RECORDED one, not the config's: the
@@ -1613,15 +1629,23 @@ class ConnectorHostManager:
         would expect ``write_access`` from a child the operator has narrowed to
         ``read_only`` — and ``verify_child_report``, comparing the two, would
         abort the switch over a disagreement neither side got wrong.
+
+        The posture is read once and returned with the derivation, so the
+        derivation and the post-connect check of the child's reported posture
+        judge one snapshot of it.
         """
+        readonly_run = is_readonly_run()
+        writes = effective_writes_for_target(self._config.control_system, target)
         try:
-            return derive_endpoints(
+            derivation = derive_endpoints(
                 self._config.raw,
                 target,
-                writes_enabled=effective_writes_for_target(self._config.control_system, target),
+                writes_enabled=writes,
+                readonly_run=readonly_run,
             )
         except ValueError as exc:
             raise SwitchError(target, STAGE_TARGET, REASON_TARGET_UNRESOLVABLE, str(exc)) from exc
+        return _Derived(derivation=derivation, readonly_run=readonly_run, writes_enabled=writes)
 
     def _read_role_fallback(
         self, derivation: TargetDerivation, error: SwitchError
@@ -1696,7 +1720,7 @@ class ConnectorHostManager:
     async def _launch(
         self,
         target: str,
-        derivation: TargetDerivation,
+        derived: _Derived,
         probe_channel: str,
         *,
         without_write_gateway: bool = False,
@@ -1713,6 +1737,7 @@ class ConnectorHostManager:
         ``first_child`` is true only for the deployment's very first child,
         which has no session to protect.
         """
+        derivation = derived.derivation
         process = await self._spawn(target)
         channel = _LaunchChannel(target, process)
         try:
@@ -1734,7 +1759,12 @@ class ConnectorHostManager:
                     f"The connector-host child for target {target!r} answered its init frame "
                     f"with {type(report).__name__}, not the post-connect report.",
                 )
-            verification = verify_host_report(derivation, report)
+            verification = verify_host_report(
+                derivation,
+                report,
+                readonly_run=derived.readonly_run,
+                writes_enabled=derived.writes_enabled,
+            )
             if not verification.ok:
                 raise SwitchError(
                     target,
