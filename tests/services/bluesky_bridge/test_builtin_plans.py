@@ -38,6 +38,7 @@ pytest.importorskip("bluesky")
 pytest.importorskip("ophyd_async")
 
 from bluesky import RunEngine
+from bluesky.protocols import Location
 from bluesky.utils import FailedStatus, RequestAbort
 from ophyd_async.core import AsyncStatus
 from pydantic import ValidationError
@@ -312,6 +313,18 @@ def test_orm_declares_no_dimensionality_hint() -> None:
 
     assert "num_intervals" not in metadata
     assert "hints" not in metadata
+
+
+def test_mock_settable_locates_its_demand_and_its_readback() -> None:
+    """The dry run and the plan tests drive plans on `MockSettable`, so it
+    answers `bps.locate` the way a connector-mediated device does."""
+    from bluesky.protocols import Locatable
+
+    device = asyncio.run(connect_all({"hcm1": MockSettable("hcm1", initial_value=2.5)}))["hcm1"]
+    device._set_readback(2.4)
+
+    assert isinstance(device, Locatable)
+    assert asyncio.run(device.locate()) == {"setpoint": 2.5, "readback": 2.4}
 
 
 def _corrector_sweep_setpoints(params: ORMParams, working_point: float = 0.0) -> list[float]:
@@ -1152,14 +1165,13 @@ class _NegativeZeroSettable(MockSettable):
 
     Signed zero is the one float where `value + 0.0` is not `value`, which is
     what makes "commanded verbatim" distinguishable from "commanded through the
-    arithmetic" at all. It has to be reported from `read()` — the call the
-    plan's working-point read makes — because `MockSettable`'s soft signal normalizes `-0.0`
-    to `+0.0` on the way in.
+    arithmetic" at all. It has to be reported from `locate()` — the call the
+    plan's working-point read makes — because `MockSettable`'s soft signal
+    normalizes `-0.0` to `+0.0` on the way in.
     """
 
-    async def read(self) -> dict[str, Any]:
-        reading = await super().read()
-        return {key: {**entry, "value": -0.0} for key, entry in reading.items()}
+    async def locate(self) -> Location[float]:
+        return Location(setpoint=-0.0, readback=-0.0)
 
 
 class _ArmableBpm(MockSettable):
@@ -1257,22 +1269,28 @@ def test_bump_plan_restores_every_corrector_when_the_run_is_aborted() -> None:
     RunEngine in the first place — restore-on-abort is a claim about the abort
     path plans are actually aborted through, and this is it.
 
-    Hand-driven, so the reads are answered here rather than by a RunEngine:
-    the run is aborted at the baseline's first `create`, which is the first
+    Hand-driven, so the reads and locates are answered here rather than by a
+    RunEngine: the run is aborted at the baseline's first `create`, which is the first
     message inside the `try` — the earliest point at which the plan owes a
     restore at all.
     """
     devices = _bump_devices()
     plan = bump_plan(devices, _bump_run_params())
 
-    def _reading(device: Any) -> dict[str, Any]:
-        value = _BUMP_WORKING_POINTS.get(device.name, _BUMP_BPM_VALUE)
-        return {field: {"value": value, "timestamp": 0.0} for field in device.hints["fields"]}
+    def _reply(msg: Any) -> Any:
+        value = _BUMP_WORKING_POINTS.get(msg.obj.name, _BUMP_BPM_VALUE) if msg.obj else None
+        if msg.command == "locate":
+            return {"setpoint": value, "readback": value}
+        if msg.command == "read":
+            return {
+                field: {"value": value, "timestamp": 0.0} for field in msg.obj.hints["fields"]
+            }
+        return None
 
     reply: Any = None
     while True:
         msg = plan.send(reply)
-        reply = _reading(msg.obj) if msg.command == "read" else None
+        reply = _reply(msg)
         if msg.command == "create":
             break
 
