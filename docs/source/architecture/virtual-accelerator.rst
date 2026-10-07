@@ -177,7 +177,9 @@ addresses from the composite and model variables from their model. ``diff``
 puts the value the control system serves beside the composite's own for every
 channel of ``addresses.json``, the composite's read without motion or readout.
 ``status`` reports on the server itself: ``instance``, ``endpoint``,
-``last_cycle_ms``, ``queue_depth``, ``uptime_s`` and ``last_refused_write``.
+``last_cycle_ms``, ``queue_depth``, ``uptime_s``, ``last_refused_write`` and
+``last_failed_pass``, which is ``null`` or the ``error`` and ``uptime_s`` of
+the latest publishing pass that failed.
 ``set`` writes model variables only: a served address, a value that is not
 finite and a name the composite refuses are each refused. ``reset`` writes
 every drifted writable model variable back to the value it held when its model

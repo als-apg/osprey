@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -154,7 +154,11 @@ def _view(path: Path, settings: Mapping[str, Any] | None = None) -> tuple[Path, 
 
 
 def _surface(
-    tmp_path: Path, *, token: str | None = TOKEN, settings: Mapping[str, Any] | None = None
+    tmp_path: Path,
+    *,
+    token: str | None = TOKEN,
+    settings: Mapping[str, Any] | None = None,
+    clock: Iterable[float] = (10.0, 12.5),
 ) -> tuple[ModelSurface, Composite]:
     view, addresses = _view(tmp_path, settings)
     composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: T0)
@@ -164,7 +168,7 @@ def _surface(
         instance="va-1",
         endpoint="va-1:5075",
         model_write_token=token,
-        clock=iter([10.0, 12.5]).__next__,
+        clock=iter(clock).__next__,
     )
     return surface, composite
 
@@ -214,7 +218,18 @@ def test_status_carries_the_view_keyset(tmp_path: Path) -> None:
         "queue_depth": 2,
         "uptime_s": 2.5,
         "last_refused_write": None,
+        "last_failed_pass": None,
     }
+
+
+def test_a_recorded_pass_failure_is_reported_with_its_uptime(tmp_path: Path) -> None:
+    surface, _ = _surface(tmp_path, clock=(10.0, 11.5, 14.0))
+    surface.record_pass_failure("the deck has no stable orbit")
+
+    status = surface.status()
+
+    assert status["last_failed_pass"] == {"error": "the deck has no stable orbit", "uptime_s": 1.5}
+    assert status["uptime_s"] == 4.0
 
 
 def test_get_reads_a_served_address_and_a_model_variable(tmp_path: Path) -> None:

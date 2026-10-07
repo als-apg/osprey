@@ -785,6 +785,7 @@ STATUS_KEYS = {
     "queue_depth",
     "uptime_s",
     "last_refused_write",
+    "last_failed_pass",
 }
 ENTRY_KEYS = {"name", "unit", "value_range", "read_only", "surface"}
 # Well below the offset written and the orbit measured, and well above float
@@ -821,6 +822,8 @@ print(f"                queue_depth={status.get('queue_depth')!r}")
 print(f"  served      : {', '.join(served_models)} (served_models.json)")
 if set(status) != STATUS_KEYS:
     raise SystemExit(f"FATAL: status carries {sorted(status)}, not {sorted(STATUS_KEYS)}")
+if status["last_failed_pass"] is not None:
+    raise SystemExit(f"FATAL: a publishing pass failed: {status['last_failed_pass']}")
 if status["instance"] != instance:
     raise SystemExit(
         f"FATAL: status reports instance={status['instance']!r}, but this gate booted the "
