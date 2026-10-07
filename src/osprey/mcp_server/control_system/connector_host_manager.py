@@ -128,6 +128,7 @@ from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.ipc import frames
 from osprey_connectors.ipc.launch import CHILD_MODULE, AttributedReader, host_env, spawn_host
 from osprey_connectors.ipc.launch import terminate_host as _terminate_host
+from osprey_connectors.ipc.pool import DEFAULT_CALL_DEADLINE_S
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.ipc.verification import (
     ROLE_READ_ONLY,
@@ -1827,7 +1828,11 @@ class ConnectorHostManager:
             connector_type=derivation.connector_type,
             probe_channel=probe_channel,
             process=process,
-            proxy=ConnectorHostProxy(reader, process.stdin),
+            # A call that names no timeout of its own still ends: a child silent
+            # past this deadline raises ChildUnresponsiveError, which the
+            # error handler answers by pinging the child and replacing it if it
+            # is wedged.
+            proxy=ConnectorHostProxy(reader, process.stdin, deadline_s=DEFAULT_CALL_DEADLINE_S),
             reader=reader,
             report=report,
         )

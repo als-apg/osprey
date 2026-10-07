@@ -416,3 +416,86 @@ async def test_the_seams_default_behaviour_is_still_a_context_invalidation(monke
     await error_handling.invalidate_active_connector("control_system")
 
     assert invalidated == ["control_system"]
+
+
+# ------------------------------------------- a child that misses its deadline
+
+
+#: The pool tests' misbehaving mock, by dotted path: ``SLOW:`` reads hang in a
+#: child that still answers, ``WEDGE:`` reads block the child outright.
+SLOW_TYPE = "tests.connectors.ipc._pool_connectors.SlowMockConnector"
+
+#: The deadline the manager's children are given here, lowered from the
+#: reference value so a call that names no timeout misses it within the test.
+TEST_DEADLINE_S = 1.0
+
+
+@pytest.fixture
+async def served_from_a_child(tmp_path, monkeypatch, make_manager):
+    """A server context serving ``live`` from a real connector-host child.
+
+    The deadline is lowered through the name the manager module imported, so
+    the proxy the manager builds is the one under test.
+    """
+    from osprey.mcp_server.control_system import connector_host_manager
+    from osprey.mcp_server.control_system import server_context as server_context_module
+
+    monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
+    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.setattr(connector_host_manager, "DEFAULT_CALL_DEADLINE_S", TEST_DEADLINE_S)
+    view = served_tree(tmp_path / "served", (), ("SLOW:X", "WEDGE:X", "SR:A"))
+    raw = {
+        "control_system": {
+            "type": SLOW_TYPE,
+            "writes_enabled": False,
+            "connector": {
+                SLOW_TYPE: mock_config(view, response_delay_ms=0),
+                "virtual_accelerator": mock_config(view, response_delay_ms=0),
+            },
+        }
+    }
+    manager = make_manager(raw=raw)
+    await manager.ensure_started()
+    context = server_context_module.ControlSystemContext()
+    context._config = manager._config
+    context._connector_hosts = manager
+    monkeypatch.setattr(server_context_module, "_registry", context)
+    return manager
+
+
+async def _timed_out_read(manager, channel: str) -> dict:
+    """The envelope a read naming no timeout renders once it misses the deadline."""
+    proxy = manager.active_proxy()
+    with assert_raises_error(error_type="timeout_error") as captured:
+        async with connector_error_handler("channel_read", "control_system"):
+            await proxy.read_channel(channel)
+    return captured["envelope"]
+
+
+async def test_a_slow_child_that_still_answers_a_ping_is_kept(served_from_a_child):
+    manager = served_from_a_child
+    pid = manager.status()["child_pid"]
+
+    envelope = await _timed_out_read(manager, "SLOW:X")
+
+    assert "still answers a ping, so it was kept" in envelope["error_message"]
+    assert manager.status()["child_pid"] == pid
+    value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
+    assert value is not None
+
+
+async def test_a_wedged_child_that_answers_no_ping_is_replaced_on_the_same_target(
+    served_from_a_child,
+):
+    manager = served_from_a_child
+    pid = manager.status()["child_pid"]
+    generation = manager.active_generation()
+
+    envelope = await _timed_out_read(manager, "WEDGE:X")
+
+    assert "did not answer a ping and was replaced" in envelope["error_message"]
+    assert manager.status()["child_pid"] != pid
+    assert manager.active_generation() == generation
+    assert manager.active_target() == "live"
+    value = await manager.active_proxy().read_channel("SR:A", timeout=TIMEOUT_S)
+    assert value is not None
