@@ -104,6 +104,7 @@ from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey.utils.dotenv import parse_dotenv_file
 from osprey_connectors.control_context import RECORD_FILENAME
 from osprey_connectors.posture_store import STATE_DIR_NAME
+from tests.e2e._motion_bands import served_settle_bands
 from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -740,21 +741,27 @@ READ_CELL = f"from osprey.runtime import read_channel\nprint(repr(read_channel({
 WRITE_CELL = f"from osprey.runtime import write_channel\nwrite_channel({CHANNEL!r}, 1.0)\n"
 #: A client library's own put, straight past the runtime.
 RAW_CAPUT_CELL = f"import epics\nepics.caput({WRITE_TARGET!r}, 2.0)\n"
-#: How long a readback gets to follow its setpoint.
+#: How long a readback gets to follow its setpoint. The readback follows to
+#: within the motion its seed declares, never to the setpoint exactly.
 READBACK_SETTLE_SEC = 20.0
-#: A cell that prints the setpoint and, once it has followed or the wait runs
-#: out, its readback, as JSON.
-SETPOINT_CELL = (
-    "import json, time\n"
-    "from osprey.runtime import read_channel\n"
-    f"sp = read_channel({WRITE_TARGET!r})\n"
-    f"deadline = time.monotonic() + {READBACK_SETTLE_SEC}\n"
-    f"rb = read_channel({WRITE_READBACK!r})\n"
-    "while abs(rb - sp) > 1e-6 and time.monotonic() < deadline:\n"
-    "    time.sleep(0.5)\n"
-    f"    rb = read_channel({WRITE_READBACK!r})\n"
-    "print(json.dumps({'sp': sp, 'rb': rb}))\n"
-)
+
+
+def _setpoint_cell(band: float) -> str:
+    """A cell that prints the setpoint and, once its readback is within ``band``
+    of it or the wait runs out, the readback, as JSON."""
+    return (
+        "import json, time\n"
+        "from osprey.runtime import read_channel\n"
+        f"sp = read_channel({WRITE_TARGET!r})\n"
+        f"deadline = time.monotonic() + {READBACK_SETTLE_SEC}\n"
+        f"rb = read_channel({WRITE_READBACK!r})\n"
+        f"while abs(rb - sp) > {band!r} and time.monotonic() < deadline:\n"
+        "    time.sleep(0.5)\n"
+        f"    rb = read_channel({WRITE_READBACK!r})\n"
+        "print(json.dumps({'sp': sp, 'rb': rb}))\n"
+    )
+
+
 #: The real-libca door proof. A monitor callback runs on a thread libca
 #: started, which never carries the connector's write door; it tries a client
 #: put of its own and records whether the runtime write was in flight at that
@@ -920,8 +927,17 @@ def test_attaching_a_terminal_finds_the_deployments_target(terminal: Terminal) -
 # ---------------------------------------------------------------------------
 
 
-def _setpoint(socket: Any, session_id: str) -> dict[str, float]:
-    return json.loads(_run_ok(socket, SETPOINT_CELL, session_id))
+def _setpoint(socket: Any, session_id: str, band: float) -> dict[str, float]:
+    return json.loads(_run_ok(socket, _setpoint_cell(band), session_id))
+
+
+def _assert_held(reading: dict[str, float], value: float, band: float) -> None:
+    """The setpoint holds ``value`` exactly; its readback is within ``band`` of it."""
+    assert reading["sp"] == pytest.approx(value), reading
+    assert abs(reading["rb"] - value) <= band, (
+        f"{WRITE_READBACK} read {reading['rb']}, not within {band:g} (its seed's noise "
+        f"and drift) of {value}"
+    )
 
 
 def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Terminal) -> None:
@@ -943,6 +959,7 @@ def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Termi
     # The baseline target is the only one whose limits make the setpoint writable.
     assert terminal.first_target == "va", terminal.first_target
     _wait_for_switch_to_settle(terminal, "va")
+    band = served_settle_bands(terminal.repo, [WRITE_READBACK])[WRITE_READBACK]
 
     session = terminal.start_notebook_session(STARTER_NOTEBOOK)
     kernel_id = session["kernel"]["id"]
@@ -958,14 +975,14 @@ def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Termi
                 f"from osprey.runtime import write_channel\nwrite_channel({WRITE_TARGET!r}, 1.0)\n",
                 channel_session,
             )
-            assert _setpoint(socket, channel_session) == pytest.approx({"sp": 1.0, "rb": 1.0})
+            _assert_held(_setpoint(socket, channel_session, band), 1.0, band)
 
             records_before = len(terminal.ledger())
             refused = _run_cell(socket, RAW_CAPUT_CELL, channel_session)
             assert refused.error_name == "ChannelWriteBlockedError", refused
             assert RAW_CLIENT_WRITE_TEXT in refused.error_value, refused.error_value
             assert HINT_RAW_CLIENT_WRITE in refused.stdout, refused.stdout
-            assert _setpoint(socket, channel_session) == pytest.approx({"sp": 1.0, "rb": 1.0})
+            _assert_held(_setpoint(socket, channel_session, band), 1.0, band)
 
             new_records = terminal.ledger()[records_before:]
             raw = [r for r in new_records if r.get("reason") == "raw_client_write"]
@@ -982,7 +999,7 @@ def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Termi
             during = [call for call in seen if call["in_flight"]]
             assert any(call["refused"] == "RAW_CLIENT_WRITE" for call in during), seen
             assert all(call["refused"] is not None for call in seen), seen
-            assert _setpoint(socket, channel_session) == pytest.approx({"sp": 3.0, "rb": 3.0})
+            _assert_held(_setpoint(socket, channel_session, band), 3.0, band)
     finally:
         terminal.delete(f"{PANEL}/api/sessions/{session['id']}")
 
