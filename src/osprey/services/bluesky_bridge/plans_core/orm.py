@@ -56,6 +56,7 @@ from osprey.services.bluesky_bridge.orm_analysis import (
 from osprey.services.bluesky_bridge.plan_fields import (
     MovableChannels,
     ReadableChannels,
+    Regressor,
     scan_metadata,
 )
 
@@ -84,6 +85,11 @@ class PARAMS(BaseModel):
     (one-sided, for a corrector that should never be driven below where it
     already sits).
 
+    ``regressor`` chooses what the fitted slopes are per unit of:
+    ``setpoint`` (the default) regresses each BPM on the corrector's
+    commanded current, the convention of MML and pySC; ``readback`` regresses
+    on the corrector's measured current instead.
+
     ``span_a`` carries no upper bound of its own. It is an excursion, not an
     absolute setpoint, and how large an excursion a corrector tolerates is a
     property of the deployment, not of this schema — the connector's
@@ -93,8 +99,8 @@ class PARAMS(BaseModel):
     facility's number.
 
     The ``x-widget`` schema hints steer the plan panel's parameter GUI —
-    device lists render as scrollable channel columns, ``sweep`` as a two-way
-    segmented control — without changing what this model validates.
+    device lists render as scrollable channel columns, ``sweep`` and
+    ``regressor`` as two-way segmented controls — without changing what this model validates.
     """
 
     correctors: MovableChannels = Field(
@@ -132,6 +138,15 @@ class PARAMS(BaseModel):
         title="Sweep direction",
         description=(
             "bidirectional sweeps [-span_a, +span_a]; monodirectional sweeps [0, +span_a]."
+        ),
+        json_schema_extra={"x-widget": "segmented"},
+    )
+    regressor: Regressor = Field(
+        default="setpoint",
+        title="Regress on",
+        description=(
+            "setpoint: slopes per unit of commanded current (the MML/pySC convention); "
+            "readback: per unit of measured current."
         ),
         json_schema_extra={"x-widget": "segmented"},
     )
