@@ -113,6 +113,7 @@ from typing import Any
 
 from osprey.audit.posture import posture_session
 from osprey_connectors import posture_store
+from osprey_connectors.config import unresolved_placeholders
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_for_target
 from osprey_connectors.ipc.verification import (
@@ -425,7 +426,9 @@ def evaluate_eligibility(
     answer names the nearest thing to fix rather than the whole list:
 
     1. the target resolves to a connector type at all;
-    2. ``control_system.connector.<type>`` exists;
+    2. ``control_system.connector.<type>`` exists, and carries no env-var
+       placeholder its resolution left unsubstituted
+       (:data:`REASON_TARGET_UNRESOLVABLE`);
     3. its ``gateways`` table is non-empty and carries the role this deployment
        would select *for this target* (a target armed for writes with only a read
        gateway selects ``read_only`` and is eligible; a target with only a write
@@ -514,6 +517,19 @@ def evaluate_eligibility(
             f"Target {target!r} resolves to connector type {connector_type!r}, but "
             f"this config has no '{block_key}' block. Configure that block (its "
             "gateways and probe_channel) to make the target switchable.",
+        )
+
+    # Never waived on a return: a placeholder is not an endpoint anything can
+    # dial, and left verbatim it would compare equal to itself in the
+    # post-connect check.
+    unresolved = unresolved_placeholders(raw_block)
+    if unresolved:
+        return Eligibility(
+            False,
+            REASON_TARGET_UNRESOLVABLE,
+            f"Refusing target {target!r}: '{block_key}' still carries "
+            f"{', '.join(sorted(set(unresolved)))} after environment resolution. "
+            "Set the variable before switching to this target.",
         )
 
     # Returning to a deployment's own baseline is exempt — a session stranded on

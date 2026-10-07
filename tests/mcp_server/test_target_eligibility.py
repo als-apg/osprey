@@ -571,6 +571,34 @@ def test_a_va_block_on_the_live_host_at_another_port_is_eligible() -> None:
     assert _eligibility(config, VA).eligible is True
 
 
+def _with_unresolved_va_port() -> dict[str, Any]:
+    gateway = {"address": "localhost", "port": "${EPICS_TESTING_PORT}", "use_name_server": True}
+    va = _va_block(gateways={"read_only": gateway, "write_access": dict(gateway)})
+    return _config(control_system_type=VA_TYPE, connector={EPICS_TYPE: _epics_block(), VA_TYPE: va})
+
+
+@pytest.mark.parametrize("direction", [te.DIRECTION_AWAY, te.DIRECTION_BACK])
+def test_a_placeholder_left_in_a_targets_block_is_refused_in_either_direction(direction) -> None:
+    """A placeholder is never a dialable endpoint, so coming home waives nothing.
+
+    Left verbatim, the port would compare equal to itself in the post-connect
+    check and pass it.
+    """
+    verdict = _eligibility(_with_unresolved_va_port(), VA, direction=direction)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_TARGET_UNRESOLVABLE
+    assert "'control_system.connector.virtual_accelerator' still carries" in verdict.detail
+    assert "${EPICS_TESTING_PORT}" in verdict.detail
+
+
+def test_a_fully_resolved_block_is_not_refused_as_unresolved() -> None:
+    config = _config(control_system_type=VA_TYPE)
+
+    assert _eligibility(config, VA).eligible is True
+    assert _eligibility(config, VA, direction=te.DIRECTION_BACK).eligible is True
+
+
 # ---------------------------------------------------------------------------
 # The stand-in as a third target
 # ---------------------------------------------------------------------------
