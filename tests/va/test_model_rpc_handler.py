@@ -13,6 +13,7 @@ import json
 import sys
 import threading
 import time
+import types
 from collections.abc import Callable
 from typing import Any
 
@@ -248,6 +249,57 @@ def test_a_late_job_after_the_timeout_answers_nothing() -> None:
 
     assert len(op.calls) == 1
     assert _document(op.calls[0]["value"]) == {"ok": False, "error": ERR_TIMEOUT}
+
+
+class HandTimer:
+    """A timer that fires only when the test fires it, unless cancelled first."""
+
+    made: list[HandTimer] = []
+
+    def __init__(self, interval: float, function: Callable[..., Any], args: Any = ()) -> None:
+        self.interval = interval
+        self.function = function
+        self.args = args
+        self.daemon = False
+        self.cancelled = False
+        HandTimer.made.append(self)
+
+    def start(self) -> None:
+        pass
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+    def fire(self) -> None:
+        if not self.cancelled:
+            self.function(*self.args)
+
+
+@pytest.mark.parametrize("verb", ["info", "set"])
+def test_a_reply_that_cannot_be_delivered_leaves_the_timer_to_answer(
+    verb: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reply goes out before the timer is cancelled, and a reply whose
+    delivery raised leaves the call unanswered: the timer still answers,
+    late, with the reason."""
+    HandTimer.made.clear()
+    monkeypatch.setattr(
+        model_rpc_handler,
+        "threading",
+        types.SimpleNamespace(Timer=HandTimer, Lock=threading.Lock),
+    )
+    op = FakeOp(request=_request(verb), fail_first_done=True)
+    loop = Loop()
+    _door(FakeSurface(), loop)(None, op)
+
+    loop.run()
+    assert len(op.calls) == 1
+    assert _document(op.calls[0]["value"])["ok"] is True
+
+    (timer,) = HandTimer.made
+    timer.fire()
+    assert len(op.calls) == 2
+    assert _document(op.calls[1]["value"]) == {"ok": False, "error": ERR_TIMEOUT}
 
 
 def test_a_malformed_request_is_refused_without_the_run_loop() -> None:

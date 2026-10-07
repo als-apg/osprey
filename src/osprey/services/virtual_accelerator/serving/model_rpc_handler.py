@@ -81,8 +81,9 @@ class RpcCall:
     Two threads race to answer: the run loop, once the job it was handed has
     dispatched the verb, and the timer that stops waiting for the run loop.
     p4p completes an operation once -- a second completion is an error its
-    client never sees -- so the first reply here wins and the other is
-    dropped.
+    client never sees -- so the first reply delivered here wins and the other
+    is dropped. A reply whose delivery raises leaves the call unanswered, so
+    the other one still gets through.
     """
 
     def __init__(self, op: ServerOperation) -> None:
@@ -91,12 +92,16 @@ class RpcCall:
         self._answered = False
 
     def complete(self, reply: Value) -> bool:
-        """Answer with ``reply``; ``False`` if the call was already answered."""
+        """Answer with ``reply``; ``False`` if the call was already answered.
+
+        Raises whatever delivering ``reply`` raised, with the call still
+        unanswered.
+        """
         with self._lock:
             if self._answered:
                 return False
+            self._op.done(reply)
             self._answered = True
-        self._op.done(reply)
         return True
 
 
