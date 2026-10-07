@@ -25,8 +25,9 @@ Three views are served:
   write safety, the chromaticity left for the next tick, the model RPC's
   fault writes, and a child that fails to solve;
 * a hand-written view of stub children -- the alarm each kind of output
-  carries, an integer channel's wire type, and the run loop under a slow
-  model and a pass that raises.
+  carries, an integer channel's wire type, a float waveform served as the
+  array it declares, and the run loop under a slow model and a pass that
+  raises.
 
 **The venue is linux/x86_64.** ``lume-pva-apg`` installs only there, so the
 module skips whole anywhere else and carries no test that skips on the venue.
@@ -193,11 +194,13 @@ STUB_SETPOINT = "ZZSEAM:M:SP"
 STUB_FLAG = "ZZSEAM:F:FLAG"  # bool output of a child that fails to build
 STUB_MODE = "ZZSEAM:F:MODE"  # enum output of the same child
 STUB_COUNT = "ZZSEAM:T:COUNT"  # an int channel of the texture
+STUB_WAVE = "ZZSEAM:T:WAVE"  # a float waveform readback of the texture
 STUB_DELAY = "M/delay"  # the stub's own variable: seconds each read takes
 STUB_PRECISION = 3
 STUB_READING = 4.0
 STUB_SETPOINT_START = 1.0
 STUB_COUNT_NOMINAL = 7
+STUB_WAVE_NOMINAL = [0.13, 0.22, 0.0086]
 #: The periodic pass of the stub view's runner.
 STUB_TICK_S = 0.05
 #: How long each read of the slow stub takes.
@@ -281,6 +284,7 @@ def _write_stub_view(root: Path) -> Path:
         _stub_channel(STUB_FLAG, "F", value_type="bool"),
         _stub_channel(STUB_MODE, "F", value_type="enum", options=["IDLE", "RUN", "FAULT"]),
         _stub_channel(STUB_COUNT, "texture", value_type="int"),
+        _stub_channel(STUB_WAVE, "texture", value_type="waveform", shape=[3]),
     ]
     stub_models: dict[str, dict[str, Any]] = {
         "M": {
@@ -328,7 +332,12 @@ def _write_stub_view(root: Path) -> Path:
             "models": models,
             "channels": sorted(channels, key=lambda channel: channel["address"]),
         },
-        "seeds.json": {"seeds": {STUB_COUNT: {"nominal": STUB_COUNT_NOMINAL}}},
+        "seeds.json": {
+            "seeds": {
+                STUB_COUNT: {"nominal": STUB_COUNT_NOMINAL},
+                STUB_WAVE: {"nominal": STUB_WAVE_NOMINAL},
+            }
+        },
         "scenarios.json": {"scenarios": [{"name": "nominal"}]},
     }
     view = root / "data" / "simulator"
@@ -1015,6 +1024,18 @@ class TestStubComposite:
         assert stub_server.channels[STUB_COUNT]["value_type"] == "int"
         assert (pva.type()["value"], pva["value"]) == ("i", STUB_COUNT_NOMINAL)
         assert (pv.ftype, _ca(STUB_COUNT)["value"]) == (epics.dbr.TIME_LONG, STUB_COUNT_NOMINAL)
+
+    def test_a_float_waveform_is_served_on_both_wires_and_a_put_still_lands(
+        self, stub_server: _Server
+    ) -> None:
+        ca = _ca(STUB_WAVE)["value"]
+        pva = stub_server.pva_get(STUB_WAVE)["value"]
+        target = _ca(STUB_SETPOINT)["value"] + 0.5
+
+        assert list(ca) == pytest.approx(STUB_WAVE_NOMINAL)
+        assert list(pva) == pytest.approx(STUB_WAVE_NOMINAL)
+        assert _caput(STUB_SETPOINT, target) == 1
+        assert _ca(STUB_SETPOINT)["value"] == pytest.approx(target)
 
     def test_ticks_coalesce_under_a_slow_stub_and_a_put_lands_within_two_passes(
         self, stub_server: _Server

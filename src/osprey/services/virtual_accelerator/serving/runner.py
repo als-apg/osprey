@@ -44,6 +44,7 @@ from osprey.services.virtual_accelerator.serving.model_rpc import (
 from osprey.services.virtual_accelerator.serving.model_surface import ModelSurface
 from osprey.services.virtual_accelerator.serving.runner_config import (
     apply_safety,
+    as_declared,
     chromaticity_addresses,
 )
 
@@ -170,10 +171,13 @@ class ModelRunner(Runner):
     (:func:`~osprey.services.virtual_accelerator.serving.runner_config.apply_safety`).
     A write pass reads back every served channel except those wired to the
     chromaticity output, which the next periodic pass publishes; a pass with
-    no input values reads them all. A failed pass rolls the composite back to
-    the state cached before it only when ``model.set`` had already succeeded:
-    a refused ``set`` leaves the composite as it was. The model RPC's write
-    verbs reply only after a publishing pass has run.
+    no input values reads them all. Each waveform is published as the array
+    its variable declares
+    (:func:`~osprey.services.virtual_accelerator.serving.runner_config.as_declared`).
+    A failed pass rolls the composite back to the state cached before it only
+    when ``model.set`` had already succeeded: a refused ``set`` leaves the
+    composite as it was. The model RPC's write verbs reply only after a
+    publishing pass has run.
     """
 
     def __init__(
@@ -223,6 +227,10 @@ class ModelRunner(Runner):
         if not self._write_pass:
             return roster
         return [name for name in roster if name not in self._chromaticity]
+
+    def _post_outputs(self, out_values: dict[str, Any], ts: float) -> None:
+        """Publish a pass's values, each waveform as the array its variable declares."""
+        super()._post_outputs(as_declared(self.model.supported_variables, out_values), ts)
 
     def _reset_to_cached_state(self) -> None:
         """Restore the cached state only when the pass failed after ``model.set`` succeeded."""
