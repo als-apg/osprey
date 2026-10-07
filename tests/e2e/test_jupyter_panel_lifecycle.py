@@ -43,6 +43,9 @@ last.
    the runtime put it. A client put made from a libca callback thread while a
    runtime write is in flight is refused too: the connector's write door is
    open only in the context that opened it, never on a thread libca started.
+   The kernel loads no Channel Access client of its own: the libca check fires
+   before the cell's raw client is made, and the raw client is addressed by
+   the cell.
 4. A cell run while writes are off for that target reads, and refuses a write
    with the connector's text plus the turn-writes-on line and exactly one audit
    record on the ``notebook_kernel`` surface, filed under the KERNEL's own
@@ -769,10 +772,30 @@ def _setpoint_cell(band: float) -> str:
 #: reason: a context variable set here would be invisible on that thread. The
 #: callback catches its own refusal, because pyepics swallows what a callback
 #: raises. The initial-value callback is allowed to land before the flag is set,
-#: so the flag marks only callbacks the in-flight write caused.
+#: so the flag marks only callbacks the in-flight write caused. The kernel's
+#: runtime holds no Channel Access client, so nothing in the kernel's
+#: environment addresses a raw one; the cell points its own client at the
+#: server named by the deployment's gateway row, as an operator's raw client
+#: would have to.
 DOOR_PROOF_CELL = (
     "import json, threading, time\n"
+    "import os\n"
+    "from osprey_connectors.config import get_config_value\n"
+    "from osprey_connectors.control_system.va_connector import fill_gateway_ports\n"
+    "gateway = fill_gateway_ports(\n"
+    "    get_config_value('control_system.connector.virtual_accelerator', {})\n"
+    ")['gateways']['write_access']\n"
     "import epics\n"
+    "assert epics.ca.libca is None, (\n"
+    "    'a Channel Access client was loaded in the kernel before the cell made one'\n"
+    ")\n"
+    "if gateway.get('use_name_server'):\n"
+    "    os.environ['EPICS_CA_NAME_SERVERS'] = f\"{gateway['address']}:{gateway['port']}\"\n"
+    "    os.environ.pop('EPICS_CA_ADDR_LIST', None)\n"
+    "else:\n"
+    "    os.environ['EPICS_CA_ADDR_LIST'] = str(gateway['address'])\n"
+    "    os.environ['EPICS_CA_SERVER_PORT'] = str(gateway['port'])\n"
+    "os.environ['EPICS_CA_AUTO_ADDR_LIST'] = 'NO'\n"
     "from osprey.runtime import write_channel\n"
     "in_flight = threading.Event()\n"
     "seen = []\n"
@@ -953,7 +976,9 @@ def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Termi
     an in-flight runtime write reaches the worker the connector hands the put
     to, and nothing else: a monitor callback libca delivers on its own thread
     during that write is outside it, so its client put is refused while the
-    write it was woken by is still going.
+    write it was woken by is still going. The kernel loads no Channel Access
+    client of its own: the libca check fires before the cell's raw client is
+    made, and the raw client is addressed by the cell.
     """
     assert terminal.session_id and terminal.first_target
     # The baseline target is the only one whose limits make the setpoint writable.
