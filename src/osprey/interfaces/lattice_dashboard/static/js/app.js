@@ -23,7 +23,13 @@ import {
 } from './render.js';
 import { createUI } from './ui.js';
 import { createHeader } from './header.js';
-import { bindModelSelect, renderModelSelect } from './models.js';
+import {
+  bindModelSelect,
+  renderModelSelect,
+  showFigureUnavailable,
+  syncAvailability,
+  unavailableFigures,
+} from './models.js';
 import { loadSettings, renderSettingsForm } from './settings.js';
 
 // Standalone, this page owns its own theme chrome (the header
@@ -47,7 +53,12 @@ const ALL_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint', 'da', '
 
 const renderer = createRenderer(ALL_FIGURES, {
   onSliderChange: (family, val) => net.setParam(family, val),
-  onFigureReady: (name) => net.fetchAndRenderFigure(name),
+  // A panel the selected model cannot draw is filled by syncAvailability.
+  onFigureReady: (name) => {
+    if (!unavailableFigures(net.getState(), ALL_FIGURES).includes(name)) {
+      net.fetchAndRenderFigure(name);
+    }
+  },
   getOverrides: () => net.getState()?.overrides,
 });
 
@@ -58,6 +69,7 @@ const renderer = createRenderer(ALL_FIGURES, {
 const net = createNetClient({
   onState: (state) => {
     renderer.renderState(state);
+    syncAvailability(state, ALL_FIGURES, net.fetchAndRenderFigure);
     header.syncState(state);
     loadSettings();
   },
@@ -67,6 +79,7 @@ const net = createNetClient({
   },
   onParamSet: (result) => updateFigureStatuses(result.figures),
   onFigureData: (name, figData) => renderPlotly(name, figData),
+  onFigureUnavailable: showFigureUnavailable,
   onFigureStatus: (name, status) => {
     updateLED(name, status);
     if (status === 'computing') showSpinner(name);

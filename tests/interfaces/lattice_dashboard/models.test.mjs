@@ -26,7 +26,16 @@ import { createNetClient } from '../../../src/osprey/interfaces/lattice_dashboar
 import {
   bindModelSelect,
   renderModelSelect,
+  showFigureUnavailable,
+  syncAvailability,
+  unavailableFigures,
 } from '../../../src/osprey/interfaces/lattice_dashboard/static/js/models.js';
+
+const ALL_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint', 'da', 'lma'];
+
+/** The refusal body every non-optics figure route gives a single-pass model. */
+const SINGLE_PASS_409 = { detail: 'not available for a single-pass model' };
+
 
 /** GET /api/models as the server lists it: served models first. */
 const MODELS = [
@@ -48,8 +57,24 @@ const PERIODIC_STATE = {
   summary: {},
 };
 
+/** One figure cell per figure, shaped like index.html's. */
+function figureCells() {
+  return ALL_FIGURES.map((name) => `
+    <div class="figure-cell" id="cell-${name}" data-figure="${name}">
+      <div class="figure-plot" id="plot-${name}">
+        <div class="figure-placeholder">Waiting for lattice...</div>
+      </div>
+    </div>`).join('');
+}
+
+/** The text a figure panel shows. @param {string} name */
+function panelText(name) {
+  return byId(`plot-${name}`).textContent?.trim();
+}
+
 function mountFixture() {
   document.body.innerHTML = `
+    ${figureCells()}
     <select id="model-select" style="display:none"></select>
     <button id="btn-refresh"></button>
     <button id="btn-verify"></button>
@@ -221,5 +246,84 @@ describe('fast figures', () => {
 
     expect(cb.onFigureStatus.mock.calls).toEqual([['optics', 'computing']]);
     expect(fetch).toHaveBeenCalledWith('/api/refresh', expect.objectContaining({ method: 'POST' }));
+  });
+});
+
+describe('figures the selected model cannot draw', () => {
+  test('a periodic, served model hides no figure', () => {
+    expect(unavailableFigures(PERIODIC_STATE, ALL_FIGURES)).toEqual([]);
+  });
+
+  test('a single-pass model hides every figure but optics, verification pair included', () => {
+    const state = { ...PERIODIC_STATE, solve: 'single_pass', fast_figures: ['optics'] };
+    expect(unavailableFigures(state, ALL_FIGURES)).toEqual([
+      'resonance', 'chromaticity', 'footprint', 'da', 'lma',
+    ]);
+  });
+
+  test('an unserved model hides every figure but optics', () => {
+    const state = { ...PERIODIC_STATE, model: 'spare', served: false };
+    expect(unavailableFigures(state, ALL_FIGURES)).toEqual([
+      'resonance', 'chromaticity', 'footprint', 'da', 'lma',
+    ]);
+  });
+
+  test("a figure route's 409 reaches the panel as its detail, not as a failure", async () => {
+    stubFetch({ '/api/figures/resonance': response(SINGLE_PASS_409, 409) });
+    const cb = makeNetCallbacks();
+
+    await createNetClient(cb).fetchAndRenderFigure('resonance');
+
+    expect(cb.onFigureUnavailable).toHaveBeenCalledWith(
+      'resonance', 'not available for a single-pass model'
+    );
+    expect(cb.onFigureData).not.toHaveBeenCalled();
+  });
+
+  test('a single-pass model shows the 409 body in each hidden panel and leaves optics', async () => {
+    const routes = Object.fromEntries(
+      ALL_FIGURES.filter((n) => n !== 'optics')
+        .map((n) => [`/api/figures/${n}`, response(SINGLE_PASS_409, 409)])
+    );
+    stubFetch(routes);
+    const net = createNetClient({
+      ...makeNetCallbacks(),
+      onFigureUnavailable: showFigureUnavailable,
+    });
+    const state = { ...PERIODIC_STATE, solve: 'single_pass', fast_figures: ['optics'] };
+
+    syncAvailability(state, ALL_FIGURES, net.fetchAndRenderFigure);
+    await vi.waitFor(() => expect(panelText('lma')).toBe('not available for a single-pass model'));
+
+    for (const name of ['resonance', 'chromaticity', 'footprint', 'da', 'lma']) {
+      expect(panelText(name)).toBe('not available for a single-pass model');
+      expect(byId(`cell-${name}`).dataset.available).toBe('false');
+    }
+    expect(panelText('optics')).toBe('Waiting for lattice...');
+    expect(fetch).not.toHaveBeenCalledWith('/api/figures/optics', expect.anything());
+  });
+
+  test('an unserved model labels each hidden panel not served: optics only', () => {
+    const fetchFigure = vi.fn();
+    const state = { ...PERIODIC_STATE, model: 'spare', served: false };
+
+    syncAvailability(state, ALL_FIGURES, fetchFigure);
+
+    for (const name of ['resonance', 'chromaticity', 'footprint', 'da', 'lma']) {
+      expect(panelText(name)).toBe('not served: optics only');
+    }
+    expect(panelText('optics')).toBe('Waiting for lattice...');
+    expect(fetchFigure).not.toHaveBeenCalled();
+  });
+
+  test('switching back to a periodic, served model restores the hidden panels', () => {
+    syncAvailability({ ...PERIODIC_STATE, served: false }, ALL_FIGURES, vi.fn());
+
+    syncAvailability(PERIODIC_STATE, ALL_FIGURES, vi.fn());
+
+    for (const name of ALL_FIGURES) {
+      expect(panelText(name)).toBe('Waiting for lattice...');
+      expect(byId(`cell-${name}`).dataset.available).toBeUndefined();
+    }
   });
 });

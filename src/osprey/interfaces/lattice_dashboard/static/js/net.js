@@ -11,8 +11,25 @@
 
 const API_BASE = '';  // Same origin (served by dashboard server)
 
+/** A non-OK dashboard API response: its status and its body text. */
+export class ApiError extends Error {
+  /**
+   * @param {string} path
+   * @param {number} status
+   * @param {string} body
+   */
+  constructor(path, status, body) {
+    super(`API ${path}: ${status} ${body}`);
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/** The status a figure route answers for a figure the selected model cannot draw. */
+const UNAVAILABLE_STATUS = 409;
+
 /**
- * Fetch JSON from the dashboard API, throwing on a non-OK response.
+ * Fetch JSON from the dashboard API, throwing an ApiError on a non-OK response.
  * @param {string} path - API path (e.g. '/api/state')
  * @param {RequestInit} [options] - Extra fetch options
  * @returns {Promise<any>}
@@ -23,8 +40,7 @@ export async function apiFetch(path, options = {}) {
     ...options,
   });
   if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`API ${path}: ${resp.status} ${text}`);
+    throw new ApiError(path, resp.status, await resp.text());
   }
   return resp.json();
 }
@@ -102,6 +118,7 @@ export function handleSSEEvent(data, handlers) {
  * @property {(models: import('./models.js').ModelEntry[]) => void} onModels - fired after /api/models resolves
  * @property {(result: any) => void} onParamSet - fired with the updated state after a slider change is applied
  * @property {(name: string, figData: any) => void} onFigureData - fired with figure JSON once fetched (initial ready figures and 'figure_ready' events)
+ * @property {(name: string, detail: string) => void} onFigureUnavailable - fired with the refusal's detail when the selected model cannot draw the figure
  * @property {(name: string, status: string) => void} onFigureStatus - fired on a 'figure_status' SSE event
  * @property {(name: string) => void} onFigureReady - fired on a 'figure_ready' SSE event, before the figure itself is fetched
  * @property {(name: string, error: string) => void} onFigureError - fired on a 'figure_error' SSE event
@@ -200,6 +217,10 @@ export function createNetClient(callbacks) {
       const figData = await apiFetch(`/api/figures/${name}`);
       callbacks.onFigureData(name, figData);
     } catch (err) {
+      if (err instanceof ApiError && err.status === UNAVAILABLE_STATUS) {
+        callbacks.onFigureUnavailable(name, JSON.parse(err.body).detail);
+        return;
+      }
       console.warn(`Failed to fetch figure ${name}:`, err);
     }
   }
