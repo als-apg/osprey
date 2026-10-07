@@ -18,6 +18,8 @@ present, and no hang.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -26,12 +28,14 @@ ophyd_async = pytest.importorskip("ophyd_async")
 
 from osprey.services.bluesky_bridge import live_rows, plan_loader  # noqa: E402
 from osprey.services.bluesky_bridge.devices._connect import connect_all  # noqa: E402
+from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable  # noqa: E402
 from osprey.services.bluesky_bridge.devices.mock import (  # noqa: E402
     MockReadable,
     MockSettable,
     build_devices,
 )
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix  # noqa: E402
+from osprey.services.bluesky_bridge.plan_fields import resolve_regressor_column  # noqa: E402
 
 from .bluesky_plan_drive import run_plan  # noqa: E402
 
@@ -171,6 +175,74 @@ def test_orm_plan_output_is_fittable_by_the_analysis_it_feeds() -> None:
     matrix = build_response_matrix(rows, list(correctors), readbacks)
 
     assert matrix.shape == (len(readbacks), len(correctors))
+
+
+_READBACK_OFFSET = 0.00196
+
+
+class _OffsetReadbackConnector:
+    """A connector double whose ``<n>:RB`` channel reads ``<n>:SP`` plus a fixed offset.
+
+    Writes land on ``<n>:SP`` and are confirmed, so a `ConnectorSettable` over
+    it is the production device with a distinct readback that settles inside
+    its own band.
+    """
+
+    def __init__(self, setpoints: dict[str, float]) -> None:
+        self.setpoints = {f"{name}:SP": value for name, value in setpoints.items()}
+
+    async def read_channel(self, channel_address: str, timeout: float | None = None) -> Any:  # noqa: ARG002 - the connector read signature
+        if channel_address.endswith(":RB"):
+            value = self.setpoints[channel_address.removesuffix(":RB") + ":SP"] + _READBACK_OFFSET
+        else:
+            value = self.setpoints[channel_address]
+        return SimpleNamespace(value=value, timestamp=0.0)
+
+    async def write_channel_checked(self, channel_address: str, value: float, **kwargs: Any) -> Any:
+        self.setpoints[channel_address] = value
+        return SimpleNamespace(
+            channel_address=channel_address,
+            value_written=value,
+            outcome="confirmed",
+            observed_value=value,
+        )
+
+    def device(self, name: str) -> ConnectorSettable:
+        return ConnectorSettable(
+            self, f"{name}:SP", readback_pv=f"{name}:RB", name=name, settle_tolerance=0.01
+        )
+
+
+def test_orm_plan_rows_carry_the_demand_column_the_setpoint_fit_reads() -> None:
+    """The plan's rows hold each corrector's commanded current under
+    ``<name>_setpoint``, and the default fit resolves that column.
+
+    The corrector's readback sits a fixed offset off its demand, so the two
+    columns differ in every row; the setpoint column must be exactly the
+    commanded sweep, the working point plus each kick.
+    """
+    working_point = 0.5
+    fake = _OffsetReadbackConnector({"hcm1": working_point})
+    devices = asyncio.run(connect_all({"hcm1": fake.device("hcm1"), "bpm1": MockReadable("bpm1")}))
+    run_uid = run_plan(
+        "orm",
+        {"correctors": ["hcm1"], "readbacks": ["bpm1"], "span_a": 2.0, "num": 3},
+        devices=devices,
+        plans=plan_loader.get_facility_plans().plans,
+    )
+
+    buf = live_rows.get(run_uid)
+    assert buf is not None
+    rows = [dict(zip(buf["columns"], row, strict=True)) for row in buf["rows"]]
+
+    assert [row["hcm1_setpoint"] for row in rows] == pytest.approx(
+        [working_point - 2.0, working_point, working_point + 2.0]
+    )
+    assert [row["hcm1"] for row in rows] == pytest.approx(
+        [row["hcm1_setpoint"] + _READBACK_OFFSET for row in rows]
+    )
+    assert resolve_regressor_column("hcm1", rows[0], "setpoint") == "hcm1_setpoint"
+    assert build_response_matrix(rows, ["hcm1"], ["bpm1"]).shape == (1, 1)
 
 
 def test_orm_plan_single_corrector_produces_exactly_num_rows(orm_devices: dict) -> None:
