@@ -50,13 +50,6 @@ _FLOAT = "float"
 _CHROMATICITY_OUTPUT = "chromaticity"
 
 
-def _settable(channel: Mapping[str, Any] | None) -> bool:
-    """Whether a view channel is served writable: a setpoint the view marks writable."""
-    return (
-        channel is not None and channel.get("role") == _SETPOINT and channel.get("writable") is True
-    )
-
-
 def apply_safety(config: Mapping[str, Any], view: Mapping[str, Any]) -> dict[str, Any]:
     """The runner configuration ``config`` with the view's write safety applied.
 
@@ -78,14 +71,15 @@ def apply_safety(config: Mapping[str, Any], view: Mapping[str, Any]) -> dict[str
     safe.update(SAFETY_KEYS)
     for address, entry in safe["variables"].items():
         channel = channels.get(address)
-        entry["mode"] = "rw" if _settable(channel) else "ro"
-        if channel is not None and channel.get("role") == _SETPOINT:
+        if channel is None:
+            entry["mode"] = "ro"
+            continue
+        is_setpoint = channel.get("role") == _SETPOINT
+        # A channel is served writable only as a setpoint the view marks writable.
+        entry["mode"] = "rw" if is_setpoint and channel.get("writable") is True else "ro"
+        if is_setpoint:
             entry["value_range"] = copy.deepcopy(channel.get("value_range"))
-        if (
-            channel is not None
-            and channel.get("value_type", _FLOAT) == _FLOAT
-            and channel.get("precision") is not None
-        ):
+        if channel.get("value_type", _FLOAT) == _FLOAT and channel.get("precision") is not None:
             entry["precision"] = channel["precision"]
     return safe
 

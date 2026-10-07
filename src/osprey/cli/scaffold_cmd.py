@@ -780,11 +780,12 @@ def scaffold(ctx):
     The ci verb regenerates the repo's pipeline and health check from the
     profile's deploy: block, and the systemd verb writes a unit that starts
     this deployment at boot. The personas verb writes one file per persona the
-    profile catalogs, and the pull verb copies content out of a packaged app
-    template into this repo. The other verbs cover build artifacts, which can
-    be claimed per-facility: claiming moves the artifact out of the build zone
-    and into the profile beside it, which is where you then edit it. Every
-    build copies it back and marks it yours.
+    profile catalogs, and the pull verb copies a preset's packaged content (its
+    app template's data and the facility it names) into this repo. The other
+    verbs cover build artifacts, which can be claimed per-facility: claiming
+    moves the artifact out of the build zone and into the profile beside it,
+    which is where you then edit it. Every build copies it back and marks it
+    yours.
 
     Examples:
 

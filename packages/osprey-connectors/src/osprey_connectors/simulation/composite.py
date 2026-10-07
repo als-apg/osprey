@@ -92,7 +92,7 @@ from osprey_connectors.simulation.view_files import (
     SERVED_MODELS_FILE,
     VARIABLES_FILE,
 )
-from osprey_connectors.workspace import repo_root_for_config
+from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -173,7 +173,7 @@ def log_dir() -> Path | None:
     config_path = default_config_path()
     if config_path is None:
         return None
-    return repo_root_for_config(config_path) / "var" / "simulator"
+    return repo_root_for_config(config_path) / SIMULATOR_LOG_DIR_RELPATH
 
 
 def _default_log_dir() -> Path | None:

@@ -4692,9 +4692,11 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     :raises RuntimeError: The render carries no simulator view.
     """
     from osprey.facility.views.simulator import simulator_view
-    from osprey.simulation.apply import _active_state, persisted_scenario_anchor
+    from osprey.simulation.apply import persisted_scenario_anchor
     from osprey_connectors.simulation.archive import build
     from osprey_connectors.simulation.composite import ADDRESSES_FILE
+    from osprey_connectors.simulation.state import read_active_state
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
     view = simulator_view(project_dir)
     if not (view / ADDRESSES_FILE).is_file():
@@ -4702,7 +4704,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
             f"The archiver seed has no channel set to build from: no simulator view in {view}. "
             "Run `osprey build`; the seed never invents a namespace."
         )
-    names, _ = _active_state(config, project_dir)
+    names, _ = read_active_state(resolve_simulation_state_dir(config, project_dir))
     anchor = persisted_scenario_anchor(config, project_dir)
     return build(view, names, anchor_s=None if anchor is None else anchor.timestamp())
 
@@ -4733,18 +4735,20 @@ def _reapply_active_scenarios(config: dict, project_dir: Path) -> None:
     :raises RuntimeError: if the re-apply fails, naming the command that fixes it.
     """
     from osprey.simulation.apply import (
-        _active_state,
         apply_scenarios,
         persisted_scenario_anchor,
         view_scenarios,
     )
-    from osprey_connectors.simulation.state import resolve_active_scenarios
+    from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
     if view_scenarios(project_dir) is None:
         logger.debug("No simulator view in this project; no scenarios to re-apply after the reseed")
         return
 
-    names = resolve_active_scenarios(_active_state(config, project_dir)[0])
+    names = resolve_active_scenarios(
+        read_active_state(resolve_simulation_state_dir(config, project_dir))[0]
+    )
     # The anchor the running world is already on: re-anchoring here would slide
     # the live VA's events, the logbook and the archive's windows to a T0 nobody
     # asked for, as a side effect of a deploy meant to rebuild only the store.

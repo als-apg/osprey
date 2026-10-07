@@ -810,6 +810,7 @@ def _stub_reapply(
         archiver: Pass ``None`` for a result whose rewrite never ran at all.
     """
     from osprey.simulation import apply as apply_mod
+    from osprey_connectors.simulation import state as state_mod
 
     if archiver is ...:
         archiver = SimpleNamespace(
@@ -819,9 +820,7 @@ def _stub_reapply(
     result = SimpleNamespace(active=active, archiver=archiver)
 
     monkeypatch.setattr(apply_mod, "view_scenarios", lambda project_dir: {})
-    monkeypatch.setattr(
-        apply_mod, "_active_state", lambda config, project_dir: (list(active), None)
-    )
+    monkeypatch.setattr(state_mod, "read_active_state", lambda state_dir: (list(active), None))
     monkeypatch.setattr(apply_mod, "apply_scenarios", lambda *a, **k: result)
     monkeypatch.setattr(apply_mod, "persisted_scenario_anchor", lambda config, project_dir: None)
 

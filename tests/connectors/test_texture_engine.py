@@ -147,6 +147,19 @@ def test_clamp_holds_the_stated_side_and_leaves_the_null_side_open():
     assert model.clamp("T:CLAMPED", 1e9) == 1e9
 
 
+def test_an_int_clamp_side_reads_as_a_float():
+    variables, seeds = _view()
+    variables["channels"].append(_channel("T:INT:CLAMPED"))
+    seeds["seeds"]["T:INT:CLAMPED"] = {"nominal": 3.0, "noise": 5.0, "clamp": [0, 1]}
+    reads = [
+        TextureModel(variables, seeds, clock=lambda t=T0 + k * 0.137: t).get("T:INT:CLAMPED")
+        for k in range(50)
+    ]
+
+    assert {0.0, 1.0} <= set(reads)
+    assert all(type(read) is float and 0.0 <= read <= 1.0 for read in reads)
+
+
 def test_writing_a_setpoint_echoes_into_its_readback():
     model = _model()
 

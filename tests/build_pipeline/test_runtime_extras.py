@@ -47,7 +47,8 @@ RUNTIME_ENABLERS: dict[str, str] = {
 # The modules each runtime-extra distribution provides. An entry here wins over
 # the installed distribution's own top-level names, which miss a namespace
 # several distributions share; a distribution with no entry is read from the
-# environment.
+# environment. A distribution listed in RUNTIME_ENABLERS needs no row here,
+# because the import check never asks for its modules.
 STATIC_MODULES: dict[str, tuple[str, ...]] = {
     "aioca": ("aioca",),
     "aiohttp-socks": ("aiohttp_socks",),
@@ -59,7 +60,6 @@ STATIC_MODULES: dict[str, tuple[str, ...]] = {
     "linkml-runtime": ("linkml_runtime",),
     "lume-pva-apg": ("lume_pva_apg",),
     "mss": ("mss",),
-    "pcaspy": ("pcaspy",),
     "pillow": ("PIL",),
     "psycopg": ("psycopg",),
     "psycopg-pool": ("psycopg_pool",),

@@ -249,11 +249,11 @@ services:
       # `resolve_limits_mount` (compose_generator.py) and consumed here as
       # finished strings. One configured value —
       # control_system.limits_checking.database_path — has to name one file for
-      # the operator, for this bind source and for the connector that reopens it
-      # in the container, and the two halves anchor differently: the source
-      # against the pinned compose project directory, the target against the
-      # container's project root, with an absolute operator-owned path mounted
-      # verbatim on both sides. This Jinja context holds those anchors but
+      # the build that writes it, for this bind source and for the connector that
+      # reopens it in the container, and the two halves anchor differently: the
+      # source against the pinned compose project directory, the target against
+      # the container's project root, with an absolute path (a hand-edited
+      # render's) mounted verbatim on both sides. This Jinja context holds those anchors but
       # cannot derive them, so a template that spelled the path itself would be
       # a second spelling of the same rule, free to drift from the one the
       # connector follows. The writes gate above still decides WHETHER to mount.

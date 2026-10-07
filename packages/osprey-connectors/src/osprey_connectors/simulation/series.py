@@ -249,11 +249,15 @@ def wander(
 
 
 def clamp(value: float, min_value: float | None, max_value: float | None) -> float:
-    """Clamp a scalar into ``[min_value, max_value]`` (either bound optional)."""
+    """Clamp a scalar into ``[min_value, max_value]`` (either bound optional).
+
+    The result is a float whichever side is hit, because ``clamp`` applies to
+    float channels only.
+    """
     if min_value is not None and value < min_value:
-        return min_value
+        return float(min_value)
     if max_value is not None and value > max_value:
-        return max_value
+        return float(max_value)
     return value
 
 

@@ -31,8 +31,8 @@ proving five things end to end:
   (c) the bump is a real, closed, local bump on the modelled machine: each
       recorded step sits inside ``±tolerance`` of what that step asked for at
       the target AND at every closure BPM; the full-amplitude step reaches the
-      requested displacement; the ring outside the corrector span moves by no
-      more than the dispersive share a ring solved with its cavity leaves
+      requested displacement; the lattice outside the corrector span moves by
+      no more than the dispersive share a lattice solved with its cavity leaves
       there, including at a monitor BPM the solve was never told to hold; and
       the terminal step brings the orbit and every corrector back to where the
       run found them.
@@ -208,19 +208,19 @@ HEALTH_TIMEOUT_SEC = 300.0
 # Positions within the staged view's device lists, not device names -- the
 # build's view of the facility file owns which devices exist.
 # The population is the simulator view's corrector and monitor wiring, in
-# the selectors' address-ordered output. Position i therefore follows ring
-# order only on a tree whose address order follows the ring, as the demo
+# the selectors' address-ordered output. Position i therefore follows lattice
+# order only on a tree whose address order follows the lattice, as the demo
 # tree's does. The positions are picked for CONDITIONING rather than
 # for aesthetics.
 #
-# The three correctors are clustered inside one sixth of the ring with enough
+# The three correctors are clustered inside one sixth of the lattice with enough
 # betatron phase between them to close a bump: the probed response comes back
 # well conditioned (condition number ~10) and the solve asks for single-digit
 # amps, comfortably inside the +-12 A the correctors' channel_limits band
 # allows. A tighter cluster is closer to a single combined kick and needs far
 # more current for the same displacement. BPMs and correctors are colocated in
 # this lattice, so the target BPM sits at the middle corrector -- the peak of
-# the bump -- and the closure BPMs are spread around the rest of the ring, each
+# the bump -- and the closure BPMs are spread around the rest of the lattice, each
 # well clear of the corrector span.
 CORRECTOR_INDICES = (11, 12, 17)
 TARGET_BPM_INDEX = 12
@@ -258,10 +258,10 @@ PROBE_AMPLITUDE_A = 5.0
 TARGET_BUMP_M = 20e-6
 
 #: The convergence band, in meters. 2.5% of the requested bump, and roughly 4x
-#: the worst step residual this corrector set actually produces on this ring
+#: the worst step residual this corrector set actually produces on this lattice
 #: at the constrained rows (1.3e-7 m at full amplitude, measured in-process
 #: through the same `fit_probe_response` -> `solve_offsets` path the plan
-#: runs). That residual is structural, not numerical: the ring solves its
+#: runs). That residual is structural, not numerical: the lattice solves its
 #: closed orbit with the cavity on, so a bump's path-length change shifts the
 #: energy and moves every dispersive BPM, and three correctors cannot hold
 #: seven rows against it -- see CLOSURE_BOUND for the same term at the monitor
@@ -309,7 +309,7 @@ EXPECTED_ROWS = BASELINE_READS + len(EXPECTED_SCALES)
 #: Agreement bound for the magnitude cross-checks -- the bump reaching and
 #: peaking at its target, the span monitor's excursion, a corrector's return
 #: to its working point -- as a fraction of the peak bump amplitude: the
-#: tolerable share of the bump that the ring's own non-idealities may account
+#: tolerable share of the bump that the lattice's own non-idealities may account
 #: for at these currents, the dispersive term ``CLOSURE_BOUND`` describes and
 #: sextupole feed-down under it; every consumer of this bound clears it by
 #: more than an order of magnitude. The rows
@@ -318,19 +318,19 @@ EXPECTED_ROWS = BASELINE_READS + len(EXPECTED_SCALES)
 RELATIVE_BOUND = 1e-2
 
 #: Closure bound at the monitor BPM the solve was never told to hold, as a
-#: fraction of the peak. Looser than the solved rows' bound because the served
-#: ring solves its closed orbit with the cavity on (``lattice/ring.py``): a
-#: bump changes the path length, the RF frequency holds, and the energy shifts
-#: to compensate, so every BPM with dispersion moves by a share of the bump
-#: that is linear in its amplitude to better than a percent. Three correctors
+#: fraction of the peak. Looser than the solved rows' bound because the pyat
+#: engine (``src/osprey/simulation/engines/pyat.py``) solves the served
+#: lattice's closed orbit with the cavity on: a bump changes the path length,
+#: the RF frequency holds, and the energy shifts to compensate, so every BPM
+#: with dispersion moves by a share of the bump that is linear in its
+#: amplitude to better than a percent. Three correctors
 #: cannot zero that term at six closure BPMs and one more, and the unsolved
-#: monitor shows it whole. Measured in-process on this ring through the same
+#: monitor shows it whole. Measured in-process on this lattice through the same
 #: ``fit_probe_response`` -> ``solve_offsets`` path the plan runs: 1.05 % of
 #: the peak at every probe amplitude, and 0.015 % with the cavity off.
-#: Roughly five times that dispersive share, half the outside-span bound the
-#: crosscheck holds -- a bump leaking this little is still a local bump, and a
-#: sign error or a wrong-row solve leaks a large fraction of the peak, not a
-#: few percent of it.
+#: Roughly five times that dispersive share -- a bump leaking this little is
+#: still a local bump, and a sign error or a wrong-row solve leaks a large
+#: fraction of the peak, not a few percent of it.
 CLOSURE_BOUND = 5e-2
 
 #: Noise multiplier the magnitude bounds floor at, so a BPM whose reading
@@ -799,7 +799,7 @@ class _Measured:
         """The magnitude-agreement bound at *device*:
         ``max(fraction * peak, NOISE_SIGMAS * sigma)``.
 
-        A share of the bump the ring may account for on its own, floored at what the BPM can
+        A share of the bump the lattice may account for on its own, floored at what the BPM can
         actually be read to. *fraction* is ``RELATIVE_BOUND`` for the magnitude
         checks (the span monitor's excursion, a corrector's return to its
         working point) and ``CLOSURE_BOUND`` for the closure monitor's leak.
@@ -943,7 +943,7 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
     )
 
     # The closure monitor is outside the span and equally unsolved-for, so its
-    # staying put -- to within the dispersive share a ring solved with its
+    # staying put -- to within the dispersive share a lattice solved with its
     # cavity leaves there, see CLOSURE_BOUND -- is the honest statement that
     # the bump is LOCAL.
     for step, scale in enumerate(EXPECTED_SCALES):

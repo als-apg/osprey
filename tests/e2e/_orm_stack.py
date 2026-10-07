@@ -565,12 +565,8 @@ def build_project_subprocess(
     the exact default deploy shape (an empty ``extra_config`` is likewise a
     no-op).
 
-    ``pre_build``, when given, is called with the deployment REPO after
-    ``osprey init`` has written it and before ``osprey build`` renders it --
-    the only window in which a caller can edit the repo's source zone and
-    still have the build render the edit. It must not run BEFORE ``init``:
-    init copies the preset's ``data/`` into place without ``dirs_exist_ok``,
-    so a pre-created ``data/`` makes the copy fail outright.
+    ``pre_build`` is the same hook, with the same window and the same ordering
+    rule, as :func:`build_via_cli_runner` describes.
     """
     osprey_bin = find_osprey_console_script()
 
