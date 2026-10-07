@@ -180,7 +180,6 @@ them (``artifact_list(category="archiver_data")``).
 
 **Lattice Dashboard:**
 
-- ``lattice_init`` -- Load a lattice file into the dashboard and compute optics.
 - ``lattice_state`` -- Get current lattice state (summary, families, figures, baseline).
 - ``lattice_set_param`` -- Set a magnet family parameter override.
 - ``lattice_refresh`` -- Trigger recomputation of lattice figures.
