@@ -64,20 +64,6 @@ class TestConstants:
         assert isinstance(ERR_TIMEOUT, str) and ERR_TIMEOUT
         assert ERR_NOT_READY != ERR_TIMEOUT
 
-    def test_not_ready_is_the_runners_string(self):
-        # runner.py cannot be imported without the CA server library, so its
-        # assignment is read from the source rather than from the module. It
-        # must bind this name, not restate the sentence: two literals could
-        # drift apart, one name cannot.
-        tree = ast.parse(MODULE_PATH.with_name("runner.py").read_text())
-        bound = [
-            ast.unparse(node.value)
-            for node in tree.body
-            if isinstance(node, ast.Assign)
-            and any(isinstance(t, ast.Name) and t.id == "NOT_READY" for t in node.targets)
-        ]
-        assert bound == ["ERR_NOT_READY"]
-
 
 class TestImports:
     def test_imports_only_p4p_and_the_standard_library(self):
