@@ -4958,6 +4958,51 @@ def test_two_shape_lane_triggers_on_epic_base_prs__mutation_drops_the_workflow_t
         test_two_shape_lane_triggers_on_epic_base_prs(mutated)
 
 
+#: Model-free safety lanes that run on every same-repo PR whose base is main,
+#: an ``epic/*`` branch or an ``integration/*`` branch. Scoped to main alone
+#: each would skip on the PRs that change what it covers.
+INTEGRATION_BASE_LANES = (
+    "auth-perimeter-e2e",
+    "terminal-auth-multiuser-e2e",
+    "full-chain-auth-e2e",
+    TWO_SHAPE_JOB,
+)
+
+
+def _accepts_an_integration_base(job_if: str) -> bool:
+    """Whether a job's ``if:`` admits a PR whose base is an ``integration/*`` branch."""
+    return "integration/" in job_if
+
+
+@pytest.mark.parametrize("lane", INTEGRATION_BASE_LANES)
+def test_safety_lane_admits_epic_and_integration_bases(workflow: dict[str, Any], lane: str) -> None:
+    """An item PR into an integration base is where a red the item causes must
+    show, so these lanes admit that base exactly as they admit an epic base."""
+    job_if = _jobs(workflow)[lane]["if"]
+    assert _accepts_an_epic_base(job_if), (
+        f"'{lane}' must admit PRs based on epic/*; got: {job_if!r}"
+    )
+    assert _accepts_an_integration_base(job_if), (
+        f"'{lane}' must admit PRs based on integration/*; got: {job_if!r}"
+    )
+
+
+def test_safety_lane_admits_epic_and_integration_bases__mutation_drops_the_integration_clause() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    job_if = _jobs(mutated)[TWO_SHAPE_JOB]["if"]
+    # Surgical: only the integration disjunct goes; the epic one stays.
+    narrowed = job_if.replace(
+        " || startsWith(github.event.pull_request.base.ref, 'integration/')", ""
+    )
+    assert narrowed != job_if, "no integration clause in the job's if: — mutation is stale"
+    assert _accepts_an_epic_base(narrowed), "the epic clause must survive the narrowing"
+    _jobs(mutated)[TWO_SHAPE_JOB]["if"] = narrowed
+    with pytest.raises(AssertionError, match="must admit PRs based on integration/"):
+        test_safety_lane_admits_epic_and_integration_bases(mutated, TWO_SHAPE_JOB)
+
+
 #: Literal shapes with no flag grammar to respect.
 #:
 #: ``"*"`` is deliberately BLUNT: it fires on any asterisk anywhere in the job's

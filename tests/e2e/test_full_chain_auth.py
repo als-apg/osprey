@@ -127,9 +127,10 @@ do to be honest, and does: FAIL on any skipped test. pytest exits 0 on an
 all-skipped run, so a runner without a container runtime — the module's only
 skip path — would otherwise post a green check over a stack it never built; the
 job reads its own junit report and refuses that. The job's ``if:`` carries the
-epic dialect — same-repo PRs whose base is ``main`` OR ``epic/*`` — because this
-lane certifies work that lands on epic phase branches first, and a safety lane
-that only runs after the merge is one that can go red inside a green gate.
+epic dialect — same-repo PRs whose base is ``main``, ``epic/*`` or
+``integration/*`` — because this lane certifies work that lands on epic phase
+branches and item branches first, and a safety lane that only runs after the
+merge is one that can go red inside a green gate.
 
 COST, AND THE BUDGET IT IS HELD TO
 ----------------------------------
