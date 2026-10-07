@@ -64,12 +64,9 @@ def _js_settings_fields() -> dict[str, dict[str, tuple[float, float]]]:
 
 def _js_all_figures() -> list[str]:
     source = _APP_JS.read_text(encoding="utf-8")
-    names: list[str] = []
-    for const in ("FAST_FIGURES", "VERIFICATION_FIGURES"):
-        match = re.search(rf"const {const} = (\[[^\]]*\]);", source)
-        assert match, f"{const} not found in {_APP_JS}"
-        names.extend(json.loads(match.group(1).replace("'", '"')))
-    return names
+    match = re.search(r"const ALL_FIGURES = (\[[^\]]*\]);", source)
+    assert match, f"ALL_FIGURES not found in {_APP_JS}"
+    return json.loads(match.group(1).replace("'", '"'))
 
 
 def test_the_js_schema_declares_the_server_validation_ranges() -> None:

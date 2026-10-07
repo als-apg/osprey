@@ -206,3 +206,20 @@ describe('model selector', () => {
     expect(cb.onModels).toHaveBeenCalledWith(MODELS);
   });
 });
+
+describe('fast figures', () => {
+  test('Refresh marks computing exactly the fast figures the state names', async () => {
+    stubFetch({
+      '/api/state': response({ ...PERIODIC_STATE, solve: 'single_pass', fast_figures: ['optics'] }),
+      '/api/refresh': response({ status: 'ok' }),
+    });
+    const cb = makeNetCallbacks();
+    const net = createNetClient(cb);
+    await net.fetchState();
+
+    await net.refresh();
+
+    expect(cb.onFigureStatus.mock.calls).toEqual([['optics', 'computing']]);
+    expect(fetch).toHaveBeenCalledWith('/api/refresh', expect.objectContaining({ method: 'POST' }));
+  });
+});
