@@ -83,3 +83,10 @@ class ExitingConnector(MockConnector):
 
     async def connect(self, config):  # noqa: ARG002 - the base signature
         os._exit(3)
+
+
+class ExitingOnReadConnector(MockConnector):
+    """A connector that starts normally and ends the child process on its first read."""
+
+    async def read_channel(self, channel_address, timeout=None):  # noqa: ARG002 - the base signature
+        os._exit(4)
