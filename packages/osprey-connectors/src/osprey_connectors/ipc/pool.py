@@ -157,7 +157,6 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
-import re
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -166,7 +165,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey_connectors import posture_store
-from osprey_connectors.config import resolve_env_vars
+from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
 from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
@@ -223,10 +222,6 @@ DEFAULT_PING_TIMEOUT_S = 2.0
 #: How long, after a child is killed, the proxy's reader gets to turn the dead
 #: pipe into failures on the calls that were in flight.
 _SETTLE_TIMEOUT_S = 2.0
-
-#: The placeholder shapes :func:`resolve_env_vars` substitutes; one still
-#: present after resolution named a variable the environment does not have.
-_PLACEHOLDER = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
 
 #: Stages of :class:`ConnectorHostStartError`.
 STAGE_CONFIG = "config"
@@ -378,17 +373,6 @@ def _label(key: _Key) -> str:
 def _landing(method: str) -> str:
     """What a lost call's message says about a write that may have been sent."""
     return " The write may or may not have landed." if method in _WRITE_METHODS else ""
-
-
-def _unresolved(block: Any) -> list[str]:
-    """Every placeholder left in *block*, depth-first."""
-    if isinstance(block, str):
-        return _PLACEHOLDER.findall(block)
-    if isinstance(block, Mapping):
-        return [found for value in block.values() for found in _unresolved(value)]
-    if isinstance(block, list | tuple):
-        return [found for value in block for found in _unresolved(value)]
-    return []
 
 
 # ---------------------------------------------------------------------------
@@ -675,7 +659,9 @@ class ConnectorHostPool:
         derivation, readonly_run, writes = self._derive(key, section)
         connector_type = derivation.connector_type
 
-        unresolved = _unresolved(connector_block({"control_system": section}, connector_type))
+        unresolved = unresolved_placeholders(
+            connector_block({"control_system": section}, connector_type)
+        )
         if unresolved:
             raise ConnectorHostStartError(
                 f"Refusing to start a connector-host child for {_label(key)}: "
