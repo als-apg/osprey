@@ -88,8 +88,9 @@ from __future__ import annotations
 
 import os
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -102,10 +103,14 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     READABLES_KEY,
     SCHEMA_KEY,
     SETTABLES_KEY,
+    SETTLE_TOLERANCE_KEY,
 )
 
 
-def devices_document(records: Sequence[ChannelRecord]) -> dict[str, list[dict[str, str]]]:
+def devices_document(
+    records: Sequence[ChannelRecord],
+    settle_bands: Mapping[str, float] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     """Build the worker's device document from the roster's ``records``.
 
     Returns the two-list mapping ``_specs_from_file`` parses: one ``settables``
@@ -122,6 +127,11 @@ def devices_document(records: Sequence[ChannelRecord]) -> dict[str, list[dict[st
     restating the setpoint as its own readback would claim a pairing the roster
     did not make.
 
+    ``settle_bands`` maps a readback address to the band its declared motion
+    keeps it within. A settable whose readback (its pair, or its own setpoint
+    when unpaired) has a band above zero carries it as ``settle_tolerance``,
+    after ``readback``; with no mapping no settable carries the key.
+
     A record whose direction the source could not say (``direction is None``)
     becomes no device. It is not silently demoted to a readable: the honest
     handling of an unknown direction is the build's, which refuses to stage a
@@ -130,19 +140,25 @@ def devices_document(records: Sequence[ChannelRecord]) -> dict[str, list[dict[st
     Args:
         records: The roster's channel records, e.g.
             ``registered_channels(config).records``.
+        settle_bands: Each readback address's settle band, or None.
 
     Returns:
         The device document, ready for :func:`write_devices_file` or the
         build's ``validate_device_document``.
     """
-    settables: list[dict[str, str]] = []
-    readables: list[dict[str, str]] = []
+    settables: list[dict[str, Any]] = []
+    readables: list[dict[str, Any]] = []
+    bands = settle_bands or {}
 
     for record in records:
         if record.direction == "write":
-            entry = {"name": record.address, "setpoint": record.address}
+            entry: dict[str, Any] = {"name": record.address, "setpoint": record.address}
+            readback = record.address
             if record.readback is not None and record.readback != record.address:
-                entry["readback"] = record.readback
+                entry["readback"] = readback = record.readback
+            band = bands.get(readback, 0.0)
+            if band > 0:
+                entry[SETTLE_TOLERANCE_KEY] = float(band)
             settables.append(entry)
         elif record.direction == "read":
             readables.append({"name": record.address, "pv": record.address})
@@ -172,9 +188,10 @@ def write_devices_file(
     *,
     source: RosterSource,
     schema: str,
-) -> dict[str, list[dict[str, str]]]:
-    """Write the document ``devices_document(records)`` builds to ``path`` as
-    YAML, and return it.
+    settle_bands: Mapping[str, float] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Write the document ``devices_document(records, settle_bands)`` builds to
+    ``path`` as YAML, and return it.
 
     ``source`` is the roster source the records came from; it is named in the
     file's header via :meth:`~osprey.channel_roster.records.RosterSource.describe`,
@@ -194,7 +211,7 @@ def write_devices_file(
     validate what it just wrote does not have to re-derive or re-read it.
     """
     path = Path(path)
-    document = devices_document(records)
+    document = devices_document(records, settle_bands)
     body = yaml.safe_dump(document, sort_keys=False, default_flow_style=False, allow_unicode=True)
 
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
