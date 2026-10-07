@@ -4,21 +4,23 @@ from) a real EPICS beamline (PROPOSAL.md's Risk-1/Station-2 gate).
 
 One module-scoped init + build + ``osprey up -d --dev`` co-deploys the
 Virtual Accelerator (task 4.1) and the Bluesky bridge (task 2.9) wired to the
-EPICS substrate scanner (task 2.3), with one sp-echo ``:SP`` pre-faulted
-(task 3.1's ``VA_STUCK_SETPOINTS``) via task 4.2's env passthrough. Six
-proofs then exercise the whole stack end to end:
+EPICS substrate scanner (task 2.3), with one corrector setpoint of a physics
+model given a ``stuck`` fault by a scenario the suite authors into its tree.
+Six proofs then exercise the whole stack end to end:
 
   P1 co-deploy:     containers up, healthy, loopback-only, depends_on ordering held.
   P2 liveness:      the full manifest namespace is reachable over CA.
   P3 read-equiv:    a pyepics (host) read and an ophyd-async (bridge) read of
-                     the same PV agree.
+                     the same PV agree, each within the readback's declared
+                     motion.
   P4 concurrent:    an EPICS-substrate ``grid_scan`` plan runs to completion
                      while a concurrent host read observes the same PV
                      consistently — the loop-affinity falsifier.
-  P5 honest divergence: a write to a pre-faulted ``:SP`` is confirmed (the SP
-                     always latches its own readback), but an independent read
-                     of the sibling ``:RB`` proves it never moved — and both
-                     CA clients (host + bridge) agree on that frozen value.
+  P5 honest divergence: with the stuck scenario applied, a write to the
+                     faulted setpoint is confirmed, but an independent read of
+                     its paired readback proves it never moved — and both CA
+                     clients (host + bridge) read it where it was held before
+                     the write, within its declared motion.
   P6 model RPC:     a host PVAccess client reaches the model surface over the
                      published port, is refused a write that carries no token
                      (and moves nothing), and is taken for one that carries the
@@ -34,14 +36,16 @@ these proofs assert about the substrate is unchanged.
 
 No preset channel names are hardcoded: every address used below is derived
 from the Bluesky view of the source zone's own facility tree (a setpoint with
-a paired readback) restricted to sp-echo pairs — the writable addresses no
+a paired readback). P3/P4 use sp-echo pairs — the writable addresses no
 physics model of the tree wires. The suite authors one limits
 record per chosen setpoint into its own throwaway tree before the build, so
 each scan has a band to sweep inside. A plan names each device by its
 address, the name the build's device file gives it. A write the lattice model is
 coupled to has machine-wide physics side effects, wrong for an isolated
-fault/equivalence probe; sp-echo is a pure software echo, exactly what P3-P5
-need.
+equivalence probe; sp-echo is a pure software echo, exactly what P3/P4 need.
+P5 uses a corrector pair a physics model wires, because ``stuck`` is a fault
+of a model's setpoint: a stuck corrector forwards nothing to the model, so its
+write has no physics side effect either.
 
 Container safety: every docker invocation below names an exact container/image
 — never a wildcard, never ``system prune``/``--volumes``. The one forced
@@ -104,6 +108,14 @@ HOST_CA_OP_SCRIPT = Path(__file__).resolve().parent / "_va_host_ca_op.py"
 # Must match _va_host_ca_op.RESULT_MARKER (kept as a local literal rather than
 # imported -- tests/e2e is a package, so the helper is not on sys.path).
 HOST_CA_RESULT_MARKER = "__HOST_CA_RESULT__"
+
+#: The scenario this suite authors that holds P5's corrector setpoint stuck.
+P5_STUCK_SCENARIO = "p5-stuck"
+#: The VA container's view of the deployment's active scenarios.
+VA_ACTIVE_SCENARIOS = "/state/simulation/active_scenarios"
+#: How long an applied scenario may take to show inside the container: a
+#: container runtime's file sharing, not a property of the virtual accelerator.
+SCENARIO_VISIBLE_SEC = 30.0
 
 #: The band of the limits record this suite authors for each sp-echo setpoint
 #: it drives. An sp-echo is a software copy with no physical range, so any band
@@ -326,6 +338,61 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
     return pairs[:count]
 
 
+def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, str, str]:
+    """Derive the ``(model, setpoint, readback)`` P5 faults from the repo's own
+    facility tree -- no hardcoded preset channel.
+
+    A candidate is a corrector setpoint of a physics model whose paired readback
+    that same model wires, and which a limits record gives a range to write
+    inside. The first by setpoint address is taken.
+    """
+    from osprey.facility.build import build_facility
+    from osprey.facility.views.bluesky import bluesky_document
+    from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
+
+    facility = build_facility(repo / "data" / "facility", project_name=repo.name)
+    readback_of = {
+        entry["setpoint"]: entry["readback"]
+        for entry in bluesky_document(facility)[SETTABLES_KEY]
+        if "readback" in entry
+    }
+    candidates = []
+    for model in facility.get("models") or []:
+        wiring = _orm_stack.physics_wiring({"models": [model]})
+        wired = {str(record["address"]) for record in wiring}
+        for record in wiring:
+            setpoint = str(record["address"])
+            entry = limits.get(setpoint) or {}
+            if (
+                _orm_stack.is_corrector(record)
+                and readback_of.get(setpoint) in wired
+                and "min_value" in entry
+                and "max_value" in entry
+            ):
+                candidates.append((setpoint, str(model["name"]), readback_of[setpoint]))
+    if not candidates:
+        raise AssertionError(
+            "the deployed project's facility tree has no limited corrector setpoint whose "
+            "paired readback its physics model wires"
+        )
+    setpoint, model_name, readback = sorted(candidates)[0]
+    return model_name, setpoint, readback
+
+
+def _author_stuck_scenario(repo: Path, model: str, setpoint: str) -> None:
+    """Write the scenario that holds ``setpoint`` stuck into the repo's tree.
+
+    The suite's own throwaway tree, written before the build so the render
+    carries the scenario P5 applies.
+    """
+    scenario = {
+        "description": "One corrector setpoint takes writes and forwards none to the model.",
+        "faults": {model: {setpoint: "stuck"}},
+    }
+    path = repo / "data" / "facility" / "scenarios" / f"{P5_STUCK_SCENARIO}.yaml"
+    path.write_text(yaml.safe_dump(scenario, sort_keys=False), encoding="utf-8")
+
+
 def _author_sp_echo_records(repo: Path, setpoints: list[str]) -> None:
     """Append one limits record per setpoint to the repo's ``limits.yaml``.
 
@@ -342,7 +409,7 @@ def _author_sp_echo_records(repo: Path, setpoints: list[str]) -> None:
     limits_file.write_text(yaml.safe_dump(limits, sort_keys=False), encoding="utf-8")
 
 
-def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
+def _write_env(repo: Path) -> None:
     """Append this suite's contract env vars to the repo's ``.env`` -- BEFORE
     ``osprey up`` (the bridge/VA compose templates pass these through from the
     repo root's ``.env``).
@@ -351,13 +418,11 @@ def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
     ``.env`` is the deployment's whole secret store, and ``up`` aborts when it
     is missing.
 
-    Only three values, and none of them is a device: the plan devices are the
-    ones the build writes from the facility's channels, each named by its
-    address, so what is left here is two credentials -- the bridge's launch
-    token and the VA's model-write token -- and the VA's stuck-channel fault.
+    Only two values, and neither is a device: the plan devices are the ones
+    the build writes from the facility's channels, each named by its address,
+    so what is left here is two credentials -- the bridge's launch token and
+    the VA's model-write token.
     """
-    _p5_sp, _p5_rb = pairs["p5"]
-
     values = {
         # Supply the launch token ourselves — the preset's local-exec+writes
         # config gates auto-minting off (see LAUNCH_TOKEN above).
@@ -367,7 +432,6 @@ def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
         # virtual_accelerator instance, and the entrypoint reads an unset or
         # blank value as "this deployment takes no model writes at all".
         "VA_MODEL_WRITE_TOKEN": MODEL_WRITE_TOKEN,
-        "VA_STUCK_SETPOINTS": _p5_sp,
     }
 
     env_path = repo / ".env"
@@ -464,12 +528,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         )
 
     # The pairs come from the source zone's facility tree, which exists once
-    # `init` has written the repo, and their limits records go into that tree
-    # before the build renders it.
-    sp3, sp4, sp5 = _select_sp_echo_pairs(repo, count=3)
-    pairs = {"p3": sp3, "p4": sp4, "p5": sp5}
-    _author_sp_echo_records(repo, [setpoint for setpoint, _ in pairs.values()])
+    # `init` has written the repo, and their limits records and P5's scenario
+    # go into that tree before the build renders it.
+    sp3, sp4 = _select_sp_echo_pairs(repo, count=2)
+    _author_sp_echo_records(repo, [sp3[0], sp4[0]])
     limits = _orm_stack.channel_limits(repo)
+    p5_model, p5_sp, p5_rb = _select_stuck_corrector(repo, limits)
+    _author_stuck_scenario(repo, p5_model, p5_sp)
+    pairs = {"p3": sp3, "p4": sp4, "p5": (p5_sp, p5_rb)}
 
     build = _run(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
@@ -482,7 +548,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
-    _write_env(repo, pairs)
+    _write_env(repo)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise reuse a
@@ -1073,78 +1139,133 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
 
 
 # ---------------------------------------------------------------------------
-# P5: honest divergence under a pre-faulted setpoint (STRICT — no flaky mark)
+# P5: honest divergence under a stuck setpoint (STRICT — no flaky mark)
 # ---------------------------------------------------------------------------
+
+
+def _active_inside_va() -> str:
+    """The active scenarios file as the VA container reads it."""
+    result = subprocess.run(
+        ["docker", "exec", VA_CONTAINER, "cat", VA_ACTIVE_SCENARIOS],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return result.stdout if result.returncode == 0 else ""
+
+
+def _sim_apply(repo: Path, *scenarios: str) -> None:
+    """``osprey sim apply`` the scenarios at the deployment, then wait until the VA
+    serves them.
+
+    ``--no-seed``: the apply only rewrites the active set, and never reseeds the
+    logbook or the archive this stack deploys. The VA re-reads the file on every
+    runner pass and rebuilds at the new set, so once the container sees the file
+    two ticks are enough for it to serve the set.
+    """
+    from osprey_connectors.simulation import DEFAULT_TICK_S
+    from osprey_connectors.workspace import resolve_simulation_state_dir
+
+    applied = _run(
+        [str(_find_osprey_console_script()), "sim", "apply", *scenarios, "--no-seed"],
+        cwd=repo,
+        timeout=120,
+    )
+    assert applied.returncode == 0, (
+        f"osprey sim apply {' '.join(scenarios)} failed (rc={applied.returncode}):\n"
+        f"--- stdout ---\n{applied.stdout}\n--- stderr ---\n{applied.stderr}"
+    )
+    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    state_dir = resolve_simulation_state_dir(rendered, repo)
+    written = (state_dir / "active_scenarios").read_text(encoding="utf-8")
+    deadline = time.monotonic() + SCENARIO_VISIBLE_SEC
+    while _active_inside_va() != written:
+        assert time.monotonic() < deadline, (
+            f"{VA_CONTAINER} never saw the active scenarios the host wrote ({written!r})"
+        )
+        time.sleep(0.2)
+    time.sleep(2 * DEFAULT_TICK_S)
 
 
 async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: DeployedStack) -> None:
     sp, rb = deployed_stack.pairs["p5"]
     lo, hi = deployed_stack.bounds(sp)
-    # Away from 0.0 (the RB's frozen initial value) and from the midpoints
-    # P3/P4 use on their own disjoint pairs — irrelevant here, but keeps the
-    # chosen value unambiguous against a stuck-at-zero readback.
-    value = lo + 0.5 * (hi - lo)
-    assert abs(value) > 1e-6
+    band = served_settle_bands(deployed_stack.repo, [rb])[rb]
 
-    # Host side (pyepics), isolated in its own process: write the pre-faulted SP,
-    # then read the sibling RB back — one connect/write/read in one subprocess.
-    host = _run_host_ca_op(
-        _host_ca_op_spec(deployed_stack.repo, read=rb, write={"address": sp, "value": value})
-    )
-    # The SP always latches its own written value (records.py) even when stuck --
-    # only the propagation to RB is dropped. write_channel confirms by re-reading
-    # the SAME channel it wrote (the SP), so a stuck-RB fault is invisible to it:
-    # the outcome MUST be `confirmed`.
-    assert host["write_outcome"] == "confirmed", (
-        f"write to pre-faulted {sp} was not confirmed (SP always latches its own "
-        f"readback regardless of the fault): {host}"
-    )
+    _sim_apply(deployed_stack.repo, P5_STUCK_SCENARIO)
+    try:
+        # Where the readback is held before the write, read by the host itself.
+        held0 = _run_host_ca_op(_host_ca_op_spec(deployed_stack.repo, read=rb))["read_value"]
+        # Inside the setpoint's limits record and the farther of two points from
+        # the held level, so a readback that followed could not pass for one that
+        # held.
+        value = max((lo + 0.75 * (hi - lo), lo + 0.25 * (hi - lo)), key=lambda v: abs(v - held0))
 
-    # Independent read of the SIBLING readback — this is where the fault is
-    # honest: it must never have followed the SP.
-    host_rb = host["read_value"]
-    assert abs(host_rb - value) > 1e-6, (
-        f"expected {rb} to diverge from the written setpoint {value} under "
-        f"VA_STUCK_SETPOINTS, but it read {host_rb} — fault did not take effect"
-    )
+        # Host side (pyepics), isolated in its own process: write the stuck SP,
+        # then read its paired RB back — one connect/write/read in one subprocess.
+        host = _run_host_ca_op(
+            _host_ca_op_spec(deployed_stack.repo, read=rb, write={"address": sp, "value": value})
+        )
+        # A stuck setpoint takes the write and forwards none of it to the model;
+        # write_channel confirms by re-reading the SAME channel it wrote (the
+        # SP), so the fault is invisible to it: the outcome MUST be `confirmed`.
+        assert host["write_outcome"] == "confirmed", (
+            f"write to stuck {sp} was not confirmed (a stuck setpoint takes the write): {host}"
+        )
 
-    # grid_scan replaces the dropped `count` builtin (see P3): drive the p4
-    # scan setpoint, never the stuck p5 pair, and read the frozen p5 readback at
-    # each of the 2 grid points.
-    m_sp, _ = deployed_stack.pairs["p4"]
-    m_lo, m_hi = deployed_stack.bounds(m_sp)
-    run_id, status_body = await _run_scan(
-        "grid_scan",
-        {
-            "readbacks": [rb],
-            "axes": [
-                {
-                    "setpoint": m_sp,
-                    "start": m_lo + 0.25 * (m_hi - m_lo),
-                    "stop": m_lo + 0.75 * (m_hi - m_lo),
-                    "num_points": 2,
-                }
-            ],
-        },
-        deployed_stack.repo,
-    )
-    assert status_body.get("status") == "completed", (
-        f"P5 divergence run did not complete: {status_body}"
-    )
+        # Independent read of the paired readback — this is where the fault is
+        # honest: it must never have followed the SP, so it sits farther from the
+        # written value than its motion can carry it, and where it was held.
+        host_rb = host["read_value"]
+        assert abs(host_rb - value) > max(band, 1e-6), (
+            f"expected {rb} to diverge from the written setpoint {value} under "
+            f"{P5_STUCK_SCENARIO!r}, but it read {host_rb} — fault did not take effect"
+        )
+        assert abs(host_rb - held0) <= band, (
+            f"host (pyepics) read of stuck {rb} = {host_rb} left its held level {held0} by "
+            f"more than {band:g} (its seed's noise and drift)"
+        )
 
-    status, data = _get(f"/runs/{run_id}/data")
-    assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
-    assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-    col = _find_column(data["columns"], rb)
-    bridge_rb = data["rows"][0][col]
-    assert bridge_rb is not None, f"no value recorded for {rb}: {data}"
+        # grid_scan replaces the dropped `count` builtin (see P3): drive the p4
+        # scan setpoint, never the stuck p5 pair, and read the frozen p5 readback
+        # at each of the 2 grid points.
+        m_sp, _ = deployed_stack.pairs["p4"]
+        m_lo, m_hi = deployed_stack.bounds(m_sp)
+        run_id, status_body = await _run_scan(
+            "grid_scan",
+            {
+                "readbacks": [rb],
+                "axes": [
+                    {
+                        "setpoint": m_sp,
+                        "start": m_lo + 0.25 * (m_hi - m_lo),
+                        "stop": m_lo + 0.75 * (m_hi - m_lo),
+                        "num_points": 2,
+                    }
+                ],
+            },
+            deployed_stack.repo,
+        )
+        assert status_body.get("status") == "completed", (
+            f"P5 divergence run did not complete: {status_body}"
+        )
 
-    # Both independent CA clients (host pyepics, bridge ophyd-async) must
-    # agree on the frozen value -- honest divergence, not a per-client one.
-    assert abs(host_rb - bridge_rb) <= 1e-6, (
-        f"host (pyepics) read of frozen {rb} = {host_rb} != bridge (ophyd-async) "
-        f"read = {bridge_rb} — the two CA clients disagree on the stuck readback"
-    )
+        status, data = _get(f"/runs/{run_id}/data")
+        assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
+        assert data["row_count"] == 2, f"expected one row per grid point: {data}"
+        col = _find_column(data["columns"], rb)
+        bridge_rb = data["rows"][0][col]
+        assert bridge_rb is not None, f"no value recorded for {rb}: {data}"
+
+        # Both independent CA clients (host pyepics, bridge ophyd-async) read the
+        # readback where it was held -- honest divergence, not a per-client one.
+        assert abs(bridge_rb - held0) <= band, (
+            f"bridge (ophyd-async) read of stuck {rb} = {bridge_rb} left its held level "
+            f"{held0} by more than {band:g} (its seed's noise and drift)"
+        )
+    finally:
+        # The stack is module-scoped: the next proof gets the nominal machine.
+        _sim_apply(deployed_stack.repo, "nominal")
 
 
 # ---------------------------------------------------------------------------
