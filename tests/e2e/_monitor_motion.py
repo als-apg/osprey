@@ -7,7 +7,8 @@ served reading equal to the model's truth -- needs readings that are the orbit
 and nothing else, so it stills them in the facility tree it deploys, before
 that tree is built or mounted. A monitor reading is an address whose wiring
 record in ``models.yaml`` reads an ``axis``; every other seed keeps what the
-file declares.
+file declares. A suite that also reads back the devices it drives stills every
+reading the model serves instead (:func:`still_model_motion`).
 
 Shared by the deploy-backed lanes (``tests/e2e``) and the live-container suite
 (``tests/va/e2e``). Imports nothing that serves Channel Access.
@@ -48,6 +49,44 @@ def still_monitor_motion(data_root: Path) -> frozenset[str]:
     seeds = yaml.safe_load(seeds_yaml.read_text(encoding="utf-8")) or {}
     stilled: set[str] = set()
     for address in monitors:
+        seed = seeds.get(address)
+        if not isinstance(seed, dict):
+            continue
+        for key in MOTION_KEYS:
+            if key in seed:
+                del seed[key]
+                stilled.add(address)
+    seeds_yaml.write_text(yaml.safe_dump(seeds, sort_keys=True), encoding="utf-8")
+    return frozenset(stilled)
+
+
+def still_model_motion(data_root: Path) -> frozenset[str]:
+    """Remove the declared motion from every reading the model serves at ``data_root``.
+
+    A suite whose oracle is the noiseless model, and which reads back the
+    devices it drives, stills every reading the model serves: every
+    ``address`` of every ``wiring`` record in ``models.yaml`` -- monitors,
+    readbacks and setpoints alike. Only the motion keys of those seeds are
+    removed; every other key, and every seed no model wires, keeps what the
+    file declares.
+
+    Args:
+        data_root: The data root: the directory whose ``facility/`` holds
+            ``seeds.yaml`` and ``models.yaml``.
+
+    Returns:
+        The wired addresses whose declared motion was removed.
+    """
+    facility = data_root / "facility"
+    seeds_yaml = facility / "seeds.yaml"
+    models_yaml = facility / "models.yaml"
+    assert seeds_yaml.is_file(), f"no seeds file at {seeds_yaml}"
+    assert models_yaml.is_file(), f"no models file at {models_yaml}"
+    models = yaml.safe_load(models_yaml.read_text(encoding="utf-8")) or []
+    wired = {str(record["address"]) for model in models for record in model.get("wiring") or []}
+    seeds = yaml.safe_load(seeds_yaml.read_text(encoding="utf-8")) or {}
+    stilled: set[str] = set()
+    for address in wired:
         seed = seeds.get(address)
         if not isinstance(seed, dict):
             continue

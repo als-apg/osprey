@@ -1,12 +1,13 @@
-"""The noiseless-oracle e2e stacks serve their monitors without declared motion.
+"""The noiseless-oracle e2e stacks serve their readings without declared motion.
 
-The ORM and bump round trips and the live VA suites compare what the stack
-serves with the noiseless model, so ``tests/e2e/_monitor_motion`` removes the
-noise and drift the facility's ``seeds.yaml`` gives every monitor reading -- an
-address whose wiring in ``models.yaml`` reads an ``axis`` -- before the tree is
-built or mounted. These tests run it on the shipped example facility: every
-moving monitor is left without motion, and every other seed is left exactly as
-the facility declares it.
+The live VA suites compare what the stack serves with the noiseless model, so
+``tests/e2e/_monitor_motion`` removes the noise and drift the facility's
+``seeds.yaml`` gives every monitor reading -- an address whose wiring in
+``models.yaml`` reads an ``axis`` -- before the tree is built or mounted. The
+ORM and bump round trips also settle on and read back the corrector readbacks,
+so they still every reading the model wires instead. These tests run both on
+the shipped example facility: every moving reading in scope is left without
+motion, and every other seed and key is left exactly as the facility declares it.
 """
 
 from __future__ import annotations
@@ -72,4 +73,52 @@ def test_every_moving_monitor_is_stilled_and_nothing_else_changes(tmp_path: Path
     ] == []
     assert {address: seed for address, seed in written.items() if address not in monitors} == {
         address: seed for address, seed in declared.items() if address not in monitors
+    }
+
+
+def _wired(models: list[dict[str, Any]]) -> set[str]:
+    return {str(record["address"]) for model in models for record in model.get("wiring") or []}
+
+
+def test_every_wired_reading_is_stilled_and_nothing_else_changes(tmp_path: Path) -> None:
+    from tests.e2e._monitor_motion import still_model_motion
+
+    repo = _repo_with_preset_facility(tmp_path)
+    seeds_yaml = repo / "data" / "facility" / "seeds.yaml"
+    declared = _load(PRESET_FACILITY_DIR / "seeds.yaml")
+    models = _load(PRESET_FACILITY_DIR / "models.yaml")
+    wired = _wired(models)
+    moving = {
+        address
+        for address in wired
+        if any(key in (declared.get(address) or {}) for key in MOTION_KEYS)
+    }
+    moving_non_monitors = moving - _monitors(models)
+    assert moving_non_monitors, (
+        "the example facility declares no motion on a wired non-monitor reading, so this "
+        "cannot tell stilling every wired reading from stilling the monitors alone"
+    )
+
+    stilled = still_model_motion(repo / "data")
+
+    assert stilled == moving
+    assert stilled & moving_non_monitors == moving_non_monitors
+    written = _load(seeds_yaml)
+    assert written.keys() == declared.keys()
+    assert [
+        address
+        for address in wired
+        if any(key in (written.get(address) or {}) for key in MOTION_KEYS)
+    ] == []
+    assert {address: seed for address, seed in written.items() if address not in wired} == {
+        address: seed for address, seed in declared.items() if address not in wired
+    }
+    assert {
+        address: {key: value for key, value in (seed or {}).items() if key not in MOTION_KEYS}
+        for address, seed in written.items()
+        if address in wired
+    } == {
+        address: {key: value for key, value in (seed or {}).items() if key not in MOTION_KEYS}
+        for address, seed in declared.items()
+        if address in wired
     }
