@@ -70,6 +70,7 @@ exclude:
     - pyat-specialist         # Lattice computation needs the Python sandbox
   web_panels:
     - ariel
+    - lattice         # Simulator optics belong to the control room
     - system-health
     - jupyter         # Notebook kernels read and write through the control target
 # The `safety` rule is deliberately NOT excluded. Its tools are gone, so the
