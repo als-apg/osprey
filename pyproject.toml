@@ -388,31 +388,24 @@ screen-capture-linux = [
 # pcaspy is the portable Channel Access server. The serving layer hosts one,
 # and tests/va/test_apply_fault.py stands one up to assert the scenario faults
 # from the far side of the wire; without pcaspy installed that suite skips, and
-# a skipped live suite proves nothing.
-#
-# `>=0.8.1` is a hard floor, not a preference. 0.8.0's `SimplePV.writeNotify`
-# hands `startAsyncWrite` the wrong object and aborts the server process on any
-# asynchronous write, and the client is not told: `caput -w` returns success in
-# tens of milliseconds for a value that never landed. The fix needs
-# `casClientInfo.ctx`, a binding that only exists in the 0.8.1 extension.
+# a skipped live suite proves nothing. It arrives through lume-pva-apg's `ca`
+# extra, which carries the `>=0.8.1` floor itself, so this extra names it
+# nowhere. That floor is hard: 0.8.0's `SimplePV.writeNotify` aborts the server
+# on any asynchronous write while `caput -w` still reports success.
 #
 # The environment marker is load-bearing. pcaspy publishes manylinux x86_64
 # wheels at every interpreter, but nothing else that loads: cp313/cp314 are
 # x86_64-only, there is no linux aarch64 wheel at any interpreter, and the
 # macosx_11_0_arm64 wheels are broken as shipped (they link
-# @rpath/libc++.1.dylib with no surviving LC_RPATH entry). Unmarked, this
-# requirement would send a developer's Mac into a source build that needs EPICS
-# Base plus the separate PCAS module, and fail. Marked, those hosts get the
-# honest `importorskip` skip and run the live suites in the container venue
-# under scripts/va/live_ca/ instead.
-#
-# THE SAME MARKER RIDES ON lume-pva-apg, and for the same reason rather than
-# for symmetry: its `ca` extra requires pcaspy with no marker of its own, so an
-# unmarked entry here would pull pcaspy onto every host through the back door
-# and defeat the marker above. Verified, not assumed -- resolving
-# `lume-pva-apg[ca,pva]==0.1.5` for macOS at 3.13 selects pcaspy 0.8.1, whose
-# only artifact at that interpreter and platform is the sdist. The two lines
-# must therefore stay marked together; marking one alone does nothing.
+# @rpath/libc++.1.dylib with no surviving LC_RPATH entry). The marker rides on
+# the lume-pva-apg entry alone, because its `ca` extra requires pcaspy with no
+# marker of its own: unmarked, this entry would send a developer's Mac into a
+# pcaspy source build that needs EPICS Base plus the separate PCAS module, and
+# fail. Verified, not assumed -- resolving `lume-pva-apg[ca,pva]==0.1.5` for
+# macOS at 3.13 selects pcaspy 0.8.1, whose only artifact at that interpreter
+# and platform is the sdist. Marked, those hosts get the honest `importorskip`
+# skip and run the live suites in the container venue under scripts/va/live_ca/
+# instead.
 #
 # The cost of the marker is that `import lume_pva_apg` is unavailable on a Mac
 # too. That costs nothing real: `serving/runner.py` imports `lume_pva_apg.runner`,
@@ -420,10 +413,9 @@ screen-capture-linux = [
 # else is installed, and the suites that reach it already treat all three server
 # roots the same way.
 virtual-accelerator = [
-    "pcaspy>=0.8.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "lume-pva-apg[ca,pva]==0.1.5; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    # Recorder-side (see the note above); deliberately UNMARKED, unlike the two
-    # serving entries. That marker is not a house style to copy — it exists
+    # Recorder-side (see the note above); deliberately UNMARKED, unlike the
+    # serving entry. That marker is not a house style to copy — it exists
     # because pcaspy publishes no usable wheel off linux/x86_64. These two do,
     # everywhere, so marking them would only make the recorder's dependencies
     # silently absent on a developer's machine.

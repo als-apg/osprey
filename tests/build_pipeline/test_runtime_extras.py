@@ -37,10 +37,6 @@ NON_RUNTIME_EXTRAS: frozenset[str] = frozenset({"all", "dev", "docs"})
 # Packages an extra installs to change another package's behaviour at run time
 # rather than to be imported by the shipped code.
 RUNTIME_ENABLERS: dict[str, str] = {
-    "pcaspy": (
-        "lume-pva-apg[ca] requires pcaspy with no floor; serving/runner.py's Channel Access"
-        " server needs 0.8.1, the first release whose asynchronous write does not abort it"
-    ),
     "pysocks": "httplib2 honours HTTP(S)_PROXY only with PySocks installed",
 }
 
