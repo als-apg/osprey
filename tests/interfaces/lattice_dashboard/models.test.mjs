@@ -26,6 +26,7 @@ import { createNetClient } from '../../../src/osprey/interfaces/lattice_dashboar
 import {
   bindModelSelect,
   renderModelSelect,
+  renderNotice,
   showFigureUnavailable,
   syncAvailability,
   unavailableFigures,
@@ -74,6 +75,7 @@ function panelText(name) {
 
 function mountFixture() {
   document.body.innerHTML = `
+    <div id="model-notice" role="status" style="display:none"></div>
     ${figureCells()}
     <select id="model-select" style="display:none"></select>
     <button id="btn-refresh"></button>
@@ -325,5 +327,28 @@ describe('figures the selected model cannot draw', () => {
       expect(panelText(name)).toBe('Waiting for lattice...');
       expect(byId(`cell-${name}`).dataset.available).toBeUndefined();
     }
+  });
+});
+
+describe('notice banner', () => {
+  test.each([
+    ['no lattice model is served'],
+    ['no simulator view in this build'],
+  ])('shows the state notice %j verbatim', (notice) => {
+    renderNotice(notice);
+
+    const banner = byId('model-notice');
+    expect(banner.textContent).toBe(notice);
+    expect(banner.style.display).toBe('');
+  });
+
+  test('a null notice empties and hides the banner', () => {
+    renderNotice('no lattice model is served');
+
+    renderNotice(null);
+
+    const banner = byId('model-notice');
+    expect(banner.textContent).toBe('');
+    expect(banner.style.display).toBe('none');
   });
 });

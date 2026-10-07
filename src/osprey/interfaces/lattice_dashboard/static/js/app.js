@@ -26,6 +26,7 @@ import { createHeader } from './header.js';
 import {
   bindModelSelect,
   renderModelSelect,
+  renderNotice,
   showFigureUnavailable,
   syncAvailability,
   unavailableFigures,
@@ -70,6 +71,7 @@ const net = createNetClient({
   onState: (state) => {
     renderer.renderState(state);
     syncAvailability(state, ALL_FIGURES, net.fetchAndRenderFigure);
+    renderNotice(state.notice);
     header.syncState(state);
     loadSettings();
   },

@@ -121,6 +121,9 @@
     <!-- Figure pane: the summary strip belongs to the figures, not to the top
          bar, so both the standalone page and the embedded panel show it. -->
     <div id="figure-pane">
+      <!-- The state's notice when the build gives the dashboard nothing to
+           load; filled and shown by js/models.js. -->
+      <div id="model-notice" class="summary-strip" role="status" style="display:none"></div>
       <div class="summary-strip" id="stats-row">
         <div class="stat-chip" id="stat-energy" title="Beam energy">
           <span class="stat-label">E</span>

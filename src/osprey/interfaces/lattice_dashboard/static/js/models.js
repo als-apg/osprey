@@ -7,7 +7,8 @@
  *
  * The figure panels the selected model cannot draw: a single-pass or an
  * unserved model draws optics alone, and every other panel shows why in
- * place of its plot.
+ * place of its plot. The banner above the figures carries the state's
+ * notice when the build gives the dashboard nothing to load.
  *
  * Uses the createElement()/textContent DOM style — no innerHTML with
  * interpolated data.
@@ -136,4 +137,17 @@ export function syncAvailability(state, figureNames, fetchFigure) {
     else if (state.served === false) showFigureUnavailable(name, UNSERVED_LABEL);
     else fetchFigure(name);
   }
+}
+
+/**
+ * Show the state's notice in the banner above the figures, verbatim; a null
+ * notice empties and hides it.
+ * @param {string | null} notice - the /api/state `notice`
+ */
+export function renderNotice(notice) {
+  const banner = document.getElementById('model-notice');
+  if (!banner) return;
+  banner.textContent = notice ?? '';
+  // .summary-strip sets display, which outranks the hidden attribute.
+  banner.style.display = notice === null ? 'none' : '';
 }
