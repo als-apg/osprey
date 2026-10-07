@@ -192,6 +192,11 @@ class LatticeState:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    def clear_figures(self) -> None:
+        """Remove every figure's raw-data file, so no figure is served until recomputed."""
+        for path in self.figures_dir.glob("*.json"):
+            path.unlink(missing_ok=True)
+
     # ── Load / Save ───────────────────────────────────────────
 
     def load(self) -> dict[str, Any]:

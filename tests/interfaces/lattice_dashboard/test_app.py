@@ -221,6 +221,48 @@ class TestModels:
         )
 
 
+_OPTICS_RAW = {"s_pos": [0.0, 1.0], "beta_x": [1.0, 2.0], "beta_y": [2.0, 1.0], "eta_x": [0.0, 0.1]}
+
+
+class TestModelSwitch:
+    @pytest.fixture
+    def figures(self, tmp_path):
+        return tmp_path / "ws" / "lattice" / "figures"
+
+    def test_switch_clears_figures_until_the_worker_writes(self, client, figures):
+        client.get("/api/state")
+        (figures / "optics.json").write_text(json.dumps(_OPTICS_RAW))
+        (figures / "da.json").write_text(json.dumps({"da_x": [], "da_y": [], "area_mm2": 0}))
+        assert client.get("/api/figures/optics").status_code == 200
+
+        client.post("/api/models/select", json={"name": "TRANSFER"})
+
+        r = client.get("/api/figures/optics")
+        assert r.status_code == 404
+        assert r.json()["detail"] == "Figure not yet computed: optics"
+        assert list(figures.glob("*.json")) == []
+        (figures / "optics.json").write_text(json.dumps(_OPTICS_RAW))
+        assert client.get("/api/figures/optics").status_code == 200
+
+    def test_switch_cancels_the_running_workers(self, client, monkeypatch):
+        client.get("/api/state")
+        cancelled = []
+        monkeypatch.setattr(
+            compute_mod.ComputeManager, "cancel_all", lambda self: cancelled.append(True)
+        )
+
+        client.post("/api/models/select", json={"name": "TRANSFER"})
+
+        assert cancelled == [True]
+
+    def test_unknown_model_keeps_the_figures(self, client, figures):
+        client.get("/api/state")
+        (figures / "optics.json").write_text(json.dumps(_OPTICS_RAW))
+
+        assert client.post("/api/models/select", json={"name": "SPARE"}).status_code == 404
+        assert client.get("/api/figures/optics").status_code == 200
+
+
 class TestSinglePass:
     @pytest.fixture
     def transfer(self, client, launched):

@@ -243,11 +243,15 @@ class _ModelLoader:
 
     Args:
         state: The dashboard state.
+        compute: The figure workers, stopped when the model is switched.
         render_root: The render to read the simulator view from, or None.
     """
 
-    def __init__(self, state: LatticeState, render_root: Path | None) -> None:
+    def __init__(
+        self, state: LatticeState, compute: ComputeManager, render_root: Path | None
+    ) -> None:
         self._state = state
+        self._compute = compute
         self._render_root = render_root
         self._lock = threading.Lock()
         self._catalog: ModelCatalog | None = None
@@ -306,7 +310,9 @@ class _ModelLoader:
     def select(self, name: str) -> DashboardModel | None:
         """Initialise the state from model *name*'s deck.
 
-        Overrides and the old baseline are dropped; settings are kept.
+        Overrides and the old baseline are dropped; settings are kept. The
+        running workers are stopped and every figure is removed first, so no
+        figure of the previous model is served or written after the switch.
 
         Returns:
             The model loaded, or None when the catalog has no model *name*.
@@ -315,6 +321,8 @@ class _ModelLoader:
             model = self.catalog().get(name)
             if model is None:
                 return None
+            self._compute.cancel_all()
+            self._state.clear_figures()
             self._load(model, self._digest(model.deck))
             return model
 
@@ -347,7 +355,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
     state = LatticeState(state_dir)
     broadcaster = _SSEBroadcaster()
     compute = ComputeManager(state, broadcaster)
-    loader = _ModelLoader(state, Path(render_root) if render_root is not None else None)
+    loader = _ModelLoader(state, compute, Path(render_root) if render_root is not None else None)
 
     def sync_model() -> None:
         try:
