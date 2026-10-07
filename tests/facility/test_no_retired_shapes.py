@@ -51,7 +51,7 @@ EXCLUDED: tuple[str, ...] = ("changelog.d/", "CHANGELOG.md")
 #: Files that spell retired tokens as data.
 SELF_EXEMPT: tuple[str, ...] = (
     "src/osprey/profiles/config_key_manifest.yml",
-    "tests/build/test_tier_completion.py",
+    "tests/build_pipeline/test_tier_completion.py",
     "tests/connectors/test_limits_mode.py",
     "tests/docs/test_environment_variable_page.py",
     "tests/docs/test_mml_converter_retired.py",

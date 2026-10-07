@@ -18,7 +18,7 @@ from __future__ import annotations
 #:
 #: Two things derive a *narrower* set than the whole tuple, each subtracting
 #: ``graph`` because a graph store is a service rather than a database file
-#: (``tests/build/test_modes.py`` pins both subtractions so the exclusion
+#: (``tests/build_pipeline/test_modes.py`` pins both subtractions so the exclusion
 #: stays deliberate):
 #:
 #: - :data:`osprey.services.channel_finder.benchmarks.runner.PARADIGM_CONFIG_KEYS`
