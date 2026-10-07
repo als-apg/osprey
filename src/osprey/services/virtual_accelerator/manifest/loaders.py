@@ -159,10 +159,9 @@ def load_machine_json_channels(
     """Return the scenario-seed machine.json channels keyed by address.
 
     ``path`` selects which machine.json to read: ``None`` (the default)
-    reads the bundled control-assistant template's copy; a file-backed
-    facility passes its own mounted
-    machine.json instead (see ``entrypoint.py``). ``paths`` supplies the
-    fallback for callers that anchor on a data tree rather than a single
+    reads ``paths.machine_json``; a file-backed facility passes its own
+    mounted machine.json instead (see ``entrypoint.py``). ``paths`` supplies
+    the fallback for callers that anchor on a data tree rather than a single
     file (the build-time generator).
     """
     data = json.loads((path or paths.machine_json).read_text())

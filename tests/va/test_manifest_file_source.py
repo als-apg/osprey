@@ -209,3 +209,31 @@ class TestSubfieldVocabularyHasOneProducer:
         producer = inspect.getsource(classify)
         assert 'SETPOINT_SUBFIELD = "SP"' in producer
         assert 'READBACK_SUBFIELD = "RB"' in producer
+
+
+class TestATreeWithoutAScenarioSeed:
+    """A data tree carrying no ``machine.json`` still yields a manifest."""
+
+    def test_the_packaged_tree_builds_with_no_scenario_seed(self, tmp_path: Path) -> None:
+        import shutil
+
+        from osprey.services.virtual_accelerator.manifest import build_manifest
+        from osprey.services.virtual_accelerator.manifest.paths import (
+            PACKAGE_PATHS,
+            ManifestPaths,
+        )
+
+        shutil.copytree(
+            PACKAGE_PATHS.data_root,
+            tmp_path,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("simulation"),
+        )
+        paths = ManifestPaths(data_root=tmp_path, tier=PACKAGE_PATHS.tier)
+        assert not paths.machine_json.exists()
+
+        metadata = build_manifest(paths)["_metadata"]
+
+        assert metadata["total_channels"] > 0
+        assert metadata["machine_json_channel_count"] == 0
+        assert metadata["machine_json_novel_addresses"] == []
