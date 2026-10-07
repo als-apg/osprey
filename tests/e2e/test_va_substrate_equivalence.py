@@ -77,7 +77,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -278,38 +278,29 @@ def _numeric_gaps(diff: dict[str, dict[str, Any]]) -> dict[str, float]:
     }
 
 
-def _monitor_motion_bands(repo: Path, truths: dict[str, float]) -> dict[str, float]:
+def _monitor_motion_bands(repo: Path, addresses: Iterable[str]) -> dict[str, float]:
     """How far each served reading's declared motion can carry it from the model's truth.
 
     The virtual accelerator serves a lattice-bound monitor as the solved orbit
-    plus the motion its ``machine.json`` entry declares -- the texture's
-    envelope, relative noise on the moving level, absolute noise -- re-drawn on
-    every telemetry tick, while the model's truth stays motion-free. So the
+    plus the motion its seed declares -- a slow drift and white noise -- drawn
+    afresh at every read, while the model's truth stays motion-free. So the
     served/truth gap of such a reading is that motion, and this is its bound:
-    the texture amplitude, which is structural, plus ``MODEL_MOTION_SIGMAS`` of
-    each Gaussian term. Read from the served tree's own machine file, the same
-    bytes the container parses; a reading it declares no motion for gets 0.0,
-    so it is held to the exact tolerances.
+    the drift amplitude, which is structural, plus ``MODEL_MOTION_SIGMAS`` of
+    the noise. Read from the seeds of the simulator view the build rendered,
+    the same bytes the container serves; a reading whose seed declares no
+    motion gets 0.0, so it is held to the exact tolerances.
     """
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
-    from osprey.simulation.machine import parse_machine
+    from osprey.facility.views.simulator import SEEDS_FILE, simulator_view
 
-    data_root = served_data_root(repo, repo / "build")
-    assert data_root is not None, f"the deployment at {repo} serves no machine.json"
-    machine_json = ManifestPaths(data_root=data_root).machine_json
-    channels = parse_machine(
-        json.loads(machine_json.read_text(encoding="utf-8")), machine_json
-    ).channels
+    seeds_json = simulator_view(repo) / SEEDS_FILE
+    assert seeds_json.is_file(), f"the deployment at {repo} rendered no seeds at {seeds_json}"
+    seeds = json.loads(seeds_json.read_text(encoding="utf-8"))["seeds"]
     bands: dict[str, float] = {}
-    for address, truth in truths.items():
-        channel = channels.get(address)
-        if channel is None:
-            bands[address] = 0.0
-            continue
-        amplitude = channel.texture.amplitude if channel.texture is not None else 0.0
-        relative = channel.noise * (abs(truth) + amplitude)
-        bands[address] = amplitude + MODEL_MOTION_SIGMAS * (relative + channel.noise_abs)
+    for address in addresses:
+        seed = seeds.get(address) or {}
+        drift = seed.get("drift") or {}
+        amplitude = abs(float(drift.get("amplitude") or 0.0))
+        bands[address] = amplitude + MODEL_MOTION_SIGMAS * abs(float(seed.get("noise") or 0.0))
     return bands
 
 
@@ -1174,7 +1165,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
       * the served reading and the model's truth must AGREE before the accepted
         write and disagree by exactly the written offset after it, so neither
         half can be satisfied by a divergence that was already there. "Agree"
-        and "exactly" are to within the motion the machine file declares for
+        and "exactly" are to within the motion the seeds declare for
         that reading (`_monitor_motion_bands`), which the served reading
         carries and the truth does not; the offset is sized far above it.
 
@@ -1241,10 +1232,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
         assert gaps_before, (
             "diff reports no numeric channel at all, so there is nowhere to observe a model write"
         )
-        bands = _monitor_motion_bands(
-            deployed_stack.repo,
-            {address: float(before[address]["truth"]) for address in gaps_before},
-        )
+        bands = _monitor_motion_bands(deployed_stack.repo, gaps_before)
         # Two snapshots of one reading each carry an independent draw of its
         # motion, so a reading counts as moved only past twice its band.
         quiet = {address: 2.0 * band + MODEL_QUIET_TOL for address, band in bands.items()}
