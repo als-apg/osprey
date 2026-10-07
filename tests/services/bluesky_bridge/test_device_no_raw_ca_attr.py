@@ -119,6 +119,7 @@ _EXPECTED_SETTABLE_PUBLIC_ATTRS = [
     "describe_configuration",
     "has_distinct_readback",
     "hints",
+    "locate",
     "log",
     "name",
     "parent",
