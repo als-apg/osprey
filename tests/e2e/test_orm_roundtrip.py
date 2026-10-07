@@ -10,9 +10,9 @@ queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
 
   (a) the measured response matrix -- built via the SAME
       ``orm_analysis.build_response_matrix`` an MCP-side analysis step would
-      use -- agrees with the independent ``lattice/response.py`` model oracle
-      (mirrors task 5.1's in-process cross-check, but over the deployed
-      HTTP+container stack rather than a direct ``PhysicsBridge`` call).
+      use -- agrees with an in-process composite over the simulator view the
+      build rendered, driven through the same addresses over the same sweep
+      as the deployed HTTP+container stack.
   (b) the run reaches a terminal "completed" status within a bounded
       timeout -- i.e. no corrector step ever hangs the bridge's
       ``ConnectorSettable.set()`` settle-wait (``devices/connector.py`` --
@@ -32,20 +32,19 @@ queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
       row buffer is gone, the route can only answer from the Tiled catalog,
       and the figure it draws from there matches the one it drew live.
 
-No physics fault is seeded on this stack (no ``VA_BPM_ERRORS``/
-``VA_CORR_GAIN`` in the written ``.env``),
-so every BPM/corrector carries the identity error state
-(``PhysicsBridge.__init__``'s default). The measured/model
-agreement is therefore bounded only by AT numerical-solve reproducibility and
-the JSON/HTTP round trip, not a physical noise floor -- see ``MATCH_ATOL``.
+No physics fault is seeded on this stack and its monitors serve without
+declared motion, so every BPM and corrector carries the identity error state.
+The measured/model agreement is therefore bounded only by AT numerical-solve
+reproducibility and the JSON/HTTP round trip, not a physical noise floor --
+see ``MATCH_ATOL``.
 
 No preset channel names are hardcoded: correctors and BPMs are selected from
 the device file the build staged for the queueserver worker -- the build's
 Bluesky view of the facility file -- via
-``_orm_stack.select_correctors``/``select_bpms`` (restricted to the channels
-the tree's own bindings document couples to the lattice, exactly the class of
-device the ``orm`` plan and the model oracle both operate on), so the names a
-plan here may address are exactly the names the worker registered.
+``_orm_stack.select_correctors``/``select_bpms`` (restricted to the correctors
+and monitors the tree's own simulator view wires to the lattice, exactly the
+class of device the ``orm`` plan and the model oracle both operate on), so the
+names a plan here may address are exactly the names the worker registered.
 
 Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
@@ -81,9 +80,6 @@ import pytest
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
-from osprey.services.virtual_accelerator.manifest import build_manifest
-from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._monitor_motion import still_monitor_motion
@@ -173,12 +169,11 @@ TILED_FIGURE_TIMEOUT_SEC = 60.0
 PARITY_RTOL = 1e-9
 PARITY_ATOL = 1e-12
 
-# No VA_BPM_ERRORS/VA_CORR_GAIN are seeded on this stack (see module
-# docstring) -- every device carries PhysicsBridge's identity error
-# state, so there is no physical noise floor to size this against. The bound
-# below is float round-trip/AT numerical-solve reproducibility margin, kept
-# generous relative to task 5.1's probed in-process figure (4.9e-15 relative)
-# to absorb the extra JSON/HTTP/container hop.
+# No physics fault is seeded on this stack and its monitors serve without
+# declared motion (see module docstring), so there is no physical noise floor
+# to size this against. The bound below is float round-trip/AT numerical-solve
+# reproducibility margin, kept generous relative to the in-process figure
+# (4.9e-15 relative) to absorb the extra JSON/HTTP/container hop.
 MATCH_RTOL = 1e-6
 MATCH_ATOL = 1e-9  # meters
 
@@ -207,8 +202,8 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
 
     def still_monitors(repo: Path) -> None:
         # The oracle is the noiseless model (see MATCH_RTOL), so the monitors
-        # serve the solved orbit without the drift and noise the machine file
-        # gives them.
+        # serve the solved orbit without the drift and noise the facility's
+        # seeds give them.
         still_monitor_motion(repo / "data")
 
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
@@ -284,7 +279,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
 
 
 # ---------------------------------------------------------------------------
-# Model oracle -- a second, in-process model of the served tree, driven the
+# Model oracle -- a second, in-process composite of the served view, driven the
 # same way the deployed orm plan sweeps (mirrors build_response_matrix's own
 # degree-1-polyfit-over-the-sweep method, not a two-point finite difference,
 # so a mismatch can only mean the two code paths disagree -- never an
@@ -292,17 +287,20 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
 # ---------------------------------------------------------------------------
 
 
-def _oracle_model(repo: Path) -> PyATRingModel:
-    """A second, independent model of the ring the deployed stack is serving.
+def _oracle_model(repo: Path) -> Any:
+    """A second, independent composite of the machine the deployed stack is serving.
 
-    Built here in-process from the deployment repo's OWN data tree -- the same
-    lattice and the same ``va_bindings.json`` the containers mount -- so the
-    oracle and the stack agree about which elements exist and what each address
-    does to them, while the two arrive at a response matrix by entirely
-    separate paths.
+    Built here in-process over the deployment repo's OWN simulator view -- the
+    same deck, wiring and seeds the container mounts -- so the oracle and the
+    stack agree about which elements exist and what each address does to them,
+    while the two arrive at a response matrix by entirely separate paths. No
+    state directory and no model log: the oracle reads the view at its
+    baseline and writes nothing outside this process.
     """
-    paths = ManifestPaths(repo / "data")
-    return PyATRingModel(paths.data_root, build_manifest(paths)["channels"])
+    from osprey.facility.views.simulator import simulator_view
+    from osprey_connectors.simulation.composite import Composite
+
+    return Composite(simulator_view(repo), state_dir=None, model_log=False)
 
 
 def _model_response_matrix(
@@ -317,7 +315,7 @@ def _model_response_matrix(
     because that is what the deployed plan wrote and read, and the two matrices
     are compared entry by entry. The model is driven through the same addresses
     the plan drove, so the calibration each write and each reading passes
-    through is the binding's own on both sides.
+    through is the wiring's own on both sides.
 
     Each corrector is returned to the working point it was found at before the
     next one is swept, so the columns are independent of the order they are
