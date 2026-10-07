@@ -39,7 +39,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from bluesky.protocols import DataKey, Hints, Reading
+from bluesky.protocols import DataKey, Hints, Location, Reading
 from ophyd_async.core import AsyncStatus, StandardReadable
 
 from ._connect import connect_all
@@ -168,6 +168,9 @@ class ConnectorSettable(StandardReadable):
     in the worker's namespace twice. An aliased device reports one key: its
     readback IS its demand.
 
+    The device is Bluesky-``Locatable``, so ``bps.locate`` answers where it
+    was told to go and where it is, both read live through the connector.
+
     The OSPREY connector instance is stored as ``self._osprey_connector``,
     not ``self._connector``: ophyd-async's own ``Device.__init__`` already
     owns the ``self._connector`` attribute (its internal
@@ -268,6 +271,20 @@ class ConnectorSettable(StandardReadable):
         readback, and the key would restate ``<name>``.
         """
         return f"{self.name}{SETPOINT_KEY_SUFFIX}"
+
+    async def locate(self) -> Location[Any]:
+        """Return where the device was told to go and where it is, read live.
+
+        A device with a distinct readback reads its readback channel, then its
+        setpoint channel, in :meth:`read`'s order. An aliased device makes one
+        read and reports that value for both: its readback IS its demand.
+        Values are returned as the connector gives them.
+        """
+        reading = await self._osprey_connector.read_channel(self._readback_pv)
+        if not self.has_distinct_readback:
+            return Location(setpoint=reading.value, readback=reading.value)
+        demand = await self._osprey_connector.read_channel(self._setpoint_pv)
+        return Location(setpoint=demand.value, readback=reading.value)
 
     async def read(self) -> dict[str, Reading[Any]]:
         """Return the live readback value, read fresh through the connector.

@@ -509,6 +509,46 @@ async def test_an_aliased_settable_reports_one_key() -> None:
     assert set(await device.describe()) == {"motor"}
 
 
+async def test_a_settable_with_a_distinct_readback_locates_its_demand_and_its_readback() -> None:
+    """``locate()`` answers where the device was told to go and where it is, live."""
+    fake = FakeConnector(readbacks={"SR04U___GDS1PS_AC00": 25.0, "SR04U___GDS1PS_AM00": 17.3})
+    device = ConnectorSettable(
+        fake, "SR04U___GDS1PS_AC00", readback_pv="SR04U___GDS1PS_AM00", name="gap"
+    )
+
+    assert await device.locate() == {"setpoint": 25.0, "readback": 17.3}
+    assert set(fake.read_calls) == {"SR04U___GDS1PS_AC00", "SR04U___GDS1PS_AM00"}
+    fake.readbacks["SR04U___GDS1PS_AM00"] = 25.0
+    assert await device.locate() == {"setpoint": 25.0, "readback": 25.0}
+
+
+async def test_an_aliased_settable_locates_one_channel_as_both() -> None:
+    """Its readback IS its demand: one read answers both keys."""
+    fake = FakeConnector(readbacks={"SP": 4.0})
+    device = ConnectorSettable(fake, "SP", name="motor")
+
+    assert await device.locate() == {"setpoint": 4.0, "readback": 4.0}
+    assert fake.read_calls == ["SP"]
+
+
+def test_a_connector_settable_is_bluesky_locatable() -> None:
+    """A plan written against Bluesky's protocol locates an OSPREY device."""
+    from bluesky import RunEngine
+    from bluesky import plan_stubs as bps
+    from bluesky.protocols import Locatable
+
+    fake = FakeConnector(readbacks={"SP": 2.5, "RB": 2.4})
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="hcm1")
+    located: list[Any] = []
+
+    def _plan():
+        located.append((yield from bps.locate(device)))
+
+    assert isinstance(device, Locatable)
+    RunEngine(context_managers=[])(_plan())
+    assert located == [{"setpoint": 2.5, "readback": 2.4}]
+
+
 async def test_the_demand_key_is_not_hinted_so_rd_returns_the_readback() -> None:
     """``bps.rd`` reads the one hinted field; a second hint would make it raise."""
     from bluesky.utils import get_hinted_fields
