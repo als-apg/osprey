@@ -358,7 +358,6 @@ the devil's advocate walks the same list against the ledger afterwards.
 | `data/facility/knowledge/*/` documents other than the user's stubs | the demo facility's 17 documents |
 | `data/channel_databases/examples/`, `data/channel_databases/tiers/` | demo channel databases |
 | `data/facility/limits.yaml` with records nobody ported | the demo facility's limits |
-| `data/simulation/` | demo scenarios |
 | `data/benchmarks/` | demo query sets |
 | `data/facility_ontology.json`, `data/machine_state_channels.json` | demo machine model |
 | `data/ariel/vocabulary.yml` | demo facility terms |

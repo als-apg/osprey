@@ -18,8 +18,9 @@ two it selected.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
@@ -44,6 +45,12 @@ from osprey.cli.build_profile_archiver import (
 from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, load_profile
 from osprey.cli.profile_cmd import profile
 from osprey.errors import BuildProfileError
+
+if TYPE_CHECKING:
+    from tests._builds import BuiltProject
+
+#: The render file listing every address the simulator serves.
+SERVED_ADDRESSES = "data/simulator/addresses.json"
 
 
 @pytest.fixture
@@ -802,7 +809,7 @@ def test_an_unrelated_health_category_is_left_alone() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The shipped preset's canary has to be a channel the shipped machine serves
+# The shipped preset's canary has to be a channel the built facility serves
 # ---------------------------------------------------------------------------
 
 
@@ -818,26 +825,28 @@ def test_the_control_assistant_preset_names_a_canary() -> None:
     assert profile.va_archiver.freshness_channel
 
 
-def test_the_presets_canary_is_a_channel_the_virtual_accelerator_serves() -> None:
+@pytest.mark.slow
+def test_the_presets_canary_is_a_channel_the_virtual_accelerator_serves(
+    built_control_assistant: BuiltProject,
+) -> None:
     """Same standard the L0 e2e holds its own canary to, applied where the
     choice is actually made.
 
     A canary the IOC does not serve is never recorded, so the check would report
     "no samples" forever — a permanently yellow health row that says nothing
-    about the archive. Asserted against the manifest builder the VA and the
-    recorder both read, so a machine-model change that drops this channel fails
-    here rather than in a deployed operator's face.
+    about the archive. Asserted against the simulator view the build writes, the
+    address list the VA serves, so a facility change that drops this channel
+    fails here rather than in a deployed operator's face.
     """
     from osprey.cli.build_profile import resolve_build_profile
-    from osprey.services.virtual_accelerator.manifest.build import build_manifest
 
     profile, _ = resolve_build_profile(None, "control-assistant")
     assert profile.va_archiver is not None
     canary = profile.va_archiver.freshness_channel
 
-    served = {channel["address"] for channel in build_manifest()["channels"]}
+    served = set(json.loads(built_control_assistant.outputs[0].files[SERVED_ADDRESSES])["channels"])
     assert canary in served, (
         f"the control-assistant preset's freshness_channel {canary!r} is not served by the "
-        f"shipped machine model, so the derived check could never see a sample. Pick a "
-        f"channel the manifest carries."
+        f"built facility, so the derived check could never see a sample. Pick a channel "
+        f"the simulator view lists."
     )

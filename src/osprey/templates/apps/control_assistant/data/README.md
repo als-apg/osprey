@@ -1,8 +1,7 @@
 # Project Data Directory
 
 Everything the agent reads from disk lives here: channel databases, benchmark
-query sets, the facility's sources and scenarios, and the simulation model. These
-are your files —
+query sets, and the facility's sources and scenarios. These are your files —
 edit them freely.
 
 ## Directory Structure
@@ -25,7 +24,6 @@ data/
 ├── facility/                              # The facility's authored sources
 │   ├── knowledge/                         # Markdown knowledge bundle
 │   └── scenarios/                         # Simulation scenarios
-└── simulation/                            # Mock-connector machine model
 ```
 
 `osprey build` copies the benchmark query file matching `channel_finder_mode`

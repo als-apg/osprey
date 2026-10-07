@@ -16,11 +16,9 @@ from osprey.facility.build import build_facility
 from osprey.facility.sources import read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-APPS = REPO_ROOT / "src/osprey/templates/apps"
 FACILITIES = REPO_ROOT / "src/osprey/templates/facilities"
 CONTROL_ASSISTANT = FACILITIES / "example"
 HELLO_WORLD = FACILITIES / "hello_world"
-VA_BINDINGS = APPS / "control_assistant/data/simulation/va_bindings.json"
 CF_STANDALONE_ADDRESSES = REPO_ROOT / "tests/facility/golden/cf_standalone_addresses.json"
 
 #: The addresses the hello-world tutorial names.
@@ -53,8 +51,6 @@ def test_paired_readbacks_start_at_their_setpoint_value() -> None:
     (model,) = [model for model in document["models"] if "deck" in model]
     wiring = {record["address"]: record for record in model["wiring"]}
     paired = [address for address in wiring if address in setpoint_of]
-    bound = [b for b in json.loads(VA_BINDINGS.read_text())["bindings"] if b["readback_address"]]
-    assert {b["readback_address"] for b in bound} <= set(paired)
     for address in paired:
         assert wiring[address]["default"] == wiring[setpoint_of[address]]["default"], address
     unpaired = [

@@ -178,7 +178,6 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/facility/scenarios/rf-thermal/plots/",
     "data/landing/",
     "data/mml/",
-    "data/simulation/",
     "web-terminal-context/",
     "data/README.md",
     "data/ariel/README.md",
@@ -242,9 +241,6 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/machine_state_channels.json",
     "data/mml/README.md",
     "data/mml/mml_export.m",
-    "data/simulation/lattice.json",
-    "data/simulation/machine.json",
-    "data/simulation/va_bindings.json",
     "web-terminal-context/base.md",
 ]
 

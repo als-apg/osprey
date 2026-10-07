@@ -17,8 +17,6 @@ artifacts:
   or one of the addresses the facility serves beyond it, and every channel the
   database expands to has a binding (graph ≡ channel finder, in both
   directions);
-- every channel the virtual accelerator simulates is documented in the corpus
-  (a subset — the VA models a documented slice, not the whole machine);
 - the corpus carries the binding, family and system prose on the right node. The prose is the whole point of searching a graph by meaning: a
   corpus whose bindings carry no description is one the agent can only query
   by address, which is what the channel finder already does better.
@@ -49,9 +47,6 @@ DEMO_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 
 #: Tier-3 hierarchical channel database — the colon-grammar source of truth.
 CHANNEL_DB_PATH = DEMO_DATA / "channel_databases/tiers/tier3/hierarchical.json"
-
-#: Virtual-accelerator / mock machine model.
-MACHINE_PATH = DEMO_DATA / "simulation/machine.json"
 
 #: The addresses the demo facility serves beyond the channel database, as rows
 #: of the frozen demo fingerprint's shape.
@@ -211,25 +206,6 @@ def test_demo_ttl_bindings_equal_the_channel_database(
         )
     )
     assert len(corpus_pvs) == EXPECTED_CHANNELS + len(additions)
-
-
-def test_demo_ttl_documents_every_simulated_channel(corpus_pvs: set[str]) -> None:
-    """The virtual accelerator simulates a subset of the documented machine.
-
-    Subset, not equality: ``machine.json`` models the channels the demo needs to
-    behave physically, which is fewer than the machine documents. What must not
-    happen is the reverse — a channel the VA serves that the graph has never
-    heard of, which the agent would find by reading and then fail to explain.
-    """
-    machine = json.loads(MACHINE_PATH.read_text(encoding="utf-8"))
-    simulated = set(machine["channels"])
-
-    extras = simulated - corpus_pvs
-    assert not extras, (
-        f"{len(extras)} channels in {MACHINE_PATH.name} have no binding in the "
-        f"graph corpus: {_sample(extras)}"
-    )
-    assert simulated, "machine.json declares no channels at all"
 
 
 # ---------------------------------------------------------------------------
