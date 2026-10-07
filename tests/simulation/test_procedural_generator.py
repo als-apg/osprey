@@ -1,10 +1,9 @@
 """The procedural generator's contract: absolute time, VA baselines, bounded.
 
 ``osprey.simulation.procedural`` synthesizes history for the channels a
-project's ``machine.json`` does not describe — 1,872 of the control-assistant
-preset's 2,908 — and its output is written into a real store as well as
-returned from live archiver queries. That makes three things load-bearing, and
-this file locks each of them:
+project's machine model does not describe, and its output is written into a
+real store as well as returned from live archiver queries. That makes three
+things load-bearing, and this file locks each of them:
 
 * **Window independence.** Values are a pure function of ``(channel, epoch
   seconds)``. Two overlapping queries must agree on every timestamp they share,
@@ -14,10 +13,8 @@ this file locks each of them:
   (an ``np.linspace(0, 1, n)`` axis) and satisfied neither.
 
 * **Baseline anchoring.** The baseline is whatever the Virtual Accelerator
-  boots the channel at, drawn from the same two sources the VA itself uses.
-  The tests below read the shipped machine model and check the generator
-  against the boot values it seeds, so a divergence between the two worlds
-  fails here rather than as a phantom step in a deployed archive.
+  boots the channel at, drawn from the same two sources the VA itself uses: a
+  machine model's seed, else the channel's taxonomy value.
 
 * **A bounded, noise-scaled envelope.** Seeded history and recorded reality
   meet at a seam; the step across it has to be attributable to noise, not read
@@ -37,7 +34,6 @@ import numpy as np
 import pytest
 
 from osprey.connectors.channel_taxonomy import classify_channel
-from osprey.services.virtual_accelerator.manifest.loaders import load_machine_json_channels
 from osprey.simulation.procedural import (
     DEFAULT_NOISE_LEVEL,
     KIND_SHAPES,
@@ -46,10 +42,8 @@ from osprey.simulation.procedural import (
     generate_series,
 )
 from osprey.simulation.series import epoch_seconds_array
-from tests.simulation.conftest import TEMPLATE_SIM
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MACHINE = TEMPLATE_SIM / "machine.json"
 
 # A fixed instant, so a failure is reproducible rather than time-of-day
 # dependent. Any epoch works: the generator has no preferred origin.
@@ -241,46 +235,31 @@ class TestBaselineAnchoring:
     cleanly on that partition and plant a step on the others.
     """
 
-    @staticmethod
-    def _boot_values() -> dict[str, float]:
-        """The boot values the shipped machine model seeds, by address."""
-        return {
-            address: entry["value"]
-            for address, entry in load_machine_json_channels(MACHINE).items()
-            if "value" in entry
-        }
+    #: Boot values as a machine model seeds them, by address.
+    BOOT_VALUES = {"SR:MAG:HCM:01:CURRENT:SP": 0.734}
 
     def test_an_unseeded_setpoint_is_not_given_a_taxonomy_guess(self):
-        """The rule the sweep above would let through if it were sampled.
+        """Nothing drives a setpoint but a client write, so the live channel reads 0.
 
-        A dozen sp-echo setpoints have no machine-model seed. Nothing drives a
-        setpoint but a client write, so the live channel reads 0 forever —
-        history at the taxonomy's 5 kV guess for a name containing "VOLTAGE"
+        History at the taxonomy's 5 kV guess for a name containing "VOLTAGE"
         would be invention, and exactly the kind an agent would diagnose from.
         """
         address = "SR:VAC:ION-PUMP:01:VOLTAGE:SP"
-        boot_values = self._boot_values()
-        assert address not in boot_values
+        assert address not in self.BOOT_VALUES
         assert classify_channel(address).base_value == 5000.0
 
-        assert baseline_value(address, boot_values) == 0.0
+        assert baseline_value(address, self.BOOT_VALUES) == 0.0
         assert np.array_equal(
             generate_series(address, _grid(T0, count=16, step_s=60.0), baseline=0.0),
             np.zeros(16),
         )
 
     def test_a_seeded_setpoint_overrides_the_taxonomy_guess(self):
-        """The override has to actually bite, or the test above proves nothing.
-
-        A magnet ``:SP`` classifies as the ``current`` kind (base 150 A) while
-        the machine model seeds it at its real value; the seeded one wins.
-        """
-        boot_values = self._boot_values()
+        """A magnet ``:SP`` classifies as the ``current`` kind; its seed wins."""
         address = "SR:MAG:HCM:01:CURRENT:SP"
-        assert address in boot_values, "the shipped machine model no longer seeds this"
-        assert boot_values[address] != classify_channel(address).base_value
+        assert self.BOOT_VALUES[address] != classify_channel(address).base_value
 
-        assert baseline_value(address, boot_values) == pytest.approx(boot_values[address])
+        assert baseline_value(address, self.BOOT_VALUES) == pytest.approx(self.BOOT_VALUES[address])
         assert baseline_value(address) == classify_channel(address).base_value
 
     def test_an_unseeded_channel_falls_back_to_the_taxonomy(self):

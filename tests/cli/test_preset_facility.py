@@ -161,7 +161,7 @@ def test_the_composition_lands_the_facility_under_facility(tmp_path: Path) -> No
     assert (target / "facility" / "identity.yaml").read_bytes() == (
         FACILITIES / "example" / "identity.yaml"
     ).read_bytes()
-    assert (target / "simulation" / "machine.json").is_file()
+    assert (target / "README.md").is_file()
 
 
 def test_the_example_facility_states_its_display_name() -> None:

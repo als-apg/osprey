@@ -1,24 +1,20 @@
-"""Composition contract: disjoint scenarios stack; overlapping ones are rejected.
+"""Composition contract: overlapping scenarios are rejected.
 
 Two simultaneously active scenarios must touch disjoint channel sets — archiver
 step/ramp events overwrite the synthesized series (and overrides collide on
 point reads), so overlapping scenarios would compose order-dependently and
-silently wrong. These tests pin both halves: (1) the disjoint target combo
-(vacuum-burst + rf-thermal) yields *both* fault signatures at once, and
-(2) ``validate_composition`` hard-errors on a hand-built same-channel collision.
-``osprey sim apply`` judges a requested set on the build's simulator view and
+silently wrong. ``validate_composition`` hard-errors on a hand-built
+same-channel collision, and ``osprey sim apply`` judges a requested set on the build's simulator view and
 stops before any write when two of its scenarios write one target.
 """
 
 import json
 import os
 import shutil
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 import yaml
 from click.testing import CliRunner
@@ -28,52 +24,6 @@ from osprey.simulation import SimulationEngine
 from tests._simulator_view import write_scenarios_view
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
-
-GAUGE07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
-CAVITY01_TEMP = "SR:RF:CAVITY:01:TEMPERATURE:RB"
-RF_SERIES_N = 2016  # 7-day window at 5-minute resolution
-
-
-def _yesterday_1432_window(minutes: int = 10) -> list[datetime]:
-    """Per-second window straddling yesterday 14:32:08 (the vacuum at_time anchor)."""
-    center = (datetime.now(UTC) - timedelta(days=1)).replace(
-        hour=14, minute=32, second=8, microsecond=0
-    )
-    start = center - timedelta(minutes=minutes / 2)
-    return [start + timedelta(seconds=i) for i in range(minutes * 60)]
-
-
-def _seven_day_window() -> list[datetime]:
-    """A 7-day window ending now.
-
-    rf-thermal's excursions are anchored (``at_when``, days and clock times
-    before the scenario-activation anchor T0), not window fractions, so this
-    window must *end at now* for them to appear in it: the fixture writes
-    ``active_scenarios`` as it builds the engine, which puts T0 within a second
-    of now, and the trip four days back always falls inside the week.
-    """
-    now = datetime.now()
-    step = timedelta(days=7) / RF_SERIES_N
-    return [now - timedelta(days=7) + step * i for i in range(RF_SERIES_N)]
-
-
-def _vacuum_spike_present(engine: SimulationEngine) -> bool:
-    series = np.array(engine.synthesize_series(GAUGE07, _yesterday_1432_window()))
-    # Baseline SR07 pressure is ~5e-8; the burst spikes it well above baseline.
-    return series.max() > 2.0 * np.median(series)
-
-
-def _rf_excursion_present(engine: SimulationEngine) -> bool:
-    series = np.array(engine.synthesize_series(CAVITY01_TEMP, _seven_day_window()))
-    # Nominal cavity body temp ~27 degC; excursions exceed 31 degC.
-    return series.max() > 31.0
-
-
-class TestDisjointComposition:
-    def test_nominal_alone_shows_neither_fault(self, engine_factory):
-        engine = engine_factory("nominal")
-        assert not _vacuum_spike_present(engine)
-        assert not _rf_excursion_present(engine)
 
 
 class TestCollisionRejected:

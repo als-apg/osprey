@@ -69,7 +69,6 @@ ALLOWLIST: dict[str, str] = {
     "tests/services/facility_knowledge/test_ttl_generator_ontology.py": "7e",
     "tests/simulation/test_seed_logbook_naming.py": "7d2",
     "tests/va/e2e/test_finder_live_reads.py": "7d2",
-    "tests/va/test_build_time_manifest.py": "7d2",
 }
 
 

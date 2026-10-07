@@ -20,13 +20,10 @@ makes:
 * **control-assistant.** The preset ships demo material emit would contradict,
   so the first ``emit`` refuses with one ``rm`` line naming the pages and tier
   databases, and this recipe removes exactly what that line names and nothing
-  else. The ring the preset shipped is not refused but taken: a 1.0 export
-  describes no machine, so the tree is left serving none, while the preset
-  nobody harvested onto keeps and serves its own. Afterwards the flat database,
-  the tier-3 copy and the built copy are one file -- the assertion that goes
-  red if the build's tier materializer ever overwrites the emitted database
-  with preset material -- and the demo knowledge pages are gone from the
-  bundle index rather than merely unlinked.
+  else. Afterwards the flat database, the tier-3 copy and the built copy are
+  one file -- the assertion that goes red if the build's tier materializer
+  ever overwrites the emitted database with preset material -- and the demo
+  knowledge pages are gone from the bundle index rather than merely unlinked.
 * **control-assistant, from a 2.0 export.** The same recipe over an export that
   carries a virtual accelerator, which is the only harvest that ends in a tree
   the build can serve a model from. Its export enters the facility description
@@ -41,7 +38,7 @@ makes:
   ``facility validate`` names each one, and the recipe widens exactly the
   records those lines name before it builds.
   Past that it runs one verb further and one refusal
-  further still -- the demo's own machine documents, which only a harvest
+  further still -- the demo's machine-state list, which only a harvest
   carrying a machine replaces -- and the claims it makes are about what ``osprey build`` then
   published: the ring and the bindings reach the served directory byte for
   byte, and the simulator view serves the harvest's channels and model.
@@ -73,7 +70,6 @@ pytest.importorskip("linkml_runtime")
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = _REPO_ROOT / "tests" / "fixtures" / "mml"
-PACKAGED_DATA = _REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data"
 PACKAGED_FACILITY = _REPO_ROOT / "src/osprey/templates/facilities/example"
 PACKAGED_KNOWLEDGE = PACKAGED_FACILITY / "knowledge"
 
@@ -479,13 +475,6 @@ def simulator_view(repo: Path) -> dict[str, dict]:
     }
 
 
-def served_physics_models(repo: Path) -> list[str]:
-    """The names of the physics models the view serves, ``texture`` left out."""
-    return [
-        name for name in simulator_view(repo)[SERVED_MODELS_FILE]["models"] if name != "texture"
-    ]
-
-
 def published(repo: Path) -> dict[str, bytes]:
     """Every file the build published into the served directory, by name."""
     directory = repo / SERVED
@@ -618,24 +607,6 @@ def control_assistant_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str
         "validate": validate.output,
         "build": build.output,
     }
-
-
-@pytest.fixture(scope="module")
-def demo_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    """The control-assistant preset built as it ships, with no harvest at all.
-
-    The other side of the rule the recipe above pins: what displaces a
-    deployment's ring is a harvest that describes no machine, so a deployment
-    nobody harvested onto keeps the ring the preset shipped and serves it.
-    """
-    runner = CliRunner()
-    repo = tmp_path_factory.mktemp("recipe-demo") / "demo"
-
-    invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
-    validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
-    build = invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
-
-    return {"repo": repo, "validate": validate.output, "build": build.output}
 
 
 @pytest.fixture(scope="module", params=TWO_ZERO_TREES)
@@ -866,39 +837,6 @@ class TestControlAssistant:
         for entry in concepts:
             assert (bundle / f"{entry.concept_id}.md").is_file(), entry.concept_id
 
-    def test_a_one_zero_harvest_takes_the_presets_own_ring_out_of_the_tree(
-        self, control_assistant_repo: dict
-    ) -> None:
-        """A 1.0 export describes no machine, so the tree is left serving none.
-
-        The harvest re-answers the channel set, and the preset's ring answers
-        the demo's: left in place it would be served over the facility's own
-        addresses, a model of one machine reached through the names of
-        another. So emit takes the deck and the bindings with it and names what
-        it removed.
-        """
-        repo = control_assistant_repo["repo"]
-        emitted = " ".join(control_assistant_repo["emit"].split())
-
-        for name in (LATTICE_FILE, BINDINGS_FILE):
-            assert not (repo / "data" / "simulation" / name).exists(), name
-            assert f"data/simulation/{name}" in emitted, name
-
-
-class TestTheDemoNobodyHarvestedOnto:
-    """The preset built as it ships: its ring is its own, and it keeps it."""
-
-    def test_the_preset_still_serves_the_ring_it_shipped(self, demo_repo: dict) -> None:
-        repo = demo_repo["repo"]
-        packaged = PACKAGED_DATA / "simulation"
-        assert (packaged / LATTICE_FILE).is_file(), "the preset ships no ring to keep"
-
-        for name in (LATTICE_FILE, BINDINGS_FILE):
-            assert (repo / "data" / "simulation" / name).read_bytes() == (
-                packaged / name
-            ).read_bytes(), name
-        assert served_physics_models(repo)
-
 
 class TestServedFromATwoZeroExport:
     """What ``osprey build`` publishes when the harvest brought a machine.
@@ -918,24 +856,18 @@ class TestServedFromATwoZeroExport:
         assert TWO_ZERO_TREES, "no fixture export carries a *.va.json sibling"
 
     def test_the_recipe_passes_through_two_refusals(self, served_repo: dict) -> None:
-        """The demo's machine is refused on its own terms.
+        """The demo's machine-state list is refused on its own terms.
 
         The pages and tier databases go in the first ``rm`` line. The demo's
-        own machine description and machine-state list go in the second,
-        because they are found by a different pre-flight -- the one that asks
-        what the virtual-accelerator lane can vouch for on this tree -- and
-        what it asks of them is this command's provenance stamp. The demo's
-        bindings carry the stamp (they were emitted), so they are replaced
-        without being named, and the saved ring never carries one at all: it is
-        a plain pyAT document, vouched for by the digest the bindings record.
+        machine-state list goes in the second, because it is found by a
+        different pre-flight -- the one that asks what the virtual-accelerator
+        lane can vouch for on this tree -- and what it asks of it is this
+        command's provenance stamp.
         """
         rounds = served_repo["rounds"]
 
         assert len(rounds) == 2, rounds
-        assert set(rounds[1]) == {
-            "data/simulation/machine.json",
-            "data/machine_state_channels.json",
-        }
+        assert set(rounds[1]) == {"data/machine_state_channels.json"}
 
     def test_the_ring_and_the_bindings_reach_the_served_tree_byte_for_byte(
         self, served_repo: dict

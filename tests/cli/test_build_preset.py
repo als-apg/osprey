@@ -931,32 +931,24 @@ def test_attached_profile_built_alone_may_name_its_host_by_hand(
     assert _config_yaml(_project(tmp_path, "alone"))["services"]["qmd"]["port"] == 9180
 
 
-def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_path: Path) -> None:
-    """The control-assistant preset bundles the simulation machine model.
+def test_control_assistant_preset_wires_its_simulation(runner: CliRunner, tmp_path: Path) -> None:
+    """The control-assistant preset wires its simulation once.
 
-    Pins the wiring: the data bundle ships ``data/simulation/machine.json``
-    (shared channels) and no scenario bundle tree beside it, and the rendered ``config.yml`` names the machine file exactly once, under the
-    key path the connector factory scopes
-    (``control_system.connector.mock``). The mock archiver derives its own copy
-    from there, so a second declaration would be a divergence waiting to
-    happen. No ``active_scenarios`` state file ships in ``data/``: the active
-    set is runtime state under ``_agent_data/simulation/``, and the first deploy
-    writes it from ``simulation.default_scenarios`` (``rf-thermal``, the
-    incident the getting-started tutorial walks through).
+    Pins the wiring: no scenario bundle tree ships under ``data/simulation/``,
+    and the rendered ``config.yml`` names the machine file exactly once, under
+    the key path the connector factory scopes (``control_system.connector.mock``).
+    The mock archiver derives its own copy from there, so a second declaration
+    would be a divergence waiting to happen. No ``active_scenarios`` state file
+    ships in ``data/``: the active set is runtime state under
+    ``_agent_data/simulation/``, and the first deploy writes it from
+    ``simulation.default_scenarios`` (``rf-thermal``, the incident the
+    getting-started tutorial walks through).
     """
-    import json
-
     result = _materialize(runner, str(tmp_path), "smoke", "control-assistant")
     assert result.exit_code == 0, result.output
     project_dir = _project(tmp_path, "smoke")
     sim_dir = project_dir / "data" / "simulation"
 
-    machine_path = sim_dir / "machine.json"
-    assert machine_path.exists(), "machine.json missing from built project"
-    machine = json.loads(machine_path.read_text(encoding="utf-8"))
-    assert "channels" in machine
-    assert "scenarios" not in machine, "the scenarios are the facility's, not the machine file's"
-    assert "default_scenarios" not in machine, "the start set is the profile's to state"
     assert not (sim_dir / "scenarios").exists(), "the scenarios ship as facility scenario files"
 
     assert not (sim_dir / "active_scenarios").exists(), (

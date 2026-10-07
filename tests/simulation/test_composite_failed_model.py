@@ -18,7 +18,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import pytest
 from lume.model import LUMEModel
 from lume.variables import ScalarVariable, StrVariable, Variable
@@ -37,22 +36,10 @@ T0 = 1_760_000_000.0
 
 SR_STATUS = "ca:SIM:SR:STATUS"
 BPM_X = "SR:DIAG:BPM:03:POSITION:X"
-BPM_Y = "SR:DIAG:BPM:03:POSITION:Y"
 QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
 
 #: Twice the demo's QF01 current: the one-turn map has no stable orbit there.
 UNSTABLE_CURRENT = 712.2
-
-#: Every readout fault of the serving formula at its identity.
-READOUT_IDENTITY = {
-    "gain_x": 1.0,
-    "gain_y": 1.0,
-    "polarity_x": 1.0,
-    "polarity_y": 1.0,
-    "roll": 0.0,
-    "noise_x": 0.0,
-    "noise_y": 0.0,
-}
 
 
 def _writes_enabled(key: str, default: Any = None) -> Any:
@@ -202,53 +189,6 @@ def test_an_unstable_active_quadrupole_fails_sr_with_the_solve_error(
     }
     assert math.isnan(composite.get(BPM_X))
     assert composite.get(QUADRUPOLE) == UNSTABLE_CURRENT
-
-
-@pytest.mark.slow
-def test_bpm03_reads_as_todays_serving_formula_under_the_standin_offsets(
-    demo_view: Path,
-) -> None:
-    from osprey.services.virtual_accelerator.lattice.errors import bpm_read
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-        parse_standin_default,
-    )
-
-    offsets = parse_standin_default()["BPM03"]
-    _with_scenario(
-        demo_view,
-        {
-            "name": "bpm03-offsets",
-            "faults": {
-                "SR": {
-                    "writes": {
-                        BPM_X: {"offset": offsets["offset_x"]},
-                        BPM_Y: {"offset": offsets["offset_y"]},
-                    }
-                }
-            },
-        },
-    )
-    serving = _composite(demo_view)
-    moved = serving.get([BPM_X, BPM_Y])
-    _activate(demo_view, "bpm03-offsets")
-    faulted = _composite(demo_view)
-
-    read = faulted.get([BPM_X, BPM_Y])
-
-    expected_x, expected_y = bpm_read(
-        moved[BPM_X],
-        moved[BPM_Y],
-        offset_x=offsets["offset_x"],
-        offset_y=offsets["offset_y"],
-        **READOUT_IDENTITY,
-        cal_x=0.0,
-        cal_y=0.0,
-        rng=np.random.default_rng(0),
-    )
-    assert faulted.status("SR") == "ok"
-    assert read[BPM_X] != moved[BPM_X]
-    assert read[BPM_X] == pytest.approx(expected_x, abs=1e-12)
-    assert read[BPM_Y] == pytest.approx(expected_y, abs=1e-12)
 
 
 @pytest.mark.slow

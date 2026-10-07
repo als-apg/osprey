@@ -3761,10 +3761,8 @@ keeps:
     surfacing as _metadata.machine_state_reconciliation. The machine_state
     DELETION's grep gate passes partly for the wrong reason: this file never
     contains the string `machine_state` in its CONTENT, only in its filename,
-    so a content grep can never protect it. Today only
-    tests/templates/test_machine_state_channels.py and tests/va/test_manifest.py
-    fail on its deletion. An explicit existence assertion makes the dependency
-    visible in the manifest rather than implicit in two test files.
+    so a content grep can never protect it. An explicit existence assertion
+    makes the dependency visible in the manifest.
 
 # ---------------------------------------------------------------------------
 # notes — carried forward from tasks 3.2, 5.1 and 6.3. Not guard rules.

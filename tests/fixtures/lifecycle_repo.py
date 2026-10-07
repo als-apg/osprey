@@ -3096,46 +3096,6 @@ Never open a sector valve against a pressure differential. The interlock will
 refuse, and forcing it risks the whole ring's vacuum.
 """
 
-#: Each channel is a mapping carrying exactly one of ``value`` or ``expr`` --
-#: the schema ``osprey.simulation.machine.parse_machine`` enforces, and the one
-#: the shipped presets are written in. A bare number here would look like a
-#: reasonable shorthand and is not: the parser rejects it, so the exemplar would
-#: name a simulation model that no engine can load.
-SIMULATION_MACHINE_JSON = """\
-{
-  "name": "Als Exemplar demo machine",
-  "description": "Nominal machine values the mock connector serves as readbacks.",
-  "channels": {
-    "SR:DIAG:DCCT:01:CURRENT:RB": {
-      "value": 500.0,
-      "units": "mA",
-      "description": "Stored beam current"
-    },
-    "SR:DIAG:BPM:01:POSITION:X": {
-      "value": 0.02,
-      "units": "mm",
-      "description": "Beam position monitor 1, horizontal"
-    },
-    "SR:DIAG:BPM:01:POSITION:Y": {
-      "value": -0.01,
-      "units": "mm",
-      "description": "Beam position monitor 1, vertical"
-    },
-    "SR:MAG:HCM:01:CURRENT:RB": {
-      "value": 0.0,
-      "units": "A",
-      "description": "Horizontal corrector 1 current, readback"
-    },
-    "SR:MAG:HCM:01:CURRENT:SP": {
-      "value": 0.0,
-      "units": "A",
-      "description": "Horizontal corrector 1 current, setpoint"
-    }
-  }
-}
-"""
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # The exemplar, assembled
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3170,7 +3130,6 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
     "data/facility/knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
     "data/facility/knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
-    "data/simulation/machine.json": SIMULATION_MACHINE_JSON,
 }
 
 #: The scaffolded CI pipeline. Emitted only where the profile names deploy

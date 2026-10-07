@@ -140,9 +140,8 @@ def _rf_thermal() -> dict:
 
     Anchor-relative (``at_offset``) spikes on the cavity's temperature and
     reflected power, sized for a container test rather than for a 30-day
-    archive. The shipped ``rf-thermal`` bundle's own composition is pinned by
-    ``tests/simulation/test_control_assistant_scenarios.py``; what matters here
-    is the mechanism it exercises, not its amplitudes.
+    archive. What matters here is the mechanism the shipped ``rf-thermal``
+    bundle exercises, not its amplitudes.
     """
     return {
         "description": "A cavity-1 thermal excursion.",

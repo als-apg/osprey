@@ -6,19 +6,13 @@ not the full VL-1 model.
 
 import copy
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-# Shipped control_assistant simulation model.
-TEMPLATE_SIM = (
-    Path(__file__).parents[2] / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
-
 #: The ``control_system`` block of a mock-connector project whose model is the
-#: shipped tree staged by :func:`stage_sim_project`.
+#: inline test machine staged by :func:`stage_sim_project`.
 MOCK_SIM_CONTROL_SYSTEM = {
     "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
 }
@@ -27,7 +21,7 @@ MOCK_SIM_CONTROL_SYSTEM = {
 def stage_sim_project(
     root: Path, *, control_system: dict | None = None, **config_extra: Any
 ) -> Path:
-    """Stage a sim-backed project: the shipped simulation tree plus ``config.yml``.
+    """Stage a sim-backed project: the inline test machine plus ``config.yml``.
 
     The flat shape, ``config.yml`` beside ``data/simulation/``. ``control_system``
     defaults to the mock connector pointing at the staged model; any other
@@ -36,8 +30,8 @@ def stage_sim_project(
     import yaml
 
     sim_dst = root / "data" / "simulation"
-    sim_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(TEMPLATE_SIM, sim_dst)
+    sim_dst.mkdir(parents=True, exist_ok=True)
+    (sim_dst / "machine.json").write_text(json.dumps(TEST_MACHINE))
     config = {
         "control_system": copy.deepcopy(
             MOCK_SIM_CONTROL_SYSTEM if control_system is None else control_system
@@ -213,24 +207,3 @@ def make_machine_file(tmp_path):
 def machine_file(machine_dict, make_machine_file):
     """The inline test machine written to a tmp file."""
     return make_machine_file(machine_dict)
-
-
-@pytest.fixture
-def engine_factory(tmp_path, state_dir):
-    """Build the shipped control_assistant engine under given scenario(s).
-
-    Copies the shipped ``machine.json`` into a temp dir, and seeds the
-    ``active_scenarios`` state file in the separate state directory; the engine
-    re-reads the state file on mtime change, so the returned engine is already
-    pinned to the requested set (``nominal`` is always implicitly active).
-    """
-    from osprey.simulation import SimulationEngine
-
-    def make(*names: str) -> "SimulationEngine":
-        machine = tmp_path / "machine.json"
-        shutil.copy(TEMPLATE_SIM / "machine.json", machine)
-        active = names or ("nominal",)
-        (state_dir / "active_scenarios").write_text("\n".join(active) + "\n")
-        return SimulationEngine.from_file(machine, state_dir=state_dir)
-
-    return make

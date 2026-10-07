@@ -9,7 +9,6 @@ next operation, with no restart and no rebuild.
 from __future__ import annotations
 
 import os
-import shutil
 from pathlib import Path
 
 import pytest
@@ -22,11 +21,6 @@ from osprey_connectors.simulation.composite import Composite
 from tests._builds import BuiltProject
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
-
-TEMPLATE_SIM = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
 
 #: The BPM whose polarity ``bpm-polarity`` inverts, on the plane the test reads.
 BPM_Y = "SR:DIAG:BPM:17:POSITION:Y"
@@ -53,9 +47,6 @@ def _stage(built: BuiltProject, tmp_path: Path) -> tuple[Path, Path]:
         The repo and its simulator view.
     """
     repo = build_exemplar_repo(tmp_path / "repo")
-    sim_dir = repo / "data" / "simulation"
-    shutil.rmtree(sim_dir, ignore_errors=True)
-    shutil.copytree(TEMPLATE_SIM, sim_dir)
     config = {
         "control_system": {
             "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
