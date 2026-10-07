@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import importlib.metadata
 import re
+import sys
 import tomllib
 from functools import cache
 from pathlib import Path
@@ -39,9 +40,10 @@ RUNTIME_ENABLERS: dict[str, str] = {
     "pysocks": "httplib2 honours HTTP(S)_PROXY only with PySocks installed",
 }
 
-# The modules each runtime-extra distribution provides. Read when the
-# distribution is not installed in the test environment, or when its top-level
-# name is a namespace several distributions share.
+# The modules each runtime-extra distribution provides. An entry here wins over
+# the installed distribution's own top-level names, which miss a namespace
+# several distributions share; a distribution with no entry is read from the
+# environment.
 STATIC_MODULES: dict[str, tuple[str, ...]] = {
     "aioca": ("aioca",),
     "aiohttp-socks": ("aiohttp_socks",),
@@ -90,10 +92,9 @@ def _installed_modules() -> dict[str, tuple[str, ...]]:
 
 
 def _modules_for(distribution: str) -> tuple[str, ...]:
-    installed = _installed_modules().get(distribution)
-    if installed:
-        return installed
-    return STATIC_MODULES.get(distribution, ())
+    if distribution in STATIC_MODULES:
+        return STATIC_MODULES[distribution]
+    return _installed_modules().get(distribution, ())
 
 
 @cache
@@ -140,3 +141,12 @@ def test_every_runtime_extra_package_is_imported(extra: str) -> None:
         if not any(_imported(module) for module in modules):
             unimported.append(f"{distribution} ({', '.join(modules)})")
     assert not unimported, f"[{extra}] installs packages no shipped file imports: {unimported}"
+
+
+def test_a_static_entry_wins_over_the_installed_top_level_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys.modules[__name__], "_installed_modules", lambda: {"azure-servicebus": ("swagger",)}
+    )
+    assert _modules_for("azure-servicebus") == ("azure.servicebus",)
