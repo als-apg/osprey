@@ -59,18 +59,29 @@ def _rows(
     currents: list[float],
     *,
     stop_after: int | None = None,
+    readback_error: tuple[float, float] | None = None,
 ) -> list[dict[str, float]]:
     """Rows an `orm` run emits for a machine whose response is *truth*.
 
     Corrector-major emission order, every row carrying EVERY corrector's
     current (idle ones read back 0.0) alongside every BPM -- the document
     shape `build_plan` produces.
+
+    *readback_error* ``(gain, offset)`` models correctors whose readback
+    tracks the demand imperfectly: each then reports the commanded current
+    under ``<name>_setpoint`` and ``gain * commanded + offset`` under
+    ``<name>``, while the BPMs respond to the commanded current.
     """
     rows: list[dict[str, float]] = []
     for j, corrector in enumerate(correctors):
         for current in currents:
             row = dict.fromkeys(correctors, 0.0)
             row[corrector] = current
+            if readback_error is not None:
+                gain, offset = readback_error
+                for name in correctors:
+                    row[f"{name}_setpoint"] = row[name]
+                    row[name] = gain * row[name] + offset
             for i, bpm in enumerate(readbacks):
                 row[bpm] = float(truth[i, j] * current)
             rows.append(row)
@@ -153,6 +164,54 @@ def test_bidirectional_run_renders_the_same_matrix() -> None:
     heatmap = _panel(orm.render(_window(rows), params), "Response matrix").mark
     assert isinstance(heatmap, HeatmapMark)
     assert np.allclose(np.array(heatmap.values), truth, atol=1e-9)
+
+
+def test_the_heatmap_is_the_setpoint_fit_when_the_readback_tracks_with_an_error() -> None:
+    """The default fit is per unit of commanded current; the readback fit is off by the gain."""
+    correctors, readbacks = ["hcm1", "hcm2"], ["bpm1", "bpm2", "bpm3"]
+    truth = _truth(len(readbacks), len(correctors))
+    rows = _rows(
+        correctors,
+        readbacks,
+        truth,
+        _currents(1.0, 7, sweep="bidirectional"),
+        readback_error=(0.98, 0.3),
+    )
+    params = _params(correctors=correctors, readbacks=readbacks)
+
+    by_setpoint = _panel(orm.render(_window(rows), params), "Response matrix").mark
+    readback_params = params.model_copy(update={"regressor": "readback"})
+    by_readback = _panel(orm.render(_window(rows), readback_params), "Response matrix").mark
+
+    assert isinstance(by_setpoint, HeatmapMark)
+    assert isinstance(by_readback, HeatmapMark)
+    np.testing.assert_allclose(np.array(by_setpoint.values), truth, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.array(by_readback.values), truth / 0.98, rtol=1e-12, atol=1e-12)
+
+
+def test_the_matrix_panel_names_its_regressor() -> None:
+    """The matrix says what its slopes are per unit of, and the traces' x axis names it."""
+    correctors, readbacks = ["hcm1", "hcm2"], ["bpm1", "bpm2"]
+    truth = _truth(len(readbacks), len(correctors))
+    rows = _rows(correctors, readbacks, truth, _currents(1.0, 7, sweep="bidirectional"))
+    params = _params(correctors=correctors, readbacks=readbacks)
+
+    setpoint_figure = orm.render(_window(rows), params)
+    readback_figure = orm.render(_window(rows), params.model_copy(update={"regressor": "readback"}))
+
+    assert (
+        "Slopes are per ampere of commanded current (the corrector setpoint)."
+        in _panel(setpoint_figure, "Response matrix").annotations
+    )
+    assert (
+        "Slopes are per ampere of measured current (the corrector readback)."
+        in _panel(readback_figure, "Response matrix").annotations
+    )
+    setpoint_trace = _panel(setpoint_figure, "hcm1 sweep")
+    readback_trace = _panel(readback_figure, "hcm1 sweep")
+    assert setpoint_trace.x_label == "Corrector setpoint"
+    assert readback_trace.x_label == "Corrector readback"
+    assert setpoint_trace.x_units == readback_trace.x_units == "A"
 
 
 # =========================================================================

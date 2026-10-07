@@ -322,7 +322,10 @@ def _trace_panels(
     *,
     section: str | None,
 ) -> list[Panel]:
-    """One panel per traced corrector: BPM readings against that corrector's current.
+    """One panel per traced corrector: BPM readings against that corrector's regressor.
+
+    The x axis is the column the fit regressed on (``fit.regressor``), and the
+    axis label names it.
 
     A corrector that has recorded no current yet -- the sweep has not reached
     it, or the run's rows never carried that device -- gets no panel at all; an
@@ -368,7 +371,7 @@ def _trace_panels(
         panels.append(
             Panel(
                 title=f"{fit.correctors[j]} sweep",
-                x_label="Corrector current",
+                x_label=f"Corrector {fit.regressor}",
                 x_units="A",
                 y_label="BPM reading",
                 annotations=annotations,
@@ -485,6 +488,8 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
     Only completed sweeps have columns, so the heatmap's x axis is
     `fitted_correctors` (a subsequence of the requested correctors) and says so
     when the two differ -- an in-flight corrector must not read as a dead one.
+    The matrix panel also says what its slopes are per unit of
+    (``fit.regressor``).
     """
     incomplete = len(fit.correctors) - len(fit.fitted_correctors)
     matrix_note = (
@@ -495,6 +500,11 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
         if incomplete
         else []
     )
+    regressor_note = (
+        "Slopes are per ampere of commanded current (the corrector setpoint)."
+        if fit.regressor == "setpoint"
+        else "Slopes are per ampere of measured current (the corrector readback)."
+    )
 
     return [
         Panel(
@@ -503,6 +513,7 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
             y_label="BPM",
             annotations=[
                 *matrix_note,
+                regressor_note,
                 "Colour is signed: one hue each side of zero, scaled "
                 "symmetrically, so an unresponsive BPM reads as background "
                 "rather than as a mid-scale response.",
@@ -554,7 +565,13 @@ def _build(window: RowWindow, params: PARAMS, *, with_fit: bool) -> Figure:
     """Assemble the figure. Raises freely -- `render` is what must not."""
     truncated = not window.rows_complete
 
-    fit = sliced_response_matrix(window.rows, params.correctors, params.readbacks, params.num)
+    fit = sliced_response_matrix(
+        window.rows,
+        params.correctors,
+        params.readbacks,
+        params.num,
+        regressor=params.regressor,
+    )
 
     lead_annotations: list[str] = []
     if truncated:
@@ -604,7 +621,8 @@ def render(window: RowWindow, params: PARAMS) -> Figure:
     Panel order is stable, so a live figure grows rather than rearranging:
 
     1. One **sweep trace** panel per corrector that has recorded a point --
-       every BPM reading against that corrector's own current. These always
+       every BPM reading against that corrector's own regressor value (its
+       setpoint by default, see ``PARAMS.regressor``). These always
        appear, for a `monodirectional` sweep as readily as a `bidirectional`
        one and for a run three points in as readily as a finished one.
     2. Once at least one corrector's sweep has completed, the **response
