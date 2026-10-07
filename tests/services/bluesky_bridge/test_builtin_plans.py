@@ -304,7 +304,9 @@ def test_orm_stamps_its_own_run_metadata() -> None:
     currents per corrector, serially, so a consumer reading the stamp as a
     progress denominator counts the whole run and not one sweep of it. The
     keys asserted here are bluesky's native start-document spelling, which is
-    what `scan_metadata()` translates the capability vocabulary into.
+    what `scan_metadata()` translates the capability vocabulary into. Beside
+    them the run records the regressor its slopes are per unit of, including
+    when the caller left it at its default.
     """
     devices = asyncio.run(
         build_devices(settable_names=["hcm1", "hcm2"], readable_names=["bpm1", "bpm2"])
@@ -316,6 +318,10 @@ def test_orm_stamps_its_own_run_metadata() -> None:
     assert list(metadata["motors"]) == ["hcm1", "hcm2"]
     assert list(metadata["detectors"]) == ["bpm1", "bpm2"]
     assert metadata["num_points"] == 8
+    assert metadata["regressor"] == "setpoint"
+
+    readback_params = params.model_copy(update={"regressor": "readback"})
+    assert _open_run_metadata(orm_plan(devices, readback_params))["regressor"] == "readback"
 
 
 def test_orm_declares_no_dimensionality_hint() -> None:

@@ -15,7 +15,8 @@ guessing it from a field name.
 
 This plan opens its own run, so it stamps its own run metadata through
 ``scan_metadata()``: the channels it moves and reads, and the total point
-count (one point per corrector per swept current). No dimensionality hint —
+count (one point per corrector per swept current). It adds ``regressor``, the
+corrector value its response fit regresses on. No dimensionality hint —
 the sweeps are serial and per-corrector, not one continuous traversal, so
 there is no truthful value for one.
 """
@@ -199,7 +200,9 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     The run this opens is stamped with ``scan_metadata()``: the correctors it
     moves, the BPMs it reads, and ``num`` points per corrector across every
     corrector. Sweeps are serial and per-corrector rather than one continuous
-    traversal, so no dimensionality hint is declared.
+    traversal, so no dimensionality hint is declared. Beside those keys it
+    records ``regressor``, the corrector value the run's slopes are fitted
+    against, so a run launched on the default still says which one it used.
 
     Raises:
         ValueError: A corrector read back a non-finite working point. Every
@@ -223,11 +226,14 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 
     @bpp.stage_decorator(all_devices)
     @bpp.run_decorator(
-        md=scan_metadata(
-            movable=params.correctors,
-            readable=params.readbacks,
-            points=params.num * len(params.correctors),
-        )
+        md={
+            **scan_metadata(
+                movable=params.correctors,
+                readable=params.readbacks,
+                points=params.num * len(params.correctors),
+            ),
+            "regressor": params.regressor,
+        }
     )
     def _sweep():
         for name, corrector in correctors:
