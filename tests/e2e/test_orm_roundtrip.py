@@ -32,8 +32,9 @@ queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
       row buffer is gone, the route can only answer from the Tiled catalog,
       and the figure it draws from there matches the one it drew live.
 
-No physics fault is seeded on this stack and its monitors serve without
-declared motion, so every BPM and corrector carries the identity error state.
+No physics fault is seeded on this stack and every reading it serves --
+monitors and corrector readbacks alike -- serves without declared motion, so
+every BPM and corrector carries the identity error state.
 The measured/model agreement is therefore bounded only by AT numerical-solve
 reproducibility and the JSON/HTTP round trip, not a physical noise floor --
 see ``MATCH_ATOL``.
@@ -76,13 +77,14 @@ from typing import Any
 
 import numpy as np
 import pytest
+import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
-from tests.e2e._monitor_motion import still_monitor_motion
+from tests.e2e._monitor_motion import MOTION_KEYS, still_model_motion
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
@@ -182,6 +184,24 @@ def _get(path: str) -> tuple[int, Any]:
     return _queue_drive.request(BRIDGE_URL, path, "GET")
 
 
+def _assert_selected_readings_still(
+    repo: Path, correctors: dict[str, tuple[str, str]], bpms: dict[str, str]
+) -> None:
+    """Fail before deploying if a reading this test compares still declares motion."""
+    seeds = yaml.safe_load((repo / "data" / "facility" / "seeds.yaml").read_text("utf-8")) or {}
+    readings = sorted({rb for _, rb in correctors.values()} | set(bpms.values()))
+    moving = {
+        address: sorted(key for key in MOTION_KEYS if key in (seeds.get(address) or {}))
+        for address in readings
+        if any(key in (seeds.get(address) or {}) for key in MOTION_KEYS)
+    }
+    assert not moving, (
+        f"selected readings still declare motion in the deployed seeds: {moving} -- the "
+        "oracle comparison and the corrector settle wait would both be measuring seed "
+        "motion, not the model"
+    )
+
+
 class DeployedOrmStack:
     """Everything the round-trip test needs about the one deployment repo."""
 
@@ -200,11 +220,12 @@ class DeployedOrmStack:
 def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedOrmStack]:
     base = tmp_path_factory.mktemp("orm_roundtrip_build")
 
-    def still_monitors(repo: Path) -> None:
-        # The oracle is the noiseless model (see MATCH_RTOL), so the monitors
-        # serve the solved orbit without the drift and noise the facility's
-        # seeds give them.
-        still_monitor_motion(repo / "data")
+    def still_model(repo: Path) -> None:
+        # The oracle is the noiseless model (see MATCH_RTOL), and the plan both
+        # settles on and fits against the corrector readbacks, so every reading
+        # the model serves -- monitors and corrector readbacks alike -- serves
+        # without the drift and noise the facility's seeds give it.
+        still_model_motion(repo / "data")
 
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
@@ -212,7 +233,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         PROJECT_NAME,
         output_dir=base,
         timeout=BUILD_TIMEOUT_SEC,
-        pre_build=still_monitors,
+        pre_build=still_model,
         # This module's own thousand-port block (see test_dispatch_deploy.py's
         # 20700 note): everything not pinned explicitly follows it instead of
         # landing on a real deployment's default 10000 block.
@@ -220,6 +241,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
     )
     correctors = _orm_stack.select_correctors(repo, CORRECTOR_COUNT)
     bpms = _orm_stack.select_bpms(repo)
+    _assert_selected_readings_still(repo, correctors, bpms)
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
@@ -363,6 +385,29 @@ def _figure_summary(figure: dict[str, Any]) -> str:
     return (
         f"source={figure.get('source')!r} partial={figure.get('partial')!r} "
         f"reason={figure.get('reason')!r} panels={titles}"
+    )
+
+
+def _settled_before_midflight(run_id: str, expected_rows: int) -> str:
+    """Why a run whose figure settled before any in-flight poll saw it is a failure.
+
+    The run record's ``progress.rows_seen`` tells a run that stopped short --
+    aborted or failed, so it never filled in -- from one that recorded every row
+    between two polls.
+    """
+    record_status, record = _queue_drive.run_record(BRIDGE_URL, run_id)
+    progress = record.get("progress") if isinstance(record, dict) else None
+    rows_seen = progress.get("rows_seen") if isinstance(progress, dict) else None
+    if not isinstance(rows_seen, int) or rows_seen < expected_rows:
+        return (
+            f"the run stopped after {rows_seen} of {expected_rows} rows without completing "
+            "(aborted or failed; the queueserver log names why) -- an in-flight figure could "
+            "not be observed because the run never filled in\n"
+            f"--- GET /runs/{run_id} (HTTP {record_status}) ---\n{record}"
+        )
+    return (
+        f"the whole {expected_rows}-row run settled between two in-flight polls "
+        f"{MIDFLIGHT_POLL_SEC}s apart"
     )
 
 
@@ -563,14 +608,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
             timeout=MIDFLIGHT_TIMEOUT_SEC,
             poll=MIDFLIGHT_POLL_SEC,
             give_up=lambda figure: (
-                None
-                if figure["partial"]
-                else (
-                    f"the {expected_rows}-row run settled before any in-flight figure was "
-                    f"observed (polled every {MIDFLIGHT_POLL_SEC}s) -- there is nothing wrong "
-                    "with the route here, but this assertion is no longer testing what it "
-                    "claims to; the run needs to be longer or the poll faster"
-                )
+                None if figure["partial"] else _settled_before_midflight(run_id, expected_rows)
             ),
         )
     except AssertionError as exc:
@@ -582,9 +620,9 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
         record_status, record = _queue_drive.run_record(BRIDGE_URL, run_id)
         raise AssertionError(
             f"{exc}\n--- GET /runs/{run_id} (HTTP {record_status}) ---\n{record}\n"
-            "If that record shows a run that never got going, this is the corrector "
-            "settle-wait hang the completion assertion below names, not a figure-route "
-            "failure."
+            "A record with `rows_seen` 0 and `complete` true is a run that aborted at its "
+            "first move, the corrector settle-wait failure the completion assertion below "
+            "names, not a figure-route failure."
         ) from exc
     assert midflight["source"] == "live", (
         f"an in-flight run must be served from the live row buffer: {_figure_summary(midflight)}"
@@ -728,9 +766,10 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     # (a) matches the model oracle: the same symmetric-sweep currents the
     # deployed orm plan itself computes (plans_core/orm.py's build_plan), so
     # the model is driven identically to how the plan drove the real stack.
-    # The plan kicks each corrector about its own pre-run working point; the
-    # VA's correctors idle at 0 A, so here those kicks ARE these absolute
-    # currents and the model needs no offset of its own.
+    # The plan kicks each corrector about its own pre-run working point; every
+    # reading this stack serves is stilled, so the VA's correctors idle at 0 A,
+    # here those kicks ARE these absolute currents and the model needs no
+    # offset of its own.
     step = (2 * SPAN_A) / (NUM_POINTS - 1)
     currents = [-SPAN_A + i * step for i in range(NUM_POINTS)]
     model = _model_response_matrix(deployed_orm_stack.repo, correctors, bpms, currents)
