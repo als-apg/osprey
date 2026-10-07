@@ -338,9 +338,11 @@ class TestResolveServers:
         in neither list — so nothing pinned which side of the split they land
         on, and the disjointness assertion above stays green either way. They
         are named here because each is either a read of state the agent just
-        produced or a write to the simulation's own scratch state, which
-        ``lattice_init`` restores; none of it reaches hardware, so a prompt per
-        call would buy nothing.
+        produced or a write to the simulation's own scratch state:
+        ``lattice_set_baseline`` sets a fresh baseline, so
+        ``lattice_clear_baseline`` is undone by it; the dashboard's model switch
+        also re-initialises the state. None of it reaches hardware, so a prompt
+        per call would buy nothing.
 
         ``lattice_clear_baseline`` is allow-listed here and still blocked under
         the headless read-only floor, which classifies it side-effecting from

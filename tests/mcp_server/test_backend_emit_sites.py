@@ -1177,16 +1177,15 @@ async def test_execute_deployment_writes_disabled_no_emit(tool_name, tmp_path, m
 
 # ── lattice dashboard mutators ──────────────────────────────────────────────
 #
-# The six mutators share one refusal shape: every failure arrives as an
+# The five mutators share one refusal shape: every failure arrives as an
 # exception out of ``_dashboard_request`` and every handler funnels into
 # ``make_error``, which raises before the emit can run. Both failure classes
 # the module handles by name — an unreachable dashboard and a non-2xx response
-# — are therefore exercised against all six rather than per-mutator variants.
+# — are therefore exercised against all five rather than per-mutator variants.
 # The read-only tools share the same body minus the emit, so they are pinned
 # as a group too.
 
 _LATTICE_MUTATORS = [
-    ("lattice_init", {"lattice_path": "machine_data/als.m"}),
     ("lattice_set_param", {"family": "QF", "value": 1.25}),
     ("lattice_refresh", {}),
     ("lattice_set_baseline", {}),
@@ -1237,7 +1236,6 @@ def _lattice_http_error(status: int = 400, text: str = "unknown family"):
 @pytest.mark.parametrize(
     "tool_name,kwargs,detail",
     [
-        ("lattice_init", {"lattice_path": "machine_data/als.m"}, "machine_data/als.m"),
         ("lattice_set_param", {"family": "QF", "value": 1.25}, "QF = 1.25"),
         ("lattice_refresh", {}, "recomputing fast figures"),
         ("lattice_refresh", {"figure": "da"}, "recomputing da"),

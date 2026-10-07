@@ -108,19 +108,6 @@ async def test_dashboard_request_rejects_unknown_method():
 # ---------------------------------------------------------------------------
 
 
-async def test_lattice_init_happy():
-    payload = {"summary": {"energy": 2.0}, "families": {"QF": {}, "SD": {}}}
-    with _patch_request(return_value=payload) as req:
-        result = await _fn(lt.lattice_init)(lattice_path="als.m")
-    data = json.loads(result)
-    assert data["status"] == "ok"
-    assert data["summary"] == {"energy": 2.0}
-    assert sorted(data["families"]) == ["QF", "SD"]
-    method, path = req.call_args.args
-    assert (method, path) == ("POST", "/api/state/init")
-    assert req.call_args.kwargs["json_body"] == {"lattice_path": "als.m"}
-
-
 async def test_lattice_state_returns_raw():
     with _patch_request(return_value={"base_lattice": "als.m", "figures": {}}):
         result = await _fn(lt.lattice_state)()
@@ -210,7 +197,6 @@ async def test_lattice_clear_baseline_happy():
 # (tool, call-kwargs) for every tool. Error handling is per-tool boilerplate, so
 # each entry proves that tool's own except-block is wired, not just one exemplar.
 _ALL_TOOLS = [
-    ("lattice_init", {"lattice_path": "x.m"}),
     ("lattice_state", {}),
     ("lattice_set_param", {"family": "QF", "value": 1.0}),
     ("lattice_refresh", {}),
@@ -224,7 +210,6 @@ _ALL_TOOLS = [
 
 # Tools with an explicit httpx.HTTPStatusError branch (mapped to lattice_error).
 _HTTP_ERROR_TOOLS = [
-    ("lattice_init", {"lattice_path": "x.m"}),
     ("lattice_set_param", {"family": "QF", "value": 1.0}),
     ("lattice_get_figure", {"name": "optics"}),
     ("lattice_get_data", {"name": "optics"}),

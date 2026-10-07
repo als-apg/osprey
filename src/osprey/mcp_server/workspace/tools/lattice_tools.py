@@ -1,7 +1,6 @@
-"""MCP tools: lattice dashboard — init, state, params, figures, baseline, settings.
+"""MCP tools: lattice dashboard — state, params, figures, baseline, settings.
 
-Ten tools wrapping the lattice dashboard HTTP surface:
-  - ``lattice_init``: Load a lattice file into the dashboard.
+Nine tools wrapping the lattice dashboard HTTP surface:
   - ``lattice_state``: Get the current lattice state.
   - ``lattice_set_param``: Set a magnet family parameter.
   - ``lattice_refresh``: Trigger figure recomputation.
@@ -85,59 +84,6 @@ async def _notify_lattice(tool: str, detail: str) -> None:
         detail: Short human-readable description of what changed.
     """
     await notify_agent_activity_async(tool, "panel", panel="lattice", detail=detail)
-
-
-@mcp.tool()
-async def lattice_init(lattice_path: str) -> str:
-    """Load a lattice file into the dashboard.
-
-    Initializes the dashboard with the given .m lattice file path.
-    Computes optics summary, discovers magnet families, auto-sets baseline,
-    and triggers computation of the 4 fast figures (optics, resonance,
-    chromaticity, tune footprint).
-
-    Args:
-        lattice_path: Path to a MATLAB .m lattice file, resolved by the
-            dashboard process (e.g. "data/lattice/<your-lattice>.m").
-
-    Returns:
-        JSON with lattice summary including energy, tunes, chromaticity,
-        magnet families, and figure computation status.
-    """
-    try:
-        result = await _dashboard_request(
-            "POST",
-            "/api/state/init",
-            json_body={"lattice_path": lattice_path},
-            timeout=60.0,
-        )
-        await _notify_lattice("lattice_init", lattice_path)
-        return json.dumps(
-            {
-                "status": "ok",
-                "summary": result.get("summary", {}),
-                "families": list(result.get("families", {}).keys()),
-                "message": "Lattice loaded. Fast figures are computing.",
-            },
-            default=str,
-        )
-    except httpx.ConnectError:
-        return make_error(
-            "service_unavailable",
-            "Lattice dashboard server is not running.",
-            ["The dashboard starts automatically with 'osprey web'."],
-        )
-    except httpx.HTTPStatusError as exc:
-        return make_error(
-            "lattice_error",
-            f"Failed to load lattice: {exc.response.text}",
-            ["Check that the lattice file path is correct and readable."],
-        )
-    except ToolError:
-        raise
-    except Exception as exc:
-        logger.exception("lattice_init failed")
-        return make_error("lattice_error", str(exc))
 
 
 @mcp.tool()
