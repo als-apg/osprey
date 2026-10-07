@@ -346,6 +346,13 @@ while [[ ${SECONDS} -lt ${deadline} ]]; do
         booted=true
         break
     fi
+    # A container that has exited never prints the line; a failed first
+    # publishing pass exits non-zero before it.
+    if [[ "$("${RUNTIME}" inspect -f '{{.State.Running}}' "${CONTAINER}" 2>/dev/null || true)" != true ]]; then
+        echo "FATAL: the container exited before it reported ready" >&2
+        "${RUNTIME}" logs "${CONTAINER}" >&2 || true
+        exit 1
+    fi
     sleep 1
 done
 boot_elapsed=$((SECONDS - boot_wait_start))
