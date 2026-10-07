@@ -225,6 +225,92 @@ async def test_set_settles_within_an_authored_tolerance(
     assert fake.read_calls == ["RB"]
 
 
+def _held_at(fake: FakeConnector, value: float) -> Any:
+    """A readback read that always returns ``value``, logging the call."""
+
+    async def read(channel_address: str, timeout: float | None = None):  # noqa: ARG001 - the connector read signature
+        fake.read_calls.append(channel_address)
+        return _FakeChannelValue(value=value)
+
+    return read
+
+
+#: A device's declared band, wider than the profile floor.
+_BAND = 0.011
+
+
+async def test_set_settles_inside_the_device_band(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A readback held at ``demand + 0.9 x band`` settles on its first poll."""
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.3")
+    monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.write_outcome = "unrequested"
+    monkeypatch.setattr(fake, "read_channel", _held_at(fake, -3.0 + 0.9 * _BAND))
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m", settle_tolerance=_BAND)
+
+    await device.set(-3.0)
+
+    assert fake.read_calls == ["RB"]
+
+
+async def test_set_times_out_outside_the_device_band(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A readback held at ``demand + 1.1 x band`` never settles."""
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.1")
+    monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.write_outcome = "unrequested"
+    monkeypatch.setattr(fake, "read_channel", _held_at(fake, -3.0 + 1.1 * _BAND))
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m", settle_tolerance=_BAND)
+
+    with pytest.raises(TimeoutError, match="did not settle"):
+        await device.set(-3.0)
+
+
+async def test_a_device_without_a_band_settles_within_the_profile_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No band: the profile value alone decides, so a near miss times out."""
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.1")
+    monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.write_outcome = "unrequested"
+    monkeypatch.setattr(fake, "read_channel", _held_at(fake, -3.0 + 0.9 * _BAND))
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m")
+
+    with pytest.raises(TimeoutError):
+        await device.set(-3.0)
+
+
+async def test_the_profile_floor_holds_under_a_tighter_device_band(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A device band never tightens the profile value: the larger of the two governs."""
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.3")
+    monkeypatch.setenv(connector_module.SETTLE_TOLERANCE_ENV, "0.1")
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.write_outcome = "unrequested"
+    monkeypatch.setattr(fake, "read_channel", _held_at(fake, -3.0 + 0.05))
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="m", settle_tolerance=_BAND)
+
+    await device.set(-3.0)
+
+
+async def test_build_devices_hands_each_settable_its_band(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.3")
+    monkeypatch.delenv(connector_module.SETTLE_TOLERANCE_ENV, raising=False)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    fake.write_outcome = "unrequested"
+    monkeypatch.setattr(fake, "read_channel", _held_at(fake, -3.0 + 0.9 * _BAND))
+    devices = await build_devices(
+        settables=[
+            SettableSpec(name="m", setpoint_pv="SP", readback_pv="RB", settle_tolerance=_BAND)
+        ],
+        connector=fake,
+    )
+
+    await devices["m"].set(-3.0)
+
+
 async def test_set_times_out_when_readback_never_settles(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the readback never echoes the demand, ``set()`` must raise, never hang."""
     monkeypatch.setenv(connector_module.SETTLE_TIMEOUT_ENV, "0.1")

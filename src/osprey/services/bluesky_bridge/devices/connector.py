@@ -45,16 +45,17 @@ from ophyd_async.core import AsyncStatus, StandardReadable
 from ._connect import connect_all
 from .specs import ReadableSpec, SettableSpec
 
-#: Env var carrying how close a readback must come to the demand before
-#: ``ConnectorSettable.set()`` calls a move settled. Authored per facility in
-#: the build profile and rendered into the compose file; the container cannot
-#: read `config.yml`, so the env var is the whole channel.
+#: Env var carrying the floor on how close a readback must come to the demand
+#: before ``ConnectorSettable.set()`` calls a move settled. Authored per
+#: facility in the build profile and rendered into the compose file; the
+#: container cannot read `config.yml`, so the env var is the whole channel. A
+#: device whose readback declares motion settles within that motion's band
+#: when the band is wider than this floor.
 SETTLE_TOLERANCE_ENV = "BLUESKY_SETTLE_TOLERANCE"
 
-#: Used when the variable is unset. A float-noise bound on a setpoint/readback
-#: pair the underlying IOC keeps in exact software sync — the right value for a
-#: device whose readback is the setpoint echoed back, and far too strict for a
-#: device that physically moves, which is exactly why a facility authors it.
+#: Used when the variable is unset. A float-noise bound: the floor for a
+#: setpoint/readback pair kept in exact software sync. A device whose readback
+#: moves on its own carries its own band in the device file.
 DEFAULT_SETTLE_TOLERANCE = 1e-9
 
 #: Env var bounding how long ``ConnectorSettable.set()`` polls the readback
@@ -136,9 +137,13 @@ class ConnectorSettable(StandardReadable):
     setpoint through ``connector.write_channel_checked`` — which raises on
     any refusal, failure, mismatch, or unconfirmed write, aborting the
     RunEngine — then polls the (possibly separate) readback channel through
-    ``connector.read_channel`` until it settles within :func:`settle_tolerance`
-    of the demanded value, or raises ``TimeoutError`` once the
-    :func:`settle_timeout_s` budget runs out. ``read()``/``describe()`` are overridden
+    ``connector.read_channel`` until it settles within its tolerance of the
+    demanded value, or raises ``TimeoutError`` once the
+    :func:`settle_timeout_s` budget runs out. The tolerance is the larger of
+    :func:`settle_tolerance`, the profile's floor, and ``settle_tolerance``,
+    the band of the motion the device's readback declares: a device can only
+    be looser than the floor where its facility declares motion, never tighter.
+    ``read()``/``describe()`` are overridden
     to return the *live* readback via the connector on every call — never a
     cached/soft value — so a plan's ``trigger_and_read`` document always
     reflects the current mediated state.
@@ -177,10 +182,12 @@ class ConnectorSettable(StandardReadable):
         setpoint_pv: str,
         readback_pv: str | None = None,
         name: str = "",
+        settle_tolerance: float | None = None,
     ) -> None:
         self._osprey_connector = connector
         self._setpoint_pv = setpoint_pv
         self._readback_pv = readback_pv or setpoint_pv
+        self._settle_tolerance = settle_tolerance
         super().__init__(name=name)
 
     @AsyncStatus.wrap
@@ -204,8 +211,8 @@ class ConnectorSettable(StandardReadable):
                 Channel Access layer.
             TimeoutError: Either propagated unchanged from the connector's
                 write, or raised directly by this method when ``readback``
-                does not settle within :func:`settle_tolerance` of ``value``
-                within :func:`settle_timeout_s` seconds.
+                does not settle within its tolerance of ``value`` within
+                :func:`settle_timeout_s` seconds.
 
             Every one of these propagates uncaught through the
             ``AsyncStatus`` this method is wrapped in, aborting the
@@ -233,7 +240,7 @@ class ConnectorSettable(StandardReadable):
         # defaults: the facility authors them in its profile and they reach the
         # container as env vars, so the value in force is whatever the process
         # environment says at the moment the move starts.
-        tolerance = settle_tolerance()
+        tolerance = max(settle_tolerance(), self._settle_tolerance or 0.0)
         timeout_s = settle_timeout_s()
         deadline = time.monotonic() + timeout_s
         while True:
@@ -409,6 +416,7 @@ async def build_devices(
             settable_spec.setpoint_pv,
             settable_spec.readback_pv,
             name=settable_spec.name,
+            settle_tolerance=settable_spec.settle_tolerance,
         )
     for readable_spec in readables:
         devices[readable_spec.name] = ConnectorReadable(

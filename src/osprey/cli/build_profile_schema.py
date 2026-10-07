@@ -797,12 +797,13 @@ class BlueskyConfig:
     """
 
     settle_tolerance: float = 1e-9
-    """How close the readback must come to the demand to count as settled.
+    """The floor on how close the readback must come to the demand to count as settled.
 
-    An ABSOLUTE bound on ``abs(readback - demand)``. The default is a
-    float-noise bound: the right value for a setpoint/readback pair the IOC
-    keeps in exact software sync, and far too strict for a device that
-    physically moves, which is exactly why a facility authors it.
+    An ABSOLUTE bound on ``abs(readback - demand)``, the same for every device.
+    The default is a float-noise bound: the floor for a setpoint/readback pair
+    kept in exact software sync. A device whose readback declares motion in
+    the facility settles within that motion's band where the band is wider;
+    this value is the floor under it.
 
     At the default value this key renders NOTHING into the compose file, and
     the bridge falls back to the same default when the env var is absent.
