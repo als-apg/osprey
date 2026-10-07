@@ -29,7 +29,7 @@ SCAN_PATHS: tuple[str, ...] = ("src", "scripts", "packages", "tests")
 
 #: The guards that spell the pattern's tokens as data; the scan never reads them.
 SELF_EXEMPT: tuple[str, ...] = (
-    "tests/build/test_tier_completion.py",
+    "tests/build_pipeline/test_tier_completion.py",
     "tests/facility/test_no_retired_shapes.py",
 )
 
@@ -47,7 +47,7 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/services/virtual_accelerator/manifest/paths.py": "7e",
     "src/osprey/simulation/channel_schema.py": "7d2",
     "src/osprey/templates/apps/control_assistant/data/README.md": "7d2",
-    "tests/build/test_modes.py": "7e",
+    "tests/build_pipeline/test_modes.py": "7e",
     "tests/cli/test_build_cmd.py": "7d2",
     "tests/cli/test_build_graph_index.py": "7e",
     "tests/cli/test_lifecycle_repo_fixture.py": "7d2",

@@ -1961,7 +1961,7 @@ def _render(repo: Path):
 # registry so a new paradigm cannot be added without landing here. ``graph`` is
 # excluded by the same subtraction the CLI's ``click.Choice`` lists use: its
 # store is a graph service, so its index is not a database file the render
-# check below can name. See tests/build/test_modes.py.
+# check below can name. See tests/build_pipeline/test_modes.py.
 _PARADIGMS_FOR_BUILD: tuple[str, ...] = tuple(FILE_DATABASE_PARADIGMS)
 
 #: The flat channel databases no render carries. Named here so a render can be
