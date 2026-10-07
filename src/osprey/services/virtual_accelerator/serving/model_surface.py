@@ -44,6 +44,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
+from osprey.services.virtual_accelerator.serving.health import ServingHealth
 from osprey.services.virtual_accelerator.serving.model_rpc import ModelRpcError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -66,7 +67,7 @@ class ModelSurface(ABC):
     The runner builds one per server through :meth:`for_view` and calls each
     verb on the run loop's thread. It also feeds ``status`` what only it can
     see, through :meth:`record_cycle`, :meth:`record_queue_depth`,
-    :meth:`record_refusal` and :meth:`record_pass_failure`.
+    :meth:`record_refusal` and :meth:`record_pass`.
     """
 
     def _start(
@@ -76,6 +77,7 @@ class ModelSurface(ABC):
         endpoint: str,
         clock: Callable[[], float],
         model_write_token: str | None,
+        failed_pass_tolerance: int,
     ) -> None:
         """Take the write token and start the state ``status`` reports."""
         self._write_token = model_write_token.encode() if model_write_token else None
@@ -86,7 +88,7 @@ class ModelSurface(ABC):
         self._last_cycle_ms: float | None = None
         self._queue_depth = 0
         self._last_refused_write: str | None = None
-        self._last_failed_pass: dict[str, Any] | None = None
+        self._health = ServingHealth(failed_pass_tolerance, clock, self._started)
 
     @classmethod
     def for_view(
@@ -97,6 +99,7 @@ class ModelSurface(ABC):
         instance: str,
         endpoint: str,
         model_write_token: str | None,
+        failed_pass_tolerance: int,
         clock: Callable[[], float] = time.monotonic,
     ) -> ModelSurface:
         """Answer for a composite, keyed on its simulator view's address set.
@@ -113,13 +116,17 @@ class ModelSurface(ABC):
             endpoint: where this server is reached.
             model_write_token: the token ``set`` and ``reset`` require.
                 ``None`` or empty disables model writes.
+            failed_pass_tolerance: the runner configuration's
+                ``failed_pass_tolerance``: how many consecutive failed
+                publishing passes the health record still counts as
+                ``degraded``.
             clock: seconds on a monotonic scale; ``uptime_s`` counts from
                 the reading taken here.
 
         Returns:
             The surface. ``status`` reports ``instance``, ``endpoint``,
             ``last_cycle_ms``, ``queue_depth``, ``uptime_s``,
-            ``last_refused_write`` and ``last_failed_pass``.
+            ``last_refused_write``, ``last_failed_pass`` and ``health``.
         """
         return _ViewSurface(
             composite,
@@ -127,6 +134,7 @@ class ModelSurface(ABC):
             instance=instance,
             endpoint=endpoint,
             model_write_token=model_write_token,
+            failed_pass_tolerance=failed_pass_tolerance,
             clock=clock,
         )
 
@@ -147,10 +155,11 @@ class ModelSurface(ABC):
 
         Returns:
             ``instance``, ``endpoint``, ``last_cycle_ms``, ``queue_depth``,
-            ``uptime_s``, ``last_refused_write`` and ``last_failed_pass``:
+            ``uptime_s``, ``last_refused_write``, ``last_failed_pass`` --
             ``None``, or the ``error`` the latest failed publishing pass
-            raised and the ``uptime_s`` it failed at. A later pass that
-            succeeds leaves it in place.
+            raised and the ``uptime_s`` it failed at; a later pass that
+            succeeds leaves it in place -- and ``health``, the health
+            record's document, which ``last_failed_pass`` is read from.
         """
         return {
             "instance": self._instance,
@@ -159,7 +168,8 @@ class ModelSurface(ABC):
             "queue_depth": self._queue_depth,
             "uptime_s": self._clock() - self._started,
             "last_refused_write": self._last_refused_write,
-            "last_failed_pass": self._last_failed_pass,
+            "last_failed_pass": self._health.last_failed_pass,
+            "health": self._health.document(),
         }
 
     def record_cycle(self, ms: float) -> None:
@@ -174,9 +184,19 @@ class ModelSurface(ABC):
         """Record why the latest refused write was refused, as a client was told."""
         self._last_refused_write = str(text)
 
-    def record_pass_failure(self, text: str) -> None:
-        """Record the error the latest failed publishing pass raised, and when."""
-        self._last_failed_pass = {"error": str(text), "uptime_s": self._clock() - self._started}
+    def record_pass(self, error: str | None) -> dict[str, Any]:
+        """Record a publishing pass's outcome: ``None``, or the error it raised.
+
+        Returns:
+            The health record's document, as it stands after this pass.
+        """
+        self._health.record_pass(error)
+        return self._health.document()
+
+    @property
+    def health(self) -> ServingHealth:
+        """The health record every publishing pass's outcome is recorded in."""
+        return self._health
 
     @abstractmethod
     def set(self, values: Mapping[str, Any], token: str | None) -> list[str]:
@@ -240,6 +260,7 @@ class _ViewSurface(ModelSurface):
         instance: str,
         endpoint: str,
         model_write_token: str | None,
+        failed_pass_tolerance: int,
         clock: Callable[[], float],
     ) -> None:
         self._composite = composite
@@ -247,7 +268,11 @@ class _ViewSurface(ModelSurface):
         self._served = [*self._channels, *(str(a) for a in addresses_json.get("status", []))]
         self._served_set = frozenset(self._served)
         self._start(
-            instance=instance, endpoint=endpoint, clock=clock, model_write_token=model_write_token
+            instance=instance,
+            endpoint=endpoint,
+            clock=clock,
+            model_write_token=model_write_token,
+            failed_pass_tolerance=failed_pass_tolerance,
         )
 
     def info(self) -> dict[str, Any]:
