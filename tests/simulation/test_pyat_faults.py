@@ -25,6 +25,7 @@ from lume_pyat.simulator import PyATSimulator  # noqa: E402
 from osprey.services.virtual_accelerator.lattice.errors import (  # noqa: E402
     bpm_read as reference_bpm_read,
 )
+from osprey.simulation.engines import pyat_faults  # noqa: E402
 from osprey.simulation.engines.pyat_faults import (  # noqa: E402
     magnet_cal,
     readout,
@@ -81,6 +82,11 @@ def deck_energy(simulator: PyATSimulator) -> float:
 @pytest.fixture
 def model(records) -> LUMEPyATModel:
     """The demo deck with BPM03's two readings and one reading of BPM04."""
+    return demo_model(records)
+
+
+def demo_model(records: dict[str, dict[str, Any]]) -> LUMEPyATModel:
+    """A fresh model of the demo deck with BPM03's two readings and one of BPM04."""
     simulator = PyATSimulator(at.load_lattice(str(DEMO / "decks" / "SR.json")))
     energy = deck_energy(simulator)
     variables = [
@@ -177,6 +183,57 @@ class TestReadout:
     def test_half_a_pair_is_refused(self, model) -> None:
         with pytest.raises(ValueError, match=Y_ADDRESS):
             readout(model, {X_ADDRESS: 1.0e-3}, 1_000)
+
+
+class TestReadoutOverManyInstants:
+    """The monitor map is read off the model's variables once per model."""
+
+    @staticmethod
+    def count_variable_reads(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+        calls = [0]
+        original = LUMEPyATModel.supported_variables
+
+        def counted(self: LUMEPyATModel) -> Any:
+            calls[0] += 1
+            return original.fget(self)
+
+        monkeypatch.setattr(LUMEPyATModel, "supported_variables", property(counted))
+        return calls
+
+    def test_the_variables_are_read_once_per_model(self, records, monkeypatch) -> None:
+        first, second = demo_model(records), demo_model(records)
+        values = moving_truth(first)
+        calls = self.count_variable_reads(monkeypatch)
+
+        for t_ms in range(1_000, 1_050):
+            readout(first, values, t_ms)
+        assert calls[0] == 1
+
+        for t_ms in range(1_000, 1_050):
+            readout(second, values, t_ms)
+        assert calls[0] == 2
+
+    def test_the_result_is_the_uncached_result(self, model) -> None:
+        values = moving_truth(model)
+        seed(model, MONITOR, {"noise_x": 1.0e-5, "offset_y": 2.0e-4})
+        instants = range(1_000, 1_020)
+
+        cached = [readout(model, values, t_ms) for t_ms in instants]
+        uncached = []
+        for t_ms in instants:
+            pyat_faults._MONITORS.clear()
+            uncached.append(readout(model, values, t_ms))
+
+        assert cached == uncached
+
+    def test_a_fault_written_after_the_first_read_still_reads(self, model) -> None:
+        values = moving_truth(model)
+        before = readout(model, values, 1_000)
+        seed(model, MONITOR, {"offset_x": 3.0e-4})
+
+        after = readout(model, values, 1_000)
+
+        assert after[X_ADDRESS] == pytest.approx(before[X_ADDRESS] - 3.0e-4, abs=1e-12)
 
 
 class TestSupplyCalibration:
