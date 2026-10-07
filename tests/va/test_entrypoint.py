@@ -203,6 +203,15 @@ class TestTheInstance:
 
         assert recorded.composite["log_dir"] == Path("/var/simulator")
 
+    @pytest.mark.usefixtures("served")
+    def test_the_runner_writes_its_health_to_the_healthcheck_file(
+        self, recorded: _Recorded
+    ) -> None:
+        entrypoint.main()
+
+        assert recorded.runner["health_file"] == entrypoint.HEALTH_FILE
+        assert entrypoint.HEALTH_FILE == Path("/run/osprey-va/health.json")
+
     @pytest.mark.usefixtures("served", "recorded")
     def test_a_missing_instance_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("VA_INSTANCE")

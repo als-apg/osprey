@@ -34,6 +34,12 @@ Environment:
     The secret a model RPC write must present. Unset refuses every model
     write.
 
+Health:
+
+The runner rewrites its health record to :data:`HEALTH_FILE`,
+``/run/osprey-va/health.json``, after every publishing pass; the compose
+healthcheck reads that file. The ready line is the boot-time view only.
+
 Importing this module loads neither the composite nor the server extension:
 both are imported by :func:`main`.
 """
@@ -60,6 +66,10 @@ VA_INSTANCES = ("virtual_accelerator", "live_standin")
 #: virtual accelerator compose block, whose host side is ``var/simulator/`` for
 #: the virtual accelerator and ``var/simulator/standin/`` for the live stand-in.
 LOG_DIR = Path("/var/simulator")
+
+#: The health record the runner rewrites after every publishing pass: the one
+#: path the compose healthcheck reads. Container-local, never a bind mount.
+HEALTH_FILE = Path("/run/osprey-va/health.json")
 
 #: The view's documents this module reads.
 SERVED_MODELS_FILE = "served_models.json"
@@ -249,6 +259,7 @@ def main() -> None:
         model_write_token=model_write_token,
         tick_interval_s=tick_interval_s,
         instance=instance,
+        health_file=HEALTH_FILE,
     )
 
     # The first publishing pass runs here, on the thread that runs the loop,
