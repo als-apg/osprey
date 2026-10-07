@@ -177,7 +177,8 @@ class ModelRunner(Runner):
     A failed pass rolls the composite back to the state cached before it only
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
     composite as it was. The model RPC's write verbs reply only after a
-    publishing pass has run.
+    publishing pass has run. Every pass that fails is recorded for
+    ``status``.
     """
 
     def __init__(
@@ -209,16 +210,36 @@ class ModelRunner(Runner):
         self._chromaticity = chromaticity_addresses(view)
         self._write_pass = False
         self._set_landed = False
+        self._pass_started = False
+        self._passes_run = 0
+        self._first_pass_error: str | None = None
         config = apply_safety(Runner.generate_config(composite, prefix=""), view)
         if tick_interval_s is not None:
             config["tick_interval_s"] = tick_interval_s
         super().__init__(model=composite, config=config)
 
     def _run_cycle(self, item: dict[str, Any]) -> None:
-        """Note whether this pass carries input values, then run it."""
+        """Note whether this pass carries input values, then run it and record its outcome."""
         self._write_pass = bool(item["values"])
         self._set_landed = False
+        self._pass_started = False
+        item["done"].append(self._record_pass)
         super()._run_cycle(item)
+
+    def _set_cached_state(self, state: dict[str, Any]) -> None:
+        """Note that this cycle runs a publishing pass, then cache ``state``."""
+        self._pass_started = True
+        super()._set_cached_state(state)
+
+    def _record_pass(self, error: str | None) -> None:
+        """Record a publishing pass's outcome; a cycle that ran no pass records nothing."""
+        if not self._pass_started:
+            return
+        if self._passes_run == 0:
+            self._first_pass_error = error
+        self._passes_run += 1
+        if error is not None:
+            self._surface.record_pass_failure(error)
 
     def _cycle_output_names(self) -> list[str]:
         """The roster read after ``model.set``; a write pass leaves the chromaticity out."""

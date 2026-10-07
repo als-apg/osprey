@@ -947,6 +947,16 @@ class TestDemoComposite:
             demo_server.rpc("set", values={BPM_OFFSET: 0.0}, token=TOKEN)
 
         assert "the pass failed on purpose" in status["last_refused_write"]
+        assert "the pass failed on purpose" in status["last_failed_pass"]["error"]
+
+    def test_a_failed_tick_pass_is_reported_by_status(self, demo_server: _Server) -> None:
+        demo_server.ask("fail_next_pass", "the tick failed on purpose", False)
+
+        _tick_and_wait(demo_server)
+        status = demo_server.rpc("status")
+
+        assert status["last_failed_pass"]["error"] == "the tick failed on purpose"
+        assert 0.0 <= status["last_failed_pass"]["uptime_s"] <= status["uptime_s"]
 
     def test_a_failed_pyat_childs_in_range_float_reports_udf_on_both_wires(
         self, demo_server: _Server

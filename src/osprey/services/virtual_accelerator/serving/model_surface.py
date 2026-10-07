@@ -65,8 +65,8 @@ class ModelSurface(ABC):
 
     The runner builds one per server through :meth:`for_view` and calls each
     verb on the run loop's thread. It also feeds ``status`` what only it can
-    see, through :meth:`record_cycle`, :meth:`record_queue_depth` and
-    :meth:`record_refusal`.
+    see, through :meth:`record_cycle`, :meth:`record_queue_depth`,
+    :meth:`record_refusal` and :meth:`record_pass_failure`.
     """
 
     def _start(
@@ -86,6 +86,7 @@ class ModelSurface(ABC):
         self._last_cycle_ms: float | None = None
         self._queue_depth = 0
         self._last_refused_write: str | None = None
+        self._last_failed_pass: dict[str, Any] | None = None
 
     @classmethod
     def for_view(
@@ -117,8 +118,8 @@ class ModelSurface(ABC):
 
         Returns:
             The surface. ``status`` reports ``instance``, ``endpoint``,
-            ``last_cycle_ms``, ``queue_depth``, ``uptime_s`` and
-            ``last_refused_write``.
+            ``last_cycle_ms``, ``queue_depth``, ``uptime_s``,
+            ``last_refused_write`` and ``last_failed_pass``.
         """
         return _ViewSurface(
             composite,
@@ -146,7 +147,10 @@ class ModelSurface(ABC):
 
         Returns:
             ``instance``, ``endpoint``, ``last_cycle_ms``, ``queue_depth``,
-            ``uptime_s`` and ``last_refused_write``.
+            ``uptime_s``, ``last_refused_write`` and ``last_failed_pass``:
+            ``None``, or the ``error`` the latest failed publishing pass
+            raised and the ``uptime_s`` it failed at. A later pass that
+            succeeds leaves it in place.
         """
         return {
             "instance": self._instance,
@@ -155,6 +159,7 @@ class ModelSurface(ABC):
             "queue_depth": self._queue_depth,
             "uptime_s": self._clock() - self._started,
             "last_refused_write": self._last_refused_write,
+            "last_failed_pass": self._last_failed_pass,
         }
 
     def record_cycle(self, ms: float) -> None:
@@ -168,6 +173,10 @@ class ModelSurface(ABC):
     def record_refusal(self, text: str) -> None:
         """Record why the latest refused write was refused, as a client was told."""
         self._last_refused_write = str(text)
+
+    def record_pass_failure(self, text: str) -> None:
+        """Record the error the latest failed publishing pass raised, and when."""
+        self._last_failed_pass = {"error": str(text), "uptime_s": self._clock() - self._started}
 
     @abstractmethod
     def set(self, values: Mapping[str, Any], token: str | None) -> list[str]:
