@@ -2,8 +2,8 @@
 
 The limits database is the view a build renders from the preset's
 ``data/facility/limits.yaml``, loaded in the ``optional`` mode. Two correctors
-are driven, each named by its slot in the served tree's own
-``va_bindings.json``, never by a device name written down here:
+are driven, each named by its slot in the served view's own corrector
+wiring, never by a device name written down here:
 
 - slot 0 carries a +-12 A record. The out-of-limits writes go to it, and they
   are rejected *before* they reach the IOC: ``LimitsValidator.validate()``
@@ -22,11 +22,10 @@ from __future__ import annotations
 import pytest
 
 from osprey.errors import ChannelLimitsViolationError
-from osprey.services.virtual_accelerator.bindings import Binding
 from osprey_connectors.control_system import WriteOutcome
 from tests.va.e2e import conftest as e2e_conftest
 
-#: The kick slot whose setpoint carries a limits record, and the slot whose
+#: The corrector slot whose setpoint carries a limits record, and the slot whose
 #: setpoint carries none. Slot 0 is ``test_orbit_response.py``'s for the life
 #: of the session container; this lane only ever sends it writes the limits
 #: check refuses before any caput.
@@ -50,25 +49,25 @@ MIN_COLLECTED_TESTS = 3
 
 
 @pytest.fixture(scope="module")
-def banded() -> Binding:
-    """The kick binding whose setpoint carries a limits record.
+def banded() -> e2e_conftest.Corrector:
+    """The corrector whose setpoint carries a limits record.
 
     A fixture rather than a module constant: which channel this is, is a
     question about the served tree, and a tree that cannot answer it belongs in
     this lane's own failure rather than in the collection of every lane beside
     it.
     """
-    return e2e_conftest.kick_binding(_BANDED_SLOT)
+    return e2e_conftest.corrector_at_slot(_BANDED_SLOT)
 
 
 @pytest.fixture(scope="module")
-def banded_sp(banded: Binding) -> str:
+def banded_sp(banded: e2e_conftest.Corrector) -> str:
     """The banded address this lane sends out-of-limits demands to."""
     return banded.setpoint_address
 
 
 @pytest.fixture(scope="module")
-def banded_rb(banded: Binding) -> str:
+def banded_rb(banded: e2e_conftest.Corrector) -> str:
     """The address the banded magnet reads its own field back on."""
     assert banded.readback_address is not None
     return banded.readback_address
@@ -77,7 +76,7 @@ def banded_rb(banded: Binding) -> str:
 @pytest.fixture(scope="module")
 def unlimited_sp() -> str:
     """The address with no limits record this lane writes a demand to."""
-    return e2e_conftest.kick_binding(_UNLIMITED_SLOT).setpoint_address
+    return e2e_conftest.corrector_at_slot(_UNLIMITED_SLOT).setpoint_address
 
 
 class TestLimitsEnforcement:

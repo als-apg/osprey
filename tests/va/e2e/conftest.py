@@ -53,14 +53,11 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 import yaml
-
-if TYPE_CHECKING:
-    from osprey.services.virtual_accelerator.bindings import Binding
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -120,7 +117,6 @@ CA_PORT = _reserve_free_port()
 # either way.
 CONTAINER_BOOT_TIMEOUT_S = 120.0
 
-PRESET_SIM_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
 PRESET_FACILITY_DIR = REPO_ROOT / "src/osprey/templates/facilities/example"
 
 #: The config a demo view is rendered with: the preset's control-system type
@@ -739,41 +735,50 @@ async def reconciling():
 # ---------------------------------------------------------------------------
 
 
-def kick_binding(slot: int) -> Binding:
-    """The ``slot``-th kick binding of the tree this suite's containers serve.
+@dataclass(frozen=True)
+class Corrector:
+    """One corrector of the served view: the address a lane writes and the one it reads back."""
+
+    setpoint_address: str
+    readback_address: str
+
+
+def corrector_at_slot(slot: int) -> Corrector:
+    """The ``slot``-th corrector of the view this suite's containers serve.
 
     A lane names the corrector it drives by SLOT rather than by address: which
-    channels kick the beam, and where each of them reads its own field back,
-    is the served tree's ``simulation/va_bindings.json`` to answer rather than
-    a device name written into a test. Document order is the order the facility
-    exported its correctors in, so one slot names one magnet on every run
-    against a given tree.
+    channels kick the beam is the served view's wiring to answer, and where
+    each of them reads its own field back is its channel's ``pair``, rather
+    than a device name written into a test. Wiring order is the facility
+    file's record order, so one slot names one magnet on every run against a
+    given tree.
 
     A slot is owned by one lane for the life of the session container -- two
     lanes driving one corrector would read each other's writes -- so each lane
     takes a slot of its own.
 
-    Called from a lane's fixture rather than at import: a served tree whose
-    bindings document is absent, unreadable or unusable then fails the lanes
-    that drive a corrector, instead of failing collection for every lane in
-    this directory.
+    Called from a lane's fixture rather than at import: a served view that is
+    absent, unreadable or unusable then fails the lanes that drive a
+    corrector, instead of failing collection for every lane in this directory.
 
     Raises:
-        AssertionError: If the tree binds fewer correctors than ``slot``
+        AssertionError: If the view wires fewer correctors than ``slot``
             requires, or if the corrector at ``slot`` is served with no
             readback of its own.
     """
-    from osprey.services.virtual_accelerator.bindings import load_bindings
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+    from osprey.facility.views.simulator import VARIABLES_FILE
+    from tests.e2e._orm_stack import is_corrector, physics_wiring
 
-    document = load_bindings(ManifestPaths(PRESET_SIM_DIR.parent).va_bindings)
-    kicks = [binding for binding in document.bindings if binding.kind == "kick"]
+    view = json.loads((demo_data_dir() / "simulator" / VARIABLES_FILE).read_text(encoding="utf-8"))
+    pairs = {str(channel["address"]): channel.get("pair") for channel in view["channels"]}
+    kicks = [str(record["address"]) for record in physics_wiring(view) if is_corrector(record)]
     assert len(kicks) > slot, (
-        f"the served tree binds {len(kicks)} correctors, too few for a lane's slot {slot}"
+        f"the served view wires {len(kicks)} correctors, too few for a lane's slot {slot}"
     )
-    corrector = kicks[slot]
-    assert corrector.readback_address is not None, (
-        f"{corrector.setpoint_address} is served with no readback of its own, so a "
+    setpoint = kicks[slot]
+    readback = pairs.get(setpoint)
+    assert readback is not None and readback != setpoint, (
+        f"{setpoint} is served with no readback of its own, so a "
         f"lane cannot tell a magnet's reading from the demand written to it"
     )
-    return corrector
+    return Corrector(setpoint_address=setpoint, readback_address=str(readback))
