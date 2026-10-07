@@ -34,8 +34,8 @@ these proofs assert about the substrate is unchanged.
 
 No preset channel names are hardcoded: every address used below is derived
 from the Bluesky view of the source zone's own facility tree (a setpoint with
-a paired readback) restricted to sp-echo pairs — the writable addresses the
-tree's own ``va_bindings.json`` does NOT claim. The suite authors one limits
+a paired readback) restricted to sp-echo pairs — the writable addresses no
+physics model of the tree wires. The suite authors one limits
 record per chosen setpoint into its own throwaway tree before the build, so
 each scan has a band to sweep inside. A plan names each device by its
 address, the name the build's device file gives it. A write the lattice model is
@@ -325,19 +325,19 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
     -- sp-echo is a pure, isolated software copy (write SP, RB follows
     immediately, nothing else touched).
 
-    Which of the two a channel is, is read off the deployment's own
-    ``simulation/va_bindings.json``, through the one helper that spells what a
-    binding claims (``_orm_stack.claimed_addresses``): a claimed address is
-    coupled to the model, and a writable address no binding claims is the
-    software echo this probe wants. The view is built in memory from the
-    repo's tree, because the pairs are chosen before the build.
+    Which of the two a channel is, is read off the facility file's own
+    models: an address a physics model wires is coupled to the model, and a
+    writable address no physics model wires is the software echo this probe
+    wants. The facility file and its view are built in memory from the repo's
+    tree, because the pairs are chosen before the build.
     """
     from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
 
-    coupled = _orm_stack.claimed_addresses(_orm_stack.repo_bindings(repo))
-    document = bluesky_document(build_facility(repo / "data" / "facility", project_name=repo.name))
+    facility = build_facility(repo / "data" / "facility", project_name=repo.name)
+    coupled = {str(record["address"]) for record in _orm_stack.physics_wiring(facility)}
+    document = bluesky_document(facility)
     pairs = sorted(
         (entry["setpoint"], entry["readback"])
         for entry in document[SETTABLES_KEY]
@@ -424,8 +424,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     base = tmp_path_factory.mktemp("va_substrate_build")
     repo = base / PROJECT_NAME
 
-    # Extends control-assistant (which already ships data/simulation/machine.json
-    # + channel_limits.json) with the one flag it doesn't default to: the
+    # Extends control-assistant (which already ships its facility tree) with
+    # the one flag it doesn't default to: the
     # control-system type. Written as a flat dotted-string key under `config:`,
     # the spelling the preset itself uses: everything after `config.` is one
     # key naming one leaf, so the rest of the `control_system` block

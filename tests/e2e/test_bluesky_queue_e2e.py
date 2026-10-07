@@ -907,26 +907,22 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # worker registered, and a change in that derivation show up here as a
         # real failure rather than a silently-diverging second copy of the logic.
         correctors, bpms = _orm_stack.staged_devices(repo)
-        # Narrowed to the pyat-coupled partition, in the file's own order. The
-        # stages drive the FIRST settable and read the FIRST readable, and the
-        # staged file's order is the derivation's, not a contract: derived from
-        # the knowledge graph it leads with booster and transfer-line devices,
-        # which the accelerator model does not couple -- a setpoint echo and a
-        # static monitor -- so a sweep of one drains in seconds and the ~1 s
-        # liveness sampling test_3 rests on never sees a row count advance. The
-        # grid sizes above are calibrated against modelled devices.
-        # Asked of THIS deployment's tree, not of the bundled one: the answer is
-        # about the channels these containers serve, and a deployment harvested
-        # from a facility export couples an entirely different set.
-        deployed = repo / "data"
-        correctors = {
-            name: pair
-            for name, pair in correctors.items()
-            if _orm_stack.pyat_coupled(pair[0], data_root=deployed)
-        }
-        bpms = {
-            name: pv for name, pv in bpms.items() if _orm_stack.pyat_coupled(pv, data_root=deployed)
-        }
+        # Narrowed to the correctors and monitors the accelerator model wires,
+        # in the file's own order. The stages drive the FIRST settable and read
+        # the FIRST readable, and the staged file's order is the derivation's,
+        # not a contract: derived from the knowledge graph it leads with
+        # booster and transfer-line devices, which the accelerator model does
+        # not couple -- a setpoint echo and a static monitor -- so a sweep of
+        # one drains in seconds and the ~1 s liveness sampling test_3 rests on
+        # never sees a row count advance. The grid sizes above are calibrated
+        # against modelled devices.
+        # Asked of THIS deployment's simulator view, not of the bundled tree:
+        # the answer is about the channels these containers serve, and a
+        # deployment harvested from a facility export wires an entirely
+        # different set.
+        modelled = _orm_stack.claimed_addresses(_orm_stack.repo_view(repo))
+        correctors = {name: pair for name, pair in correctors.items() if pair[0] in modelled}
+        bpms = {name: pv for name, pv in bpms.items() if pv in modelled}
         assert correctors, "the build staged no modelled settable device -- nothing to drive"
         assert bpms, "the build staged no modelled readable device -- nothing to read"
 

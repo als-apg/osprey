@@ -206,7 +206,7 @@ HEALTH_TIMEOUT_SEC = 300.0
 #
 # Positions within the staged view's device lists, not device names -- the
 # build's view of the facility file owns which devices exist.
-# The population is the bindings document's kick and monitor bindings, in
+# The population is the simulator view's corrector and monitor wiring, in
 # the selectors' address-ordered output. Position i therefore follows ring
 # order only on a tree whose address order follows the ring, as the demo
 # tree's does. The positions are picked for CONDITIONING rather than
@@ -470,22 +470,14 @@ def _horizontal_devices(repo: Path) -> tuple[list[str], list[str]]:
     refuses, before any bump is solved.
 
     Which plane a device belongs to is read off the deployed tree's own
-    bindings: a corrector's kick binding names the ``KickAngle`` component it
-    writes, and a monitor's binding names the transverse axis it reads. Both
+    simulator view: a corrector's wiring names the ``KickAngle`` component it
+    writes, and a monitor's wiring names the transverse axis it reads. Both
     lists come from ``select_correctors``/``select_bpms``, so they are the
     staged view's devices in address order.
     """
-    document = _orm_stack.repo_bindings(repo)
-    kicks = {
-        binding.setpoint_address
-        for binding in document.bindings
-        if binding.kind == "kick" and binding.index == _orm_stack.KICK_HORIZONTAL
-    }
-    monitors = {
-        binding.setpoint_address
-        for binding in document.bindings
-        if binding.kind == "monitor" and binding.attribute == _orm_stack.MONITOR_X
-    }
+    view = _orm_stack.repo_view(repo)
+    kicks = _orm_stack.corrector_addresses(view, index=_orm_stack.KICK_HORIZONTAL)
+    monitors = _orm_stack.monitor_addresses(view, axis=_orm_stack.MONITOR_X)
     correctors = [
         address for address in _orm_stack.select_correctors(repo, count=None) if address in kicks
     ]
@@ -498,9 +490,9 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     base = tmp_path_factory.mktemp("bump_roundtrip_build")
 
     def still_monitors(repo: Path) -> None:
-        # TOLERANCE_M sits below the machine file's BPM noise and rests on a
-        # stack whose monitors read the solved orbit exactly, so they serve it
-        # without the drift and noise the machine file gives them.
+        # TOLERANCE_M sits below the seeds' BPM noise and rests on a stack
+        # whose monitors read the solved orbit exactly, so they serve it
+        # without the drift and noise the facility's seeds give them.
         still_monitor_motion(repo / "data")
 
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
