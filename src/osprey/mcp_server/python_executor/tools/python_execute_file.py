@@ -1,6 +1,5 @@
 """MCP tool: execute_file — run an existing Python file with safety checks."""
 
-import json
 import logging
 from pathlib import Path
 
@@ -8,15 +7,9 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
 from osprey.mcp_server.python_executor.tools._execution_gates import (
-    LAYER_IMPORT_DENYLIST,
-    LAYER_PATTERN_DETECTION,
-    enforce_deployment_writes_gate,
-    enforce_path_policy,
     enforce_posture_clamp,
-    recorded_control_target,
-    refuse_readonly_write,
-    report_runtime_refusal,
     require_known_execution_mode,
+    run_gated_execution,
 )
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute_file")
@@ -64,20 +57,9 @@ async def execute_file(
     # string equality and an unknown value would satisfy neither branch.
     require_known_execution_mode(execution_mode)
 
-    # Session posture clamp — ahead of every other gate on purpose. Whether
-    # this *session* may write at all is not a question the deployment config,
-    # the pattern detector or the path policy get a say in, and a caller whose
-    # session is sandboxed should be told that rather than whatever a later
-    # gate happens to object to first.
-    #
-    # This is also what makes the executor's
-    # ``sandbox_env["OSPREY_EXECUTION_MODE"] = execution_mode`` overwrite safe
-    # (executor.py, in the subprocess env assembly): it replaces the posture
-    # the MCP server inherited with the mode of this call, which would widen a
-    # sandboxed session to readwrite if a readwrite call could get that far.
-    # With the clamp here, none can — under the sandbox posture the only mode
-    # that ever reaches the spawn is readonly, so the overwrite can only ever
-    # re-assert the posture it found.
+    # Session posture clamp, ahead of resolving and reading the file: a
+    # sandboxed caller is told about the posture rather than about the path.
+    # See :func:`run_gated_execution` for why the clamp precedes every gate.
     enforce_posture_clamp(execution_mode, tool="execute_file")
 
     # Resolve project root and file path
@@ -137,130 +119,27 @@ async def execute_file(
             ["Provide a non-empty Python file."],
         )
 
-    # Pre-execution safety checks on original file contents
-    try:
-        from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
-
-        passed, safety_issues = quick_safety_check(code)
-        if not passed:
-            return make_error(
-                "safety_error",
-                "File failed pre-execution safety checks.",
-                safety_issues,
-            )
-    except ImportError:
-        logger.warning("Safety check module unavailable — executing without pre-checks")
-
-    # Static path policy — the protected set applies in every execution mode
-    # (see :func:`enforce_path_policy`).
-    await enforce_path_policy(
-        tool="execute_file",
-        code=code,
-        description=description,
-        execution_mode=execution_mode,
-        project_root=project_root,
-    )
-
-    # Readonly runs may not import control-system clients at all. This is the
-    # pre-execution half of the readonly contract; the runtime half (the
-    # wrapper's readonly guard and the connector refusal) catches what no
-    # static check can.
-    if execution_mode == "readonly":
-        try:
-            from osprey.services.python_executor.analysis.safety_checks import (
-                check_readonly_imports,
-            )
-
-            import_issues = check_readonly_imports(code)
-        except ImportError:
-            import_issues = []
-        if import_issues:
-            await refuse_readonly_write(
-                tool="execute_file",
-                layer=LAYER_IMPORT_DENYLIST,
-                trigger=import_issues,
-                code=code,
-                description=description,
-                message="Control-system client libraries cannot be imported in readonly mode.",
-                suggestions=[
-                    *import_issues,
-                    "Use read_channel() from osprey.runtime for reads.",
-                    (
-                        "Set execution_mode to 'readwrite' if writes are intentional, "
-                        "and write through osprey.runtime.write_channel(address, value)."
-                    ),
-                ],
-            )
-
-    # Pattern detection (block writes in readonly mode)
-    try:
-        from osprey.services.python_executor.analysis.pattern_detection import (
-            detect_control_system_operations,
-        )
-
-        patterns = detect_control_system_operations(code)
-    except ImportError:
-        logger.warning("Pattern detection module unavailable — skipping write detection")
-        patterns = {"has_writes": False, "has_reads": False, "detected_patterns": {}}
-
-    # Deployment-level kill switch (independent of pattern detection accuracy).
-    # Same per-target question the ``execute`` tool asks — see the comment there.
-    enforce_deployment_writes_gate(execution_mode, recorded_control_target())
-
-    if patterns.get("has_writes") and execution_mode == "readonly":
-        await refuse_readonly_write(
-            tool="execute_file",
-            layer=LAYER_PATTERN_DETECTION,
-            trigger=patterns.get("detected_patterns", {}),
-            code=code,
-            description=description,
-            message="Control-system write patterns detected in readonly mode.",
-            suggestions=[
-                (
-                    "Set execution_mode to 'readwrite' if writes are intentional, "
-                    "and write through osprey.runtime.write_channel(address, value)."
-                ),
-                "Detected patterns: " + json.dumps(patterns.get("detected_patterns", {})),
-            ],
-        )
-
-    # Build preamble: set sys.argv and __file__ to point at the original script
+    # Script identity preamble: sys.argv and __file__ point at the original file.
     argv_items = [str(resolved)]
     if script_args:
         argv_items.extend(script_args)
     preamble = f"import sys\nsys.argv = {argv_items!r}\n__file__ = {str(resolved)!r}\n"
     augmented_code = preamble + "\n" + code
 
-    # Execute augmented code in a subprocess
-    from osprey.mcp_server.python_executor.executor import execute_code
-
-    exec_result = await execute_code(
-        code=augmented_code,
-        execution_mode=execution_mode,
-        description=description,
-    )
-
-    # Same emit contract as the ``execute`` tool — see the comment there for why
-    # `execution_time_seconds` is the launch discriminator and why the mode test
-    # is the complement of the readonly gate.
-    if (
-        patterns.get("has_writes")
-        and execution_mode != "readonly"
-        and exec_result.execution_time_seconds is not None
-    ):
-        await notify_agent_activity_async(
-            "execute_file", "channel", detail="ran a script with control-system writes"
-        )
-
-    # Same runtime-refusal reporting as the ``execute`` tool — see the comment
-    # there. The original file contents are recorded, not the argv preamble the
-    # executor prepends, so the audit trail shows what the operator would read.
-    await report_runtime_refusal(
+    # Every gate, the launch and the run's reporting, in the order the
+    # ``execute`` tool runs them — see :func:`run_gated_execution`. The gates
+    # and the audit trail see the original file contents, not the preamble, so
+    # the record shows what the operator would read; the subprocess gets the
+    # augmented code. The clamp above runs again inside the helper as a no-op
+    # re-check.
+    exec_result, patterns = await run_gated_execution(
         tool="execute_file",
-        stderr=exec_result.stderr,
-        code=code,
+        code=augmented_code,
+        record_code=code,
         description=description,
         execution_mode=execution_mode,
+        project_root=project_root,
+        notify=notify_agent_activity_async,
     )
 
     # Build response using original code (not augmented) for metadata/notebook
