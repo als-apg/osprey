@@ -547,9 +547,12 @@ on.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">entry_open</span></code> shows an entry to the operator: it brings the ARIEL panel
 forward with the entry’s detail card open, and with an <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> it
 also opens that picture enlarged. The main agent calls it itself, with the
-entry id and <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> a logbook subagent reported. The same view is
-a link, <code class="docutils literal notranslate"><span class="pre">#entry?id=&lt;entry_id&gt;&amp;attachment=&lt;attachment_id&gt;</span></code>, on the ARIEL web
-page.</p></li>
+entry id a logbook subagent reported. When the conversation is about one of
+the entry’s pictures, the agent passes that picture’s <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> too,
+even when the operator asks only for “the entry”. The same view is a link,
+<code class="docutils literal notranslate"><span class="pre">#entry?id=&lt;entry_id&gt;&amp;attachment=&lt;attachment_id&gt;</span></code>, on the ARIEL web page.
+Its lightbox also links the stored original at full resolution
+(“Open original”).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">attachment_to_artifact</span></code> keeps one picture: it copies the picture’s stored
 display rendition into the artifact gallery, with the entry id, attachment
 id, filename and caption recorded, and selects it there. Saving the same
@@ -598,6 +601,13 @@ failed.</p></li>
 <span class="w">  </span><span class="nt">ariel.attachments.view.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">                     </span><span class="c1"># no picture tools</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">watch</span></code>, and the <code class="docutils literal notranslate"><span class="pre">ariel-sync</span></code> service that runs it, caption
+and embed pictures on every poll, so a deployment with the watcher needs no
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span></code> for them. Run by hand while the watcher is working on
+a module, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span> <span class="pre">--module</span> <span class="pre">image_caption</span></code> prints
+<code class="docutils literal notranslate"><span class="pre">image_caption:</span> <span class="pre">skipped,</span> <span class="pre">another</span> <span class="pre">pass</span> <span class="pre">is</span> <span class="pre">running</span> <span class="pre">it</span> <span class="pre">(osprey</span> <span class="pre">ariel</span> <span class="pre">watch</span> <span class="pre">runs</span> <span class="pre">the</span> <span class="pre">picture</span> <span class="pre">modules</span> <span class="pre">on</span> <span class="pre">every</span> <span class="pre">poll)</span></code>
+and does nothing for that module. The same holds for <code class="docutils literal notranslate"><span class="pre">--retry-failed</span></code> and
+<code class="docutils literal notranslate"><span class="pre">--refresh-stale</span></code>. Run it again once the watcher’s pass has ended.</p>
 </section>
 <section id="picture-formats">
 <h2>Picture formats<a class="headerlink" href="#picture-formats" title="Link to this heading">#</a></h2>
@@ -720,10 +730,13 @@ it like a model change in the <a class="reference internal" href="#upgrade-notes
 </div>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span>--branch<span class="w"> </span>b11277<span class="w"> </span>https://github.com/ggml-org/llama.cpp.git
 <span class="nb">cd</span><span class="w"> </span>llama.cpp
-cmake<span class="w"> </span>-B<span class="w"> </span>build<span class="w"> </span>-DLLAMA_CURL<span class="o">=</span>OFF<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release<span class="w">   </span><span class="c1"># add -DGGML_METAL=ON on a Mac</span>
+cmake<span class="w"> </span>-B<span class="w"> </span>build<span class="w"> </span>-DBUILD_SHARED_LIBS<span class="o">=</span>OFF<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release<span class="w">   </span><span class="c1"># add -DGGML_CUDA=ON for an NVIDIA GPU</span>
 cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>--target<span class="w"> </span>llama-server
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">-DBUILD_SHARED_LIBS=OFF</span></code> makes <code class="docutils literal notranslate"><span class="pre">build/bin/llama-server</span></code> a single file that
+still runs after it is copied elsewhere (see <a class="reference internal" href="#keeping-it-running">Keeping it running</a>). Metal is
+on by default on a Mac.</p>
 </section>
 <section id="model-files">
 <h3>Model files<a class="headerlink" href="#model-files" title="Link to this heading">#</a></h3>
@@ -765,7 +778,7 @@ check them:</p>
 </pre></div>
 </div>
 <p>Add <code class="docutils literal notranslate"><span class="pre">--n-gpu-layers</span> <span class="pre">99</span></code> on a GPU build. The other flags matter as follows:</p>
-<ul class="simple">
+<ul>
 <li><p><code class="docutils literal notranslate"><span class="pre">--alias</span> <span class="pre">qwen3-vl-embedding-2b</span></code> is the model id the server advertises on
 <code class="docutils literal notranslate"><span class="pre">/v1/models</span></code>. It must equal <code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.image_embedding.model</span></code>
 in the profile, or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> reports the module skipped with
@@ -774,11 +787,33 @@ reason <code class="docutils literal notranslate"><span class="pre">model</span>
 512x512 px of area for Qwen3-VL. On a CPU-only server, a query that arrives
 while a picture is being embedded waits about one picture time; without the
 cap the measured query p95 under bulk embedding failed the 2 s target, with
-it the p95 passes (see <a class="reference internal" href="#ariel-picture-search-measurements"><span class="std std-ref">Measured values</span></a>).</p></li>
+it the p95 passes (see <a class="reference internal" href="#ariel-picture-search-measurements"><span class="std std-ref">Measured values</span></a>).</p>
+<p>At start-up the server logs <code class="docutils literal notranslate"><span class="pre">Qwen-VL</span> <span class="pre">models</span> <span class="pre">require</span> <span class="pre">at</span> <span class="pre">minimum</span> <span class="pre">1024</span> <span class="pre">image</span>
+<span class="pre">tokens</span> <span class="pre">to</span> <span class="pre">function</span> <span class="pre">correctly</span> <span class="pre">on</span> <span class="pre">grounding</span> <span class="pre">tasks</span></code>. It prints this for every
+Qwen-VL model started without <code class="docutils literal notranslate"><span class="pre">--image-min-tokens</span> <span class="pre">1024</span></code>, whatever the cap.
+Grounding means answering with box coordinates, which picture search does
+not do, so the warning does not apply here; do not add
+<code class="docutils literal notranslate"><span class="pre">--image-min-tokens</span></code>. The cap does lower the resolution the model sees: a
+1024x768 rendition goes from about 770 to about 240 tokens. Its effect on
+ranking has not been measured.</p>
+</li>
 <li><p><code class="docutils literal notranslate"><span class="pre">--host</span> <span class="pre">127.0.0.1</span></code> binds the server to the loopback interface. See the
 next section for why.</p></li>
 <li><p>The command passes no <code class="docutils literal notranslate"><span class="pre">--media-path</span></code>, so the server reads no local files.</p></li>
 </ul>
+</section>
+<section id="keeping-it-running">
+<h3>Keeping it running<a class="headerlink" href="#keeping-it-running" title="Link to this heading">#</a></h3>
+<p>Run the server from an installed copy, not from the build tree. Copy
+<code class="docutils literal notranslate"><span class="pre">build/bin/llama-server</span></code> and both model files to a directory a service may
+read, such as <code class="docutils literal notranslate"><span class="pre">/usr/local/llama.cpp/</span></code> or
+<code class="docutils literal notranslate"><span class="pre">~/Library/Application</span> <span class="pre">Support/llama.cpp/</span></code> on macOS and <code class="docutils literal notranslate"><span class="pre">/opt/llama.cpp/</span></code>
+on Linux, and give the full paths to <code class="docutils literal notranslate"><span class="pre">-m</span></code> and <code class="docutils literal notranslate"><span class="pre">--mmproj</span></code>. On macOS a
+LaunchAgent cannot read <code class="docutils literal notranslate"><span class="pre">~/Desktop</span></code>, <code class="docutils literal notranslate"><span class="pre">~/Documents</span></code> or <code class="docutils literal notranslate"><span class="pre">~/Downloads</span></code>:
+the system’s privacy protection refuses it without asking, and the server
+fails to start or to load its model. The copy is self-contained only when
+built static (see <a class="reference internal" href="#build">Build</a>). OSPREY ships no LaunchAgent or service unit for
+the server.</p>
 </section>
 <section id="why-the-server-listens-on-localhost-only">
 <h3>Why the server listens on localhost only<a class="headerlink" href="#why-the-server-listens-on-localhost-only" title="Link to this heading">#</a></h3>
@@ -827,6 +862,55 @@ reports <code class="docutils literal notranslate"><span class="pre">image_embed
 <a class="reference internal" href="../deploy-project/networking.html"><span class="doc">Network Binding and Security</span></a> for what host networking changes.</p>
 </li>
 </ul>
+</section>
+</section>
+<section id="limits">
+<h2>Limits<a class="headerlink" href="#limits" title="Link to this heading">#</a></h2>
+<section id="limits-you-can-change">
+<h3>Limits you can change<a class="headerlink" href="#limits-you-can-change" title="Link to this heading">#</a></h3>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">ariel.attachments.max_file_mb</span></code> (default 10)</dt><dd><p>The largest file one entry may attach, per file. A larger picture is not
+copied, so neither module sees it, and its file card in the web panel says
+why. See <a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a> for what it costs in storage.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.image_caption.max_images_per_entry</span></code> (default 8)</dt><dd><p>Pictures captioned per entry, in attachment order. The rest are recorded as
+over the cap and are not sent to the model; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> counts
+them. After raising the key, run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span> <span class="pre">--module</span> <span class="pre">image_caption</span> <span class="pre">--retry-failed</span></code> to caption
+the pictures now within it. Lowering it keeps the captions already made.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.image_caption.prompt_template</span></code></dt><dd><p>Replaces the caption prompt; <code class="docutils literal notranslate"><span class="pre">{text}</span></code> is replaced by the entry text. A
+replacement must keep asking for the <code class="docutils literal notranslate"><span class="pre">Visible</span> <span class="pre">text:</span></code> list the reply is
+split at. <a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a> has an example that adds a
+site’s device names. Each caption records the prompt it was made with, and
+a new prompt captions nothing again by itself: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code>
+reports how many captions were made with an older prompt, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span> <span class="pre">--module</span> <span class="pre">image_caption</span> <span class="pre">--refresh-stale</span></code> captions
+those pictures again. The old caption stays searchable until the new one
+replaces it; when the model refuses the new prompt, the picture keeps its
+old caption and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> counts it as a refresh that could
+not be made. Captions made before captions recorded their prompt are
+counted apart and left as they are; to caption every picture again, change
+<code class="docutils literal notranslate"><span class="pre">model.model_id</span></code>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.image_caption.timeout_seconds</span></code> (default 1320)</dt><dd><p>Seconds one vision call may take; see <a class="reference internal" href="#measured-values">Measured values</a>.</p>
+</dd>
+</dl>
+</section>
+<section id="fixed-limits">
+<h3>Fixed limits<a class="headerlink" href="#fixed-limits" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p>At most 20 files are copied per entry, and at most 4 x <code class="docutils literal notranslate"><span class="pre">max_file_mb</span></code> bytes
+in all; a file past either budget is recorded as <code class="docutils literal notranslate"><span class="pre">per_entry_limit</span></code>.</p></li>
+<li><p>The picture the agent, both modules and the web panel view is a rendition at
+most 1024 px on its longest side and 3.5 MiB. The original is stored as
+copied: the web panel’s lightbox links it (“Open original”) and
+<code class="docutils literal notranslate"><span class="pre">/api/attachments/&lt;attachment_id&gt;</span></code> serves it.</p></li>
+</ul>
+<p>The 10 MiB limit in <a class="reference internal" href="#why-the-server-listens-on-localhost-only">Why the server listens on localhost only</a> is
+llama-server’s own limit for pictures it downloads from an <code class="docutils literal notranslate"><span class="pre">http</span></code> URL. It
+does not apply to OSPREY, which sends each picture in the request as a
+<code class="docutils literal notranslate"><span class="pre">data:</span></code> URL, and it is unrelated to <code class="docutils literal notranslate"><span class="pre">max_file_mb</span></code>.</p>
 </section>
 </section>
 <section id="fusion-of-picture-and-text-results">
@@ -1002,6 +1086,9 @@ empty keeps its stored attachment rows. This is a known limitation.</p>
 <blockquote>
 <div><p>–force does not re-run image_caption/image_embedding: their results are kept per picture and model. Change model.model_id (captions) or model/dimensions (embeddings) to re-run, or use –retry-failed for per-picture failures.</p>
 </div></blockquote>
+<p><strong>Captions made before this release.</strong> They record no prompt, so
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> counts them as captions that record no prompt, and
+<code class="docutils literal notranslate"><span class="pre">--refresh-stale</span></code> leaves them as they are.</p>
 <p><strong>Changing the server.</strong> Changing <code class="docutils literal notranslate"><span class="pre">--image-max-tokens</span></code> or the model files
 changes every picture vector while the table name stays the same, so re-embed
 with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">purge</span> <span class="pre">--embeddings-only</span></code> followed by a catch-up (which
@@ -1064,8 +1151,14 @@ re-embeds text too).</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#build">Build</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-files">Model files</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command">Command</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-it-running">Keeping it running</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#why-the-server-listens-on-localhost-only">Why the server listens on localhost only</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-containers-reach-it">How containers reach it</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limits">Limits</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#limits-you-can-change">Limits you can change</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fixed-limits">Fixed limits</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fusion-of-picture-and-text-results">Fusion of picture and text results</a></li>
