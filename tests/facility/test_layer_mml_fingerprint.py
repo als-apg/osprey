@@ -93,7 +93,7 @@ class TestLatticeFingerprint:
         recomputed = lattice_fingerprint(_ring(DECK))
 
         assert set(recomputed) == set(VA_LATTICE_KEYS)
-        assert check_fingerprint(_stated(), recomputed) is None
+        assert check_fingerprint(_stated(), recomputed) == []
 
     def test_the_digest_is_over_the_newline_joined_names_with_none_trailing(self):
         """The join is the digest's whole spelling, and a trailing newline is not in it."""
@@ -150,13 +150,13 @@ class TestLatticeFingerprint:
         assert {key: other[key] for key in FINGERPRINT_KEYS if key != "famname_sha256"} == {
             key: sampled[key] for key in FINGERPRINT_KEYS if key != "famname_sha256"
         }
-        mismatch = check_fingerprint(_stated(), other)
-        assert mismatch is not None
+        (mismatch,) = check_fingerprint(_stated(), other)
         assert mismatch.field == "famname_sha256"
+        assert mismatch.refuses
 
 
 class TestCheckFingerprint:
-    """What the comparison accepts, and which field it names when it does not."""
+    """What the comparison accepts, and which facts it names when it does not."""
 
     def test_an_agreeing_pair_is_no_mismatch(self):
         """The recomputed facts, spelled as the exporter spells them, pair."""
@@ -167,81 +167,101 @@ class TestCheckFingerprint:
             "ringparam_indices": 1,
         }
 
-        assert check_fingerprint(stated, _facts()) is None
+        assert check_fingerprint(stated, _facts()) == []
 
     def test_one_index_is_the_one_entry_list_it_is(self):
         """A single index is written as a number, and read as the list of one."""
         stated = {**_facts(), "ringparam_indices": 1}
 
-        assert check_fingerprint(stated, _facts(ringparam_indices=(1,))) is None
+        assert check_fingerprint(stated, _facts(ringparam_indices=(1,))) == []
 
     def test_several_indices_are_read_in_the_order_they_are_written(self):
         """A ring with more than one parameter element states them as a list."""
         stated = {**_facts(), "ringparam_indices": [1, 22]}
 
-        assert check_fingerprint(stated, _facts(ringparam_indices=(1, 22))) is None
-        assert check_fingerprint(stated, _facts(ringparam_indices=(22, 1))) is not None
+        assert check_fingerprint(stated, _facts(ringparam_indices=(1, 22))) == []
+        (mismatch,) = check_fingerprint(stated, _facts(ringparam_indices=(22, 1)))
+        assert mismatch.field == "ringparam_indices"
+        assert mismatch.refuses
 
     def test_an_empty_list_of_indices_pairs_with_a_ring_that_has_none(self):
         """No parameter element is a fact like any other, stated on both sides."""
         stated = {**_facts(), "ringparam_indices": []}
 
-        assert check_fingerprint(stated, _facts(ringparam_indices=())) is None
+        assert check_fingerprint(stated, _facts(ringparam_indices=())) == []
 
     def test_a_count_written_as_a_whole_number_of_doubles_agrees(self):
         """MATLAB counts in doubles; 41 elements is 41 either way."""
         stated = {**_facts(), "elements": 41.0, "ringparam_indices": 1}
 
-        assert check_fingerprint(stated, _facts()) is None
+        assert check_fingerprint(stated, _facts()) == []
 
     def test_an_energy_inside_the_tolerance_agrees(self):
         """Two paths to the same number differ in the last places, not in the machine."""
         stated = {**_facts(), "energy_gev": 2.0 + ENERGY_TOLERANCE_GEV / 2, "ringparam_indices": 1}
 
-        assert check_fingerprint(stated, _facts()) is None
+        assert check_fingerprint(stated, _facts()) == []
 
-    def test_an_energy_outside_the_tolerance_names_the_energy(self):
-        """A different operating point is a different set of calibrations."""
+    def test_an_energy_outside_the_tolerance_names_the_energy_and_refuses_nothing(self):
+        """Another stated energy is said; it does not make the deck another lattice."""
         stated = {**_facts(), "energy_gev": 2.5, "ringparam_indices": 1}
 
-        mismatch = check_fingerprint(stated, _facts())
+        (mismatch,) = check_fingerprint(stated, _facts())
 
-        assert mismatch is not None
         assert mismatch.field == "energy_gev"
         assert mismatch.expected == 2.5
         assert mismatch.actual == 2.0
+        assert not mismatch.refuses
+
+    def test_an_energy_the_export_does_not_state_refuses_nothing(self):
+        stated = {key: value for key, value in _facts().items() if key != "energy_gev"}
+        stated["ringparam_indices"] = 1
+
+        (mismatch,) = check_fingerprint(stated, _facts())
+
+        assert (mismatch.field, mismatch.expected, mismatch.refuses) == ("energy_gev", None, False)
 
     def test_a_digest_of_another_ring_names_the_digest(self):
         """The field the message must name for the pair the check exists to refuse."""
         stated = {**_facts(), "famname_sha256": "b" * 64, "ringparam_indices": 1}
 
-        mismatch = check_fingerprint(stated, _facts())
+        (mismatch,) = check_fingerprint(stated, _facts())
 
-        assert mismatch is not None
         assert mismatch.field == "famname_sha256"
+        assert mismatch.refuses
 
     def test_a_count_disagreement_names_the_count(self):
         """A deck of another length is refused before its names are compared."""
-        mismatch = check_fingerprint({**_facts(), "elements": 40}, _facts())
+        (mismatch,) = check_fingerprint(
+            {**_facts(), "elements": 40, "ringparam_indices": 1}, _facts()
+        )
 
-        assert mismatch is not None
         assert mismatch.field == "elements"
+        assert mismatch.refuses
 
     def test_a_fact_the_export_does_not_state_is_a_disagreement(self):
         """A fingerprint missing a fact cannot pair: there is nothing to pair with."""
         stated = {key: value for key, value in _facts().items() if key != "famname_sha256"}
 
-        mismatch = check_fingerprint(stated, _facts())
+        stated["ringparam_indices"] = 1
 
-        assert mismatch is not None
+        (mismatch,) = check_fingerprint(stated, _facts())
+
         assert mismatch.field == "famname_sha256"
         assert mismatch.expected is None
+        assert mismatch.refuses
 
-    def test_the_first_fact_of_the_stated_order_is_the_one_named(self):
-        """One message, one field: the comparison walks the facts in their own order."""
-        stated = {**_facts(), "elements": 40, "famname_sha256": "b" * 64}
+    def test_every_disagreeing_fact_is_named_in_the_stated_order(self):
+        """The comparison walks the facts in their own order, the plainest first."""
+        stated = {
+            **_facts(),
+            "elements": 40,
+            "famname_sha256": "b" * 64,
+            "energy_gev": 2.5,
+            "ringparam_indices": 1,
+        }
 
-        mismatch = check_fingerprint(stated, _facts())
+        found = check_fingerprint(stated, _facts())
 
-        assert mismatch is not None
-        assert mismatch.field == FINGERPRINT_KEYS[0]
+        assert [mismatch.field for mismatch in found] == list(FINGERPRINT_KEYS[:3])
+        assert [mismatch.refuses for mismatch in found] == [True, True, False]

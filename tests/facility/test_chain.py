@@ -17,6 +17,11 @@ installed:
   the limits view holds the limits records, and the channel-finder index holds
   every channel.
 
+The import's first check stands in front of that chain: a deck is held to the
+lattice fingerprint its export states, so an export beside the deck of another
+lattice is refused by the fact the two disagree on, and one that differs in
+its stated energy alone imports and says so.
+
 The chain ends at the views. Its other half, the virtual accelerator serving
 every channel of both models from a container, is
 ``tests/va/e2e/test_chain_boot.py``, which runs :func:`run_chain` under the
@@ -419,3 +424,115 @@ class TestTheViews:
         assert {name for (name,) in rows} == {
             str(channel["id"]) for channel in chain.document["channels"]
         }
+
+
+# ===================================================================
+# The deck an export is paired with
+# ===================================================================
+
+#: What every line about a deck that disagrees with its export ends in.
+REMEDY = "import the lattice the export was sampled from, or export again over this one"
+
+
+def _paired_import(root: Path, tree: str, edit: Any = None, deck: Path | None = None) -> Any:
+    """Import one single-export tree from a scratch copy of its files.
+
+    Args:
+        root: The scratch deployment. Created if absent.
+        tree: The fixture tree; its one export is copied beside its siblings.
+        edit: Applied to the copied ``<stem>.va.json`` document before the import.
+        deck: A deck filed in place of the tree's own, under the tree's name.
+
+    Returns:
+        The result of the one ``osprey facility import mml`` call.
+    """
+    from osprey.cli.main import cli
+    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+
+    (ao,) = export_files(tree)
+    stem = ao.name.removesuffix(".ao.json")
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "profile.yml").write_text(f"name: {PROJECT}\ndata: data\n", encoding="utf-8")
+    installed = root / "data" / "facility" / MAPPING_FILE
+    installed.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(FIXTURES / tree / MAPPING_FILE, installed)
+    exports = root / "exports"
+    exports.mkdir(exist_ok=True)
+    for source in sorted((FIXTURES / tree).glob(f"{stem}.*")):
+        shutil.copyfile(source, exports / source.name)
+    if deck is not None:
+        shutil.copyfile(deck, exports / f"{stem}.lattice.mat")
+    if edit is not None:
+        sibling = exports / f"{stem}.va.json"
+        document = json.loads(sibling.read_text(encoding="utf-8"))
+        edit(document)
+        sibling.write_text(json.dumps(document), encoding="utf-8")
+    result = CliRunner().invoke(
+        cli,
+        ["facility", "import", "mml", str(exports / ao.name), "--repo", str(root)],
+        catch_exceptions=False,
+    )
+    assert "Traceback" not in result.output
+    return result
+
+
+class TestTheDeckBesideAnExport:
+    """The import holds each deck to the lattice fingerprint its export states."""
+
+    def test_an_export_beside_the_deck_of_another_lattice_is_refused_by_name(
+        self, tmp_path: Path
+    ) -> None:
+        """The spear3 export beside the nsls2 deck stops on the element count, writing nothing."""
+        from osprey.facility.layers.mml.mapping import MAPPING_FILE
+
+        result = _paired_import(
+            tmp_path, "spear3", deck=FIXTURES / "nsls2" / "nsls2.storagering.lattice.mat"
+        )
+
+        assert result.exit_code == 1, result.output
+        assert result.stderr.splitlines() == [
+            "import mml: export-invalid: StorageRing: the deck spear3.storagering.lattice.mat "
+            f"holds elements 3510 and the export states 876; {REMEDY}"
+        ]
+        facility = tmp_path / "data" / "facility"
+        assert sorted(_files(facility, facility)) == [MAPPING_FILE]
+
+    def test_an_export_that_differs_in_energy_alone_imports_with_a_warning(
+        self, tmp_path: Path
+    ) -> None:
+        """A stated energy the deck does not hold is said, and the deck is still filed."""
+
+        def restate(document: dict[str, Any]) -> None:
+            document["lattice"]["energy_gev"] = 2.5
+
+        result = _paired_import(tmp_path, "synthetic", edit=restate)
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "import mml: deck energy: SR: the deck quokka.sr.lattice.mat holds energy_gev 2.0 "
+            f"and the export states 2.5; {REMEDY}"
+        ) in result.output.splitlines()
+        assert (tmp_path / "data/facility/imported/mml/decks/SR.json").is_file()
+
+    def test_an_export_that_refused_its_fingerprint_is_filed_unchecked_with_a_warning(
+        self, tmp_path: Path
+    ) -> None:
+        """A fingerprint the export could not take is no fact to hold the deck to."""
+
+        def refuse(document: dict[str, Any]) -> None:
+            document["lattice"] = {"refused": "no Java runtime"}
+
+        result = _paired_import(tmp_path, "synthetic", edit=refuse)
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "import mml: deck unchecked: SR: the export states no lattice fingerprint "
+            "(no Java runtime); the deck quokka.sr.lattice.mat is filed unchecked"
+        ) in result.output.splitlines()
+        assert (tmp_path / "data/facility/imported/mml/decks/SR.json").is_file()
+
+    def test_a_deck_that_is_the_exports_own_prints_no_line_about_it(self, tmp_path: Path) -> None:
+        result = _paired_import(tmp_path, "synthetic")
+
+        assert result.exit_code == 0, result.output
+        assert not [line for line in result.output.splitlines() if ": deck " in line]

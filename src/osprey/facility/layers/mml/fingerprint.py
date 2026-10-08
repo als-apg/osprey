@@ -4,20 +4,28 @@ A 2.0 export states four facts about the lattice every calibration, nominal and
 energy table in it was sampled over: how many elements the lattice holds, the
 digest of its family names, the energy it was solved at, and where its
 parameter elements sit. The deck travels beside the export as its own file,
-and nothing else ties the two together, so the import recomputes the four
-from the deck it is given and refuses the pair when one disagrees.
+and nothing else ties the two together, so ``osprey facility import mml``
+recomputes the four from the deck beside each export and holds the pair to
+them.
 
 :func:`lattice_fingerprint` recomputes them from the lattice as the import reads
 it -- every element kept, so the indices the Middle Layer carries hold -- and
-:func:`check_fingerprint` compares that against what the export states.
+:func:`check_fingerprint` returns every fact the export states differently.
+
+A disagreement on the element count, the digest or the parameter indices
+refuses the pair: the deck is another lattice, and every calibration would be
+bound to the wrong element. A disagreement on the energy alone is said and
+refuses nothing (:attr:`Mismatch.refuses`): a facility restates its operating
+energy without changing a single element, and the deck's own energy is the one
+the model is solved at.
 
 The two sides spell the same facts differently, and the comparison is where
 that is reconciled. MATLAB counts in doubles, writes a list of one as the bare
 number it is, and reaches its model energy by a path of its own, so a whole
 double is read as the count it is, a bare number as the one-entry list it is,
-and the energy is compared to :data:`ENERGY_TOLERANCE_GEV`. Everything else is
-compared exactly: the digest exists to refuse a lattice whose names or order
-moved, and a tolerance on it would refuse nothing.
+and two energies within :data:`ENERGY_TOLERANCE_GEV` are the same energy.
+Everything else is compared exactly: the digest exists to refuse a lattice
+whose names or order moved, and a tolerance on it would refuse nothing.
 
 A parameter element carries the lattice's own properties rather than a piece of
 beam line. A deck names its class; a lattice read back from one tags it. Both
@@ -36,6 +44,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ENERGY_TOLERANCE_GEV",
     "FINGERPRINT_KEYS",
+    "WARNED_KEYS",
     "Deck",
     "Mismatch",
     "check_fingerprint",
@@ -47,9 +56,12 @@ __all__ = [
 #: disagrees.
 FINGERPRINT_KEYS = ("elements", "famname_sha256", "energy_gev", "ringparam_indices")
 
+#: The facts whose disagreement is said and refuses nothing.
+WARNED_KEYS = frozenset({"energy_gev"})
+
 #: How far apart two statements of one model energy may be, in GeV. One eV:
 #: wide enough for the last places of two paths to the same number, narrow
-#: enough to refuse a lattice solved at another operating point.
+#: enough to tell a lattice solved at another operating point.
 ENERGY_TOLERANCE_GEV = 1e-9
 
 #: The class a lattice's parameter element carries, under either spelling.
@@ -72,6 +84,11 @@ class Mismatch:
     field: str
     expected: Any
     actual: Any
+
+    @property
+    def refuses(self) -> bool:
+        """Whether the disagreement makes the deck another lattice than the export's."""
+        return self.field not in WARNED_KEYS
 
 
 class Deck(Protocol):
@@ -108,7 +125,7 @@ def lattice_fingerprint(lattice: Deck) -> dict[str, Any]:
     }
 
 
-def check_fingerprint(expected: dict, actual: dict) -> Mismatch | None:
+def check_fingerprint(expected: dict, actual: dict) -> list[Mismatch]:
     """Compare what an export states about its lattice against what a deck holds.
 
     Args:
@@ -116,19 +133,20 @@ def check_fingerprint(expected: dict, actual: dict) -> Mismatch | None:
         actual: A fingerprint from :func:`lattice_fingerprint`.
 
     Returns:
-        The first fact of :data:`FINGERPRINT_KEYS` the two do not agree on, or
-        ``None`` when the deck is the lattice the export was sampled over.
+        Every fact the two do not agree on, in :data:`FINGERPRINT_KEYS` order;
+        empty when the deck is the lattice the export was sampled over.
     """
+    found: list[Mismatch] = []
     for field in FINGERPRINT_KEYS:
         stated = expected.get(field)
-        found = actual[field]
+        held = actual[field]
         if field == "energy_gev":
-            agrees = _agrees_within(stated, found, ENERGY_TOLERANCE_GEV)
+            agrees = _agrees_within(stated, held, ENERGY_TOLERANCE_GEV)
         else:
-            agrees = _read(field, stated) == found
+            agrees = _read(field, stated) == held
         if not agrees:
-            return Mismatch(field=field, expected=stated, actual=found)
-    return None
+            found.append(Mismatch(field=field, expected=stated, actual=held))
+    return found
 
 
 def _is_ringparam(element: Any) -> bool:
