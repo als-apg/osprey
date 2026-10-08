@@ -611,19 +611,16 @@ _SETUP_PATCH_TOOL = "mcp__osprey_workspace__setup_patch"
 def _probe_config_yml() -> dict[str, Any]:
     """The probe persona's rendered ``config.yml`` — floors and a project name.
 
-    The two floors are asserted TWICE by the build, at two altitudes, and the
-    delta beside the profile answers only the first:
-
-    * at the PROFILE altitude ``osprey build`` reads the catalog's
-      ``build_profile`` delta (:data:`_PROBE_DELTA`);
-    * at the RENDERED altitude the deploy path reads this file, the persona's
-      own project config, and a persona whose project never mentions the keys
-      reads as holding both surfaces.
-
-    Both have to say the same thing, which is exactly the property the two
-    checks exist to enforce — a delta that floors a tier while the render it
-    produced does not is the drift they catch. Written in the NESTED spelling
-    because this is a rendered ``config.yml``, not a profile ``config:`` block.
+    The two floors are asserted TWICE by the build, at two altitudes, and both
+    read THIS file: the probe's catalog entry names no ``build_profile`` — it
+    is a project supplied ready-made, not one the build renders from a delta —
+    so at the PROFILE altitude ``osprey build`` reads the persona's own render
+    at its ``project_path``, and at the RENDERED altitude the deploy path reads
+    the same file. A persona whose project never mentions the keys reads as
+    holding both surfaces, and the build refuses a shared card or a default
+    persona whose document it cannot read at all. Written in the NESTED
+    spelling because this is a rendered ``config.yml``, not a profile
+    ``config:`` block.
     """
     return {
         "project_name": PROBE_PROJECT,
@@ -780,31 +777,6 @@ def _profile_edits() -> dict[str, Any]:
     }
 
 
-#: The probe persona's delta, ``build_profile: personas/probe.yml``. Two keys,
-#: both required and both TRUE of the stub: it serves no Config panel and runs
-#: no agent, so the persona holds neither deployment-editing surface.
-#:
-#: This is not fixture ceremony. The build refuses a shared card whose persona
-#: it cannot READ — "a persona nobody can read cannot be shown to hold anything
-#: less than both surfaces" — and a hand-written project has no readable delta
-#: by default. Declaring the delta is the shape a facility has to use for any
-#: hand-written persona it means to share: the entry runs an explicitly
-#: unprivileged tier, and the guard is satisfied by the persona being harmless
-#: rather than by the check being skipped.
-_PROBE_DELTA = {
-    "config": {
-        # `web.config_panel.enabled` — the panel is ON unless a layer turns it
-        # off, so the key has to be written rather than merely unmentioned.
-        "web.config_panel.enabled": False,
-        # `claude_code.permissions.deny` carrying the setup tool: the deny is
-        # what removes the capability, and an unwritten one leaves it in the
-        # agent's hands.
-        "claude_code.permissions.deny": [_SETUP_PATCH_TOOL],
-    }
-}
-_PROBE_BUILD_PROFILE = f"personas/{PROBE_PERSONA}.yml"
-
-
 def _add_persona_catalog(repo: Path, terminal_path: Path, probe_path: Path) -> None:
     """Point the profile's persona catalog at the two hand-written projects.
 
@@ -815,14 +787,14 @@ def _add_persona_catalog(repo: Path, terminal_path: Path, probe_path: Path) -> N
     once the repo exists and before ``osprey build`` reads it, which is the
     remedy materialization itself names for a hand-written persona.
 
-    The probe entry additionally names a ``build_profile`` and the delta is
-    written beside the profile (see :data:`_PROBE_DELTA`). One side effect is worth knowing about rather than
-    being surprised by: ``osprey build`` materializes a project from that delta
-    under ``build/<project name>-probe/``. Nothing uses it — the catalog's
-    ``project_path`` is what every reader of a persona's project consults, and
-    the image context is that path's ``.image`` sibling — and it costs a file
-    render rather than an image build, so it is left alone rather than
-    suppressed with a flag this lane would then be the only caller of.
+    Neither entry names a ``build_profile``: that key means "the build renders
+    this persona from a delta", and the build then derives the render's
+    ``project`` and ``project_path`` itself. A ready-made project states its
+    ``project_path`` instead, and is read from there at both altitudes — which
+    is how the probe, the shared and default persona of this roster, shows the
+    build it holds neither deployment-editing surface (see
+    :func:`_probe_config_yml`). The guard is satisfied by the persona being
+    harmless, never by the check being skipped.
 
     Written as the dotted key ``modules.web_terminals.personas``, the same
     spelling the lane's own edits use: a profile's ``config:`` is a flat bag
@@ -833,19 +805,11 @@ def _add_persona_catalog(repo: Path, terminal_path: Path, probe_path: Path) -> N
     YAML, and the comments a dump drops are documentation for an operator, not
     input to the build.
     """
-    delta_path = repo / _PROBE_BUILD_PROFILE
-    delta_path.parent.mkdir(parents=True, exist_ok=True)
-    delta_path.write_text(yaml.safe_dump(_PROBE_DELTA, sort_keys=False), encoding="utf-8")
-
     profile_path = repo / "profile.yml"
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     profile["config"]["modules.web_terminals.personas"] = {
         TERMINAL_PERSONA: {"project": TERMINAL_PROJECT, "project_path": str(terminal_path)},
-        PROBE_PERSONA: {
-            "project": PROBE_PROJECT,
-            "project_path": str(probe_path),
-            "build_profile": _PROBE_BUILD_PROFILE,
-        },
+        PROBE_PERSONA: {"project": PROBE_PROJECT, "project_path": str(probe_path)},
     }
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
