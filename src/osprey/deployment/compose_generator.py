@@ -167,9 +167,6 @@ QMD_OKF_COLLECTION = OKF_CORPUS
 #: ARIEL search module filters on this name.
 QMD_ARIEL_COLLECTION = ARIEL_CORPUS
 
-#: Compose service name of one corpus's sidecar is this prefix plus the corpus.
-QMD_SERVICE_PREFIX = "qmd"
-
 #: Where a SERVICE image holds the deployment project's mounted files. Distinct
 #: from ``_CONTAINER_APP_ROOT``/``<project_name>``, which is where a *project*
 #: image holds the repo it was built from: the bluesky, bluesky_web and
@@ -1020,6 +1017,7 @@ def _resolve_qmd_corpora(config, repo_root):
     from osprey.deployment.qmd_service import (
         INDEX_MANAGED,
         QMDServiceConfig,
+        corpus_service_name,
         resolve_bind_address,
         resolve_qmd_service_config,
     )
@@ -1032,7 +1030,7 @@ def _resolve_qmd_corpora(config, repo_root):
         managed = index == INDEX_MANAGED
         return {
             "collection": collection,
-            "service": f"{QMD_SERVICE_PREFIX}-{collection}",
+            "service": corpus_service_name(collection),
             "port": resolved.for_corpus(collection).port,
             "index": index,
             "source": (repo_relative_mount_source(raw_source, repo_root) if raw_source else None),
@@ -1126,6 +1124,26 @@ def resolve_ariel_mirror_dir(
     return root / path
 
 
+def _host_dial_address(config):
+    """The address a host-namespace container dials a store this deployment publishes at.
+
+    Every bundled store publishes on ``deployment.bind_address``, so a client on
+    the host network reaches it there by the one rule
+    :func:`~osprey.deployment.qmd_service.dial_address` states: a wildcard bind
+    is dialled on its family's loopback, a pinned interface on that interface.
+    Bracketed when it is an IPv6 literal, since templates set it as the host
+    half of a URL or DSN.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: The dialable host
+    :rtype: str
+    """
+    from osprey.deployment.qmd_service import dial_address, resolve_bind_address
+
+    return dial_address(resolve_bind_address(config))
+
+
 def _resolve_qmd_render_context(config, repo_root):
     """Build the ``osprey_qmd`` render context for the sidecar's templates.
 
@@ -1141,16 +1159,23 @@ def _resolve_qmd_render_context(config, repo_root):
     exists so that a render cannot fail with an attribute error on a name the
     template legitimately expects to be there.
 
+    ``network_env`` is what a container on the compose bridge needs to reach
+    each sidecar: the variable :func:`~osprey.deployment.qmd_service.corpus_url_env`
+    names, set to the sidecar's service name and the port it listens on inside
+    the network. The consumer templates emit it as given, so no template spells
+    a sidecar's name or port.
+
     :param config: Configuration dictionary
     :type config: dict
     :param repo_root: The deployment repo root, for relative bind sources
     :type repo_root: str
     :return: ``port``, ``bind_address``, ``interval_seconds``,
-        ``first_index_grace_seconds`` and ``corpora``
+        ``first_index_grace_seconds``, ``corpora`` and ``network_env``
     :rtype: dict
     """
     from osprey.deployment.qmd_service import (
         QMDServiceConfig,
+        corpus_url_env,
         resolve_bind_address,
         resolve_qmd_service_config,
     )
@@ -1158,12 +1183,18 @@ def _resolve_qmd_render_context(config, repo_root):
     resolved = resolve_qmd_service_config(config) or QMDServiceConfig(
         bind_address=resolve_bind_address(config)
     )
+    corpora = _resolve_qmd_corpora(config, repo_root)
     return {
         "port": resolved.port,
         "bind_address": resolved.bind_address,
         "interval_seconds": resolved.interval_seconds,
         "first_index_grace_seconds": resolved.first_index_grace_seconds,
-        "corpora": _resolve_qmd_corpora(config, repo_root),
+        "corpora": corpora,
+        # The sidecar listens on its published port inside the container too
+        # (the qmd fragment publishes `port:port`), so one number serves both.
+        "network_env": {
+            corpus_url_env(c["collection"]): f"http://{c['service']}:{c['port']}" for c in corpora
+        },
     }
 
 
@@ -2033,6 +2064,10 @@ def _inject_project_metadata(config):
     # mount (an empty directory). Injected unconditionally, like every other
     # derived key here; templates that do not name it are unaffected.
     config_with_labels["osprey_qmd"] = _resolve_qmd_render_context(config, repo_root)
+    # Where a container on the host network reaches a store this deployment
+    # publishes: the interface `deployment.bind_address` names, or loopback for
+    # a wildcard. One derivation for every template that sets such an address.
+    config_with_labels["osprey_host_dial_address"] = _host_dial_address(config)
 
     # The archive service's sources — the volumes it reads, derived from the
     # same roster, worker and lane inputs their owner templates render from —

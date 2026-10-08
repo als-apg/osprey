@@ -42,6 +42,7 @@ from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import container_lifecycle, host_ports
 from osprey.deployment.compose_generator import (
+    _host_dial_address,
     prepare_compose_files,
     resolve_project_name,
     resolve_user_volume_names,
@@ -3332,6 +3333,9 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
     # ``deployment`` block moves the whole layout with it, and a port map built
     # from the default block would then contradict the base the render resolved.
     ctx.setdefault("osprey_ports", _layout_ports_for(ctx["deployment"]))
+    # Derived by the production producer from the same (possibly overridden)
+    # ``deployment`` block, so a test that moves the bind moves the dial too.
+    ctx.setdefault("osprey_host_dial_address", _host_dial_address(ctx))
     return template.render(**ctx)
 
 

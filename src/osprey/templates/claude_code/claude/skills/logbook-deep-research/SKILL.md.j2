@@ -52,6 +52,12 @@ results are findings, not dead ends.**
   pass `expand_query: true`/`false` to force or suppress it, and check
   `expanded_terms` for what was applied. It also accepts `*` globs (3+ literal
   characters, e.g. `BPM*`) and `/regex/` tokens for control-system names.
+- Every plain word must appear in an entry. Only when no entry has them all
+  does `keyword_search` return entries holding most of them, ranked, with
+  `matched_terms`/`missing_terms` and a `partial` diagnostic naming the words
+  no hit holds. Put dates and authors in `start_date`/`end_date`/`author`,
+  never in the query text (a bare `end_date` includes that day); join
+  alternatives with `OR` to widen.
 
 ### 2b. Semantic search
 

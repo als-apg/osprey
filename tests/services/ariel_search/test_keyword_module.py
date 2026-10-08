@@ -802,3 +802,171 @@ def pattern_clauses_params(kwargs: dict) -> str:
     index = kwargs["where_clauses"].index(clause)
     offset = sum(clause_.count("%s") for clause_ in kwargs["where_clauses"][:index])
     return kwargs["params"][offset]
+
+
+class TestPartialMatch:
+    """No entry has every plain word: entries with most of them, then fuzzy."""
+
+    @staticmethod
+    def partial_hits(*entry_ids: str) -> list[tuple[dict, float, list[str]]]:
+        return [
+            (
+                {
+                    "entry_id": eid,
+                    "raw_text": "x",
+                    "_matched_terms": ["laser", "energy", "pulses"],
+                    "_missing_terms": ["oct", "6"],
+                },
+                0.2,
+                [],
+            )
+            for eid in entry_ids
+        ]
+
+    @staticmethod
+    def record_order(repo: MagicMock) -> list[str]:
+        """Make the three statements append their names to one list, in await order."""
+        order: list[str] = []
+        for name in ("keyword_search", "keyword_partial_search", "fuzzy_search"):
+            current = getattr(repo, name)
+
+            async def _call(*args, _name=name, _inner=current, **kwargs):
+                order.append(_name)
+                return await _inner(*args, **kwargs)
+
+            setattr(repo, name, AsyncMock(side_effect=_call))
+        return order
+
+    @pytest.mark.asyncio
+    async def test_steps_run_strict_then_partial_then_fuzzy(self, mock_repository, mock_config):
+        """All three empty: each step runs once, in that order."""
+        order = self.record_order(mock_repository)
+
+        await keyword_search("laser energy pulses", mock_repository, mock_config)
+
+        assert order == ["keyword_search", "keyword_partial_search", "fuzzy_search"]
+
+    @pytest.mark.asyncio
+    async def test_strict_hits_skip_partial(self, mock_repository, mock_config):
+        """An entry with every word answers the query; nothing is relaxed."""
+        mock_repository.keyword_search = AsyncMock(return_value=self.partial_hits("e1"))
+
+        await keyword_search("laser energy pulses", mock_repository, mock_config)
+
+        mock_repository.keyword_partial_search.assert_not_called()
+        mock_repository.fuzzy_search.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_partial_hits_skip_fuzzy_and_carry_a_diagnostic(
+        self, mock_repository, mock_config
+    ):
+        """Partial hits answer the query, with an INFO note naming the absent words."""
+        mock_repository.keyword_partial_search = AsyncMock(
+            return_value=self.partial_hits("e1", "e2")
+        )
+        query = "laser energy pulses oct 6"
+
+        result = await keyword_search(
+            query, mock_repository, mock_config, parsed=parse_keyword_query(query)
+        )
+
+        assert isinstance(result, ModuleOutput)
+        assert [entry["entry_id"] for entry, _s, _h in result.entries] == ["e1", "e2"]
+        mock_repository.fuzzy_search.assert_not_called()
+        partial = [d for d in result.diagnostics if d.category == "partial"]
+        assert len(partial) == 1
+        assert partial[0].level is DiagnosticLevel.INFO
+        assert partial[0].source == "keyword"
+        assert "no entry contains every term" in partial[0].message
+        assert "at least 3 of 5" in partial[0].message
+        assert partial[0].message.endswith("terms found in no hit: oct, 6")
+
+    @pytest.mark.asyncio
+    async def test_partial_statement_gets_the_shared_coverage_and_filters(
+        self, mock_repository, mock_config
+    ):
+        """The relaxed statement keeps every filter and uses hybrid's share."""
+        from datetime import UTC, datetime
+
+        from osprey.services.ariel_search.database.search_fts import MIN_TERM_COVERAGE
+        from osprey.services.ariel_search.search import qmd
+
+        start = datetime(2025, 10, 6, tzinfo=UTC)
+        end = datetime(2025, 10, 6, 23, 59, tzinfo=UTC)
+
+        await keyword_search(
+            'laser energy "channel a" author:smith',
+            mock_repository,
+            mock_config,
+            start_date=start,
+            end_date=end,
+        )
+
+        kwargs = mock_repository.keyword_partial_search.call_args.kwargs
+        assert kwargs["min_fraction"] == MIN_TERM_COVERAGE
+        assert qmd.MIN_TERM_COVERAGE is MIN_TERM_COVERAGE
+        assert kwargs["terms"] == [("laser", ("laser",)), ("energy", ("energy",))]
+        clauses = " AND ".join(kwargs["where_clauses"])
+        assert "phraseto_tsquery" in clauses
+        assert "plainto_tsquery" not in clauses
+        assert "author ILIKE %s" in clauses
+        assert "timestamp >= %s" in clauses and "timestamp <= %s" in clauses
+        assert kwargs["params"] == ["channel a", "%smith%", start, end]
+
+    @pytest.mark.asyncio
+    async def test_expansion_alternatives_count_for_their_word(self, mock_repository, mock_config):
+        """A word inside an expanded span counts when an alternative is present."""
+        await keyword_search(
+            "ts bpm",
+            mock_repository,
+            mock_config,
+            parsed=parse_keyword_query("ts bpm"),
+            query_expansion=TS_BPM_EXPANSION,
+        )
+
+        kwargs = mock_repository.keyword_partial_search.call_args.kwargs
+        assert kwargs["terms"] == [
+            ("ts", ("ts", "troubleshoot")),
+            ("bpm", ("bpm", "beam position monitor")),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_single_word_query_skips_partial(self, mock_repository, mock_config):
+        """One word has no 'most of the words' to fall back to."""
+        await keyword_search("beaam", mock_repository, mock_config)
+
+        mock_repository.keyword_partial_search.assert_not_called()
+        assert mock_repository.fuzzy_search.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_phrase_words_do_not_count_toward_two(self, mock_repository, mock_config):
+        """A quoted phrase stays required and is not one of the counted words."""
+        await keyword_search('beam "rf cavity trip"', mock_repository, mock_config)
+
+        mock_repository.keyword_partial_search.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_pattern_queries_never_reach_partial(self, mock_repository, mock_config):
+        """A literal pattern is never relaxed, whatever words come with it."""
+        await keyword_search("trip magnet SR01C___BPM*", mock_repository, mock_config)
+
+        mock_repository.keyword_partial_search.assert_not_called()
+        mock_repository.fuzzy_search.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_operator_queries_never_reach_partial(self, mock_repository, mock_config):
+        """An explicit boolean query already says how its words combine."""
+        await keyword_search("beam AND orbit", mock_repository, mock_config)
+
+        mock_repository.keyword_partial_search.assert_not_called()
+        assert mock_repository.fuzzy_search.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_fallback_off_still_runs_partial(self, mock_repository, mock_config):
+        """The partial step is word matching, not the fuzzy fallback it precedes."""
+        await keyword_search(
+            "laser energy pulses", mock_repository, mock_config, fuzzy_fallback=False
+        )
+
+        assert mock_repository.keyword_partial_search.await_count == 1
+        mock_repository.fuzzy_search.assert_not_called()

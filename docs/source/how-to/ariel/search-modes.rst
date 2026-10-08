@@ -83,9 +83,20 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
          When multiple components are present (e.g. terms *and* phrases), they are combined with ``&&`` (tsquery AND).
 
-      4. Executes full-text search against the ``raw_text`` column with ``ts_rank`` scoring, applying any field filters (``author ILIKE``, date range) and time range constraints
-      5. If no results and fuzzy fallback is enabled, falls back to ``pg_trgm`` trigram similarity at or above ``fuzzy_threshold`` (default: 0.3)
-      6. Returns results as ``(entry, score, highlights)`` tuples --- highlights are generated via ``ts_headline``
+      4. Executes full-text search against the entry text (and, on a migrated store, its attachment captions) with ``ts_rank`` scoring, applying any field filters (``author ILIKE``, date range) and time range constraints
+      5. If no entry holds every plain word, returns the entries holding most of them instead (see *Which entries match* below)
+      6. If there are still no results and fuzzy fallback is enabled, falls back to ``pg_trgm`` trigram similarity at or above ``fuzzy_threshold`` (default: 0.3)
+      7. Returns results as ``(entry, score, highlights)`` tuples --- highlights are generated via ``ts_headline``
+
+      **Which entries match.** A query of plain words is answered in up to three steps, all inside the same date, author and source filters:
+
+      1. **Every word.** Entries containing all the plain words. If there are any, these are the answer.
+      2. **Most of the words.** Only when no entry has them all, and the query has at least two plain words: entries containing at least half of them --- the same share hybrid search uses to decide that a picture caption matched --- ranked by how many words they hold, then by ``ts_rank``. Each of these hits carries ``matched_terms`` and ``missing_terms``, and the response carries an INFO diagnostic of category ``partial``, for example ``no entry contains every term; showing entries with at least 4 of 8; terms found in no hit: oct, 6``. With vocabulary expansion on, a word counts as present when it or any of its alternatives is.
+      3. **Similar spelling.** Only when both steps above found nothing: the trigram fuzzy fallback.
+
+      Quoted phrases stay required in every step. A query with ``AND``, ``OR`` or ``NOT`` means exactly what its operators say and is never relaxed, and neither is a query carrying a ``*`` glob or a ``/regex/`` token. To widen a search on purpose, join the alternatives with ``OR``.
+
+      Dates and authors belong in the ``start_date``, ``end_date`` and ``author`` filters, not in the query text: ``Oct 6`` in the query is two more words an entry has to contain. A bare ``end_date`` such as ``2025-10-06`` includes that whole day (facility time); an end with a time of day is taken exactly as written.
 
       **Configuration:**
 

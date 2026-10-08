@@ -98,7 +98,7 @@ async def test_keyword_search_date_filtering(tmp_path, monkeypatch):
 
     start, end = call_kwargs["time_range"]
     assert start == datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC"))
-    assert end == datetime(2024, 1, 31, tzinfo=ZoneInfo("UTC"))
+    assert end == datetime(2024, 1, 31, 23, 59, 59, 999999, tzinfo=ZoneInfo("UTC"))
 
 
 async def test_keyword_search_author_filtering(tmp_path, monkeypatch):

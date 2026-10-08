@@ -10,9 +10,9 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar, cast
 
 from osprey.imaging.formats import (
     CAPTION_NOT_DONE_SQL,
@@ -25,6 +25,8 @@ from osprey.services.ariel_search.database.search_fts import (
     ATTACHMENT_TEXT_DOCUMENT,
     FTS_CONFIG,
     keyword_search_expressions,
+    term_arrays,
+    term_coverage,
 )
 from osprey.services.ariel_search.exceptions import (
     DatabaseQueryError,
@@ -2594,8 +2596,7 @@ class ARIELRepository:
         tsquery_sql: str | None = None,
         tsquery_params: "list[Any] | tuple[Any, ...]" = (),
         pattern_bodies: "list[str] | tuple[str, ...]" = (),
-        query_original: str | None = None,
-        query_flattened: str | None = None,
+        terms: Sequence[tuple[str, Sequence[str]]] | None = None,
         min_fraction: float | None = None,
     ) -> dict[str, list[str]]:
         """Find the attachments of some entries whose caption matches a query.
@@ -2609,11 +2610,11 @@ class ARIELRepository:
 
         The match predicate takes one of two forms. Without `min_fraction` it
         is the keyword form: the caption text satisfies `tsquery_sql` or any
-        pattern body (``~*``). With `min_fraction` it is only a lexeme-coverage
-        count: with ``n(x)`` the number of distinct lexemes of ``x``, the
-        caption's lexemes shared with `query_flattened`, capped at
-        ``n(query_original)``, must reach ``ceil(min_fraction * n(query_original))``,
-        and a query with no lexemes matches nothing.
+        pattern body (``~*``). With `min_fraction` it is only a term-coverage
+        count (:func:`~osprey.services.ariel_search.database.search_fts.term_coverage`):
+        the caption must hold ``ceil(min_fraction * n)`` of the ``n`` counted
+        words of `terms`, a word holding when it or one of its alternatives
+        does, and terms with no counted word match nothing.
 
         Args:
             entry_ids: The entries to search.
@@ -2622,9 +2623,9 @@ class ARIELRepository:
             tsquery_sql: A tsquery expression with positional ``%s`` placeholders.
             tsquery_params: One bind value per placeholder of `tsquery_sql`.
             pattern_bodies: PostgreSQL AREs matched case-insensitively.
-            query_original: The text the caller typed (coverage form).
-            query_flattened: The expanded query text; defaults to
-                `query_original` (coverage form).
+            terms: ``(word, (word, *alternatives))`` per query word, from
+                :func:`~osprey.services.ariel_search.database.search_fts.coverage_terms`
+                (coverage form).
             min_fraction: Required coverage in ``(0, 1]``; selects the coverage form.
 
         Returns:
@@ -2649,22 +2650,16 @@ class ARIELRepository:
 
         text = "t.caption_text"
         params: dict[str, Any] = {"entry_ids": list(entry_ids)}
+        with_clause = ""
         if min_fraction is not None:
-            if query_original is None:
+            if not terms:
                 return {}
-
-            def _lexemes(document: str) -> str:
-                return f"tsvector_to_array(to_tsvector({FTS_CONFIG}, {document}))"
-
-            n_orig = f"cardinality({_lexemes('%(q_orig)s::text')})"
-            predicate = (
-                f"({n_orig} > 0 AND LEAST(cardinality(ARRAY("
-                f"SELECT unnest({_lexemes(text)}) "
-                f"INTERSECT SELECT unnest({_lexemes('%(q_flat)s::text')}))), {n_orig}) "
-                f">= ceil(%(f)s::float8 * {n_orig}))"
+            coverage = term_coverage(
+                words="%(term_words)s", queries="%(term_queries)s", fraction="%(f)s::float8"
             )
-            params["q_orig"] = query_original
-            params["q_flat"] = query_original if query_flattened is None else query_flattened
+            predicate = coverage.admits(coverage.matched(f"to_tsvector({FTS_CONFIG}, {text})"))
+            with_clause = f"WITH {coverage.with_clause} "
+            params["term_words"], params["term_queries"] = term_arrays(terms)
             params["f"] = float(min_fraction)
         else:
             legs: list[str] = []
@@ -2728,7 +2723,8 @@ class ARIELRepository:
             """
         )
         query = (
-            "SELECT m.entry_id, m.attachment_id FROM ("
+            with_clause
+            + "SELECT m.entry_id, m.attachment_id FROM ("
             + " UNION ".join(selects)
             + ") AS m ORDER BY m.entry_id, m.attachment_id"
         )
@@ -2767,6 +2763,153 @@ class ARIELRepository:
         for row in rows:
             matches.setdefault(row["entry_id"], []).append(row["attachment_id"])
         return matches
+
+    @requires_module("search", "keyword")
+    async def keyword_partial_search(
+        self,
+        where_clauses: list[str],
+        params: list[Any],
+        *,
+        terms: Sequence[tuple[str, Sequence[str]]],
+        min_fraction: float,
+        max_results: int = 10,
+        include_highlights: bool = True,
+        v2: bool = False,
+    ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]]:
+        """Find entries holding most, but not necessarily all, of a query's words.
+
+        An entry qualifies when it passes every clause of `where_clauses` and
+        holds at least ``ceil(min_fraction * n)`` of the ``n`` counted words of
+        `terms` -- the measure caption matching uses, see
+        :func:`~osprey.services.ariel_search.database.search_fts.term_coverage`
+        -- searched in the same document and expression keyword search uses.
+        Entries are ordered by how many words they hold, then by ``ts_rank``
+        against any of the words. The document is parsed once per candidate,
+        and the statement runs under the keyword ``pattern_timeout_seconds``
+        envelope.
+
+        Each returned entry carries ``_matched_terms`` and ``_missing_terms``:
+        the counted words it holds and lacks, in query order.
+
+        Args:
+            where_clauses: SQL conditions with positional ``%s`` placeholders:
+                the filters and required phrases of the query.
+            params: One value per placeholder of `where_clauses`, in order.
+            terms: ``(word, (word, *alternatives))`` per word, in query order.
+            min_fraction: Required coverage in ``(0, 1]``.
+            max_results: Maximum results to return.
+            include_highlights: Include highlighted snippets of the words.
+            v2: The ``has_v2_fts`` schema fact the caller built `where_clauses`
+                under.
+
+        Returns:
+            List of (entry, ``ts_rank`` score, highlights) tuples.
+
+        Raises:
+            ValueError: If `min_fraction` is outside ``(0, 1]``.
+            SearchTimeoutError: If the statement exceeded its timeout.
+            DatabaseQueryError: If the query failed for any other reason.
+        """
+        import psycopg
+        from psycopg.rows import dict_row
+
+        from osprey.services.ariel_search.search.keyword import KeywordSearchSettings
+
+        if not 0 < min_fraction <= 1:
+            raise ValueError(f"min_fraction must be in (0, 1], got {min_fraction!r}")
+        words = [word for word, _forms in terms]
+        forms = list(dict.fromkeys(form for _word, word_forms in terms for form in word_forms))
+        if not words or not forms:
+            return []
+
+        fts_expression, headline_document = keyword_search_expressions(self.config, v2=v2)
+        filters_sql, bound = (
+            named_tsquery(" AND ".join(where_clauses), params, prefix="w")
+            if where_clauses
+            else ("TRUE", {})
+        )
+        term_words, term_queries = term_arrays(terms)
+        named: dict[str, Any] = {
+            **bound,
+            "term_words": term_words,
+            "term_queries": term_queries,
+            "f": float(min_fraction),
+            "limit": max_results,
+        }
+        legs: list[str] = []
+        for index, form in enumerate(forms):
+            named[f"any{index}"] = form
+            legs.append(f"plainto_tsquery({FTS_CONFIG}, %(any{index})s)")
+        any_word = "(" + " || ".join(legs) + ")"
+        coverage = term_coverage(
+            words="%(term_words)s", queries="%(term_queries)s", fraction="%(f)s::float8"
+        )
+        headline = (
+            f"ts_headline({FTS_CONFIG}, {headline_document}, {any_word}, "
+            "'StartSel=<b>, StopSel=</b>, MaxFragments=3')"
+            if include_highlights
+            else "NULL"
+        )
+        # The index condition repeats the indexed expression; the lateral parses
+        # each candidate's document once (OFFSET 0 keeps the planner from
+        # inlining it back into every reference) for coverage and rank.
+        query = f"""
+            WITH {coverage.with_clause}
+            SELECT m.*, {coverage.counted} AS counted_terms, {headline} AS headline
+            FROM (
+                SELECT e.*, c.matched_terms, cardinality(c.matched_terms) AS coverage,
+                       ts_rank(d.doc, {any_word}) AS rank
+                FROM enhanced_entries e
+                CROSS JOIN LATERAL (SELECT {fts_expression} AS doc OFFSET 0) AS d
+                CROSS JOIN LATERAL (SELECT {coverage.matched("d.doc")} AS matched_terms) AS c
+                WHERE {fts_expression} @@ {any_word}
+                  AND {filters_sql}
+                  AND {coverage.admits("c.matched_terms")}
+                ORDER BY coverage DESC, rank DESC, e.timestamp DESC
+                LIMIT %(limit)s
+            ) AS m
+            ORDER BY m.coverage DESC, m.rank DESC, m.timestamp DESC
+        """
+
+        timeout_seconds = KeywordSearchSettings.from_ariel_config(
+            self.config
+        ).pattern_timeout_seconds
+        timeout_ms = int(timeout_seconds * 1000)
+        if timeout_ms < 1:
+            raise ValueError(
+                "pattern_timeout_seconds must be at least 0.001; "
+                f"{timeout_seconds} renders as 0ms, which disables the timeout"
+            )
+
+        try:
+            async with self.pool.connection() as conn, conn.transaction():
+                await conn.execute(
+                    "SELECT set_config('statement_timeout', %s, true)", (f"{timeout_ms}ms",)
+                )
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    await cur.execute(query, named)
+                    rows = await cur.fetchall()
+        except psycopg.errors.QueryCanceled as e:
+            raise _pattern_timeout_error(timeout_seconds) from e
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Partial keyword search failed: {e}",
+                query=f"PARTIAL KEYWORD SEARCH: {' '.join(words)}",
+            ) from e
+
+        results: list[tuple[EnhancedLogbookEntry, float, list[str]]] = []
+        for row in rows:
+            row.pop("coverage", None)
+            rank = float(row.pop("rank", 0.0) or 0.0)
+            snippet = row.pop("headline", "") or ""
+            matched = set(row.pop("matched_terms", None) or ())
+            counted = set(row.pop("counted_terms", None) or ())
+            entry = enhanced_entry_from_row(row)
+            shaped = cast("dict[str, Any]", entry)
+            shaped["_matched_terms"] = [w for w in words if w in counted and w in matched]
+            shaped["_missing_terms"] = [w for w in words if w in counted and w not in matched]
+            results.append((entry, rank, [snippet] if snippet else []))
+        return results
 
     @requires_module("search", "keyword")
     async def fuzzy_search(

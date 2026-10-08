@@ -11,6 +11,11 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from osprey.services.ariel_search.models import (
+    END_BOUND_DESCRIPTION,
+    START_BOUND_DESCRIPTION,
+    TimeBoundText,
+)
 from osprey.services.ariel_search.search._offload import run_search_call
 from osprey.services.ariel_search.search.base import (
     ModuleOutput,
@@ -345,14 +350,8 @@ class SemanticSearchInput(BaseModel):
         le=1.0,
         description="Minimum similarity score (0-1)",
     )
-    start_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created after this time (inclusive)",
-    )
-    end_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created before this time (inclusive)",
-    )
+    start_date: TimeBoundText = Field(default=None, description=START_BOUND_DESCRIPTION)
+    end_date: TimeBoundText = Field(default=None, description=END_BOUND_DESCRIPTION)
     expand_query: bool | None = Field(
         default=None,
         description=(
