@@ -212,15 +212,9 @@ DENIED: tuple[Denied, ...] = (
         ),
         sample="# \u2500\u2500 The ALS-U Accumulator Ring instance \u2500\u2500",
         roots=REPO_ROOTS,
-        # The demo ring ships as the virtual-accelerator package's own subject.
-        allow=frozenset(
-            {
-                "src/osprey/services/virtual_accelerator/model/bindings.py",
-                # The suite that exercises that package: the ring is what it is
-                # a test of.
-                "tests/simulation/matlab_reference.py",
-            }
-        ),
+        # The suite that exercises the bundled demo lattice: the lattice is what
+        # it is a test of.
+        allow=frozenset({"tests/simulation/matlab_reference.py"}),
     ),
     Denied(
         # Case-sensitive on purpose: the acronym is always capitalised, while
@@ -234,11 +228,8 @@ DENIED: tuple[Denied, ...] = (
         ),
         sample="#   facility_name: ALS",
         roots=REPO_ROOTS,
-        # The bundled demo ring, whose own name this is, in the
-        # virtual-accelerator package.
         allow=frozenset(
             {
-                "src/osprey/services/virtual_accelerator/model/bindings.py",
                 # The shipped reference ingestion format, and the places that
                 # quote the ``source_system`` values its adapter returns —
                 # rewriting those would name a value no adapter produces.

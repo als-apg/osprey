@@ -3,7 +3,8 @@
 The faults live on the deck elements as attributes; a monitor reading is the
 solved truth plus whatever motion the caller adds, read out through
 :func:`~osprey.simulation.engines.pyat_faults.readout`. The reference every
-reading is held to is the serving path's own ``bpm_read``, called on the same
+reading is held to is the closed-form
+:func:`~osprey.simulation.engines.pyat_faults.bpm_read`, called on the same
 truth plus motion with its noise and calibration error off.
 """
 
@@ -17,15 +18,12 @@ import pytest
 
 at = pytest.importorskip("at")
 
-import numpy as np  # noqa: E402
 import yaml  # noqa: E402
 from lume_pyat.model import LUMEPyATModel  # noqa: E402
 from lume_pyat.simulator import PyATSimulator  # noqa: E402
 
-from osprey.services.virtual_accelerator.lattice.errors import (  # noqa: E402
-    bpm_read as reference_bpm_read,
-)
 from osprey.simulation.engines import pyat_faults  # noqa: E402
+from osprey.simulation.engines.pyat_faults import bpm_read as reference_bpm_read  # noqa: E402
 from osprey.simulation.engines.pyat_faults import (  # noqa: E402
     magnet_cal,
     readout,
@@ -114,7 +112,8 @@ def reference(values: dict[str, float], faults: dict[str, float]) -> tuple[float
         **{**IDENTITY, **faults},
         cal_x=0.0,
         cal_y=0.0,
-        rng=np.random.default_rng(7),
+        normal_x=0.0,
+        normal_y=0.0,
     )
 
 

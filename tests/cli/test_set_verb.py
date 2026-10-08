@@ -479,7 +479,7 @@ def test_no_pairs_is_a_usage_error(runner, lifecycle_repo):
 
 def test_resolves_the_repo_from_a_subdirectory(runner, lifecycle_repo, monkeypatch):
     """The walk-up rule: any subdirectory is inside the deployment."""
-    monkeypatch.chdir(lifecycle_repo / "data" / "channel_databases")
+    monkeypatch.chdir(lifecycle_repo / "data" / "facility" / "knowledge")
 
     result = runner.invoke(set_command, ["model=claude-opus-5"], catch_exceptions=False)
 

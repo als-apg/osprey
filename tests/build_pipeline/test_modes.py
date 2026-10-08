@@ -12,7 +12,6 @@ from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import manager
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from osprey.services.channel_finder.benchmarks.runner import PARADIGM_CONFIG_KEYS
-from osprey.services.virtual_accelerator.manifest.paths import _manifest_tier
 
 
 def test_graph_is_a_registered_paradigm():
@@ -77,17 +76,6 @@ def test_benchmark_paradigm_config_keys_exclude_only_graph():
     subtraction so the pin holds whether or not ``graph`` is registered.
     """
     assert set(PARADIGM_CONFIG_KEYS) == set(VALID_CHANNEL_FINDER_MODES) - {"graph"}
-
-
-def test_manifest_tier_is_inherited_for_every_paradigm():
-    """A new paradigm cannot change the manifest's tier silently.
-
-    ``in_context`` reads the tier-1 databases, every other paradigm the tier-3
-    ones. A paradigm added to the registry inherits the tier-3 branch, and this
-    test says so out loud.
-    """
-    for mode in VALID_CHANNEL_FINDER_MODES:
-        assert _manifest_tier(mode) == (1 if mode == "in_context" else 3)
 
 
 def _cli_choices(command: str, param: str) -> tuple[str, ...]:

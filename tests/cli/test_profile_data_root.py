@@ -267,14 +267,10 @@ class TestBuildPipelineOrderingHolds:
         mirror_src.parent.mkdir(parents=True, exist_ok=True)
         mirror_src.write_text(mirror_body)
 
-        # The profile's flat DB and its tier source both carry different
-        # content, so a passing assertion can only mean the mirror landed last.
+        # The profile's flat DB carries different content, so a passing
+        # assertion can only mean the mirror landed last.
         profile_flat = profile_dir / "data" / "channel_databases" / "in_context.json"
         profile_flat.write_text('{"channels": {"PROFILE:FLAT": {}}}\n')
-        tier_src = (
-            profile_dir / "data" / "channel_databases" / "tiers" / "tier1" / "in_context.json"
-        )
-        tier_src.write_text('{"channels": {"PROFILE:TIER": {}}}\n')
         (profile_dir / "data" / "facility_marker.txt").write_text("profile tree\n")
 
         project_dir = _build(profile_path)

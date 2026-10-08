@@ -6,18 +6,15 @@ edit them freely.
 
 ## Directory Structure
 
-As shipped by the preset, the channel-finder artifacts are staged for all tiers
-and all three file-backed paradigms:
+The channel-finder indexes are not here: each is a view the build writes from
+`facility/` into the render. As shipped by the preset:
 
 ```
 data/
 ├── channel_databases/
-│   ├── tiers/tier{1,3}/<paradigm>.json   # Staged databases, one per paradigm
-│   ├── examples/                         # Hierarchy-shape examples
-│   └── TEMPLATE_EXAMPLE.json             # Database format example
+│   └── examples/                         # Hierarchy-shape examples
 ├── benchmarks/
 │   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
-├── machine_state_channels.json            # Address list reconciled against the VA manifest
 ├── ariel/
 │   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
 │   └── README.md                         # Vocabulary format walkthrough
@@ -30,17 +27,16 @@ data/
 to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
 `tree_queries.json` for every other mode. Each channel-finder index is the view
 the build writes at its own path; nothing is flattened. The render drops the
-`benchmarks/cross_paradigm/`, `channel_databases/tiers/` and `raw/` subtrees.
+`benchmarks/cross_paradigm/` subtree.
 
 ## Database Paradigms
 
 `channel_finder_mode` in the build profile picks one of three ways to organize
-the same channel namespace as a file. All three describe addresses in the
-`RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD` grammar. The mode's fourth value,
-`graph`, is not one of them: it answers from the facility knowledge graph
-rather than a channel database. Its corpus is `data/graph/facility.ttl`, the
-graph view the build writes from `facility/`, seeded into the
-`services.graphdb` store.
+the same channel namespace as a file; all three are views of the same
+facility records. The mode's fourth value, `graph`, is not one of them: it
+answers from the facility knowledge graph rather than a channel database. Its
+corpus is `data/graph/facility.ttl`, the graph view the build writes from
+`facility/`, seeded into the `services.graphdb` store.
 
 ### `in_context` — flat structure
 
@@ -50,9 +46,9 @@ channels.
 
 ### `hierarchical` — nested structure
 
-Best for more than about 1,000 channels. The agent navigates the
-`RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD` hierarchy level by level instead of
-loading everything at once.
+Best for more than about 1,000 channels. The agent navigates the hierarchy
+level by level instead of loading everything at once: the facility's place
+words by depth, then class, device and leaf.
 
 ### `middle_layer` — functional structure
 

@@ -307,11 +307,6 @@ def build_model(lattice: Any) -> tuple[LUMEPyATModel, dict[str, str]]:
 
 
 class TestCopiedNotShared:
-    def test_the_engine_classes_are_its_own(self) -> None:
-        from osprey.services.virtual_accelerator.model import variables
-
-        assert variables.CalibratedSetpoint is not pyat_variables.CalibratedSetpoint
-
     def test_the_module_imports_nothing_of_the_old_service(self) -> None:
         code = (
             "import sys\n"

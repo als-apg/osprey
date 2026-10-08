@@ -28,7 +28,6 @@ LAZY_EXPORT_PACKAGES = (
     "osprey.services.ariel_search.database",
     "osprey.services.channel_finder.graph_index",
     "osprey.services.facility_knowledge.ontology_compiler",
-    "osprey.services.virtual_accelerator.model",
 )
 
 #: Packages whose hook resolves a name from a module that imports a

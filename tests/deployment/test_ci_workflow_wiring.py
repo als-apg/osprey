@@ -487,8 +487,9 @@ def test_bluesky_stack_is_a_core_dependency() -> None:
 
 
 def test_lume_pyat_is_a_core_dependency() -> None:
-    """`model.pyat` imports lume_pyat at module level — PyATRingModel subclasses
-    LUMEPyATModel — so the VA cannot boot without it. Placement, not just
+    """`osprey.simulation.engines.pyat_model` imports lume_pyat at module level
+    — PyATLatticeModel subclasses LUMEPyATModel — so the VA cannot boot
+    without it. Placement, not just
     presence, is what this guards: the dev-wheel channel builds the VA image's
     dependency manifest from the wheel's base `Requires-Dist` only
     (`wheel_build._wheel_base_requirements` drops every entry gated behind an

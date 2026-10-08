@@ -1,7 +1,7 @@
 """The demo graph and the demo channel finder must describe the same machine.
 
 The control-assistant preset carries two descriptions of one demo accelerator:
-the tier-3 channel database the channel finder searches, and the graph view the
+the hierarchical channel database the channel finder searches, and the graph view the
 build writes and the graph store is seeded from. The agent reaches for whichever fits the question,
 and it has no way to notice when the two disagree — a channel it finds in the
 graph but cannot read, or a setpoint the graph calls a readback, looks like a
@@ -39,14 +39,10 @@ from tests._builds import BuiltProject
 #: Repo root — this file sits at ``tests/services/facility_knowledge/``.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-#: The control-assistant preset's data tree. Every artifact compared here is
-#: read from this one directory by an explicit path: the guard is about what
-#: ships side by side, so resolving anything through the config would let a
-#: misconfigured project quietly compare something else.
-DEMO_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
-
-#: Tier-3 hierarchical channel database — the colon-grammar source of truth.
-CHANNEL_DB_PATH = DEMO_DATA / "channel_databases/tiers/tier3/hierarchical.json"
+#: The frozen copy of the demo's hierarchical channel database, read by an
+#: explicit path: resolving it through the config would let a misconfigured
+#: project quietly compare something else.
+CHANNEL_DB_PATH = REPO_ROOT / "tests/facility/golden/cf_index_pre_line/hierarchical.json"
 
 #: The addresses the demo facility serves beyond the channel database, as rows
 #: of the frozen demo fingerprint's shape.
@@ -136,7 +132,7 @@ def _pvs_of_bindings_with(graph: Any, predicate_local_name: str) -> set[str]:
 
 @pytest.fixture(scope="module")
 def channel_map() -> dict[str, dict]:
-    """The tier-3 database expanded to its flat colon-grammar channel map.
+    """The hierarchical database expanded to its flat colon-grammar channel map.
 
     Expansion goes through the loader the channel finder itself uses, so the
     reference set is what the finder would answer with — not a re-derivation of
@@ -195,7 +191,7 @@ def test_demo_ttl_bindings_equal_the_channel_database(
     database_pvs = set(channel_map)
 
     assert len(database_pvs) == EXPECTED_CHANNELS, (
-        f"The tier-3 database expands to {len(database_pvs)} channels, not "
+        f"The hierarchical database expands to {len(database_pvs)} channels, not "
         f"{EXPECTED_CHANNELS}. If the demo machine really did change, update the "
         "corpus and this count together."
     )
