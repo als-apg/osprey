@@ -1107,6 +1107,75 @@ class TestDraft:
         ids = ", ".join(line.removeprefix("    # ") for line in comment).replace(",,", ",")
         assert ids.split(", ") == [f"SR/BPM{n}" for n in range(1, count + 1)]
 
+    @staticmethod
+    def _bpm(names: list[str] | None = None) -> dict[str, Any]:
+        """The small export with ``BPM`` binding the second of ``BPMx``'s addresses."""
+        ao = _export()
+        ao["SR"]["BPM"] = {"DeviceList": [[1, 2]], "Monitor": {"ChannelNames": ["BPM2:X"]}}
+        if names is not None:
+            ao["SR"]["BPM"]["CommonNames"] = names
+        return ao
+
+    def test_families_binding_one_device_draft_one_identity(self) -> None:
+        ao = self._bpm()
+        document = draft_mapping(ao)
+        families = document["families"]
+        assert families["BPMx"]["devices"] == {"coordinates": "BPMx"}
+        assert families["BPM"]["devices"] == {"same_as": "BPMx"}
+        assert families["QF"]["devices"] == "address"
+        assert check_mapping(parse_mapping(document), ao) == []
+
+    def test_a_twin_of_a_family_that_takes_same_as_follows_it_to_the_largest(self) -> None:
+        ao = _export()
+        ao["SR"]["BPMx"]["CommonNames"] = ["BX1", "BX2"]
+        ao["SR"]["BPMy"] = {
+            "DeviceList": [[1, 1], [1, 2]],
+            "Monitor": {"ChannelNames": ["BPM1:Y", "BPM2:Y"]},
+        }
+        ao["SR"]["BPM"] = {
+            "DeviceList": [[1, 1], [1, 2], [2, 1]],
+            "Monitor": {"ChannelNames": ["BPM1:X", "BPM2:X", "BPM3:X"]},
+        }
+        document = draft_mapping(ao)
+        families = document["families"]
+        assert families["BPM"]["devices"] == {"coordinates": "BPM"}
+        assert families["BPMx"]["devices"] == {"same_as": "BPM"}
+        assert families["BPMy"]["devices"] == {"same_as": "BPM"}
+        assert check_mapping(parse_mapping(document), ao) == []
+
+    def test_a_named_sibling_lends_its_stem(self) -> None:
+        families = draft_mapping(self._bpm(["BPM(1,2)"]))["families"]
+        assert families["BPMx"]["devices"] == {"coordinates": "BPM"}
+        assert families["BPM"]["devices"] == "names"
+
+    def test_a_supply_shared_across_every_slot_is_not_one_device(self) -> None:
+        ao = _export()
+        for raw, cells in (("SF", ["SF1", "SF2"]), ("SD", ["SD1", "SD2"])):
+            ao["SR"][raw] = {
+                "DeviceList": [[1, 1], [1, 2]],
+                "Setpoint": {"ChannelNames": [f"SR:{cell}:SP" for cell in cells]},
+                "DAC": {"ChannelNames": ["SR:SFSD:DAC", "SR:SFSD:DAC"]},
+            }
+        families = draft_mapping(ao)["families"]
+        assert (families["SF"]["devices"], families["SD"]["devices"]) == ("address", "address")
+        assert "one device per" not in draft_text(ao)
+
+    def test_the_draft_comments_each_shared_identity(self) -> None:
+        ao = self._bpm(["BPM(1,2)"])
+        text = draft_text(ao)
+        assert yaml.safe_load(text) == draft_mapping(ao)
+        lines = text.splitlines()
+        at = lines.index("      coordinates: BPM")
+        assert lines[at - 1 : at + 2] == [
+            "    devices:",
+            "      coordinates: BPM",
+            "    # one device per [sector, device] with BPM: they bind the same addresses",
+        ]
+        at = lines.index("    devices: names")
+        assert lines[at + 1] == (
+            "    # one device per [sector, device] with BPMx: they bind the same addresses"
+        )
+
     def test_the_nsls2_export_drafts_the_devices_its_fixture_mapping_answers(self) -> None:
         from tests.facility.test_fixture_mappings import _export as fixture_export
 
