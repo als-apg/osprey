@@ -767,12 +767,9 @@ async def keyword_search(
                     0, f"{keyword_fts_expression(config, v2=v2)} @@ ({phrase_tsquery[0]})"
                 )
                 partial_params[:0] = phrase_tsquery[1]
-            flattened = applied.flattened_text if applied is not None else search_text
             results = await repository.keyword_partial_search(
                 where_clauses=partial_clauses,
                 params=partial_params,
-                query_original=search_text,
-                query_flattened=flattened,
                 terms=terms,
                 min_fraction=MIN_TERM_COVERAGE,
                 max_results=max_results,
@@ -785,8 +782,7 @@ async def keyword_search(
                     results,
                     repository,
                     config,
-                    query_original=search_text,
-                    query_flattened=flattened,
+                    terms=terms,
                     min_fraction=MIN_TERM_COVERAGE,
                 )
 

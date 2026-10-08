@@ -8,6 +8,7 @@ than letting migrations and search code drift independently.
 from __future__ import annotations
 
 import string
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -86,54 +87,88 @@ def keyword_fts_expression(config: ARIELConfig, *, v2: bool) -> str:
 MIN_TERM_COVERAGE = 0.5
 
 
+#: Name of the common table expression :func:`term_coverage` binds the terms to.
+_TERMS_CTE = "coverage_terms"
+
+
 @dataclass(frozen=True)
-class LexemeCoverage:
-    """SQL measuring how much of a query a document covers, in distinct lexemes.
+class TermCoverage:
+    """SQL measuring how many of a query's words a document holds.
+
+    A word holds when the document matches ``plainto_tsquery`` of the word or
+    of any of its alternatives. Only words whose own forms are not all stop
+    words count toward the total. One statement prefixes `with_clause`, which
+    parses every word once and reads the counted words once per statement.
 
     Attributes:
-        covered: The document's lexemes shared with the flattened query, capped
-            at `total`.
-        total: The number of distinct lexemes of the original query.
-        predicate: True when `total` is above zero and `covered` reaches
-            ``ceil(fraction * total)``.
+        with_clause: The ``WITH`` body binding the terms; the caller writes
+            ``WITH {with_clause}`` ahead of its statement.
+        total: The number of counted words.
+        counted: The counted words as a ``text[]``.
+        fraction: The required share, as given.
     """
 
-    covered: str
+    with_clause: str
     total: str
-    predicate: str
+    counted: str
+    fraction: str
+
+    def matched(self, tsvector: str) -> str:
+        """SQL for the ``text[]`` of words the document `tsvector` holds."""
+        return (
+            f"ARRAY(SELECT DISTINCT ct.word FROM {_TERMS_CTE} ct "
+            f"WHERE numnode(ct.tq) > 0 AND {tsvector} @@ ct.tq)"
+        )
+
+    def admits(self, matched: str) -> str:
+        """SQL true when the ``text[]`` `matched` holds the required share."""
+        return (
+            f"({self.total} > 0 AND cardinality({matched}) >= ceil({self.fraction} * {self.total}))"
+        )
 
 
-def lexeme_coverage(
-    tsvector: str, *, original: str, flattened: str, fraction: str
-) -> LexemeCoverage:
-    """Build the lexeme-coverage SQL shared by caption and keyword matching.
+def term_coverage(*, words: str, queries: str, fraction: str) -> TermCoverage:
+    """Build the term-coverage SQL shared by caption and keyword matching.
 
-    Coverage counts the distinct lexemes of `original` against the document.
-    Lexemes come from the flattened (vocabulary-expanded) query, so an
-    alternative counts as the term it expands; the count is capped at the
-    original's size so the alternatives cannot outnumber what was typed.
+    The terms arrive as two parallel ``text[]`` parameters from
+    :func:`term_arrays`: each word once per form it can take (itself, then
+    its vocabulary alternatives).
 
     Args:
-        tsvector: SQL producing the document's ``tsvector``.
-        original: SQL producing the typed query text.
-        flattened: SQL producing the expanded query text (`original` when
-            nothing was expanded).
+        words: SQL producing the word of each form.
+        queries: SQL producing each form's text.
         fraction: SQL producing the required share in ``(0, 1]``.
 
     Returns:
-        The three expressions; each embeds the arguments verbatim, so their
+        The coverage SQL; it embeds the arguments verbatim, so their
         placeholders must be named ones.
     """
-    original_lexemes = f"tsvector_to_array(to_tsvector({FTS_CONFIG}, {original}))"
-    flattened_lexemes = f"tsvector_to_array(to_tsvector({FTS_CONFIG}, {flattened}))"
-    total = f"cardinality({original_lexemes})"
-    covered = (
-        f"LEAST(cardinality(ARRAY("
-        f"SELECT unnest(tsvector_to_array({tsvector})) "
-        f"INTERSECT SELECT unnest({flattened_lexemes}))), {total})"
+    with_clause = (
+        f"{_TERMS_CTE} AS MATERIALIZED ("
+        f"SELECT t.word, plainto_tsquery({FTS_CONFIG}, t.q) AS tq "
+        f"FROM unnest({words}::text[], {queries}::text[]) AS t(word, q))"
     )
-    predicate = f"({total} > 0 AND {covered} >= ceil({fraction} * {total}))"
-    return LexemeCoverage(covered=covered, total=total, predicate=predicate)
+    counted_words = f"FROM {_TERMS_CTE} WHERE numnode(tq) > 0"
+    return TermCoverage(
+        with_clause=with_clause,
+        total=f"(SELECT count(DISTINCT word) {counted_words})",
+        counted=f"(SELECT COALESCE(array_agg(DISTINCT word), '{{}}') {counted_words})",
+        fraction=fraction,
+    )
+
+
+def term_arrays(terms: Sequence[tuple[str, Sequence[str]]]) -> tuple[list[str], list[str]]:
+    """Flatten :func:`coverage_terms` output into the arrays :func:`term_coverage` reads.
+
+    Args:
+        terms: ``(word, (word, *alternatives))`` per word.
+
+    Returns:
+        ``(words, queries)``, one element per form of each word.
+    """
+    words = [word for word, forms in terms for _form in forms]
+    queries = [form for _word, forms in terms for form in forms]
+    return words, queries
 
 
 def coverage_terms(

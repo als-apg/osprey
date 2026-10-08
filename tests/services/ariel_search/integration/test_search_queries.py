@@ -202,18 +202,25 @@ async def partial_repository(repository, seed_entry_factory, seeded_prefixes):
     vocabulary in ``attachment_text``, stamped mid-afternoon facility time on
     2025-10-06. ``-002`` is the same entry one day later, outside a one-day
     window. ``-003`` shares only ``laser energy`` with the field query, on the
-    same day.
+    same day. ``-004`` to ``-007``, on 2025-11-03, hold the vocabulary and
+    hyphen cases: one or two words of ``rf trip beam loss`` (``rf`` written as
+    ``radio frequency``) and of ``rf-cavity trip vacuum``.
 
     Returns:
-        The repository, with the three entries upserted.
+        The repository, with the seven entries upserted.
     """
     from osprey.utils.config import localize_facility
 
     day = localize_facility(datetime(2025, 10, 6, 15, 30))
+    other_day = localize_facility(datetime(2025, 11, 3, 10, 0))
     rows = [
         (f"{PARTIAL_PREFIX}001", day, "#HP Prep", FIELD_CAPTION),
         (f"{PARTIAL_PREFIX}002", day + timedelta(days=1), "#HP Prep", FIELD_CAPTION),
         (f"{PARTIAL_PREFIX}003", day, "Laser energy logbook check", None),
+        (f"{PARTIAL_PREFIX}004", other_day, "Radio frequency", None),
+        (f"{PARTIAL_PREFIX}005", other_day, "Radio frequency trip", None),
+        (f"{PARTIAL_PREFIX}006", other_day, "Cavity fault", None),
+        (f"{PARTIAL_PREFIX}007", other_day, "RF cavity", None),
     ]
     seeded_prefixes.add(PARTIAL_PREFIX)
     for entry_id, timestamp, raw_text, caption in rows:
@@ -232,7 +239,9 @@ class TestKeywordPartialMatch:
     """Keyword search when no entry holds every plain word of the query."""
 
     @staticmethod
-    async def run(repository, config, query: str, start: str | None, end: str | None):
+    async def run(
+        repository, config, query: str, start: str | None, end: str | None, expansion=None
+    ):
         from osprey.mcp_server.ariel.server import parse_date_filters
         from osprey.services.ariel_search.search.keyword import (
             keyword_search,
@@ -248,7 +257,13 @@ class TestKeywordPartialMatch:
             start_date=start_date,
             end_date=end_date,
             parsed=parse_keyword_query(query),
+            query_expansion=expansion,
         )
+
+    @staticmethod
+    def partial_note(output):
+        [note] = [d for d in output.diagnostics if d.category == "partial"]
+        return note.message
 
     async def test_field_query_in_its_window_returns_the_entry_naming_the_absent_words(
         self, partial_repository, integration_ariel_config
@@ -286,6 +301,83 @@ class TestKeywordPartialMatch:
         assert ids == [f"{PARTIAL_PREFIX}001"]
         assert "_missing_terms" not in output.entries[0][0]
         assert not [d for d in output.diagnostics if d.category == "partial"]
+
+    async def test_the_note_states_the_rule_every_hit_meets(
+        self, partial_repository, integration_ariel_config
+    ):
+        """ "at least k of n" is the admission rule: n counted words, every hit holds k."""
+        output = await self.run(
+            partial_repository, integration_ariel_config, FIELD_QUERY, "2025-10-06", "2025-10-06"
+        )
+
+        # ``a`` is a stop word, so eight of the nine typed words count.
+        assert "showing entries with at least 4 of 8;" in self.partial_note(output)
+        for entry, _score, _highlights in output.entries:
+            assert len(entry["_matched_terms"]) >= 4
+            assert len(entry["_matched_terms"]) + len(entry["_missing_terms"]) == 8
+
+    async def test_a_multi_word_alternative_counts_as_the_one_word_it_expands(
+        self, partial_repository, integration_ariel_config
+    ):
+        """``radio frequency`` stands for ``rf`` alone: one word of four, not two."""
+        from osprey.services.ariel_search.search.base import ExpansionGroup, QueryExpansion
+
+        expansion = QueryExpansion(
+            groups=(ExpansionGroup(original="rf", alternatives=("radio frequency",)),),
+            flattened_text="rf radio frequency trip beam loss",
+        )
+        output = await self.run(
+            partial_repository,
+            integration_ariel_config,
+            "rf trip beam loss",
+            "2025-11-03",
+            "2025-11-03",
+            expansion,
+        )
+
+        by_id = {entry["entry_id"]: entry for entry, _score, _highlights in output.entries}
+        assert f"{PARTIAL_PREFIX}004" not in by_id
+        assert by_id[f"{PARTIAL_PREFIX}005"]["_matched_terms"] == ["rf", "trip"]
+        assert by_id[f"{PARTIAL_PREFIX}005"]["_missing_terms"] == ["beam", "loss"]
+        assert "at least 2 of 4;" in self.partial_note(output)
+
+    async def test_a_hyphenated_word_counts_as_the_words_it_joins(
+        self, partial_repository, integration_ariel_config
+    ):
+        """``rf-cavity`` is the two words ``rf`` and ``cavity`` of four."""
+        output = await self.run(
+            partial_repository,
+            integration_ariel_config,
+            "rf-cavity trip vacuum",
+            "2025-11-03",
+            "2025-11-03",
+        )
+
+        by_id = {entry["entry_id"]: entry for entry, _score, _highlights in output.entries}
+        assert by_id[f"{PARTIAL_PREFIX}007"]["_matched_terms"] == ["rf", "cavity"]
+        assert f"{PARTIAL_PREFIX}006" not in by_id
+        assert "at least 2 of 4;" in self.partial_note(output)
+
+    async def test_the_partial_statement_runs_in_the_timeout_envelope(
+        self, partial_repository, integration_ariel_config
+    ):
+        """The relaxed statement parses each document once, under statement_timeout."""
+        from .conftest import RecordingPool
+
+        pool = RecordingPool(partial_repository.pool)
+        partial_repository.pool = pool
+        output = await self.run(
+            partial_repository, integration_ariel_config, FIELD_QUERY, "2025-10-06", "2025-10-06"
+        )
+
+        assert output.entries
+        [index] = [
+            i
+            for i, (kind, text, _params) in enumerate(pool.log)
+            if kind == "cursor.execute" and "AS doc OFFSET 0" in text
+        ]
+        assert pool.log[index - 1][0] == "statement_timeout_inside"
+        assert pool.log[index - 1][1] == "10s"
 
     async def test_a_bare_end_date_includes_its_own_day(
         self, partial_repository, integration_ariel_config

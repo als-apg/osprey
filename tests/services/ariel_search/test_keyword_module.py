@@ -905,8 +905,6 @@ class TestPartialMatch:
         kwargs = mock_repository.keyword_partial_search.call_args.kwargs
         assert kwargs["min_fraction"] == MIN_TERM_COVERAGE
         assert qmd.MIN_TERM_COVERAGE is MIN_TERM_COVERAGE
-        assert kwargs["query_original"] == "laser energy"
-        assert kwargs["query_flattened"] == "laser energy"
         assert kwargs["terms"] == [("laser", ("laser",)), ("energy", ("energy",))]
         clauses = " AND ".join(kwargs["where_clauses"])
         assert "phraseto_tsquery" in clauses
@@ -931,8 +929,6 @@ class TestPartialMatch:
             ("ts", ("ts", "troubleshoot")),
             ("bpm", ("bpm", "beam position monitor")),
         ]
-        assert kwargs["query_original"] == "ts bpm"
-        assert kwargs["query_flattened"] == TS_BPM_EXPANSION.flattened_text
 
     @pytest.mark.asyncio
     async def test_single_word_query_skips_partial(self, mock_repository, mock_config):
