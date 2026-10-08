@@ -125,6 +125,53 @@ def _report_attachments(attachments: dict | None) -> None:
             output.note(f"skipped {code}: {count}. Reason: {skip_reason_text(code)}.")
 
 
+_CAPTION_KEY = "ariel.enhancement_modules.image_caption"
+_CAPTION_ENHANCE = "osprey ariel enhance --module image_caption"
+
+
+def _report_captions(captions: dict | None) -> None:
+    """Print the caption lines of ``osprey ariel status`` that call for an action.
+
+    Args:
+        captions: The ``captions`` block of the status result, or None when no
+            caption model is configured (nothing is printed then).
+    """
+    if not captions:
+        return
+    over_cap = captions.get("over_cap") or 0
+    if over_cap:
+        output.report(
+            f"image_caption: {over_cap} pictures past {_CAPTION_KEY}.max_images_per_entry "
+            f"have no caption. To caption them, raise the key, then run "
+            f"{_CAPTION_ENHANCE} --retry-failed."
+        )
+    older = captions.get("older_prompt") or 0
+    if older:
+        output.report(
+            f"image_caption: {older} captions made with an older prompt. To caption them "
+            f"again with {_CAPTION_KEY}.prompt_template, run {_CAPTION_ENHANCE} --refresh-stale."
+        )
+    pending = captions.get("refresh_pending") or 0
+    if pending:
+        output.report(
+            f"image_caption: {pending} captions are waiting to be made again with the "
+            "current prompt; the next picture pass makes them."
+        )
+    failed = captions.get("refresh_failed") or 0
+    if failed:
+        output.report(
+            f"image_caption: {failed} captions could not be made again and keep their old "
+            f"text. After fixing {_CAPTION_KEY}.prompt_template or the model, run "
+            f"{_CAPTION_ENHANCE} --refresh-stale."
+        )
+    unrecorded = captions.get("unrecorded_prompt") or 0
+    if unrecorded:
+        output.note(
+            f"image_caption: {unrecorded} captions record no prompt; --refresh-stale "
+            "leaves them as they are."
+        )
+
+
 #: How each local server is started, for the ``unreachable`` line of status.
 _SERVER_START = {
     "llama-cpp": "start llama-server, see the picture-search guide",
@@ -426,6 +473,7 @@ def status_command(output_json: bool) -> None:
             _report_module_health(result.get("enhancement_modules"), config_dict)
 
             _report_attachments(result.get("attachments"))
+            _report_captions(result.get("captions"))
 
 
 @ariel_group.command("migrate")
@@ -813,13 +861,21 @@ def watch_command(
     is_flag=True,
     help="With --module, retry the entries (and pictures) that module gave up on",
 )
-def enhance_command(module: str | None, force: bool, limit: int, retry_failed: bool) -> None:
+@click.option(
+    "--refresh-stale",
+    is_flag=True,
+    help="With --module image_caption, caption again the pictures captioned with an older prompt",
+)
+def enhance_command(
+    module: str | None, force: bool, limit: int, retry_failed: bool, refresh_stale: bool
+) -> None:
     """Run enhancement modules on entries.
 
     Processes entries that haven't been enhanced yet, or re-processes the
     newest entries with the text modules if --force is specified. Picture
     modules keep their results per picture and model, so --force never
-    re-runs them; --retry-failed gives a module's failures a new try.
+    re-runs them; --retry-failed gives a module's failures a new try, and
+    --refresh-stale captions again what an older caption prompt produced.
     """
     from osprey.services.ariel_search.cli_operations import (
         FORCE_REFUSAL,
@@ -833,11 +889,20 @@ def enhance_command(module: str | None, force: bool, limit: int, retry_failed: b
     if retry_failed and not module:
         output.fail("--retry-failed needs --module: name the module whose failures to retry")
         raise SystemExit(1)
+    if refresh_stale and module != "image_caption":
+        output.fail("--refresh-stale needs --module image_caption")
+        raise SystemExit(1)
 
     config_dict = _load_ariel_config()
     asyncio.run(
         run_enhance(
-            config_dict, module, force, limit, progress=output.report, retry_failed=retry_failed
+            config_dict,
+            module,
+            force,
+            limit,
+            progress=output.report,
+            retry_failed=retry_failed,
+            refresh_stale=refresh_stale,
         )
     )
 

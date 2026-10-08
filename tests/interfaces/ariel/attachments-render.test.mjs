@@ -198,6 +198,44 @@ describe('entry detail attachments', () => {
     overlay?.remove();
   });
 
+  test('the lightbox links the full-resolution original of the picture', async () => {
+    const body = await renderDetail([
+      { filename: 'beam.png', viewable: true, display_url: RENDITION, mime_type: 'image/png' },
+    ]);
+    const thumb = /** @type {HTMLElement} */ (body.querySelector('[data-lightbox-url]'));
+    thumb.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const overlay = /** @type {HTMLElement} */ (document.getElementById('image-lightbox'));
+    const original = /** @type {HTMLAnchorElement} */ (overlay.querySelector('a[data-original]'));
+    expect(original.getAttribute('href')).toBe(ORIGINAL_SRC);
+    expect(original.textContent).toContain('Open original');
+    overlay.remove();
+  });
+
+  test('a skipped file card shows why the file was skipped', async () => {
+    const body = await renderDetail([
+      {
+        filename: 'big.png',
+        viewable: false,
+        copy_status: 'skipped',
+        skip_reason: 'size_cap',
+        skip_reason_text: 'the picture is larger than <b>max_file_mb</b>',
+        display_url: 'https://elog.example/big.png',
+        mime_type: 'image/png',
+      },
+    ]);
+    const reason = /** @type {HTMLElement} */ (body.querySelector('[data-skip-reason]'));
+    expect(reason.textContent).toBe('Not copied: the picture is larger than <b>max_file_mb</b>');
+    expect(body.querySelector('b')).toBeNull();
+    expect(body.querySelector('img')).toBeNull();
+  });
+
+  test('a file card that was not skipped shows no skip reason', async () => {
+    const body = await renderDetail([
+      { filename: 'r.pdf', viewable: false, copy_status: 'copied', display_url: ORIGINAL, mime_type: 'application/pdf' },
+    ]);
+    expect(body.querySelector('[data-skip-reason]')).toBeNull();
+  });
+
   test('a delegated click on a hand-made thumbnail with an unsafe url opens no lightbox', () => {
     const body = /** @type {HTMLElement} */ (document.getElementById('entry-modal-body'));
     body.innerHTML = '<div data-lightbox-url="javascript:alert(1)" data-lightbox-name="x"></div>';
@@ -231,6 +269,7 @@ describe('openEntry (the #entry?id=...&attachment=... route)', () => {
     const overlay = /** @type {HTMLElement} */ (document.getElementById('image-lightbox'));
     expect(overlay.querySelector('img')?.getAttribute('src')).toBe(RENDITION_SRC);
     expect(overlay.textContent).toContain('beam.png');
+    expect(overlay.querySelector('a[data-original]')?.getAttribute('href')).toBe(ORIGINAL_SRC);
   });
 
   test('without an attachment only the detail card opens', async () => {

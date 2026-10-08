@@ -39,11 +39,10 @@ from osprey.agent_runner.write_tools import read_only_disallowed_tools
 
 pytestmark = pytest.mark.slow
 
-#: Upper bound on one probe server's startup. The CLI applies it twice: a server
-#: that has not connected within ``MCP_TIMEOUT`` is marked ``failed``, and the init
-#: line waits at most ``MCP_CONNECT_TIMEOUT_MS`` for the connects before it lists
-#: the stragglers as ``pending``. On a loaded runner either default (30 s and 5 s)
-#: turns a slow ``import mcp`` into a missing tool.
+#: Upper bound on one probe server's startup, and on the CLI's wait for every server
+#: before its init line. Past either bound the CLI lists a server ``failed`` or
+#: ``pending`` with no tools, so on a loaded runner the CLI's own defaults turn a
+#: slow ``import mcp`` into a missing tool.
 _MCP_CONNECT_TIMEOUT_MS = 120_000
 
 #: Upper bound on the wait for the init line; it normally arrives in 2-4 s. It
@@ -149,10 +148,12 @@ def probe_env(tmp_path: Path) -> dict[str, str]:
         "ANTHROPIC_BASE_URL": "http://127.0.0.1:9",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         # Connect every server before the init line, so it lists their tools
-        # rather than a server still pending.
+        # rather than a server still pending. The blocking connect waits only
+        # MCP_CONNECT_TIMEOUT_MS (5 s by default) before it prints the init line
+        # with the slow servers still pending; MCP_TIMEOUT bounds each server.
         "MCP_CONNECTION_NONBLOCKING": "0",
-        "MCP_TIMEOUT": str(_MCP_CONNECT_TIMEOUT_MS),
         "MCP_CONNECT_TIMEOUT_MS": str(_MCP_CONNECT_TIMEOUT_MS),
+        "MCP_TIMEOUT": str(_MCP_CONNECT_TIMEOUT_MS),
         "PATH": os.pathsep.join([str(Path(sys.executable).parent), "/usr/bin", "/bin"]),
     }
 

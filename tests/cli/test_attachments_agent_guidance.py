@@ -274,13 +274,17 @@ def test_a_non_boolean_view_switch_is_refused_at_build_naming_the_key(tmp_path):
 # Showing the operator an entry or picture
 # ---------------------------------------------------------------------------
 
-SHOW_RULE_MAIN = (
-    "To show the operator a logbook entry or one of its pictures, call `entry_open` "
-    "yourself with the entry id and, for a picture, the attachment id the subagent reported."
+SHOW_PICTURE_RULE = (
+    "When the conversation is about one of that entry's pictures (one you viewed or "
+    "described, or one a subagent reported), also pass that picture's {id}, "
+    'even when the operator only says "the entry".'
 )
-SHOW_RULE_ARIEL = (
-    "To show the operator an entry or one of its pictures, call `entry_open` with the "
-    "entry id and, for a picture, its `attachment_id`."
+SHOW_RULE_MAIN = (
+    "To show the operator a logbook entry, call `entry_open` yourself with its entry id. "
+    + SHOW_PICTURE_RULE.format(id="attachment id")
+)
+SHOW_RULE_ARIEL = "To show the operator an entry, call `entry_open` with its entry id. " + (
+    SHOW_PICTURE_RULE.format(id="`attachment_id`")
 )
 
 

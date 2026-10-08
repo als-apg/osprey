@@ -16,14 +16,16 @@ from osprey.services.ariel_search.models import (
 
 
 class AttachmentResponse(BaseModel):
-    """One attachment of an entry: its summary plus the web-only ``display_url``.
+    """One attachment of an entry: its summary plus the web-only fields.
 
-    The fields other than ``display_url`` are the attachment summary keys
-    (``SUMMARY_KEYS``). ``url`` is the attachment's absolute http(s) source url,
-    when it has one; ``display_url`` is where the web page shows or downloads
-    the attachment from, or null when there is nowhere to: an absolute http(s)
-    url, or one of this API's attachment routes given relative to the API base
-    (``/attachments/{id}`` or ``/attachments/{id}/rendition``).
+    The fields other than ``display_url`` and ``skip_reason_text`` are the
+    attachment summary keys (``SUMMARY_KEYS``). ``url`` is the attachment's
+    absolute http(s) source url, when it has one; ``display_url`` is where the
+    web page shows or downloads the attachment from, or null when there is
+    nowhere to: an absolute http(s) url, or one of this API's attachment routes
+    given relative to the API base (``/attachments/{id}`` or
+    ``/attachments/{id}/rendition``). ``skip_reason_text`` is the operator text
+    of ``skip_reason``, or null when there is none.
     """
 
     attachment_id: str | None = None
@@ -37,6 +39,7 @@ class AttachmentResponse(BaseModel):
     visible_text: str | None = None
     url: str | None = None
     display_url: str | None = None
+    skip_reason_text: str | None = None
 
 
 class EntryResponse(BaseModel):

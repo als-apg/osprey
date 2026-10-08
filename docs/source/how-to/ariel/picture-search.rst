@@ -31,9 +31,12 @@ Agent tools for pictures
 - ``entry_open`` shows an entry to the operator: it brings the ARIEL panel
   forward with the entry's detail card open, and with an ``attachment_id`` it
   also opens that picture enlarged. The main agent calls it itself, with the
-  entry id and ``attachment_id`` a logbook subagent reported. The same view is
-  a link, ``#entry?id=<entry_id>&attachment=<attachment_id>``, on the ARIEL web
-  page.
+  entry id a logbook subagent reported. When the conversation is about one of
+  the entry's pictures, the agent passes that picture's ``attachment_id`` too,
+  even when the operator asks only for "the entry". The same view is a link,
+  ``#entry?id=<entry_id>&attachment=<attachment_id>``, on the ARIEL web page.
+  Its lightbox also links the stored original at full resolution
+  ("Open original").
 - ``attachment_to_artifact`` keeps one picture: it copies the picture's stored
   display rendition into the artifact gallery, with the entry id, attachment
   id, filename and caption recorded, and selects it there. Saving the same
@@ -86,6 +89,14 @@ To turn a module off, set its ``enabled`` key to ``false`` in ``profile.yml``:
      ariel.enhancement_modules.image_caption.enabled: false    # no captions
      ariel.enhancement_modules.image_embedding.enabled: false  # no picture search
      ariel.attachments.view.enabled: false                     # no picture tools
+
+``osprey ariel watch``, and the ``ariel-sync`` service that runs it, caption
+and embed pictures on every poll, so a deployment with the watcher needs no
+``osprey ariel enhance`` for them. Run by hand while the watcher is working on
+a module, ``osprey ariel enhance --module image_caption`` prints
+``image_caption: skipped, another pass is running it (osprey ariel watch runs the picture modules on every poll)``
+and does nothing for that module. The same holds for ``--retry-failed`` and
+``--refresh-stale``. Run it again once the watcher's pass has ended.
 
 
 Picture formats
@@ -203,8 +214,12 @@ installs from, build tag ``b11277``, the build OSPREY is tested against.
 
    git clone --depth 1 --branch b11277 https://github.com/ggml-org/llama.cpp.git
    cd llama.cpp
-   cmake -B build -DLLAMA_CURL=OFF -DCMAKE_BUILD_TYPE=Release   # add -DGGML_METAL=ON on a Mac
+   cmake -B build -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release   # add -DGGML_CUDA=ON for an NVIDIA GPU
    cmake --build build --target llama-server
+
+``-DBUILD_SHARED_LIBS=OFF`` makes ``build/bin/llama-server`` a single file that
+still runs after it is copied elsewhere (see `Keeping it running`_). Metal is
+on by default on a Mac.
 
 Model files
 -----------
@@ -250,9 +265,32 @@ Add ``--n-gpu-layers 99`` on a GPU build. The other flags matter as follows:
   while a picture is being embedded waits about one picture time; without the
   cap the measured query p95 under bulk embedding failed the 2 s target, with
   it the p95 passes (see :ref:`ariel-picture-search-measurements`).
+
+  At start-up the server logs ``Qwen-VL models require at minimum 1024 image
+  tokens to function correctly on grounding tasks``. It prints this for every
+  Qwen-VL model started without ``--image-min-tokens 1024``, whatever the cap.
+  Grounding means answering with box coordinates, which picture search does
+  not do, so the warning does not apply here; do not add
+  ``--image-min-tokens``. The cap does lower the resolution the model sees: a
+  1024x768 rendition goes from about 770 to about 240 tokens. Its effect on
+  ranking has not been measured.
 - ``--host 127.0.0.1`` binds the server to the loopback interface. See the
   next section for why.
 - The command passes no ``--media-path``, so the server reads no local files.
+
+Keeping it running
+------------------
+
+Run the server from an installed copy, not from the build tree. Copy
+``build/bin/llama-server`` and both model files to a directory a service may
+read, such as ``/usr/local/llama.cpp/`` or
+``~/Library/Application Support/llama.cpp/`` on macOS and ``/opt/llama.cpp/``
+on Linux, and give the full paths to ``-m`` and ``--mmproj``. On macOS a
+LaunchAgent cannot read ``~/Desktop``, ``~/Documents`` or ``~/Downloads``:
+the system's privacy protection refuses it without asking, and the server
+fails to start or to load its model. The copy is self-contained only when
+built static (see `Build`_). OSPREY ships no LaunchAgent or service unit for
+the server.
 
 Why the server listens on localhost only
 ----------------------------------------
@@ -305,6 +343,58 @@ The ``llama-cpp`` provider's default address is ``http://localhost:8080``;
   reports ``image_embedding`` unreachable and
   ``picture_search_unavailable: "unreachable"``. See
   :doc:`/how-to/deploy-project/networking` for what host networking changes.
+
+
+Limits
+======
+
+Limits you can change
+---------------------
+
+``ariel.attachments.max_file_mb`` (default 10)
+   The largest file one entry may attach, per file. A larger picture is not
+   copied, so neither module sees it, and its file card in the web panel says
+   why. See :doc:`/how-to/ariel/data-ingestion` for what it costs in storage.
+
+``ariel.enhancement_modules.image_caption.max_images_per_entry`` (default 8)
+   Pictures captioned per entry, in attachment order. The rest are recorded as
+   over the cap and are not sent to the model; ``osprey ariel status`` counts
+   them. After raising the key, run
+   ``osprey ariel enhance --module image_caption --retry-failed`` to caption
+   the pictures now within it. Lowering it keeps the captions already made.
+
+``ariel.enhancement_modules.image_caption.prompt_template``
+   Replaces the caption prompt; ``{text}`` is replaced by the entry text. A
+   replacement must keep asking for the ``Visible text:`` list the reply is
+   split at. :doc:`/how-to/ariel/data-ingestion` has an example that adds a
+   site's device names. Each caption records the prompt it was made with, and
+   a new prompt captions nothing again by itself: ``osprey ariel status``
+   reports how many captions were made with an older prompt, and
+   ``osprey ariel enhance --module image_caption --refresh-stale`` captions
+   those pictures again. The old caption stays searchable until the new one
+   replaces it; when the model refuses the new prompt, the picture keeps its
+   old caption and ``osprey ariel status`` counts it as a refresh that could
+   not be made. Captions made before captions recorded their prompt are
+   counted apart and left as they are; to caption every picture again, change
+   ``model.model_id``.
+
+``ariel.enhancement_modules.image_caption.timeout_seconds`` (default 1320)
+   Seconds one vision call may take; see `Measured values`_.
+
+Fixed limits
+------------
+
+- At most 20 files are copied per entry, and at most 4 x ``max_file_mb`` bytes
+  in all; a file past either budget is recorded as ``per_entry_limit``.
+- The picture the agent, both modules and the web panel view is a rendition at
+  most 1024 px on its longest side and 3.5 MiB. The original is stored as
+  copied: the web panel's lightbox links it ("Open original") and
+  ``/api/attachments/<attachment_id>`` serves it.
+
+The 10 MiB limit in `Why the server listens on localhost only`_ is
+llama-server's own limit for pictures it downloads from an ``http`` URL. It
+does not apply to OSPREY, which sends each picture in the request as a
+``data:`` URL, and it is unrelated to ``max_file_mb``.
 
 
 Fusion of picture and text results
@@ -478,6 +568,10 @@ empty keeps its stored attachment rows. This is a known limitation.
 **Re-running the picture modules.** ``--force`` does not apply to them:
 
    --force does not re-run image_caption/image_embedding: their results are kept per picture and model. Change model.model_id (captions) or model/dimensions (embeddings) to re-run, or use --retry-failed for per-picture failures.
+
+**Captions made before this release.** They record no prompt, so
+``osprey ariel status`` counts them as captions that record no prompt, and
+``--refresh-stale`` leaves them as they are.
 
 **Changing the server.** Changing ``--image-max-tokens`` or the model files
 changes every picture vector while the table name stays the same, so re-embed

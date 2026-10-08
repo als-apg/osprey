@@ -1620,6 +1620,62 @@ class ARIELRepository:
                 skipped[reason] = skipped.get(reason, 0) + int(count)
         return pending, skipped
 
+    async def get_caption_counts(self, model_id: str, prompt_sha256: str) -> dict[str, int]:
+        """Count the stored caption results under ``model_id`` that call for an action.
+
+        Args:
+            model_id: The caption model id the captions are keyed under.
+            prompt_sha256: The digest of the prompt template in use.
+
+        Returns:
+            ``over_cap``: pictures recorded as past the cap; ``older_prompt``:
+            captions that record another prompt's digest and are neither marked
+            to be made again nor failed at it; ``refresh_pending``: captions
+            marked to be made again; ``refresh_failed``: captions whose remaking
+            failed and that keep their old text; ``unrecorded_prompt``: captions
+            that record no prompt digest.
+        """
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute(
+                    """
+                    SELECT
+                        count(*) FILTER (WHERE v->>'error' = 'over_image_cap'),
+                        count(*) FILTER (
+                            WHERE v ? 'caption' AND v ? 'prompt_sha256'
+                              AND v->>'prompt_sha256' IS DISTINCT FROM %(prompt)s
+                              AND NOT v ? 'refresh' AND NOT v ? 'refresh_error'
+                        ),
+                        count(*) FILTER (WHERE v ? 'caption' AND v ? 'refresh'),
+                        count(*) FILTER (
+                            WHERE v ? 'caption' AND v ? 'refresh_error' AND NOT v ? 'refresh'
+                        ),
+                        count(*) FILTER (WHERE v ? 'caption' AND NOT v ? 'prompt_sha256')
+                    FROM enhanced_entries e,
+                         jsonb_each(CASE WHEN jsonb_typeof(e.attachment_captions) = 'object'
+                                         THEN e.attachment_captions ELSE '{}'::jsonb END)
+                             AS c(attachment_id, per_model),
+                         LATERAL (SELECT c.per_model->%(model)s AS v) AS r
+                    WHERE jsonb_typeof(c.per_model) = 'object'
+                      AND jsonb_typeof(r.v) = 'object'
+                    """,
+                    {"model": model_id, "prompt": prompt_sha256},
+                )
+                row = await result.fetchone()
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to count captions: {e}",
+                query="SELECT enhanced_entries attachment_captions counts",
+            ) from e
+        over_cap, older, pending, failed, unrecorded = row if row is not None else (0,) * 5
+        return {
+            "over_cap": int(over_cap),
+            "older_prompt": int(older),
+            "refresh_pending": int(pending),
+            "refresh_failed": int(failed),
+            "unrecorded_prompt": int(unrecorded),
+        }
+
     async def get_attachment_bytes(self) -> int:
         """Return the total on-disk size of ``attachment_files`` (with TOAST and indexes)."""
         try:

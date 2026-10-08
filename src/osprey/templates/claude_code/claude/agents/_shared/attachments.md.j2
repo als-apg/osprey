@@ -21,7 +21,7 @@
 - A truncated caption is complete in entry_get.
 {%- endif %}
 {%- if attachments_show_tools | default(false) %}
-- To show the operator an entry or one of its pictures, call `entry_open` with the entry id and, for a picture, its `attachment_id`.
+- To show the operator an entry, call `entry_open` with its entry id. When the conversation is about one of that entry's pictures (one you viewed or described, or one a subagent reported), also pass that picture's `attachment_id`, even when the operator only says "the entry".
 {%- if ariel_attachment_view %}
 - To keep a logbook picture in the gallery, call `attachment_to_artifact`; never redraw a logbook plot from its caption or description.
 {%- endif %}

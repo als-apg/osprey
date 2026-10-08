@@ -1579,11 +1579,36 @@ def _to_response(entry, rows):
     return routes._entry_to_response(entry, attachment_rows=rows, model_id=None, file_source=False)
 
 
-def test_attachment_response_fields_are_summary_keys_plus_display_url():
+def test_attachment_response_fields_are_summary_keys_plus_the_web_fields():
     from osprey.interfaces.ariel.api.schemas import AttachmentResponse
     from osprey.services.ariel_search.attachments.summaries import SUMMARY_KEYS
 
-    assert set(AttachmentResponse.model_fields) == set(SUMMARY_KEYS) | {"display_url"}
+    assert set(AttachmentResponse.model_fields) == set(SUMMARY_KEYS) | {
+        "display_url",
+        "skip_reason_text",
+    }
+
+
+def test_a_skipped_attachment_carries_the_text_of_its_skip_reason():
+    from osprey.imaging.formats import skip_reason_text
+
+    skipped = {"url": _PNG_URL, "filename": "big.png", "type": "image/png"}
+    shown = {"url": _PDF_URL, "filename": "doc.pdf"}
+    entry = _att_entry([skipped, shown])
+    rows = [
+        {
+            **_row("e-att", skipped, mime_type="image/png", viewable=False),
+            "copy_status": "skipped",
+            "skip_reason": "size_cap",
+        },
+        _row("e-att", shown, mime_type="application/pdf", viewable=False),
+    ]
+
+    big, doc = _to_response(entry, rows).attachments
+
+    assert big.skip_reason == "size_cap"
+    assert big.skip_reason_text == skip_reason_text("size_cap")
+    assert doc.skip_reason_text is None
 
 
 def test_display_url_viewable_is_rendition():
