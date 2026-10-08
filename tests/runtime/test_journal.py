@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 import osprey.runtime
+from osprey.errors import ChannelLimitsViolationError, ChannelReadFailedError
 from osprey.runtime.journal import (
     DurableJournal,
     Journal,
@@ -25,6 +26,11 @@ from osprey.runtime.journal import (
     push_journal,
     read_pending_journal,
 )
+from osprey_connectors.control_system.limits_validator import (
+    ChannelLimitsConfig,
+    LimitsValidator,
+)
+from osprey_connectors.types import LIMITS_MODE_OPTIONAL
 
 
 class _Channels:
@@ -282,3 +288,90 @@ def test_the_incomplete_restore_names_each_address_reason_and_value(tmp_path: Pa
     assert "A: step too large (left at 3.5)" in text
     assert "B: no readback (left at unknown)" in text
     assert "did not start" in text
+
+
+class _LimitedChannels:
+    """Channels whose every write is first checked by a real ``LimitsValidator``."""
+
+    def __init__(self, values: dict[str, Any], max_step: dict[str, float]) -> None:
+        self.values = dict(values)
+        self.writes: list[tuple[str, Any]] = []
+        self.validator = LimitsValidator(
+            {a: ChannelLimitsConfig(a, max_step=s, writable=True) for a, s in max_step.items()},
+            {"mode": LIMITS_MODE_OPTIONAL},
+        )
+
+    def read_channels(self, addresses: list[str], **_kwargs: Any) -> list[Any]:
+        return [self.values[a] for a in addresses]
+
+    def write_channel(self, address: str, value: Any, **_kwargs: Any) -> None:
+        self.validator.validate(address, value, read_current=self.values.__getitem__)
+        self.writes.append((address, value))
+        self.values[address] = value
+
+    def channel_limits(self, address: str) -> ChannelLimitsConfig | None:
+        return self.validator.limits.get(address)
+
+    def install(self, monkeypatch: pytest.MonkeyPatch) -> _LimitedChannels:
+        for name in ("read_channels", "write_channel", "channel_limits"):
+            monkeypatch.setattr(osprey.runtime, name, getattr(self, name))
+        return self
+
+
+def _journal_of(values: dict[str, Any]) -> Journal:
+    journal = Journal()
+    journal.record(list(values), list(values.values()))
+    return journal
+
+
+def test_a_restore_walks_back_in_max_step_writes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from osprey.runtime.guarded_run import _restore
+
+    fake = _LimitedChannels({"Q": 3.0, "S": 5.0}, {"Q": 1.0}).install(monkeypatch)
+
+    report = _restore(_journal_of({"Q": 0.0, "S": 5.0}), aborted=True)
+
+    assert fake.writes == [("Q", 2.0), ("Q", 1.0), ("Q", 0.0)]
+    assert report.restored == ["Q"]
+    assert report.unchanged == ["S"]
+    assert report.refused == report.failed == []
+    assert report.aborted is True
+
+
+def test_a_refused_restore_names_the_value_it_left(monkeypatch: pytest.MonkeyPatch) -> None:
+    from osprey.runtime.guarded_run import _restore
+
+    fake = _LimitedChannels({"Q": 3.0}, {"Q": 1.0}).install(monkeypatch)
+
+    def refuse_below_two(address: str, value: Any, **kwargs: Any) -> None:
+        if value < 2.0:
+            raise ChannelLimitsViolationError(address, value, "MIN_VALUE", "below 2.0")
+        _LimitedChannels.write_channel(fake, address, value, **kwargs)
+
+    monkeypatch.setattr(osprey.runtime, "write_channel", refuse_below_two)
+
+    report = _restore(_journal_of({"Q": 0.0}), aborted=True)
+
+    assert report.refused == [("Q", "below 2.0", 2.0)]
+    assert report.restored == []
+
+
+def test_an_unreadable_address_fails_and_the_rest_restore(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from osprey.runtime.guarded_run import _restore
+
+    fake = _LimitedChannels({"Q": 3.0, "R": 1.0}, {}).install(monkeypatch)
+
+    def read_channels(addresses: list[str], **_kwargs: Any) -> list[Any]:
+        if "R" in addresses:
+            raise ChannelReadFailedError(["R"])
+        return [fake.values[a] for a in addresses]
+
+    monkeypatch.setattr(osprey.runtime, "read_channels", read_channels)
+
+    report = _restore(_journal_of({"Q": 0.0, "R": 0.0}), aborted=False)
+
+    assert report.restored == ["Q"]
+    assert [address for address, _reason in report.failed] == ["R"]
+    assert fake.writes == [("Q", 0.0)]
