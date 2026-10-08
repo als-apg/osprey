@@ -185,7 +185,6 @@ def render(
     gateway = {"address": "gw", "port": 5064, "use_name_server": True}
     standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
     va: dict = {
-        "simulation_file": "data/sim.json",
         "probe_channel": "SIM:PROBE",
         "gateways": {"read_only": dict(gateway)},
     }

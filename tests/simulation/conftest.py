@@ -1,32 +1,28 @@
-"""Shared helpers for the simulation tests: a staged sim-backed project and a
-stand-in archive collection."""
+"""Shared helpers for the simulation tests: a staged project and a stand-in
+archive collection."""
 
 import copy
-import json
 from pathlib import Path
 from typing import Any
 
-#: The ``control_system`` block of a mock-connector project whose model is the
-#: inline test machine staged by :func:`stage_sim_project`.
-MOCK_SIM_CONTROL_SYSTEM = {
-    "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
-}
+#: The ``control_system`` block of a mock-connector project: the mock connector
+#: serves the simulator view under ``data/`` and takes no setting of its own.
+MOCK_SIM_CONTROL_SYSTEM = {"connector": {"mock": {}}}
 
 
 def stage_sim_project(
     root: Path, *, control_system: dict | None = None, **config_extra: Any
 ) -> Path:
-    """Stage a sim-backed project: the inline test machine plus ``config.yml``.
+    """Stage a project: ``config.yml`` beside the ``data/`` tree.
 
-    The flat shape, ``config.yml`` beside ``data/simulation/``. ``control_system``
-    defaults to the mock connector pointing at the staged model; any other
-    top-level config sections (``ariel``, ``system``, ...) go in ``config_extra``.
+    The flat shape. The tests write the simulator view under ``data/``
+    themselves (:func:`tests._simulator_view.write_scenarios_view`).
+    ``control_system`` defaults to the mock connector; any other top-level
+    config sections (``ariel``, ``system``, ...) go in ``config_extra``.
     """
     import yaml
 
-    sim_dst = root / "data" / "simulation"
-    sim_dst.mkdir(parents=True, exist_ok=True)
-    (sim_dst / "machine.json").write_text(json.dumps(TEST_MACHINE))
+    root.mkdir(parents=True, exist_ok=True)
     config = {
         "control_system": copy.deepcopy(
             MOCK_SIM_CONTROL_SYSTEM if control_system is None else control_system
@@ -73,86 +69,3 @@ class StubCollection:
         from osprey_connectors.simulation.archive import MANIFEST_ID
 
         return self._by_id.get(MANIFEST_ID)
-
-
-TEST_MACHINE = {
-    "name": "TestRig",
-    "description": "Tiny inline test machine",
-    "channels": {
-        "T:Q1:CUR:SP": {
-            "value": 42.0,
-            "units": "A",
-            "noise": 0.0,
-            "description": "Test quad current setpoint (nominal 42.0 A)",
-        },
-        "T:Q1:CUR:RB": {
-            "expr": "ch('T:Q1:CUR:SP')",
-            "units": "A",
-            "noise": 0.0,
-            "description": "Test quad current readback",
-        },
-        "T:RF:STATUS": {"value": 1, "noise": 0.0, "description": "RF status (1=on, 0=off)"},
-        "T:TRANS": {
-            "expr": ("max(0.0, 98.5 - 0.85 * abs(ch('T:Q1:CUR:SP') - 42.0)) * ch('T:RF:STATUS')"),
-            "units": "%",
-            "noise": 0.0,
-            "description": "Beam transmission",
-        },
-        "T:MODE": {"value": "CW", "description": "Operating mode"},
-        "T:NOISY": {"value": 100.0, "noise": 0.05, "description": "Noisy diagnostic"},
-        "T:VAC": {"value": 8.0e-9, "units": "Torr", "noise": 0.0, "description": "Vacuum"},
-        # Zero-baseline channels: the regime where relative 'noise' multiplies to a
-        # dead-flat constant. They carry the additive keys instead, so they exercise
-        # absolute noise and baseline texture at the 0.0 baseline that broke.
-        "T:ZERO:NOISY": {
-            "value": 0.0,
-            "units": "mm",
-            "noise_abs": 0.02,
-            "description": "Zero-baseline position with absolute noise only",
-        },
-        "T:ZERO:TEXTURED": {
-            "value": 0.0,
-            "units": "mm",
-            "noise_abs": 0.005,
-            "texture": {"kind": "wander", "amplitude": 0.05, "period_s": 3600.0},
-            "description": "Zero-baseline position with absolute noise and wander texture",
-        },
-    },
-    "scenarios": {
-        "nominal": {"description": "All systems nominal."},
-        "quad-drift": {
-            "description": "Q1 left at a stale setpoint.",
-            "overrides": {"T:Q1:CUR:SP": 28.4},
-            "archiver": [
-                {
-                    "channel": "T:Q1:CUR:SP",
-                    "events": [{"shape": "step", "at": 0.35, "to": 28.4}],
-                }
-            ],
-        },
-        "vac-leak": {
-            "description": "Vacuum leak ramps up until an RF trip.",
-            "overrides": {"T:VAC": 3.8e-7, "T:RF:STATUS": 0, "T:MODE": "FAULT"},
-            "archiver": [
-                {
-                    "channel": "T:VAC",
-                    "events": [
-                        {"shape": "ramp", "at": 0.15, "until": 0.88, "to": 9.5e-8},
-                        {"shape": "step", "at": 0.88, "to": 3.8e-7},
-                    ],
-                },
-                {
-                    "channel": "T:RF:STATUS",
-                    "events": [
-                        {"shape": "spike", "at": 0.5, "amplitude": -0.2, "width": 0.01},
-                        {"shape": "step", "at": 0.88, "to": 0},
-                    ],
-                },
-                {
-                    "channel": "T:MODE",
-                    "events": [{"shape": "step", "at": 0.88, "to": "FAULT"}],
-                },
-            ],
-        },
-    },
-}

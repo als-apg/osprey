@@ -974,8 +974,7 @@ keys:
     evidence: '"control_system\.channel_read_artifact_retention"'
     default: 20
   control_system.connector: {covered-by: control_system, default: n/a}
-  control_system.connector.mock: {covered-by: control_system.connector, default: n/a}
-  control_system.connector.mock.simulation_file: {evidence: 'simulation_file', default: null}
+  control_system.connector.mock: {rendered: false, covered-by: control_system.connector, default: n/a}
   # The mock connector's one tuning knob. `rendered: false` since the app
   # templates went: the presets ship the mock connector at the connector's own
   # default and do not state it, so a deployment that wants a slower machine
@@ -1056,7 +1055,6 @@ keys:
   # `super().connect()`, so the step-read budget above is read from this type's
   # block too; the evidence is that one site.
   control_system.connector.virtual_accelerator.step_read_timeout_s: {rendered: false, covered-by: control_system.connector.virtual_accelerator, default: 2.0}
-  control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file', default: derived, default_note: falls through to control_system.connector.mock.simulation_file}
   control_system.connector.virtual_accelerator.gateways:
     evidence: 'gateways = config\.get\("gateways"\)'
     note: >-
@@ -3148,9 +3146,9 @@ deleted:
   # These have NO deleted ancestor: the parent block legitimately survives (or
   # survives as a commented override stanza), so only the LEAF is banned. Each
   # was verified present at merge-base ccf324d7 and absent on the branch.
-  # Ledger 39 — the mock_archiver simulation_file is now DERIVED from
-  # control_system.connector.<type>.simulation_file. The `mock_archiver:` block
-  # itself stays as a commented override example, so only the leaf is listed.
+  # The mock archiver replays history from the build's simulator view and takes
+  # no file setting. The commented `archiver.type: mock_archiver` example stays,
+  # so only the leaf is listed.
 - archiver.mock_archiver.simulation_file
   # Ledger 24+35 — the ARIEL DSN is derived from services.postgresql. An
   # explicit `uri` still WINS when set, and the commented external-DB override
@@ -3205,6 +3203,10 @@ deleted:
   # build writes; neither connector nor the simulator's container takes a level.
 - control_system.connector.mock.noise_level
 - control_system.connector.virtual_accelerator.noise_level
+  # Every connector serves the simulator view the build writes from the
+  # facility file; no connector block names a model file to load.
+- control_system.connector.mock.simulation_file
+- control_system.connector.virtual_accelerator.simulation_file
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the keys above whose COMMENTED example in a
@@ -3492,6 +3494,38 @@ orphan_sites:
       compose variable it rendered. The key postdates the back-test baseline,
       so the baseline matches are the templates' noise_level mentions, which
       the same regex keeps out of every template.
+  control_system.connector.mock.simulation_file:
+  - root:
+    - src/osprey/connectors/control_system
+    - packages/osprey-connectors/src/osprey_connectors/control_system
+    regex: 'simulation_file'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: the mock connector's read of the model file.
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'simulation_file'
+    back_test: {base_matches: 6, branch_matches: 0}
+    why: >-
+      a template, preset or bundled skill line stating or advertising a model
+      file for any connector.
+  control_system.connector.virtual_accelerator.simulation_file:
+  - root:
+    - src/osprey/simulation
+    - packages/osprey-connectors/src/osprey_connectors/simulation
+    regex: 'simulation_file'
+    back_test: {base_matches: 18, branch_matches: 0}
+    why: >-
+      the type-aware lookup that read the model file from the active
+      connector's block, falling through to the mock one.
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'simulation_file'
+    back_test: {base_matches: 6, branch_matches: 0}
+    why: >-
+      a template or preset line stating the Virtual Accelerator connector's
+      model file.
 
 # ---------------------------------------------------------------------------
 # render_contexts — the matrix the guard renders every template under, then
@@ -3573,7 +3607,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 358
+  expected_union_size: 355
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

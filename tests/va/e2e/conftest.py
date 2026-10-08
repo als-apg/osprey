@@ -506,9 +506,6 @@ def stage_va_project(root: Path) -> VaProject:
         "control_system": {
             "type": "virtual_accelerator",
             "writes_enabled": True,
-            "connector": {
-                "virtual_accelerator": {"simulation_file": "data/simulation/machine.json"}
-            },
         },
     }
     build = stub_build(project_dir, config=yaml.safe_dump(config))

@@ -85,7 +85,7 @@ def control_system_section(
     standin = {
         "gateways": _gateways(STANDIN_PORT) if standin_gateways is None else standin_gateways
     }
-    va = {"simulation_file": "data/sim.json", "gateways": _gateways(5064)}
+    va = {"gateways": _gateways(5064)}
     if epics_writes is not None:
         epics["writes_enabled"] = epics_writes
     if standin_writes is not None:
@@ -496,7 +496,6 @@ class TestCeiling:
             "writes_enabled": False,
             "connector": {
                 "virtual_accelerator": {
-                    "simulation_file": "data/sim.json",
                     "gateways": _gateways(5064),
                     "writes_enabled": True,
                 },

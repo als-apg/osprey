@@ -1,9 +1,10 @@
-"""The simulator is the build's view, so no key names its noise.
+"""The simulator is the build's view, so no key names its model file or its noise.
 
-The mock connector and the Virtual Accelerator serve the simulator view the
-build writes from the facility file. The noise a reading carries belongs to
-that view, so it has no config key and no container variable. The resurrection
-guard lists each retired key and proves no shipped surface spells it again.
+The mock connector, the mock archiver and the Virtual Accelerator all serve the
+simulator view the build writes from the facility file. No connector block names
+a machine file to load, and the noise a reading carries belongs to that view, so
+neither has a config key or a container variable. The resurrection guard lists
+each retired key and proves no shipped surface spells it again.
 """
 
 from __future__ import annotations
@@ -29,7 +30,9 @@ VA_COMPOSE = (
 )
 RETIRED_CONFIG_KEYS = (
     "control_system.connector.mock.noise_level",
+    "control_system.connector.mock.simulation_file",
     "control_system.connector.virtual_accelerator.noise_level",
+    "control_system.connector.virtual_accelerator.simulation_file",
 )
 
 
@@ -51,12 +54,12 @@ def test_each_retired_key_has_an_orphan_site(key: str) -> None:
 
 
 def test_no_preset_spells_a_retired_key() -> None:
-    """No shipped preset states or comments a noise level."""
+    """No shipped preset states or comments a model file or a noise level."""
     offenders = [
         f"{path.name}:{number}"
         for path in sorted(PRESETS.glob("*.yml"))
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
-        if "noise_level" in line
+        if "simulation_file" in line or "noise_level" in line
     ]
 
     assert offenders == []

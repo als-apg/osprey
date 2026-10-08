@@ -932,17 +932,15 @@ def test_attached_profile_built_alone_may_name_its_host_by_hand(
 
 
 def test_control_assistant_preset_wires_its_simulation(runner: CliRunner, tmp_path: Path) -> None:
-    """The control-assistant preset wires its simulation once.
+    """The control-assistant preset wires its simulation from the build alone.
 
     Pins the wiring: no scenario bundle tree ships under ``data/simulation/``,
-    and the rendered ``config.yml`` names the machine file exactly once, under
-    the key path the connector factory scopes (``control_system.connector.mock``).
-    The mock archiver derives its own copy from there, so a second declaration
-    would be a divergence waiting to happen. No ``active_scenarios`` state file
-    ships in ``data/``: the active set is runtime state under
-    ``_agent_data/simulation/``, and the first deploy writes it from
-    ``simulation.default_scenarios`` (``rf-thermal``, the incident the
-    getting-started tutorial walks through).
+    and the rendered ``config.yml`` names no model file for any connector or
+    for the mock archiver — each serves the simulator view the build writes.
+    No ``active_scenarios`` state file ships in ``data/``: the active set is
+    runtime state under ``_agent_data/simulation/``, and the first deploy
+    writes it from ``simulation.default_scenarios`` (``rf-thermal``, the
+    incident the getting-started tutorial walks through).
     """
     result = _materialize(runner, str(tmp_path), "smoke", "control-assistant")
     assert result.exit_code == 0, result.output
@@ -956,13 +954,9 @@ def test_control_assistant_preset_wires_its_simulation(runner: CliRunner, tmp_pa
     )
 
     config = _config_yaml(project_dir)
-    assert (
-        config["control_system"]["connector"]["mock"]["simulation_file"]
-        == "data/simulation/machine.json"
-    )
-    assert "simulation_file" not in config["archiver"].get("mock_archiver", {}), (
-        "the archiver repeats the machine path; it derives it now"
-    )
+    for block in config["control_system"]["connector"].values():
+        assert "simulation_file" not in block
+    assert "simulation_file" not in config["archiver"].get("mock_archiver", {})
     assert config["simulation"]["default_scenarios"] == ["rf-thermal"]
 
 

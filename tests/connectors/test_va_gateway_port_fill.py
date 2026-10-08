@@ -150,7 +150,6 @@ def test_rendered_preset_follows_a_post_render_port_edit(deployed_va_port) -> No
     assert filled["gateways"]["write_access"]["port"] == 15064
     # Everything else about the gateway survives the fill.
     assert filled["gateways"]["read_only"]["use_name_server"] is True
-    assert filled["simulation_file"] == "data/simulation/machine.json"
 
 
 def test_defaults_to_5064_when_the_service_port_is_unset(deployed_va_port) -> None:
