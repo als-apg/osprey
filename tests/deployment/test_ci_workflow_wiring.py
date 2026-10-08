@@ -3536,6 +3536,31 @@ def test_channel_combobox_browser_test_runs_in_the_browser_lane__mutation_drops_
 
 
 # ---------------------------------------------------------------------------
+# (h2b) lattice-dashboard browser test: same vacuous-green shape as (h) — the
+# lane runs an explicit file list, and a suite missing from it runs nowhere
+# ---------------------------------------------------------------------------
+
+LATTICE_BROWSER_TEST_FILE = "tests/interfaces/test_lattice_dashboard_browser.py"
+
+
+def test_lattice_dashboard_browser_test_runs_in_the_browser_lane(
+    workflow: dict[str, Any],
+) -> None:
+    """The lattice dashboard suite has to be NAMED in the lane's pytest
+    invocation — the unit lane skips browser-marked files, so this lane is the
+    only place it is ever collected."""
+    assert LATTICE_BROWSER_TEST_FILE in _browser_lane_files(workflow)
+
+
+def test_lattice_dashboard_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
+    """Removing the file from the invocation must fail the guard."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step["run"] = step["run"].replace(f"{LATTICE_BROWSER_TEST_FILE} \\\n", "")
+    assert LATTICE_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
+
+
+# ---------------------------------------------------------------------------
 # (h3) every browser suite on disk: (h) and (h2) each pin one file by name,
 # which is exactly how the next one gets forgotten. The lane's explicit file
 # list is checked against the tree instead — a module that marks itself
