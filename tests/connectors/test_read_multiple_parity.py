@@ -11,7 +11,7 @@ Three addresses are requested and the middle one fails. Each connector reaches
 that failure through its own seam, keyed by address so the other two reads go
 through untouched:
 
-- **Mock** — ``_read_value``, the store lookup behind ``read_channel``.
+- **Mock** — ``_reading``, the store lookup behind ``read_channel``.
 - **EPICS** — an injected fake ``_epics.PV`` whose ``get`` raises for one pvname.
 - **DOOCS** — a fake ``doocs4py`` module whose ``get`` raises for one address.
 - **TANGO** — a fake ``tango`` module whose ``DeviceProxy.read_attribute``
@@ -40,6 +40,7 @@ from osprey.connectors.control_system.epics_connector import EPICSConnector
 from osprey.connectors.control_system.mock_connector import MockConnector
 from osprey.errors import ChannelReadFailedError
 from osprey.runtime import read_channels
+from tests.facility.served_tree import mock_config, served_tree
 
 # The value each of the three requested channels holds; the middle one is the
 # channel that fails.
@@ -90,31 +91,28 @@ def _raise_or_value(addresses, scenario, address):
 
 
 # ---------------------------------------------------------------------------
-# Mock — seam: _read_value
+# Mock — seam: _reading
 # ---------------------------------------------------------------------------
 
 MOCK_ADDRESSES = ["SIM:A:RB", "SIM:B:RB", "SIM:C:RB"]
 
 
-async def _mock_connector(scenario: ReadScenario, monkeypatch) -> MockConnector:
-    """A noise-free mock whose store holds ``VALUES`` and whose middle read raises."""
+async def _mock_connector(scenario: ReadScenario, monkeypatch, tmp_path) -> MockConnector:
+    """A mock serving ``MOCK_ADDRESSES`` with ``VALUES``, whose middle read raises."""
+    view = served_tree(tmp_path, readings=MOCK_ADDRESSES)
     connector = MockConnector()
-    await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
-    for address, value in zip(MOCK_ADDRESSES, VALUES, strict=True):
-        connector._state[address] = value
+    await connector.connect(mock_config(view, response_delay_ms=0))
 
-    real_read_value = connector._read_value
+    def reading(address, *, held):  # noqa: ARG001 - MockConnector._reading signature
+        value = _raise_or_value(MOCK_ADDRESSES, scenario, address)
+        return ChannelValue(value=value, timestamp=datetime.now(UTC))
 
-    def read_value(channel_address, *, apply_noise):
-        _raise_or_value(MOCK_ADDRESSES, scenario, channel_address)
-        return real_read_value(channel_address, apply_noise=apply_noise)
-
-    monkeypatch.setattr(connector, "_read_value", read_value)
+    monkeypatch.setattr(connector, "_reading", reading)
     return connector
 
 
-async def _read_mock(scenario: ReadScenario, monkeypatch) -> tuple[list[str], dict]:
-    connector = await _mock_connector(scenario, monkeypatch)
+async def _read_mock(scenario: ReadScenario, monkeypatch, tmp_path) -> tuple[list[str], dict]:
+    connector = await _mock_connector(scenario, monkeypatch, tmp_path)
     result = await connector.read_multiple_channels(MOCK_ADDRESSES)
     await connector.disconnect()
     return MOCK_ADDRESSES, result
@@ -169,7 +167,7 @@ def _epics_connector(scenario: ReadScenario) -> EPICSConnector:
     return connector
 
 
-async def _read_epics(scenario: ReadScenario, _monkeypatch) -> tuple[list[str], dict]:
+async def _read_epics(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[list[str], dict]:
     connector = _epics_connector(scenario)
     return EPICS_ADDRESSES, await connector.read_multiple_channels(EPICS_ADDRESSES)
 
@@ -196,7 +194,7 @@ def _eq_data(value):
     return eq
 
 
-async def _read_doocs(scenario: ReadScenario, _monkeypatch) -> tuple[list[str], dict]:
+async def _read_doocs(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[list[str], dict]:
     d = MagicMock()
     d.__version__ = "2.0.0"
     d.names.return_value = [("FACILITY", "XFEL")]
@@ -243,7 +241,7 @@ def _device_attribute(value):
     return attr
 
 
-async def _read_tango(scenario: ReadScenario, _monkeypatch) -> tuple[list[str], dict]:
+async def _read_tango(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[list[str], dict]:
     def proxy_for(device_name, *_args, **_kwargs):
         proxy = MagicMock()
         proxy.read_attribute.side_effect = lambda attribute: _device_attribute(
@@ -299,9 +297,9 @@ class TestReadMultipleParity:
     """The same partial failure gets the same result shape from every connector."""
 
     async def test_the_failed_channel_is_absent_and_the_others_carry_their_values(
-        self, connector_name, scenario, monkeypatch
+        self, connector_name, scenario, monkeypatch, tmp_path
     ):
-        addresses, result = await _DRIVERS[connector_name](scenario, monkeypatch)
+        addresses, result = await _DRIVERS[connector_name](scenario, monkeypatch, tmp_path)
 
         for position, address in enumerate(addresses):
             if position in scenario.absent:
@@ -390,7 +388,7 @@ class TestRuntimeReadChannels:
 
 
 # ---------------------------------------------------------------------------
-# A cancelled per-channel read is a failed read, not a value
+# A cancelled per-channel read is raised, never a value
 # ---------------------------------------------------------------------------
 
 
@@ -407,12 +405,12 @@ def _connector_classes():
 
 
 @pytest.mark.parametrize("connector_name", list(_DRIVERS))
-async def test_a_cancelled_channel_read_is_left_out_of_the_batch(connector_name):
-    """``CancelledError`` is a ``BaseException``; the batch drops it like any raise.
+async def test_a_cancelled_channel_read_is_raised_from_the_batch(connector_name):
+    """A cancelled read never comes back as a reading.
 
-    ``asyncio.gather(..., return_exceptions=True)`` hands a cancelled child back
-    as a ``CancelledError`` result. Kept as a value, it would reach
-    ``read_channels`` as a reading with no ``.value``.
+    A channel whose read raised an ordinary exception is left out of the
+    batch; a read that was cancelled cancels the batch, so the cancellation
+    reaches the caller instead of a result.
     """
     cls = _connector_classes()[connector_name]
     connector = cls.__new__(cls)
@@ -426,7 +424,5 @@ async def test_a_cancelled_channel_read_is_left_out_of_the_batch(connector_name)
 
     connector.read_channel = read_channel
 
-    result = await cls.read_multiple_channels(connector, addresses)
-
-    assert set(result) == {addresses[0], addresses[2]}
-    assert all(isinstance(value, ChannelValue) for value in result.values())
+    with pytest.raises(asyncio.CancelledError):
+        await cls.read_multiple_channels(connector, addresses)
