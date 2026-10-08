@@ -1,22 +1,11 @@
 """MCP tool: execute — run user-provided Python code with safety checks."""
 
-import json
 import logging
 
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
-from osprey.mcp_server.python_executor.tools._execution_gates import (
-    LAYER_IMPORT_DENYLIST,
-    LAYER_PATTERN_DETECTION,
-    enforce_deployment_writes_gate,
-    enforce_path_policy,
-    enforce_posture_clamp,
-    recorded_control_target,
-    refuse_readonly_write,
-    report_runtime_refusal,
-    require_known_execution_mode,
-)
+from osprey.mcp_server.python_executor.tools._execution_gates import run_gated_execution
 from osprey.mcp_server.python_executor.tools._package_inventory import with_live_packages
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute")
@@ -91,155 +80,15 @@ async def execute(
             ["Provide Python code to execute."],
         )
 
-    # Reject unrecognised modes before any gate: the write gates branch on
-    # string equality and an unknown value would satisfy neither branch.
-    require_known_execution_mode(execution_mode)
-
-    # Session posture clamp — ahead of every other gate on purpose. Whether
-    # this *session* may write at all is not a question the deployment config,
-    # the pattern detector or the path policy get a say in, and a caller whose
-    # session is sandboxed should be told that rather than whatever a later
-    # gate happens to object to first.
-    #
-    # This is also what makes the executor's
-    # ``sandbox_env["OSPREY_EXECUTION_MODE"] = execution_mode`` overwrite safe
-    # (executor.py, in the subprocess env assembly): it replaces the posture
-    # the MCP server inherited with the mode of this call, which would widen a
-    # sandboxed session to readwrite if a readwrite call could get that far.
-    # With the clamp here, none can — under the sandbox posture the only mode
-    # that ever reaches the spawn is readonly, so the overwrite can only ever
-    # re-assert the posture it found.
-    enforce_posture_clamp(execution_mode, tool="execute")
-
-    # Pre-execution safety checks (syntax, security, imports)
-    try:
-        from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
-
-        passed, safety_issues = quick_safety_check(code)
-        if not passed:
-            return make_error(
-                "safety_error",
-                "Code failed pre-execution safety checks.",
-                safety_issues,
-            )
-    except ImportError:
-        logger.warning("Safety check module unavailable — executing without pre-checks")
-
-    # Static path policy — the protected set applies in every execution mode
-    # (see :func:`enforce_path_policy`).
-    await enforce_path_policy(
+    # Every gate, the launch and the run's reporting, in the one order both
+    # executor tools share — see :func:`run_gated_execution`. The notify is
+    # passed in so the write-activity report goes through this module's seam.
+    exec_result, patterns = await run_gated_execution(
         tool="execute",
         code=code,
         description=description,
         execution_mode=execution_mode,
-    )
-
-    # Readonly runs may not import control-system clients at all. This is the
-    # pre-execution half of the readonly contract; the runtime half (the
-    # wrapper's readonly guard and the connector refusal) catches what no
-    # static check can.
-    if execution_mode == "readonly":
-        try:
-            from osprey.services.python_executor.analysis.safety_checks import (
-                check_readonly_imports,
-            )
-
-            import_issues = check_readonly_imports(code)
-        except ImportError:
-            import_issues = []
-        if import_issues:
-            await refuse_readonly_write(
-                tool="execute",
-                layer=LAYER_IMPORT_DENYLIST,
-                trigger=import_issues,
-                code=code,
-                description=description,
-                message="Control-system client libraries cannot be imported in readonly mode.",
-                suggestions=[
-                    *import_issues,
-                    "Use read_channel() from osprey.runtime for reads.",
-                    (
-                        "Set execution_mode to 'readwrite' if writes are intentional, "
-                        "and write through osprey.runtime.write_channel(address, value)."
-                    ),
-                ],
-            )
-
-    # Pattern detection (block writes in readonly mode)
-    try:
-        from osprey.services.python_executor.analysis.pattern_detection import (
-            detect_control_system_operations,
-        )
-
-        patterns = detect_control_system_operations(code)
-    except ImportError:
-        logger.warning("Pattern detection module unavailable — skipping write detection")
-        patterns = {"has_writes": False, "has_reads": False, "detected_patterns": {}}
-
-    # Deployment-level kill switch (independent of pattern detection accuracy).
-    # Write posture is per control target, so the gate is asked about the target
-    # the deployment is on — the same one the sandbox will be stamped with.
-    enforce_deployment_writes_gate(execution_mode, recorded_control_target())
-
-    # Per-call execution-mode gate (uses pattern detection — readonly-mode safety).
-    if patterns.get("has_writes") and execution_mode == "readonly":
-        await refuse_readonly_write(
-            tool="execute",
-            layer=LAYER_PATTERN_DETECTION,
-            trigger=patterns.get("detected_patterns", {}),
-            code=code,
-            description=description,
-            message="Control-system write patterns detected in readonly mode.",
-            suggestions=[
-                (
-                    "Set execution_mode to 'readwrite' if writes are intentional, "
-                    "and write through osprey.runtime.write_channel(address, value)."
-                ),
-                "Detected patterns: " + json.dumps(patterns.get("detected_patterns", {})),
-            ],
-        )
-
-    # Execute code in the subprocess backend
-    from osprey.mcp_server.python_executor.executor import execute_code
-
-    exec_result = await execute_code(
-        code=code,
-        execution_mode=execution_mode,
-        description=description,
-    )
-
-    # Report the write to the Web Terminal once the script has actually been
-    # handed to the subprocess: writes it performed are already on the machine
-    # and a mid-run error does not undo them, so a failed run still reports.
-    #
-    # `execution_time_seconds` is the launch discriminator — only the subprocess
-    # path sets it, on both its completed and its timed-out return, while every
-    # "never launched" outcome comes back from execute_code's setup handler with
-    # it still None. Every pre-execution gate above returns before this point.
-    #
-    # The mode test is the complement of the readonly gate: with the mode set
-    # closed by require_known_execution_mode, the two spellings are equivalent,
-    # but the complement keeps this emit correct even if the set ever grows.
-    # Emitting before build_execution_response keeps the report independent of
-    # artifact/notebook persistence failures.
-    if (
-        patterns.get("has_writes")
-        and execution_mode != "readonly"
-        and exec_result.execution_time_seconds is not None
-    ):
-        await notify_agent_activity_async(
-            "execute", "channel", detail="ran a script with control-system writes"
-        )
-
-    # A write the runtime guard refused mid-run reaches here only as a
-    # traceback on stderr. Report it so the layer that catches the evasive
-    # spellings alerts and audits like the pre-execution ones do.
-    await report_runtime_refusal(
-        tool="execute",
-        stderr=exec_result.stderr,
-        code=code,
-        description=description,
-        execution_mode=execution_mode,
+        notify=notify_agent_activity_async,
     )
 
     from osprey.mcp_server.python_executor.tools._response_builder import build_execution_response

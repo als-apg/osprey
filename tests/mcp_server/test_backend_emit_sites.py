@@ -1130,8 +1130,10 @@ async def test_execute_safety_check_refusal_no_emit(tool_name, tmp_path, monkeyp
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
-async def test_execute_readwrite_without_write_patterns_no_emit(tool_name, tmp_path, monkeypatch):
-    """readwrite alone is not a write: with no detected write patterns, stay silent."""
+async def test_execute_readwrite_without_write_patterns_emits_mode_detail(
+    tool_name, tmp_path, monkeypatch
+):
+    """A read-write run reports even with no detected write: a library call can write unseen."""
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
@@ -1139,7 +1141,7 @@ async def test_execute_readwrite_without_write_patterns_no_emit(tool_name, tmp_p
         await call(execution_mode="readwrite")
 
     exec_code.assert_called_once()
-    notify.assert_not_called()
+    notify.assert_called_once_with(tool_name, "channel", detail="ran a script in read-write mode")
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)

@@ -263,6 +263,56 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
     assert data["summary"]["status"] == "Success"
 
 
+@pytest.mark.parametrize(
+    ("mode", "has_writes", "detail"),
+    [
+        # A library call such as ``lattice.strengths.set(...)`` writes through the
+        # runtime without matching any write pattern; the mode is what tells.
+        ("readwrite", False, "ran a script in read-write mode"),
+        ("readwrite", True, "ran a script with control-system writes"),
+        ("readonly", False, None),
+    ],
+)
+async def test_python_execute_write_activity_follows_the_run_mode(
+    tmp_path, monkeypatch, mode, has_writes, detail
+):
+    """A read-write run reports write activity even when the scan finds no write."""
+    monkeypatch.chdir(tmp_path)
+
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={
+                "has_writes": has_writes,
+                "has_reads": False,
+                "detected_patterns": {"caput": ["caput('TEST:PV', 1.0)"]} if has_writes else {},
+            },
+        ),
+        patch("osprey.mcp_server.python_executor.executor.execute_code", _mock_execute_code()),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.tools.python_execute.notify_agent_activity_async"
+        ) as notify,
+    ):
+        fn = _get_python_execute()
+        await fn(
+            code="lattice.strengths.set([0.1, 0.2])",
+            description="pyAML tool run",
+            execution_mode=mode,
+            save_output=False,
+        )
+
+    if detail is None:
+        notify.assert_not_called()
+    else:
+        notify.assert_called_once_with("execute", "channel", detail=detail)
+
+
 @pytest.mark.parametrize("mode", ["ReadWrite", "READWRITE", "write", "read_write"])
 async def test_python_execute_rejects_unknown_execution_mode(tmp_path, monkeypatch, mode):
     """Modes outside {readonly, readwrite} are rejected before any gate runs.
