@@ -62,7 +62,13 @@ from pydantic import BaseModel, Field
 from osprey.services.ariel_search.database.search_fts import MIN_TERM_COVERAGE, coverage_terms
 from osprey.services.ariel_search.enhancement.qmd_export.writer import entry_id_from_path
 from osprey.services.ariel_search.exceptions import SearchConfigurationError
-from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
+from osprey.services.ariel_search.models import (
+    END_BOUND_DESCRIPTION,
+    START_BOUND_DESCRIPTION,
+    DiagnosticLevel,
+    SearchDiagnostic,
+    TimeBoundText,
+)
 from osprey.services.ariel_search.search import fusion
 from osprey.services.ariel_search.search.base import (
     ModuleOutput,
@@ -948,14 +954,8 @@ class HybridSearchInput(BaseModel):
         le=50,
         description="Maximum results to return",
     )
-    start_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created after this time (inclusive)",
-    )
-    end_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created before this time (inclusive)",
-    )
+    start_date: TimeBoundText = Field(default=None, description=START_BOUND_DESCRIPTION)
+    end_date: TimeBoundText = Field(default=None, description=END_BOUND_DESCRIPTION)
     expand_query: bool | None = Field(
         default=None,
         description=(

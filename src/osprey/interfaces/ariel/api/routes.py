@@ -709,9 +709,9 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         author = adv.pop("author", None) or search_req.author
         source_system = adv.pop("source_system", None) or search_req.source_system
 
-        if isinstance(start_date, str) and start_date:
+        if isinstance(start_date, (str, int, float)) and start_date != "":
             start_date = parse_time_bound(start_date, end=False)
-        if isinstance(end_date, str) and end_date:
+        if isinstance(end_date, (str, int, float)) and end_date != "":
             end_date = parse_time_bound(end_date, end=True)
 
         time_range = None

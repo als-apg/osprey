@@ -29,7 +29,13 @@ from osprey.services.ariel_search.database.search_fts import (
     keyword_fts_expression,
 )
 from osprey.services.ariel_search.exceptions import PatternError
-from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
+from osprey.services.ariel_search.models import (
+    END_BOUND_DESCRIPTION,
+    START_BOUND_DESCRIPTION,
+    DiagnosticLevel,
+    SearchDiagnostic,
+    TimeBoundText,
+)
 from osprey.services.ariel_search.search.base import (
     ExpansionGroup,
     ModuleOutput,
@@ -837,17 +843,8 @@ class KeywordSearchInput(BaseModel):
         le=50,
         description="Maximum results to return",
     )
-    start_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created after this time (inclusive)",
-    )
-    end_date: datetime | None = Field(
-        default=None,
-        description=(
-            "Filter entries created up to this time (inclusive); a bare date "
-            "includes that whole day"
-        ),
-    )
+    start_date: TimeBoundText = Field(default=None, description=START_BOUND_DESCRIPTION)
+    end_date: TimeBoundText = Field(default=None, description=END_BOUND_DESCRIPTION)
     expand_query: bool | None = Field(
         default=None,
         description=(

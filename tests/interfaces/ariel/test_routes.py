@@ -232,6 +232,41 @@ def test_search_bare_end_date_runs_through_that_day(client, mock_ariel_service, 
     )
 
 
+def test_search_accepts_epoch_second_bounds(client, mock_ariel_service):
+    """A JSON number is epoch seconds, as the earlier datetime field read it."""
+    response = client.post(
+        "/api/search", json={"query": "test", "start_date": 1759708800, "end_date": 1759795200}
+    )
+
+    assert response.status_code == 200
+    start, end = mock_ariel_service.search.call_args.kwargs["time_range"]
+    assert start.isoformat() == "2025-10-06T00:00:00+00:00"
+    assert end.isoformat() == "2025-10-07T00:00:00+00:00"
+
+
+def test_search_accepts_epoch_seconds_in_advanced_params(client, mock_ariel_service):
+    """A numeric bound in advanced_params is epoch seconds too."""
+    response = client.post(
+        "/api/search", json={"query": "test", "advanced_params": {"end_date": 1759795200}}
+    )
+
+    assert response.status_code == 200
+    _start, end = mock_ariel_service.search.call_args.kwargs["time_range"]
+    assert end.isoformat() == "2025-10-07T00:00:00+00:00"
+
+
+def test_list_entries_accepts_an_epoch_second_bound(client, mock_ariel_service):
+    """The entries listing reads a numeric bound as epoch seconds."""
+    mock_ariel_service.repository.count_entries = AsyncMock(return_value=0)
+    mock_ariel_service.repository.search_by_time_range = AsyncMock(return_value=[])
+
+    response = client.get("/api/entries?end_date=1759795200")
+
+    assert response.status_code == 200
+    end = mock_ariel_service.repository.count_entries.call_args.kwargs["end"]
+    assert end.isoformat() == "2025-10-07T00:00:00+00:00"
+
+
 def test_search_rejects_a_non_iso_end_date(client, mock_ariel_service):
     """A malformed bound is a 422, not a failed search."""
     response = client.post("/api/search", json={"query": "test", "end_date": "yesterday"})

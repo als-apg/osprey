@@ -6,7 +6,13 @@ Request and response models for the ARIEL search interface.
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
+
+from osprey.services.ariel_search.models import (
+    END_BOUND_DESCRIPTION,
+    START_BOUND_DESCRIPTION,
+    TimeBoundText,
+)
 
 
 class AttachmentResponse(BaseModel):
@@ -69,25 +75,15 @@ class SearchRequest(BaseModel):
     # the service's default mode.
     mode: str | None = Field(None, description="Search module name")
     max_results: int = Field(10, ge=1, le=100, description="Maximum results")
-    # Kept as the ISO-8601 text the caller sent: a bare date and a midnight
-    # timestamp parse to the same datetime but close a window differently.
-    start_date: str | None = Field(None, description="Filter start date (ISO-8601)")
-    end_date: str | None = Field(
-        None, description="Filter end date (ISO-8601); a bare date includes that whole day"
-    )
+    # Kept as text: a bare date and a midnight timestamp parse to the same
+    # datetime but close a window differently.
+    start_date: TimeBoundText = Field(None, description=START_BOUND_DESCRIPTION)
+    end_date: TimeBoundText = Field(None, description=END_BOUND_DESCRIPTION)
     author: str | None = Field(None, description="Filter by author")
     source_system: str | None = Field(None, description="Filter by source system")
     advanced_params: dict[str, Any] = Field(
         default_factory=dict, description="Mode-specific advanced parameters"
     )
-
-    @field_validator("start_date", "end_date")
-    @classmethod
-    def _iso_8601(cls, value: str | None) -> str | None:
-        """Refuse a bound that is not ISO-8601, before the search runs."""
-        if value:
-            datetime.fromisoformat(value)
-        return value
 
 
 class DiagnosticResponse(BaseModel):

@@ -11,10 +11,11 @@ This module defines the core data models for ARIEL search service:
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 from enum import Enum
-from typing import Any, NotRequired
+from typing import Annotated, Any, NotRequired
 
+from pydantic import BeforeValidator
 from typing_extensions import TypedDict
 
 
@@ -447,30 +448,85 @@ def resolve_time_range(
     return (None, None)
 
 
-def parse_time_bound(value: str, *, end: bool) -> datetime:
-    """Parse one ISO-8601 bound of a search window, facility-local when naive.
+def parse_time_bound(value: str | float, *, end: bool) -> datetime:
+    """Parse one bound of a search window, facility-local when naive.
 
-    A bare calendar date names the whole day. As a start it is that day's first
-    instant; as an end it is that day's last instant, so a window ending on a
-    date keeps the entries written during it. A value naming a time of day is
-    taken exactly as written.
+    A value with no time of day -- an ISO-8601 calendar date in either form
+    (``2025-10-06``, ``20251006``) -- names the whole day: as a start it is
+    that day's first instant, as an end its last, so a window ending on a date
+    keeps the entries written during it. An ISO-8601 date-time is taken
+    exactly as written. A number, or text that is only a number, is epoch
+    seconds.
 
     Args:
-        value: An ISO-8601 date (``2025-10-06``) or date-time.
+        value: The bound as given.
         end: Whether the value closes the window.
 
     Returns:
         The bound, timezone-aware.
 
     Raises:
-        ValueError: If `value` is not ISO-8601.
+        ValueError: If `value` is none of the above.
     """
     from osprey.utils.config import localize_facility
 
+    if isinstance(value, bool):
+        raise ValueError(f"not a date, a time or epoch seconds: {value!r}")
+    if isinstance(value, (int, float)):
+        return _epoch(value)
+    text = value.strip()
     try:
-        day = date.fromisoformat(value) if len(value) == 10 else None
+        day = date.fromisoformat(text)
     except ValueError:
-        day = None
-    if day is not None:
+        pass
+    else:
         return localize_facility(datetime.combine(day, time.max if end else time.min))
-    return localize_facility(datetime.fromisoformat(value))
+    try:
+        return localize_facility(datetime.fromisoformat(text))
+    except ValueError:
+        pass
+    try:
+        seconds = float(text)
+    except ValueError:
+        raise ValueError(f"not an ISO-8601 date or time, nor epoch seconds: {value!r}") from None
+    return _epoch(seconds)
+
+
+def _epoch(seconds: float) -> datetime:
+    """Epoch seconds as an aware UTC datetime, refusing ones out of range."""
+    try:
+        return datetime.fromtimestamp(seconds, UTC)
+    except (OverflowError, OSError, ValueError) as e:
+        raise ValueError(f"epoch seconds out of range: {seconds!r}") from e
+
+
+def _time_bound_text(value: object) -> object:
+    """Check a search-window bound and keep it as text for :func:`parse_time_bound`.
+
+    A number becomes the ISO-8601 text of the instant it names, so the field
+    always holds text; anything :func:`parse_time_bound` refuses is refused.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return parse_time_bound(value, end=False).isoformat()
+    if isinstance(value, str):
+        parse_time_bound(value, end=False)
+    return value
+
+
+#: A search-window bound as an input field holds it: ISO-8601 text (a bare date
+#: or a date-time) or epoch seconds, kept as text so a bare date still names a
+#: whole day when :func:`parse_time_bound` reads it.
+TimeBoundText = Annotated[str | None, BeforeValidator(_time_bound_text)]
+
+#: Field description of a window's start bound.
+START_BOUND_DESCRIPTION = (
+    "Filter entries from this time (inclusive): ISO-8601 date or date-time, or epoch seconds"
+)
+
+#: Field description of a window's end bound.
+END_BOUND_DESCRIPTION = (
+    "Filter entries up to this time (inclusive): ISO-8601 date or date-time, or epoch "
+    "seconds; a bare date includes that whole day"
+)
