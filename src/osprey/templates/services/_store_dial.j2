@@ -77,17 +77,18 @@
     default host is `localhost`: the container's own loopback on the bridge,
     where no store listens, and the failure surfaces at the first query as a
     refused connection. -#}
-{%- macro ariel_store(services, osprey_ports, deployed_services, on_host) -%}
+{%- macro ariel_store(services, osprey_ports, deployed_services, on_host, host_address) -%}
 {%- if 'postgresql' in (deployed_services or []) %}
 {%- if on_host %}
-      # On the host namespace this container's loopback IS the host's, so the
-      # store is reached where it PUBLISHES. `port_host` is spelled with the
-      # same defaulting chain every other reader of this store uses: a config
-      # that names the block but omits the key falls back to the layout value
-      # for the deployment's own `deployment.port_base`, and `default({}, true)`
-      # rescues an absent block, which a bare `| default(...)` on the attribute
-      # could not.
-      ARIEL_DATABASE_HOST: localhost
+      # On the host namespace the store is reached where it PUBLISHES: the
+      # interface `deployment.bind_address` names (loopback for a wildcard),
+      # derived once as `osprey_host_dial_address`, on the published
+      # `port_host`. That port is spelled with the same defaulting chain every
+      # other reader of this store uses: a config that names the block but
+      # omits the key falls back to the layout value for the deployment's own
+      # `deployment.port_base`, and `default({}, true)` rescues an absent block,
+      # which a bare `| default(...)` on the attribute could not.
+      ARIEL_DATABASE_HOST: "{{ host_address }}"
       ARIEL_DATABASE_PORT: "{{ (services.postgresql | default({}, true)).port_host | default(osprey_ports.postgres, true) }}"
 {%- else %}
       # `ariel-postgres` is the store's network alias, pinned in the postgresql

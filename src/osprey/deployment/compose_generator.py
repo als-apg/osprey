@@ -1122,6 +1122,26 @@ def resolve_ariel_mirror_dir(
     return root / path
 
 
+def _host_dial_address(config):
+    """The address a host-namespace container dials a store this deployment publishes at.
+
+    Every bundled store publishes on ``deployment.bind_address``, so a client on
+    the host network reaches it there by the one rule
+    :func:`~osprey.deployment.qmd_service.dial_address` states: a wildcard bind
+    is dialled on its family's loopback, a pinned interface on that interface.
+    Bracketed when it is an IPv6 literal, since templates set it as the host
+    half of a URL or DSN.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: The dialable host
+    :rtype: str
+    """
+    from osprey.deployment.qmd_service import dial_address, resolve_bind_address
+
+    return dial_address(resolve_bind_address(config))
+
+
 def _resolve_qmd_render_context(config, repo_root):
     """Build the ``osprey_qmd`` render context for the sidecar's templates.
 
@@ -2043,6 +2063,10 @@ def _inject_project_metadata(config):
     # mount (an empty directory). Injected unconditionally, like every other
     # derived key here; templates that do not name it are unaffected.
     config_with_labels["osprey_qmd"] = _resolve_qmd_render_context(config, repo_root)
+    # Where a container on the host network reaches a store this deployment
+    # publishes: the interface `deployment.bind_address` names, or loopback for
+    # a wildcard. One derivation for every template that sets such an address.
+    config_with_labels["osprey_host_dial_address"] = _host_dial_address(config)
 
     # The archive service's sources — the volumes it reads, derived from the
     # same roster, worker and lane inputs their owner templates render from —

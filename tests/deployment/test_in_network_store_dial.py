@@ -54,6 +54,7 @@ def _env(
     network: str | None = None,
     deployed: tuple[str, ...] = (),
     postgresql: dict[str, Any] | None = None,
+    bind_address: str | None = None,
 ) -> dict[str, Any]:
     """Render *template* and return the consumer's ``environment:`` mapping."""
     block: dict[str, Any] = {}
@@ -67,6 +68,7 @@ def _env(
     rendered = _render_service_template(
         template,
         "proj-a",
+        deployment={} if bind_address is None else {"bind_address": bind_address},
         services=services,
         deployed_services=[key, *deployed],
         osprey_qmd=QMD_CONTEXT,
@@ -131,8 +133,33 @@ class TestArielStoreDial:
             deployed=("postgresql",),
             postgresql={"port_host": 15432},
         )
-        assert env["ARIEL_DATABASE_HOST"] == "localhost"
+        assert env["ARIEL_DATABASE_HOST"] == "127.0.0.1"
         assert env["ARIEL_DATABASE_PORT"] == "15432"
+
+    @pytest.mark.parametrize(
+        ("bind", "host"),
+        [("10.0.0.5", "10.0.0.5"), ("0.0.0.0", "127.0.0.1"), ("::", "[::1]")],
+    )
+    def test_host_consumer_dials_the_interface_the_store_publishes_on(
+        self, template: str, key: str, compose_name: str, bind: str, host: str
+    ) -> None:
+        # The store publishes on `deployment.bind_address`: a pinned interface
+        # is reached there, a wildcard on its family's loopback.
+        env = _env(
+            template,
+            key,
+            compose_name,
+            network="host",
+            deployed=("postgresql",),
+            bind_address=bind,
+        )
+        assert env["ARIEL_DATABASE_HOST"] == host
+
+    def test_bridge_consumer_ignores_the_bind(
+        self, template: str, key: str, compose_name: str
+    ) -> None:
+        env = _env(template, key, compose_name, deployed=("postgresql",), bind_address="10.0.0.5")
+        assert env["ARIEL_DATABASE_HOST"] == "ariel-postgres"
 
     @pytest.mark.parametrize("network", [None, "host"])
     def test_external_store_gets_no_override(
@@ -141,3 +168,23 @@ class TestArielStoreDial:
         env = _env(template, key, compose_name, network=network)
         assert "ARIEL_DATABASE_HOST" not in env
         assert "ARIEL_DATABASE_PORT" not in env
+
+
+@pytest.mark.parametrize(
+    ("deployment", "address"),
+    [
+        (None, "127.0.0.1"),
+        ({}, "127.0.0.1"),
+        ({"bind_address": "10.0.0.5"}, "10.0.0.5"),
+        ({"bind_address": "0.0.0.0"}, "127.0.0.1"),
+        ({"bind_address": "::"}, "[::1]"),
+        ({"bind_address": "fd00::5"}, "[fd00::5]"),
+    ],
+)
+def test_the_host_dial_address_follows_the_published_interface(
+    deployment: dict[str, Any] | None, address: str
+) -> None:
+    from osprey.deployment.compose_generator import _host_dial_address
+
+    config: dict[str, Any] = {} if deployment is None else {"deployment": deployment}
+    assert _host_dial_address(config) == address

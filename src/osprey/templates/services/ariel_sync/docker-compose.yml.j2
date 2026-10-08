@@ -137,7 +137,7 @@ services:
       CONFIG_FILE: /app/{{ osprey_labels.project_name }}/build/config.yml
       OSPREY_PROJECT_DIR: /app/{{ osprey_labels.project_name }}
       TZ: {{ system.timezone }}
-{{- dial.ariel_store(services, osprey_ports, deployed_services | default([]), on_host) }}
+{{- dial.ariel_store(services, osprey_ports, deployed_services | default([]), on_host, osprey_host_dial_address) }}
 {{- dial.qmd_sidecars(osprey_qmd, deployed_services | default([]), on_host) }}
 {%- if osprey_ariel_mirror_source %}
       # The mirror mount's target, named to the image entrypoint: its root phase
