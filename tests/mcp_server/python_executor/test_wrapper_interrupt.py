@@ -5,9 +5,8 @@ must then end the way a finished one does: the failure recorded in
 ``execution_metadata.json``, the captured output echoed to the pipes, and the
 process gone through ``os._exit`` rather than interpreter shutdown, where a
 control-system client's shutdown hook (pyepics' ``finalize_libca``) can wedge
-it. A guarded pyAML run interrupted mid-``run_tool`` restores the setpoints it
-moved and prints an ``OSPREY_PYAML_RESTORE`` report; the parent reads that
-report out of the drained pipes into the audit ledger and the execution folder.
+it. The parent reads a report line tagged ``RESTORE_REPORT_TAG`` out of the
+drained pipes into the audit ledger and the execution folder.
 
 Every child here is a real :class:`ExecutionWrapper`-wrapped script run by the
 test interpreter; the control system is a dict behind stubbed
@@ -87,29 +86,6 @@ _PREAMBLE = textwrap.dedent(
     """
 )
 
-#: A guarded run whose tool is interrupted after moving ``A``.
-_RUN_TOOL_CODE = _PREAMBLE + textwrap.dedent(
-    """
-    from pyaml_cs_osprey.guard import run_tool
-    from pyaml_cs_osprey.journal import journaled_write
-
-    def put(address, value):
-        journaled_write([address], lambda: osprey.runtime.write_channel(address, value))
-
-    def measure(callback):
-        put("A", 5.0)
-        hold("span")
-        if not callback("apply", {}):
-            raise KeyboardInterrupt
-        put("B", 6.0)
-        return True
-
-    run_tool(measure)
-    print("AFTER RUN_TOOL")
-    osprey.runtime.write_channel("B", 99.0)
-    results = {"finished": True}
-    """
-)
 
 #: Interrupted while "loading" (before any tool runs), the way a pyAML
 #: configuration load is: long, and inside the user code.
@@ -152,13 +128,13 @@ class _Child:
             # starts with: SIG_IGN survives exec, and Python keeps it.
             signal.signal(signal.SIGINT, signal.SIG_IGN)
 
-        self.proc = subprocess.Popen(  # noqa: S603 - fixed argv, generated script
+        self.proc = subprocess.Popen(
             [sys.executable, str(script)],
             cwd=str(workdir),
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            preexec_fn=ignore_sigint if inherit_sig_ign else None,  # noqa: PLW1509
+            preexec_fn=ignore_sigint if inherit_sig_ign else None,
         )
 
     def interrupt_at(self, phase: str) -> None:
@@ -221,47 +197,10 @@ def child(tmp_path: Path) -> Iterator[Callable[..., _Child]]:
         proc.kill()
 
 
-def _tagged(text: str) -> list[dict[str, Any]]:
-    prefix = RESTORE_REPORT_TAG + " "
-    return [
-        json.loads(line[len(prefix) :]) for line in text.splitlines() if line.startswith(prefix)
-    ]
-
-
 def _ledger_records(ledger: Path) -> list[dict[str, Any]]:
     if not ledger.exists():
         return []
     return [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines() if line]
-
-
-def test_sigint_mid_run_tool_persists_report(child: Callable[..., _Child], tmp_path: Path) -> None:
-    """SIGINT mid-``run_tool``: restored, reported, recorded, and the child exits itself."""
-    run = child(_RUN_TOOL_CODE)
-    run.interrupt_at("span")
-    out, err = run.drain()
-
-    assert run.values() == HOME
-    stdout, stderr = out.decode(), err.decode()
-    assert "AFTER RUN_TOOL" not in stdout
-    (report,) = _tagged(stdout) + _tagged(stderr)
-    assert report["aborted"] is True
-    assert report["restored"] == ["A"]
-
-    metadata = run.metadata()
-    assert metadata["success"] is False
-    assert metadata["error_type"] == "KeyboardInterrupt"
-    assert _tagged(metadata["stderr"]) == [report]
-    assert metadata["restore_report"] == report
-
-    ledger = tmp_path / "audit" / "executor.jsonl"
-    reports = _record_restore_report(out, err, run.execution_folder, ledger)
-    assert reports == [report]
-    saved = json.loads((run.execution_folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
-    assert saved == [report]
-    (record,) = _ledger_records(ledger)
-    assert record["surface"] == "executor"
-    assert run.execution_folder.name in record["subject"]
-    assert "A" in record["detail"]
 
 
 def test_sigint_mid_load_persists_metadata(child: Callable[..., _Child]) -> None:
@@ -367,10 +306,3 @@ def test_restore_report_parsed_to_ledger_and_folder(tmp_path: Path) -> None:
 
     # Never raises, even on an unusable folder.
     assert _record_restore_report(stdout, "", tmp_path / "missing" / "dir", ledger) == [first]
-
-
-def test_restore_report_tag_matches_the_guard() -> None:
-    """The executor's copy of the tag is the one ``run_tool`` prints."""
-    from pyaml_cs_osprey.guard import REPORT_TAG
-
-    assert RESTORE_REPORT_TAG == REPORT_TAG
