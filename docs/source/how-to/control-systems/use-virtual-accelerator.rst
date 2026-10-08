@@ -452,7 +452,8 @@ Virtual Accelerator:
 
 - **the store** — a MongoDB service (``archiver-mongodb`` on the deployment's
   network, published on host port 27017 by default), holding one collection of
-  timestamped samples;
+  timestamped samples; every channel the facility declares is recorded under
+  its own address, an EPICS field name (``.RBV``) included;
 - **the recorder** — a small service that reads the running machine on a fixed
   cadence and writes what answered into that collection.
 
