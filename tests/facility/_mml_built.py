@@ -22,18 +22,16 @@ from typing import Any
 import pytest
 import yaml
 
+from tests.fixtures.mml._trees import SUPPORTED, names
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
 
-#: Each tree's exports, by the stem every file of one export is named after.
-TREES: dict[str, tuple[str, ...]] = {
-    "spear3": ("spear3.storagering",),
-    "nsls2": ("nsls2.storagering", "nsls2.ltb"),
-    "synthetic": ("quokka.sr",),
-}
+#: Each supported tree's exports, by the stem every file of one export is named after.
+TREES: dict[str, tuple[str, ...]] = {tree.name: tree.exports for tree in SUPPORTED}
 
-#: The trees the build case runs to a clean exit.
-BUILT = ("nsls2", "spear3")
+#: The trees the build case runs to a clean exit and holds to a fingerprint.
+BUILT = names("golden")
 
 #: The setpoints each tree's build starts outside the band its export states,
 #: each with the edge that widens its limits record to hold the build's

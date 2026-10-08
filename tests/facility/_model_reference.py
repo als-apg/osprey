@@ -28,20 +28,20 @@ from typing import Any
 
 import pytest
 
+from tests.fixtures.mml._trees import exports_taking
+
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 
-#: The storage rings whose model file a real Middle Layer wrote, as ``(tree, stem)``.
-MATLAB_RINGS = (
-    ("spear3", "spear3.storagering"),
-    ("nsls2", "nsls2.storagering"),
-)
+#: The periodic lattices whose model file a real Middle Layer wrote, as
+#: ``(tree, stem)``: the supported exports that take check A.
+MATLAB_RINGS = exports_taking("A", lines=False)
 
 #: The transport lines whose model file a real Middle Layer wrote.
-MATLAB_LINES = (("nsls2", "nsls2.ltb"),)
+MATLAB_LINES = exports_taking("A", lines=True)
 
 #: The synthetic machine: a made-up one whose model file no Middle Layer wrote,
 #: so it takes check B only.
-SYNTHETIC = ("synthetic", "quokka.sr")
+(SYNTHETIC,) = exports_taking("B", lines=False)
 
 #: What brings a facility model file into the tree. It is the owner's step: no
 #: test run writes a facility export file.
