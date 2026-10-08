@@ -5497,6 +5497,10 @@ jobs:
     #     0.25 s tick over every served channel: about a minute on an
     #     amd64-native runner and several times that on a host where the
     #     image is emulated;
+    #   - test_chain_boot.py, which installs the two-model tree from its
+    #     exports twice over — import, build, render — and boots one
+    #     container of its own over the result under test_mml_trees_boot.py's
+    #     `BOOT_TIMEOUT_S` of 240 s;
     #   - test_mml_trees_boot.py, which installs a facility export from
     #     scratch for each of its three trees — init, import, emit, set,
     #     validate, build — and boots a container of its own per tree under
@@ -5509,7 +5513,7 @@ jobs:
     # a laptop. It is larger than va-substrate-equivalence-e2e and
     # archiver-world-e2e, and than the switch lane's 30, because that lane
     # runs five modules against containers two of its own images serve, while
-    # this one runs twelve and boots nine. Tighten once there are observed
+    # this one runs thirteen and boots ten. Tighten once there are observed
     # green timings on a runner.
     timeout-minutes: 80
 
@@ -5580,8 +5584,9 @@ jobs:
       # Ordered cheapest first — the seven that only share the session
       # container, then the put-surface module's one boot and the journal
       # module's two, then the parity module, which reads the session container
-      # and boots one of its own, then the harvested-tree module, which
-      # installs a facility export from scratch before each of its three
+      # and boots one of its own, then the chain module, which installs the
+      # two-model tree before its one boot, then the harvested-tree module,
+      # which installs a facility export from scratch before each of its three
       # boots — so a failure in the cheap set is reported before the expensive
       # work starts.
       run: |
@@ -5590,7 +5595,8 @@ jobs:
           tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py \
           tests/va/e2e/test_sim_apply_va.py \
           tests/va/e2e/test_va_put_surface.py tests/va/e2e/test_planted_journal.py \
-          tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_mml_trees_boot.py \
+          tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_chain_boot.py \
+          tests/va/e2e/test_mml_trees_boot.py \
           -v --tb=short --junitxml=junit-va-live-e2e.xml
 
     - name: Run the real-facility lane on the NSLS-II stand-in
