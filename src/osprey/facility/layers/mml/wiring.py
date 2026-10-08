@@ -154,11 +154,14 @@ class Wired:
             every element a record names carries that name exactly once.
         records: The wiring records, sorted by address.
         lines: What the import prints about the wiring, one line each.
+        families: The raw family that wrote each record naming an element,
+            keyed by the record's address.
     """
 
     deck: Any
     records: list[dict[str, Any]]
     lines: list[str] = field(default_factory=list)
+    families: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -234,7 +237,9 @@ def wire_model(
         if unplaced:
             raise ImportStop(EXPORT_INVALID, unplaced)
         lines: list[str] = []
-        records = _records(model, addressing, facts, views, device_ids, endpoints, answers, lines)
+        records, families = _records(
+            model, addressing, facts, views, device_ids, endpoints, answers, lines
+        )
         if model.tune is not None:
             records = _with_tune(records, model.tune)
         served = decks.served_deck(addressing)
@@ -251,7 +256,7 @@ def wire_model(
                 for address in missing
             ],
         )
-    return Wired(deck=served, records=records, lines=lines)
+    return Wired(deck=served, records=records, lines=lines, families=families)
 
 
 def _records(
@@ -263,10 +268,14 @@ def _records(
     endpoints: Map[str, Sequence[str]],
     answers: Mapping,
     lines: list[str],
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Every wiring record of one model, sorted by address.
 
     Each family wired without a hardware nominal adds its line to ``lines``.
+
+    Returns:
+        The records, and the raw family that wrote each record stating an
+        ``element`` or ``slices``, keyed by address.
 
     Raises:
         ValueError: Two records claim one address or one element field, or
@@ -324,7 +333,12 @@ def _records(
                         f"and family {family}"
                     )
                 wired[claimed] = (family, {"address": claimed, **copy.deepcopy(body)})
-    return [wired[address][1] for address in sorted(wired)]
+    families = {
+        address: family
+        for address, (family, record) in wired.items()
+        if "element" in record or record.get("slices")
+    }
+    return [wired[address][1] for address in sorted(wired)], families
 
 
 #: The engine attribute a record reads the tunes on.
