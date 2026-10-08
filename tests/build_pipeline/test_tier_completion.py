@@ -43,7 +43,6 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/services/virtual_accelerator/manifest/build.py": "7e",
     "src/osprey/services/virtual_accelerator/manifest/loaders.py": "7e",
     "src/osprey/services/virtual_accelerator/manifest/paths.py": "7e",
-    "src/osprey/simulation/channel_schema.py": "7d2",
     "src/osprey/templates/apps/control_assistant/data/README.md": "7d2",
     "tests/build_pipeline/test_modes.py": "7e",
     "tests/cli/test_build_cmd.py": "7d2",
@@ -67,7 +66,6 @@ ALLOWLIST: dict[str, str] = {
     "tests/services/facility_knowledge/test_ttl_generator_emitter.py": "7e",
     "tests/services/facility_knowledge/test_ttl_generator_model.py": "7e",
     "tests/services/facility_knowledge/test_ttl_generator_ontology.py": "7e",
-    "tests/simulation/test_seed_logbook_naming.py": "7d2",
     "tests/va/e2e/test_finder_live_reads.py": "7d2",
 }
 

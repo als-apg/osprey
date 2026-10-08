@@ -6,8 +6,7 @@ the build writes at the root of every render. Never the write-limits
 projection (``channel_limits.json``), which gates a subset and was never a
 roster.
 
-This module is purely declarative data, in the style of
-:mod:`osprey.simulation.channel_schema`: stdlib-only, no I/O, no source
+This module is purely declarative data: stdlib-only, no I/O, no source
 selection, no parsing. The reader (:mod:`osprey.channel_roster.sources`)
 builds these types; the consumers --
 plan-device derivation, the channel snapshot, the build's fact lines, the
