@@ -93,11 +93,8 @@ SIMULATION_STATE_DIR_NAME = "simulation"
 
 #: Config key naming that directory explicitly (relative paths resolve against
 #: the project root). Unset — the normal case — puts it under the agent-data
-#: root. It lives here, rather than in the simulation package, so
-#: :data:`osprey_connectors.config.RUNTIME_WRITE_PATH_KEYS` and
-#: :func:`osprey_connectors.simulation.engine.resolve_state_dir` share one spelling without
-#: ``config`` having to import the engine (which would pull numpy into every
-#: config load).
+#: root. :data:`osprey_connectors.config.RUNTIME_WRITE_PATH_KEYS` and
+#: :func:`resolve_simulation_state_dir` read this one spelling.
 SIMULATION_STATE_DIR_CONFIG_KEY = "simulation.state_dir"
 
 
@@ -185,18 +182,15 @@ def resolve_simulation_state_dir(config: Mapping[str, Any] | None, project_root:
     """Resolve the directory holding the mutable ``active_scenarios`` state file.
 
     The state file is the one piece of simulation state that changes after a
-    build, so it lives under the agent-data root rather than next to
-    ``machine.json``: everything in a project's ``data/`` tree is build-owned
+    build, so it lives under the agent-data root rather than in ``data/``:
+    everything in a project's ``data/`` tree is build-owned
     and checksummed (see
     :func:`osprey.cli.templates.manifest.calculate_file_checksums`), and a
     scenario switch is not project drift.
 
-    Lives here rather than in the simulation package so the three sides that
-    must agree — the engine that writes the file, the compose generator that
-    renders the container's bind-mount source, and the build injector that
-    pre-creates it — resolve it identically without ``deployment`` importing
-    numpy through :mod:`osprey_connectors.simulation.engine`. Re-exported there as
-    ``resolve_state_dir``.
+    The one spelling serves config, the compose generator that renders the
+    container's bind-mount source, and the build injector that pre-creates it,
+    so all three resolve the same directory.
 
     A mistyped :data:`SIMULATION_STATE_DIR_CONFIG_KEY` (anything but a non-empty
     string) falls through to the default rather than raising, matching how

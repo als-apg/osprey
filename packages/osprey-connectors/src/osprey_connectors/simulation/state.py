@@ -1,7 +1,7 @@
 """The active scenario set and the composition rule scenarios must obey.
 
-Every reader of the active set — the engine, ``sim apply``, the archive
-composite and the stand-in — resolves it and checks it here, so they cannot
+Every reader of the active set — ``sim apply``, the archive, the composite
+and the stand-in — resolves it and checks it here, so they cannot
 disagree on which scenarios run or on which sets compose; ``sim apply`` writes
 it here too, with :func:`write_active_state`.
 
@@ -25,10 +25,10 @@ from typing import Any
 
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation.machine import DEFAULT_SCENARIO
 
 __all__ = [
     "ACTIVE_SCENARIOS_FILENAME",
+    "DEFAULT_SCENARIO",
     "OVERLAP_EVENT",
     "Overlap",
     "composed_set",
@@ -44,6 +44,9 @@ __all__ = [
 
 #: Name of the plain-text file holding the active scenario set.
 ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
+
+#: The baseline scenario, active in every set.
+DEFAULT_SCENARIO = "nominal"
 
 #: The ``event`` an overlap record carries in a simulator log.
 OVERLAP_EVENT = "scenario-overlap"

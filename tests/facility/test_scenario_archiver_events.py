@@ -1,7 +1,9 @@
 """A scenario's archiver events, checked at build time.
 
 Each event of an ``archiver`` entry has a known shape, that shape's keys,
-exactly one position key, a number wherever one is read, and a shape other
+exactly one position key, a number wherever one is read, a window fraction
+from 0 to 1 in ``at`` and ``until``, a ``width`` greater than 0, a readable
+``at_time`` and ``at_when``, a ``to`` the channel holds, and a shape other
 than ``step`` only on a ``float`` channel. A malformed event stops the build
 with one line naming the scenario file and the channel.
 """
@@ -21,7 +23,11 @@ from tests.facility._synthetic_trees import plain_tree, write_tree
 CHANNELS = [
     {"id": "SR:X", "value_type": "float"},
     {"id": "SR:ON", "value_type": "bool", "options": ["OFF", "ON"]},
+    {"id": "SR:N", "value_type": "int"},
+    {"id": "SR:W", "value_type": "waveform", "shape": [2]},
 ]
+
+_HEAD = "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 of channel"
 
 
 def _document(*events: Any, channel: str = "SR:X") -> dict[str, Any]:
@@ -107,6 +113,105 @@ def test_a_malformed_event_stops_naming_the_file_and_the_channel(
     event: dict[str, Any], channel: str, line: str
 ) -> None:
     assert _line(_document(event, channel=channel)) == line
+
+
+@pytest.mark.parametrize(
+    ("event", "channel", "line"),
+    [
+        (
+            {"shape": "step", "at": 1.5, "to": 1.0},
+            "SR:X",
+            f"{_HEAD} SR:X has `at` 1.5, outside 0 to 1; fix: write `at` as a window "
+            "fraction from 0 to 1",
+        ),
+        (
+            {"shape": "ramp", "at": 0.2, "until": -0.1, "to": 1.0},
+            "SR:X",
+            f"{_HEAD} SR:X has `until` -0.1, outside 0 to 1; fix: write `until` as a window "
+            "fraction from 0 to 1",
+        ),
+        (
+            {"shape": "spike", "at": 0.5, "amplitude": 1.0, "width": 0},
+            "SR:X",
+            f"{_HEAD} SR:X has `width` 0, not greater than 0; fix: write `width` as a number "
+            "greater than 0",
+        ),
+        (
+            {"shape": "step", "at": 0.5, "to": "MAYBE"},
+            "SR:ON",
+            f"{_HEAD} SR:ON has `to` 'MAYBE', value 'MAYBE' is not a valid bool: label not in "
+            "['OFF', 'ON']; fix: write `to` as a value the bool channel holds",
+        ),
+        (
+            {"shape": "step", "at": 0.5, "to": 2.5},
+            "SR:N",
+            f"{_HEAD} SR:N has `to` 2.5, value 2.5 is not a valid int: expected an int or an "
+            "integral float; fix: write `to` as a value the int channel holds",
+        ),
+        (
+            {"shape": "step", "at": 0.5, "to": [1.0, 2.0, 3.0]},
+            "SR:W",
+            f"{_HEAD} SR:W has `to` [1.0, 2.0, 3.0], "
+            "value [1.0, 2.0, 3.0] is not a valid waveform: expected 2 values for shape [2]; "
+            "fix: write `to` as a value the waveform channel holds",
+        ),
+        (
+            {"shape": "ramp", "at": 0.2, "until": 0.4, "to": "high"},
+            "SR:X",
+            f"{_HEAD} SR:X has `to` 'high', value 'high' is not a valid float: expected a "
+            "finite int or float; fix: write `to` as a value the float channel holds",
+        ),
+        (
+            {"shape": "step", "at_time": "25:00", "to": 1.0},
+            "SR:X",
+            f"{_HEAD} SR:X has `at_time` '25:00', not an HH:MM[:SS] time of day; fix: write "
+            "`at_time` as HH:MM:SS",
+        ),
+        (
+            {"shape": "step", "at_when": {"days_ago": "1", "time": "08:00"}, "to": 1.0},
+            "SR:X",
+            f"{_HEAD} SR:X has `at_when` {{'days_ago': '1', 'time': '08:00'}}, not "
+            "{days_ago: <int>, time: HH:MM[:SS]}; fix: write `at_when` as {days_ago: <int>, "
+            "time: HH:MM:SS}",
+        ),
+        (
+            {
+                "shape": "spike",
+                "at_when": {"days_ago": 1, "time": "noon"},
+                "amplitude": 1,
+                "width": 2,
+            },
+            "SR:X",
+            f"{_HEAD} SR:X has `at_when` {{'days_ago': 1, 'time': 'noon'}}, not "
+            "{days_ago: <int>, time: HH:MM[:SS]}; fix: write `at_when` as {days_ago: <int>, "
+            "time: HH:MM:SS}",
+        ),
+    ],
+    ids=[
+        "at-outside-window",
+        "until-outside-window",
+        "width-not-positive",
+        "to-not-a-label",
+        "to-not-an-int",
+        "to-wrong-shape",
+        "to-not-a-float",
+        "at-time-unreadable",
+        "at-when-days-not-int",
+        "at-when-time-unreadable",
+    ],
+)
+def test_an_event_value_out_of_its_rule_stops(
+    event: dict[str, Any], channel: str, line: str
+) -> None:
+    assert _line(_document(event, channel=channel)) == line
+
+
+def test_a_step_to_values_each_channel_type_holds_passes() -> None:
+    document = _document({"shape": "step", "at": 0.5, "to": 3}, channel="SR:N")
+    document["scenarios"][0]["archiver"].append(
+        {"channel": "SR:W", "events": [{"shape": "step", "at": 0.5, "to": [1.0, 2.0]}]}
+    )
+    assert check_scenario_events(document) == []
 
 
 def test_a_step_to_a_label_on_a_bool_channel_passes() -> None:

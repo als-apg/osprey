@@ -1,15 +1,10 @@
-"""Shared fixtures for simulation engine tests.
-
-Uses a small inline test machine (a handful of channels plus scenarios),
-not the full VL-1 model.
-"""
+"""Shared helpers for the simulation tests: a staged sim-backed project and a
+stand-in archive collection."""
 
 import copy
 import json
 from pathlib import Path
 from typing import Any
-
-import pytest
 
 #: The ``control_system`` block of a mock-connector project whose model is the
 #: inline test machine staged by :func:`stage_sim_project`.
@@ -161,49 +156,3 @@ TEST_MACHINE = {
         },
     },
 }
-
-
-@pytest.fixture
-def state_dir(tmp_path):
-    """Per-test scenario-state directory (the engine's ``_agent_data/simulation/``)."""
-    path = tmp_path / "_agent_data" / "simulation"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-@pytest.fixture(autouse=True)
-def _isolate_ambient_state_dir(monkeypatch, state_dir):
-    """Keep engines built without an explicit ``state_dir`` inside ``tmp_path``.
-
-    Unset, the state directory resolves from the ambient config — under pytest
-    that is the repo checkout, so a test that activates a scenario would write
-    ``active_scenarios`` into the working tree. Every engine here lands in its
-    own tmp dir instead.
-    """
-    from osprey.simulation import engine as engine_module
-
-    monkeypatch.setattr(engine_module, "default_state_dir", lambda: state_dir)
-
-
-@pytest.fixture
-def machine_dict():
-    """Deep copy of the inline test machine, safe to mutate per test."""
-    return copy.deepcopy(TEST_MACHINE)
-
-
-@pytest.fixture
-def make_machine_file(tmp_path):
-    """Factory writing a machine dict to a JSON file under tmp_path."""
-
-    def _make(machine, name="machine.json"):
-        path = tmp_path / name
-        path.write_text(json.dumps(machine))
-        return path
-
-    return _make
-
-
-@pytest.fixture
-def machine_file(machine_dict, make_machine_file):
-    """The inline test machine written to a tmp file."""
-    return make_machine_file(machine_dict)
