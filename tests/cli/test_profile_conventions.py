@@ -174,8 +174,6 @@ def test_destination_for_rejects_a_non_convention_root():
         (".env", "`env:`"),
         (".env.example", "`env:`"),
         ("CLAUDE.md", "claude_md_template"),
-        ("data/simulation/channel_manifest.json", "`data/`"),
-        ("data/simulation/channel_limits.json", "limits.yaml"),
         ("docker/web-terminal-context/base.md", "`web-terminal-context/base.md`"),
     ],
 )
@@ -183,6 +181,15 @@ def test_reserved_path_names_its_channel(reserved: str, channel_hint: str):
     channel = reserved_path_channel(reserved)
     assert channel is not None
     assert channel_hint in channel
+
+
+@pytest.mark.parametrize(
+    "path", ["data/simulation/channel_manifest.json", "data/simulation/channel_limits.json"]
+)
+def test_simulation_data_paths_are_not_reserved(path: str):
+    """Neither path is a reserved project path; a hand-written limits file there
+    is refused by the build's limits stop instead."""
+    assert reserved_path_channel(path) is None
 
 
 def test_every_reserved_entry_is_reported():
@@ -1030,7 +1037,7 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
     """
     assert RESERVED_EXACT_PATHS == frozenset(r.path for r in RESERVED_PROJECT_PATHS)
     assert RESERVED_PATH_CHANNELS == {r.path: r.channel for r in RESERVED_PROJECT_PATHS}
-    assert len(RESERVED_PROJECT_PATHS) == 11
+    assert len(RESERVED_PROJECT_PATHS) == 9
 
 
 @pytest.mark.parametrize(
@@ -1076,7 +1083,6 @@ def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str
         ".claude/hooks/facility_guard.py",
         "docs/runbook.md",
         "data/facility.json",
-        "data/simulation/channel_manifest.json.bak",
         "data/simulator_notes.md",
         "data/channel_finder.json",
         "notebooks/analysis.ipynb",

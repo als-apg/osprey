@@ -213,8 +213,6 @@ channel:
      - the profile's own ``.env`` file and ``env:`` keys
    * - ``.osprey-manifest.json``
      - the build itself
-   * - ``data/simulation/channel_manifest.json``
-     - the profile's ``data/`` directory
    * - ``data/simulation/channel_limits.json``
      - the build, from ``data/facility/limits.yaml``
 

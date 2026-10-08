@@ -354,11 +354,6 @@ RESERVED_PROJECT_PATHS: tuple[ReservedPath, ...] = (
     ReservedPath(".env", "the profile's `.env` file and `env:` keys"),
     ReservedPath(".env.example", "the profile's `.env.example` file and `env:` keys"),
     ReservedPath("CLAUDE.md", "the profile's `claude_md_template:` key"),
-    ReservedPath("data/simulation/channel_manifest.json", "the profile's `data/` directory"),
-    ReservedPath(
-        "data/simulation/channel_limits.json",
-        "the profile's `data/facility/limits.yaml`, which the build renders into it",
-    ),
     ReservedPath(
         "docker/web-terminal-context/base.md",
         "the profile's `web-terminal-context/base.md` slot — the shared baseline "
