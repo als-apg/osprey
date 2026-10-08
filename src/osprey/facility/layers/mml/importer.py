@@ -84,7 +84,12 @@ from typing import IO, TYPE_CHECKING, Any
 import click
 
 from osprey.facility.layers.mml.decks import DECKS_DIR, write_deck
-from osprey.facility.layers.mml.identity import common_class, device_ids, endpoints
+from osprey.facility.layers.mml.identity import (
+    common_class,
+    device_ids,
+    endpoints,
+    split_identities,
+)
 from osprey.facility.layers.mml.mapping import (
     LAYER_DIR,
     MAPPING_FILE,
@@ -353,8 +358,9 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
             its export states; ``mapping-draft`` when the mapping was absent
             and a draft was written; ``mapping-undecided`` while a slot it
             needs is undecided; ``mapping-invalid`` for a ``devices`` answer
-            the export cannot carry; ``export-invalid`` or
-            ``reference-missing`` from the wiring pass.
+            the export cannot carry, or where a wired channel would name a
+            device another family binds it as, before anything is written;
+            ``export-invalid`` or ``reference-missing`` from the wiring pass.
         MappingProblems: The mapping fails its check; nothing is written.
         MappingError: The mapping has the wrong structure.
     """
@@ -394,7 +400,8 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
         ImportStop: ``mapping-undecided`` for a family whose devices the
             mapping leaves unidentified or a transport line without initial
             twiss; ``mapping-invalid`` for a ``devices`` answer the export
-            cannot carry;
+            cannot carry, or where a wired channel would name a device
+            another family binds it as, before anything is written;
             ``export-invalid`` or ``reference-missing`` from the wiring pass.
         MappingProblems: The mapping leaves out a system or a family these
             exports carry; nothing is written.
@@ -465,7 +472,10 @@ def _write_records(
     family_ids: dict[str, dict[str, list[str]]] = {system: {} for system in exports.systems}
     for view, slots in zip(views, ids, strict=True):
         family_ids[view.system][view.raw_name] = slots
-    served, lines = _wire(exports, mapping, models, judged, family_ids, owners, channels)
+    served, lines, wired = _wire(exports, mapping, models, judged, family_ids, owners, channels)
+    split = split_identities(views, ids, wired)
+    if split:
+        raise ImportStop("mapping-invalid", split)
 
     layer = facility_dir / LAYER_DIR
     layer.mkdir(parents=True, exist_ok=True)
@@ -748,7 +758,7 @@ def _wire(
     family_ids: dict[str, dict[str, list[str]]],
     owners: dict[str, list[str]],
     channels: dict[str, dict[str, Any]],
-) -> tuple[list[tuple[str, Any]], list[str]]:
+) -> tuple[list[tuple[str, Any]], list[str], dict[str, str]]:
     """Wire every imported model and name its deck and wiring on its entry.
 
     Each entry of ``models`` that has a deck gains ``deck``, the path its
@@ -757,8 +767,9 @@ def _wire(
     are left as they are. Nothing is written here.
 
     Returns:
-        Each wired model's name and the deck it is served, in import order,
-        and the lines the wiring pass prints.
+        Each wired model's name and the deck it is served, in import order;
+        the lines the wiring pass prints; and the raw family whose record
+        names an element on each address, over every model.
 
     Raises:
         ImportStop: ``export-invalid``, ``reference-missing`` or
@@ -768,6 +779,7 @@ def _wire(
 
     served: list[tuple[str, Any]] = []
     lines: list[str] = []
+    wired_by: dict[str, str] = {}
     for entry, system in zip(models, exports.systems, strict=True):
         model = mapping.models[system]
         wired = wire_model(
@@ -791,7 +803,8 @@ def _wire(
         entry["wiring"] = wired.records
         served.append((model.name, wired.deck))
         lines.extend(wired.lines)
-    return served, lines
+        wired_by.update(wired.families)
+    return served, lines, wired_by
 
 
 def _twiss_field(data: Any, name: str) -> Any:

@@ -64,7 +64,14 @@ from osprey.facility.layers.mml.mapping import (
 if TYPE_CHECKING:  # the export services stay out of the import graph
     from osprey.facility.layers.mml.family import FamilyView
 
-__all__ = ["axis_twins", "common_class", "device_ids", "endpoints", "stated_ids"]
+__all__ = [
+    "axis_twins",
+    "common_class",
+    "device_ids",
+    "endpoints",
+    "split_identities",
+    "stated_ids",
+]
 
 #: Separators a name's leading system token may carry.
 _PREFIX_SEPARATORS: tuple[str, ...] = ("_", " ")
@@ -500,6 +507,60 @@ def endpoints(views: Iterable[FamilyView], ids: Sequence[Sequence[str]]) -> dict
                     if slots_ids[index] not in devices:
                         devices.append(slots_ids[index])
     return owners
+
+
+def split_identities(
+    views: Iterable[FamilyView], ids: Sequence[Sequence[str]], wired: Mapping[str, str]
+) -> list[str]:
+    """The wired addresses another family binds as a device the wiring family does not.
+
+    A wiring record on a shared address names each of the wiring family's
+    devices there, and the channel names every device binding the address; a
+    device only another family resolves the address to is named by no slice.
+
+    Args:
+        views: The imported families, as handed to :func:`device_ids`.
+        ids: What :func:`device_ids` returned for them.
+        wired: The raw family whose wiring record names an element on each
+            address, over every model.
+
+    Returns:
+        One line per ``(wiring family, other family)`` pair, sorted by the
+        pair, naming the pair's first split address in sorted order and
+        counting the rest; empty when no wired address is split.
+    """
+    bound: dict[str, dict[str, list[str]]] = {}
+    for view, slots_ids in zip(views, ids, strict=True):
+        for fld in view.fields.values():
+            for key in fld.keys:
+                for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
+                    address = _text(slot)
+                    if address is None or address not in wired:
+                        continue
+                    found = bound.setdefault(address, {}).setdefault(view.raw_name, [])
+                    if slots_ids[index] not in found:
+                        found.append(slots_ids[index])
+    split: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
+    for address, families in bound.items():
+        family = wired[address]
+        ours = families.get(family)
+        if not ours:
+            continue
+        for other, theirs in families.items():
+            apart = [device for device in theirs if device not in ours]
+            if other != family and apart:
+                split.setdefault((family, other), []).append((address, ours[0], apart[0]))
+    lines: list[str] = []
+    for (family, other), apart_at in sorted(split.items()):
+        address, our_id, their_id = min(apart_at)
+        more = len(apart_at) - 1
+        rest = f" (and {more} more addresses)" if more else ""
+        lines.append(
+            f"families.{family}.devices: {address} is {our_id} in {family} and {their_id} in "
+            f"{other}{rest}; give both one identity: {{coordinates: <stem>}} on one family "
+            "and {same_as: <it>} on the other"
+        )
+    return lines
 
 
 def _lineage(name: str, parents: Mapping[str, str | None]) -> list[str]:
