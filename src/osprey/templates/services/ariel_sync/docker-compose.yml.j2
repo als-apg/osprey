@@ -53,9 +53,9 @@
     below are LITERALS, and which literal is right depends on which namespace
     this container ends up in. #}
 {%- set on_host = (svc.network | default('bridge', true)) == 'host' %}
-{#- Whether THIS deployment runs the ARIEL store, for startup ordering. The
-    store-address macro applies the same `deployed_services` gate, so the
-    co-deployed and external cases cannot drift apart. #}
+{#- Whether THIS deployment runs the ARIEL store. Read twice below — startup
+    ordering and the store-address macro, which takes it as its gate — so the
+    co-deployed and external cases cannot drift apart in this file. #}
 {%- set postgres_deployed = 'postgresql' in (deployed_services | default([])) %}
 
 services:
@@ -137,7 +137,7 @@ services:
       CONFIG_FILE: /app/{{ osprey_labels.project_name }}/build/config.yml
       OSPREY_PROJECT_DIR: /app/{{ osprey_labels.project_name }}
       TZ: {{ system.timezone }}
-{{- dial.ariel_store(services, osprey_ports, deployed_services | default([]), on_host, osprey_host_dial_address) }}
+{{- dial.ariel_store(postgres_deployed, on_host, osprey_host_dial_address, services, osprey_ports) }}
 {{- dial.qmd_sidecars(osprey_qmd, deployed_services | default([]), on_host) }}
 {%- if osprey_ariel_mirror_source %}
       # The mirror mount's target, named to the image entrypoint: its root phase

@@ -65,7 +65,9 @@
 {%- endmacro %}
 
 {#- `ARIEL_DATABASE_HOST`/`PORT`: the ARIEL store's address from where this
-    container runs. `resolve_ariel_dsn` applies the two in its DERIVED rung
+    container runs. `store_deployed` is the caller's one `deployed_services`
+    gate for the store, so a template that also orders startup on it reads a
+    single expression. `resolve_ariel_dsn` applies the two in its DERIVED rung
     only, so they are inert under an authored `ariel.database.uri` (or the
     legacy alias) — an external store named by URI is never redirected here.
 
@@ -77,8 +79,8 @@
     default host is `localhost`: the container's own loopback on the bridge,
     where no store listens, and the failure surfaces at the first query as a
     refused connection. -#}
-{%- macro ariel_store(services, osprey_ports, deployed_services, on_host, host_address) -%}
-{%- if 'postgresql' in (deployed_services or []) %}
+{%- macro ariel_store(store_deployed, on_host, host_address, services, osprey_ports) -%}
+{%- if store_deployed %}
 {%- if on_host %}
       # On the host namespace the store is reached where it PUBLISHES: the
       # interface `deployment.bind_address` names (loopback for a wildcard),
