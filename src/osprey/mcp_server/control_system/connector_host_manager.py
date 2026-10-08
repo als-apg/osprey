@@ -132,6 +132,7 @@ from osprey_connectors.ipc.launch import (
     host_env,
     kill_host,
     spawn_host,
+    stop_host,
 )
 from osprey_connectors.ipc.pool import DEFAULT_CALL_DEADLINE_S
 from osprey_connectors.ipc.proxy import (
@@ -149,7 +150,7 @@ from osprey_connectors.ipc.verification import (
     derive_endpoints,
     verify_host_report,
 )
-from osprey_connectors.process import reap_exit_code, terminate
+from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
 from osprey_connectors.types import (
     _SIMULATED_TYPES,
     TARGET_LIVE,
@@ -205,13 +206,6 @@ DEFAULT_PROBE_TIMEOUT_S = 5.0
 #: Bound on "process started and answered its init frame". Generous, because it
 #: covers a cold import of a control-system client library.
 DEFAULT_SPAWN_TIMEOUT_S = 30.0
-
-#: How long a child gets between ``SIGTERM`` and ``SIGKILL``.
-TERMINATE_GRACE_S = 2.0
-
-#: How long the parent waits, after killing a child, for the proxy's reader to
-#: turn the dead pipe into failures on the requests that were in flight.
-SETTLE_TIMEOUT_S = 2.0
 
 # -- switch stages and machine-readable reasons -----------------------------
 
@@ -716,7 +710,7 @@ def looks_like_a_connector_host(pid: int) -> bool:
     return CHILD_MODULE in command
 
 
-def kill_orphans(pids: list[int], *, grace_s: float = TERMINATE_GRACE_S) -> list[int]:
+def kill_orphans(pids: list[int], *, grace_s: float = DEFAULT_TERMINATE_GRACE_S) -> list[int]:
     """Kill connector-host children left behind by a dead predecessor.
 
     ``SIGTERM`` first, ``SIGKILL`` after *grace_s*. A PID that is already gone
@@ -760,7 +754,7 @@ def reset_target_state(
     config: Any,
     *,
     targets_meta: dict[str, Any] | None = None,
-    grace_s: float = TERMINATE_GRACE_S,
+    grace_s: float = DEFAULT_TERMINATE_GRACE_S,
 ) -> list[int]:
     """Write this server's report at start and kill any inherited orphans.
 
@@ -811,7 +805,7 @@ class ConnectorHostManager:
         drain_timeout_s: float | None = None,
         probe_timeout_s: float | None = None,
         spawn_timeout_s: float = DEFAULT_SPAWN_TIMEOUT_S,
-        terminate_grace_s: float = TERMINATE_GRACE_S,
+        terminate_grace_s: float = DEFAULT_TERMINATE_GRACE_S,
         python_executable: str | None = None,
     ) -> None:
         self._config = config
@@ -1895,8 +1889,7 @@ class ConnectorHostManager:
             child.proxy.refuse_new_requests(cause)
             drained = await child.proxy.drain(timeout)
             if drained:
-                await child.proxy.disconnect()
-                await self._kill_process(child.process)
+                await stop_host(child.process, child.proxy, grace_s=self._terminate_grace_s)
                 return True
 
             logger.warning(
@@ -1907,15 +1900,16 @@ class ConnectorHostManager:
                 child.target,
                 cause,
             )
-            child.reader.retire(
-                f"{cause} killed the connector-host child serving target {child.target!r} "
-                f"after its {timeout}s drain deadline expired with this request in flight"
+            await kill_host(
+                child.process,
+                child.proxy,
+                child.reader,
+                reason=(
+                    f"{cause} killed the connector-host child serving target {child.target!r} "
+                    f"after its {timeout}s drain deadline expired with this request in flight"
+                ),
+                grace_s=self._terminate_grace_s,
             )
-            await self._kill_process(child.process)
-            # Give the proxy's reader the chance to turn the dead pipe into the
-            # attributed failures before anything else touches the proxy.
-            await child.proxy.drain(SETTLE_TIMEOUT_S)
-            await child.proxy.disconnect()
             return False
         except Exception:  # pragma: no cover - defensive
             logger.warning("Error retiring connector-host child %s", child.pid, exc_info=True)
@@ -1923,16 +1917,15 @@ class ConnectorHostManager:
             # has to be told why — an unexpected failure in the orderly path is
             # not a reason to leave a caller waiting on a pipe nobody will
             # answer, nor to leave it guessing at the cause.
-            child.reader.retire(cause)
-            await self._kill_process(child.process)
             with contextlib.suppress(Exception):
-                await child.proxy.drain(SETTLE_TIMEOUT_S)
-                await child.proxy.disconnect()
+                await kill_host(
+                    child.process,
+                    child.proxy,
+                    child.reader,
+                    reason=cause,
+                    grace_s=self._terminate_grace_s,
+                )
             return False
-
-    async def _kill_process(self, process: Any) -> None:
-        """``SIGTERM``, then ``SIGKILL`` after the grace period."""
-        await terminate(process, self._terminate_grace_s)
 
     # -- config ------------------------------------------------------------
 
