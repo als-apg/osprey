@@ -3,9 +3,10 @@
 Every supervisor of :mod:`osprey_connectors.ipc.host` children needs the same
 four things — how the child is launched, what environment it is handed, how it
 is put down, and how the requests still in flight on a child that was put down
-learn why — and this module is where they are spelled once, except how a child
-is put down, which :mod:`osprey_connectors.process` spells for every child a
-supervisor owns. The controls MCP server's single-child manager and the
+learn why — and this module is where they are spelled once. Ending the process
+itself is :mod:`osprey_connectors.process`'s, which spells it for every child a
+supervisor owns; this module wraps it with what a connector-host child's proxy
+needs around it. The controls MCP server's single-child manager and the
 library's multi-target :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`
 both use them.
 
@@ -23,12 +24,16 @@ from typing import Any
 
 from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
 from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES
+from osprey_connectors.process import terminate
 
 __all__ = [
     "CHILD_MODULE",
+    "SETTLE_TIMEOUT_S",
     "AttributedReader",
     "host_env",
+    "kill_host",
     "spawn_host",
+    "stop_host",
 ]
 
 #: The child is always this module, run with ``-m``. No arguments: everything
@@ -110,3 +115,43 @@ class AttributedReader:
         if not chunk and self._reason is not None:
             raise ConnectionError(self._reason)
         return chunk
+
+
+#: How long, after a child is killed, the proxy's reader gets to turn the dead
+#: pipe into failures on the calls that were in flight.
+SETTLE_TIMEOUT_S = 2.0
+
+
+async def kill_host(
+    process: Any, proxy: Any, reader: AttributedReader, *, reason: str | None, grace_s: float
+) -> None:
+    """Put down a child that failed, and let its proxy settle. Never raises.
+
+    Args:
+        process: The child's ``asyncio.subprocess.Process``.
+        proxy: The :class:`~osprey_connectors.ipc.proxy.ConnectorHostProxy`
+            over its pipes.
+        reader: The proxy's :class:`AttributedReader`.
+        reason: Why the child is put down, named on the reader before the kill
+            so every request in flight fails with it. ``None`` when the caller
+            has already retired the reader.
+        grace_s: How long the child gets to exit after SIGTERM before SIGKILL.
+    """
+    if reason is not None:
+        reader.retire(reason)
+    await terminate(process, grace_s)
+    await proxy.drain(SETTLE_TIMEOUT_S)
+    await proxy.disconnect(ack_timeout=0.0)
+
+
+async def stop_host(process: Any, proxy: Any, *, grace_s: float) -> None:
+    """Stop a healthy child in order: acknowledge, then make sure it is gone. Never raises.
+
+    Args:
+        process: The child's ``asyncio.subprocess.Process``.
+        proxy: The :class:`~osprey_connectors.ipc.proxy.ConnectorHostProxy`
+            over its pipes.
+        grace_s: How long the child gets to exit after SIGTERM before SIGKILL.
+    """
+    await proxy.disconnect()
+    await terminate(process, grace_s)
