@@ -26,9 +26,15 @@ rules, each read from the export alone:
   else the segment after the first ``:``; else after the first run of three
   or more ``_``), else ``<family>_<i>``, an id already taken gaining the
   first free ``_<n>``, ``n`` counting up from ``i``, the slot's 0-based
-  position; ``{same_as: <family>}`` makes slot ``i`` the device slot ``i`` of
-  the named family of the same system is. A family the mapping leaves the
-  slot out for is identified by ``names``; one with a slot the export names
+  position; ``{coordinates: <stem>}`` names each slot
+  ``<stem>_<sector>_<device>`` from its ``DeviceList`` row, whole numbers
+  written in base 10, so every family stating the same row and stem names the
+  same device; ``{same_as: <family>}`` makes each slot the device of the named
+  family of the same system: the one at the same ``[sector, device]`` where
+  both families state a ``DeviceList`` (its first such slot; the named family
+  may carry more devices), else the one at the same position. The named
+  family is identified by any answer but ``same_as``. A family the mapping
+  leaves the slot out for is identified by ``names``; one with a slot the export names
   no device for stops the import until the mapping decides
   (``mapping-undecided``), so no id is ever guessed.
 * **Shared endpoints.** An address bound by several devices is one channel
@@ -40,12 +46,14 @@ from the export, skipped families from the mapping.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from osprey.facility.layers.mml.mapping import (
     ENGINE_AXES,
+    Coordinates,
     DeviceIdentity,
     ImportStop,
     SameAs,
@@ -71,7 +79,7 @@ _NON_WORD = re.compile(r"[^0-9A-Za-z]+")
 _WORD_BREAK = re.compile(r"([^0-9A-Za-z]+)")
 
 #: What a mapping without a ``devices`` answer is told to write.
-_ANSWER = "write address, a list of names or {same_as: <family>}"
+_ANSWER = "write address, a list of names, {coordinates: <stem>} or {same_as: <family>}"
 
 
 def _word(text: str) -> str:
@@ -225,6 +233,100 @@ def _listed_ids(
     return ids
 
 
+def _whole(value: Any) -> int | None:
+    """A non-negative whole number as an ``int``, else ``None`` (``1.0`` is ``1``)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value < 0 or int(value) != value:
+        return None
+    return int(value)
+
+
+def _coordinate(row: Any) -> tuple[int, int] | None:
+    """A DeviceList row as ``(sector, device)``, or ``None`` where it states no such pair."""
+    if not isinstance(row, (list, tuple)) or len(row) != 2:
+        return None
+    sector, device = _whole(row[0]), _whole(row[1])
+    return None if sector is None or device is None else (sector, device)
+
+
+def _row_key(row: Any) -> Any:
+    """What a DeviceList row is matched by: its coordinate, else its text."""
+    found = _coordinate(row)
+    return found if found is not None else repr(row)
+
+
+def _row_text(row: Any) -> str:
+    found = _coordinate(row)
+    return f"[{found[0]}, {found[1]}]" if found is not None else repr(row)
+
+
+def _coordinate_ids(
+    view: FamilyView,
+    stem: str,
+    systems: Sequence[str],
+    models: Mapping[str, str],
+    invalid: list[str],
+) -> list[str] | None:
+    """Each slot's id from its DeviceList row, or ``None`` with ``invalid`` extended."""
+    raw, key = view.raw_name, f"families.{view.raw_name}.devices"
+    if view.device_rows is None:
+        invalid.append(f"{key}: {raw} in {view.system} states no DeviceList; {_ANSWER}")
+        return None
+    ids: list[str] = []
+    for index, row in enumerate(view.device_rows):
+        found = _coordinate(row)
+        if found is None:
+            invalid.append(
+                f"{key}: {raw} device {index + 1} in {view.system} states no "
+                f"[sector, device]; {_ANSWER}"
+            )
+            return None
+        system = _system_of_slot(_slot_addresses(view, index), systems, view.system)
+        ids.append(f"{models[system]}/{stem}_{found[0]}_{found[1]}")
+    return ids
+
+
+def _matched_ids(
+    view: FamilyView,
+    target: FamilyView,
+    target_ids: Sequence[str],
+    distinct: bool,
+    invalid: list[str],
+) -> list[str] | None:
+    """Each slot's id as the target's slot at the same ``[sector, device]``.
+
+    ``distinct`` marks a target answer that may give one row two ids
+    (``address`` and a list); such a row is refused where it is matched.
+    """
+    raw, key = view.raw_name, f"families.{view.raw_name}.devices"
+    first: dict[Any, str] = {}
+    repeated: set[Any] = set()
+    for row, device in zip(target.device_rows or (), target_ids, strict=False):
+        found = _row_key(row)
+        if found not in first:
+            first[found] = device
+        elif distinct and first[found] != device:
+            repeated.add(found)
+    ids: list[str] = []
+    for row in view.device_rows or ():
+        found = _row_key(row)
+        if found not in first:
+            invalid.append(
+                f"{key}: {raw} device {_row_text(row)} in {view.system} is no device of "
+                f"{target.raw_name}; name a family that carries every device of {raw}"
+            )
+            return None
+        if found in repeated:
+            invalid.append(
+                f"{key}: {target.raw_name} states {_row_text(row)} at slots that are "
+                "different devices"
+            )
+            return None
+        ids.append(first[found])
+    return ids
+
+
 def device_ids(
     views: Sequence[FamilyView],
     models: Mapping[str, str],
@@ -248,9 +350,12 @@ def device_ids(
             whose export names no device at some slot; else
             ``mapping-invalid`` for an answer its export cannot carry: a
             ``names`` family with such a slot, a list of another length than
-            the family's devices, or a ``same_as`` naming a family the system
-            does not carry, one of another device count, or one not itself
-            identified by names or a list.
+            the family's devices, ``coordinates`` on a family that states no
+            DeviceList or a row that is no ``[sector, device]``, or a
+            ``same_as`` naming a family the system does not carry, one that
+            is itself a ``same_as``, one lacking a ``[sector, device]`` the
+            family states, one stating that row for two devices, or, where
+            either family states no DeviceList, one of another device count.
     """
     systems = list(models)
     forms = devices or {}
@@ -266,7 +371,9 @@ def device_ids(
         if isinstance(form, SameAs):
             result.append(None)
             continue
-        if form == "address":
+        if isinstance(form, Coordinates):
+            ids = _coordinate_ids(view, form.stem, systems, models, invalid)
+        elif form == "address":
             ids = _address_ids(view, systems, models, taken)
         elif form is None or form == "names":
             stated = stated_ids(view, systems, models)
@@ -299,12 +406,15 @@ def device_ids(
         key = f"families.{view.raw_name}.devices"
         other = forms.get(form.family)
         found = carried.get((view.system, form.family))
-        if isinstance(other, SameAs) or other == "address":
-            invalid.append(
-                f"{key}: {form.family} is not identified by names or a list; name a family that is"
-            )
+        if isinstance(other, SameAs):
+            invalid.append(f"{key}: {form.family} is itself a same_as; name the family it names")
         elif found is None:
             invalid.append(f"{key}: {view.system} carries no family {form.family}")
+        elif (lent := result[found]) is None:
+            continue
+        elif view.device_rows is not None and views[found].device_rows is not None:
+            distinct = other == "address" or isinstance(other, tuple)
+            result[index] = _matched_ids(view, views[found], lent, distinct, invalid)
         elif views[found].n_devices != view.n_devices:
             invalid.append(
                 f"{key}: {view.raw_name} has {view.n_devices} devices in {view.system} "
