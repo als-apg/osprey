@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 07, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 08, 2026"/>
   </head>
   
   
@@ -839,6 +839,20 @@ other service, the sidecar publishes on the project-wide
 put an unauthenticated search endpoint on an interface the rest of the stack
 is not already on. Moving that one key off loopback moves this service too.</p>
 </div>
+<section id="how-clients-reach-it">
+<h3>How clients reach it<a class="headerlink" href="#how-clients-reach-it" title="Link to this heading">#</a></h3>
+<p>A client on the host, such as a web terminal, dials the published port at the
+<code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code>. A container on the compose network cannot: the
+host’s loopback is its own. So the ARIEL sync daemon and the dispatch workers
+are each handed one <code class="docutils literal notranslate"><span class="pre">OSPREY_QMD_&lt;CORPUS&gt;_URL</span></code> per sidecar, naming it by its
+compose service name (<code class="docutils literal notranslate"><span class="pre">http://qmd-ariel:10061</span></code>), and dial that instead. Under
+<code class="docutils literal notranslate"><span class="pre">network:</span> <span class="pre">host</span></code> those services dial the published port like any host client.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> probes through the same rule, so run inside a container it
+reports on the address that container’s clients use, and an ARIEL search that
+falls back to picture matches names the sidecar URL it could not reach.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a sidecar moved to the host network while one of its
+consumers stays on the compose network, since the name it would dial does not
+exist there.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
@@ -848,6 +862,7 @@ build/up lifecycle, image overrides, network binding, and the
 </dd>
 </dl>
 </div>
+</section>
 </section>
 </section>
 
@@ -905,7 +920,10 @@ build/up lifecycle, image overrides, network binding, and the
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#sharing-the-knowledge-bundle">Sharing the knowledge bundle</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#disk-footprint">Disk footprint</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#memory-footprint">Memory footprint</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-sidecar-listens">Where the sidecar listens</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-sidecar-listens">Where the sidecar listens</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-clients-reach-it">How clients reach it</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 
