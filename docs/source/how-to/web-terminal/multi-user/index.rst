@@ -200,7 +200,10 @@ The config block
          and writes it into ``build/config.yml`` as the persona's ``project`` and
          ``project_path``. Spelling either key beside a ``build_profile`` is
          refused. An entry with no ``build_profile`` — a persona rendered
-         somewhere else — still names its ``project_path`` itself. A bundled
+         somewhere else — still names its ``project_path`` itself, and proves
+         its tier by that render: the build reads the ``config.yml`` there, the
+         same file ``osprey up`` reads, so such a persona may be the
+         ``default_persona`` or sit on a shared card like any other. A bundled
          preset name, an absolute path, or a path outside ``personas/`` is
          rejected by both ``osprey scaffold web-terminals lint`` and
          ``osprey up``.
