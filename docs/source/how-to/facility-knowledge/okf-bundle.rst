@@ -246,7 +246,6 @@ Working with a Bundle
            --help  Show this message and exit.
 
          Commands:
-           compile-ontology  Compile an authored LinkML schema into the ontology...
            regen-index       Regenerate index.md files throughout an OKF bundle.
            seed-from-ttl     Seed OKF stub documents from the build's graph view.
            validate          Validate all OKF documents in a bundle.
@@ -320,20 +319,6 @@ Working with a Bundle
       ``osprey build`` warns, once per page, when the value is no device id in
       ``facility.json``, and goes on building. A page without the key is not
       linked and never warns.
-
-      **compile-ontology** — turns the LinkML schema where a facility authors its
-      device vocabulary into the ontology table. Requires the ``knowledge``
-      extra:
-
-      .. code-block:: console
-
-         $ pip install "osprey-framework[knowledge]"
-         $ osprey knowledge compile-ontology demo_ontology.yaml demo_ontology.json
-
-      The output is deterministic, so a committed table can be reviewed like any
-      other file, and ``--check`` re-compiles without writing anything and fails
-      when the committed table has drifted from its schema — the form for CI and
-      pre-commit hooks. :doc:`use-facility-graph` has the schema format.
 
 
 Searching the Bundle

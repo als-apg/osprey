@@ -7,8 +7,7 @@ a Magnet and a Magnet is an AcceleratorDevice.  This module holds that table.
 The table itself is data, not code: :data:`DEMO_ONTOLOGY_FILENAME` ships next to
 this module and :func:`load_demo_ontology` reads it.  The shipped
 ``demo_ontology.json`` is compiled from ``demo_ontology.yaml``, a LinkML schema
-in this same directory, by ``osprey knowledge compile-ontology``, and must not
-be edited by hand.  A facility with its own vocabulary points
+in this same directory, and must not be edited by hand.  A facility with its own vocabulary points
 :func:`load_ontology`'s ``--ontology`` at its own compiled or hand-written JSON
 table instead of editing the generator.
 

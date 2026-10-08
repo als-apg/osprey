@@ -1,5 +1,5 @@
 {
-  "_generated": "Generated from demo_ontology.yaml by `osprey knowledge compile-ontology`. Do not edit.",
+  "_generated": "Generated from demo_ontology.yaml. Do not edit.",
   "classes": {
     "AcceleratingCavity": {
       "altLabels": [

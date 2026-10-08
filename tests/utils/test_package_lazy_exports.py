@@ -27,7 +27,6 @@ LAZY_EXPORT_PACKAGES = (
     "osprey.interfaces.web_terminal",
     "osprey.services.ariel_search.database",
     "osprey.services.channel_finder.graph_index",
-    "osprey.services.facility_knowledge.ontology_compiler",
 )
 
 #: Packages whose hook resolves a name from a module that imports a

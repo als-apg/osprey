@@ -42,6 +42,7 @@ DELETED_MODULES: tuple[str, ...] = (
     "osprey.services.channel_finder.databases.google_sheets",
     "osprey.services.channel_finder.databases.template",
     "osprey.services.channel_finder.tools.generate_from_spec",
+    "osprey.services.facility_knowledge.ontology_compiler",
     "osprey.services.facility_knowledge.ttl_generator.mml_source",
     "osprey.services.mml",
     "osprey.services.mml.emit",
