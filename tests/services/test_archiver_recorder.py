@@ -855,6 +855,72 @@ def test_stored_documents_carry_the_shape_the_connector_reads(archive_collection
     assert doc["expireAt"].replace(tzinfo=UTC) == timestamp + timedelta(hours=48)
 
 
+async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
+    archive_collection,
+    mongodb_container,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Write, store and read back through the connector, each under the channel's address.
+
+    The stored field is ``field_name`` of the address, so MongoDB never reads
+    the ``.`` as a path into a sub-document nor the leading ``$`` as an operator.
+    """
+    from osprey.connectors.archiver.mongodb_archiver_connector import (
+        HOST_OVERRIDE_ENV,
+        PORT_OVERRIDE_ENV,
+        MongoDBArchiverConnector,
+    )
+    from osprey_connectors.archiver.field_names import field_name
+
+    settings, collection, password = archive_collection
+    samples = {"SR:REC.RBV": 1.5, "SR:REC.HLS": 0.0, "$SR:LEAD": 2.0}
+    timestamp = datetime(2026, 8, 10, 12, 0, 10, tzinfo=UTC)
+    writer = ArchiveWriter(settings, password)
+    writer.connect()
+    try:
+        writer.write_sample(timestamp, samples)
+    finally:
+        writer.close()
+
+    doc = collection.find_one({"date": timestamp})
+    assert doc is not None
+    for address, value in samples.items():
+        assert doc[field_name(address)] == value
+    assert "SR:REC" not in doc
+
+    monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+    monkeypatch.setenv("RECORDER_SHAPE_PASSWORD", password)
+    connector = MongoDBArchiverConnector()
+    await connector.connect(
+        {
+            "host": mongodb_container["host"],
+            "port": mongodb_container["port"],
+            "name": settings.database,
+            "collection": settings.collection,
+            "auth": {
+                "source": mongodb_container["auth_db"],
+                "username": mongodb_container["username"],
+                "password_env": "RECORDER_SHAPE_PASSWORD",
+            },
+            "timeout_s": 10,
+        }
+    )
+    try:
+        frame = await connector.get_data(
+            channels=list(samples),
+            start_date=timestamp - timedelta(seconds=5),
+            end_date=timestamp + timedelta(seconds=5),
+        )
+        availability = await connector.check_availability(list(samples))
+    finally:
+        await connector.disconnect()
+
+    read = dict(zip(frame["channel"], frame["value"], strict=True))
+    assert read == samples
+    assert availability == dict.fromkeys(samples, True)
+
+
 def test_writing_an_instant_twice_merges_and_never_restamps_expiry(archive_collection) -> None:
     """The two guards that let the recorder coexist with the seeded half of the
     collection: a second write leaves values it did not read alone, and it does

@@ -2,8 +2,8 @@
 
 The document shape is not this module's invention: it is the one
 ``MongoDBArchiverConnector`` reads — one document per timestamp, ``date`` plus
-a field per PV, and a PV absent from a document simply contributes no sample
-for that channel. Writing anything else here would produce an archive the
+a field per channel, named by ``field_name`` of its address, and a channel
+absent from a document simply contributes no sample for it. Writing anything else here would produce an archive the
 product cannot read.
 
 The one field the reader never sees is ``expireAt``, the per-document TTL
@@ -28,6 +28,7 @@ from osprey.connectors.archiver.mongodb_archiver_connector import (
     CA_FILE_ERRORS,
     mongo_client_kwargs,
 )
+from osprey_connectors.archiver.field_names import field_name
 
 from .config import RecorderSettings
 
@@ -144,7 +145,7 @@ class ArchiveWriter:
         self._collection.update_one(
             {"date": timestamp},
             {
-                "$set": dict(values),
+                "$set": {field_name(address): value for address, value in values.items()},
                 "$setOnInsert": {"expireAt": expiry_for(timestamp, self._settings)},
             },
             upsert=True,
