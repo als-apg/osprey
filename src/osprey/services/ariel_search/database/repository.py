@@ -1618,6 +1618,37 @@ class ARIELRepository:
                 skipped[reason] = skipped.get(reason, 0) + int(count)
         return pending, skipped
 
+    async def get_caption_counts(self, model_id: str) -> dict[str, int]:
+        """Count the pictures recorded as over the caption cap under ``model_id``.
+
+        Args:
+            model_id: The caption model id the captions are keyed under.
+
+        Returns:
+            ``{"over_cap": n}``.
+        """
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute(
+                    """
+                    SELECT count(*) FILTER (WHERE c.per_model->%(model)s->>'error' = %(over)s)
+                    FROM enhanced_entries e,
+                         jsonb_each(CASE WHEN jsonb_typeof(e.attachment_captions) = 'object'
+                                         THEN e.attachment_captions ELSE '{}'::jsonb END)
+                             AS c(attachment_id, per_model)
+                    WHERE jsonb_typeof(c.per_model) = 'object'
+                      AND jsonb_typeof(c.per_model->%(model)s) = 'object'
+                    """,
+                    {"model": model_id, "over": "over_image_cap"},
+                )
+                row = await result.fetchone()
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to count captions: {e}",
+                query="SELECT enhanced_entries attachment_captions counts",
+            ) from e
+        return {"over_cap": int(row[0]) if row is not None else 0}
+
     async def get_attachment_bytes(self) -> int:
         """Return the total on-disk size of ``attachment_files`` (with TOAST and indexes)."""
         try:

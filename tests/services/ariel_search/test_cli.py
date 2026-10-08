@@ -1285,3 +1285,63 @@ class TestStatusVocabularyLine:
         assert result.exit_code == 0
         document = json_mod.loads(result.stdout)
         assert document["vocabulary"]["status"] == "invalid"
+
+
+class TestStatusCaptionLines:
+    """``osprey ariel status`` names the command that acts on caption counts."""
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    @pytest.fixture(autouse=True)
+    def _config(self, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
+        )
+
+    def _status(self, monkeypatch, captions):
+        result = {
+            "status": "healthy",
+            "message": "ok",
+            "vocabulary": {"status": "disabled", "concepts": 0, "errors": []},
+            "database": {"uri": "localhost/ariel", "connected": True},
+            "entries": 3,
+            "last_ingestion": None,
+            "embedding_tables": [],
+            "image_embedding_tables": [],
+            "enhancement_modules": {},
+            "orphaned_enhancement_modules": {},
+            "attachments": None,
+            "captions": captions,
+        }
+
+        async def fake_get_status(config_dict, *, config_dir=None):  # noqa: ARG001 - the get_status signature
+            return result
+
+        monkeypatch.setattr(
+            "osprey.services.ariel_search.cli_operations.get_status", fake_get_status
+        )
+
+    def test_over_cap_pictures_name_the_key_and_the_retry(self, runner, monkeypatch):
+        self._status(monkeypatch, {"over_cap": 5})
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        text = _flat(result.stdout)
+        assert (
+            "image_caption: 5 pictures past "
+            "ariel.enhancement_modules.image_caption.max_images_per_entry have no caption."
+        ) in text
+        assert "osprey ariel enhance --module image_caption --retry-failed" in text
+
+    @pytest.mark.parametrize("captions", [None, {"over_cap": 0}])
+    def test_nothing_to_act_on_prints_no_caption_line(self, runner, monkeypatch, captions):
+        self._status(monkeypatch, captions)
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert "image_caption:" not in result.stdout

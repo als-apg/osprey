@@ -2257,7 +2257,10 @@ keys:
     evidence: '"max_images_per_entry", DEFAULT_MAX_IMAGES_PER_ENTRY'
     note: >-
       Viewable pictures captioned per entry, in attachment order; the rest are
-      recorded as over_image_cap with no model call. Commented in the presets.
+      recorded as over_image_cap with no model call. After raising it, `osprey
+      ariel enhance --module image_caption --retry-failed` captions the pictures
+      now within it; lowering it keeps existing captions. Commented in the
+      presets.
     default: 8
   ariel.enhancement_modules.image_caption.prompt_template:
     rendered: false

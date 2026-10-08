@@ -683,6 +683,44 @@ class TestRunEntry:
         assert [captions[i][MODEL] for i in ids[-2:]] == [{"error": "over_image_cap"}] * 2
         assert all("caption" in captions[i][MODEL] for i in ids[:-2])
 
+    async def test_a_raised_cap_makes_over_cap_pictures_under_it_owed(
+        self, provider_configs, monkeypatch
+    ):
+        repo = FakeRepo()
+        ids = repo.add_entry("e1", 3)
+        repo.entries["e1"]["attachment_captions"] = {
+            ids[0]: {MODEL: {"caption": "old", "visible_text": ""}},
+            ids[1]: {MODEL: {"error": "over_image_cap"}},
+            ids[2]: {MODEL: {"error": "over_image_cap"}},
+        }
+        model = FakeModel()
+        module = _module(provider_configs, monkeypatch, model, max_images_per_entry=2)
+
+        outcome = await module.run_entry(repo.entries["e1"], repo, gate=FakeGate())
+
+        assert outcome.kind == "done"
+        assert len(model.calls) == 1
+        captions = repo.captions("e1")
+        assert captions[ids[0]][MODEL]["caption"] == "old"
+        assert captions[ids[1]][MODEL]["caption"] == "A plot."
+        assert captions[ids[2]][MODEL] == {"error": "over_image_cap"}
+
+    async def test_a_lowered_cap_keeps_the_captions_past_it(self, provider_configs, monkeypatch):
+        repo = FakeRepo()
+        ids = repo.add_entry("e1", 3)
+        stored = {
+            i: {MODEL: {"caption": f"old {n}", "visible_text": ""}} for n, i in enumerate(ids)
+        }
+        repo.entries["e1"]["attachment_captions"] = json.loads(json.dumps(stored))
+        model = FakeModel()
+        module = _module(provider_configs, monkeypatch, model, max_images_per_entry=1)
+
+        outcome = await module.run_entry(repo.entries["e1"], repo, gate=FakeGate())
+
+        assert outcome.kind == "done"
+        assert model.calls == []
+        assert repo.captions("e1") == stored
+
     async def test_picture_deleted_during_the_call_is_not_stored(
         self, provider_configs, monkeypatch
     ):

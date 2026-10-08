@@ -60,6 +60,9 @@ IMAGE_CAPTION_KEY = "ariel.enhancement_modules.image_caption"
 #: recorded as ``{"error": "over_image_cap"}`` with no model call.
 DEFAULT_MAX_IMAGES_PER_ENTRY = 8
 
+#: The caption error recorded for a picture past ``max_images_per_entry``.
+OVER_IMAGE_CAP = "over_image_cap"
+
 #: Seconds one vision call may take: ten times what one picture takes for a
 #: local vision model on CPU, rounded up to ten seconds.
 DEFAULT_TIMEOUT_SECONDS = 1320
@@ -124,6 +127,11 @@ def parse_caption_reply(reply: str) -> tuple[str, str]:
     return caption, visible
 
 
+def _is_over_cap(value: Any) -> bool:
+    """Whether a stored caption value records a picture past the cap."""
+    return isinstance(value, Mapping) and value.get("error") == OVER_IMAGE_CAP
+
+
 def _reply_text(reply: Any) -> str:
     """The text of a completion result (a string or a list of content blocks)."""
     if isinstance(reply, str):
@@ -168,6 +176,17 @@ def _positive_number(config: Mapping[str, Any], key: str, default: float, *, int
             key=f"{IMAGE_CAPTION_KEY}.{key}",
         )
     return value
+
+
+def max_images_per_entry(config: Mapping[str, Any]) -> int:
+    """``max_images_per_entry`` of the module's config block, validated.
+
+    Raises:
+        ModuleConfigError: When the value is not an integer >= 1.
+    """
+    return int(
+        _positive_number(config, "max_images_per_entry", DEFAULT_MAX_IMAGES_PER_ENTRY, integer=True)
+    )
 
 
 class ImageCaptionModule(BaseEnhancementModule):
@@ -257,9 +276,7 @@ class ImageCaptionModule(BaseEnhancementModule):
                 f"(got {max_tokens!r})",
                 key=f"{IMAGE_CAPTION_KEY}.model.max_tokens",
             )
-        max_images = _positive_number(
-            config, "max_images_per_entry", DEFAULT_MAX_IMAGES_PER_ENTRY, integer=True
-        )
+        max_images = max_images_per_entry(config)
         timeout = _positive_number(
             config, "timeout_seconds", DEFAULT_TIMEOUT_SECONDS, integer=False
         )
@@ -431,7 +448,7 @@ class ImageCaptionModule(BaseEnhancementModule):
             if not gate.may_start_picture():
                 return ImageEntryOutcome.partial()
             if over_cap:
-                await self._store(repository, entry, attachment_id, {"error": "over_image_cap"})
+                await self._store(repository, entry, attachment_id, {"error": OVER_IMAGE_CAP})
                 continue
             rendition = await repository.get_rendition(attachment_id)
             if rendition is None:  # deleted or re-rendered since the read
@@ -461,8 +478,10 @@ class ImageCaptionModule(BaseEnhancementModule):
         """The pictures still owed, as ``(attachment_id, over_cap)`` in attachment list order.
 
         Read with no lock. A viewable picture beyond ``max_images_per_entry``
-        (counting every viewable picture, captioned or not) is over the cap.
-        Returns None when the store has no copy state.
+        (counting every viewable picture, captioned or not) is over the cap. A
+        picture recorded as over the cap is owed again once a raised cap takes
+        it in; a caption past a lowered cap is kept. Returns None when the store
+        has no copy state.
         """
         viewable = await viewable_in_list_order(entry, repository)
         if viewable is None:
@@ -472,10 +491,12 @@ class ImageCaptionModule(BaseEnhancementModule):
         captions = captions if isinstance(captions, Mapping) else {}
         work: list[tuple[str, bool]] = []
         for index, attachment_id in enumerate(viewable):
+            over_cap = index >= self._max_images
             per_item = captions.get(attachment_id)
             if isinstance(per_item, Mapping) and model_id in per_item:
-                continue
-            work.append((attachment_id, index >= self._max_images))
+                if over_cap or not _is_over_cap(per_item[model_id]):
+                    continue
+            work.append((attachment_id, over_cap))
         return work
 
     def _call(self, entry: Mapping[str, Any], rendition: Mapping[str, Any]) -> Any:

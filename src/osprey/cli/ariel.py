@@ -125,6 +125,28 @@ def _report_attachments(attachments: dict | None) -> None:
             output.note(f"skipped {code}: {count}. Reason: {skip_reason_text(code)}.")
 
 
+_CAPTION_KEY = "ariel.enhancement_modules.image_caption"
+_CAPTION_ENHANCE = "osprey ariel enhance --module image_caption"
+
+
+def _report_captions(captions: dict | None) -> None:
+    """Print the caption lines of ``osprey ariel status`` that call for an action.
+
+    Args:
+        captions: The ``captions`` block of the status result, or None when no
+            caption model is configured (nothing is printed then).
+    """
+    if not captions:
+        return
+    over_cap = captions.get("over_cap") or 0
+    if over_cap:
+        output.report(
+            f"image_caption: {over_cap} pictures past {_CAPTION_KEY}.max_images_per_entry "
+            f"have no caption. To caption them, raise the key, then run "
+            f"{_CAPTION_ENHANCE} --retry-failed."
+        )
+
+
 #: How each local server is started, for the ``unreachable`` line of status.
 _SERVER_START = {
     "llama-cpp": "start llama-server, see the picture-search guide",
@@ -426,6 +448,7 @@ def status_command(output_json: bool) -> None:
             _report_module_health(result.get("enhancement_modules"), config_dict)
 
             _report_attachments(result.get("attachments"))
+            _report_captions(result.get("captions"))
 
 
 @ariel_group.command("migrate")

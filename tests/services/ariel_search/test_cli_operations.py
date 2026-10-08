@@ -159,6 +159,7 @@ def _status_repo(
     else:
         repo.get_attachment_bytes = AsyncMock(return_value=attachment_bytes)
     repo.get_attachment_copy_counts = AsyncMock(return_value=copy_counts)
+    repo.get_caption_counts = AsyncMock(return_value={"over_cap": 0})
     return repo
 
 
@@ -381,6 +382,29 @@ class TestGetStatus:
         await ops.get_status(dict(_DB))
 
         repo.get_enhancement_stats.assert_awaited_once_with()
+
+    async def test_caption_counts_are_read_under_the_caption_model(self, monkeypatch):
+        repo = _status_repo()
+        repo.get_caption_counts = AsyncMock(return_value={"over_cap": 4})
+        _patch_service(monkeypatch, _StubService(repository=repo))
+        config = {
+            **_DB,
+            "enhancement_modules": {"image_caption": {"model": {"model_id": "vis-a"}}},
+        }
+
+        out = await ops.get_status(config)
+
+        repo.get_caption_counts.assert_awaited_once_with("vis-a")
+        assert out["captions"] == {"over_cap": 4}
+
+    async def test_no_caption_model_reports_no_caption_counts(self, monkeypatch):
+        repo = _status_repo()
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        repo.get_caption_counts.assert_not_awaited()
+        assert out["captions"] is None
 
     async def test_stats_are_read_under_the_caption_marker(self, monkeypatch):
         """A configured caption model is passed as the image_caption marker."""

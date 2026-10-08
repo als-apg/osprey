@@ -580,7 +580,9 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         ``no_reader``, ``config`` or None) and ``probed_from``. ``attachments``
         is the object :func:`_attachments_status` builds, its
         ``picture_search_unavailable`` taken from the ``image_embedding``
-        health verdict (:func:`_picture_search_unavailable`).
+        health verdict (:func:`_picture_search_unavailable`). ``captions`` is
+        the caption counts under the configured caption model
+        (``over_cap``), or None when no caption model is configured.
         ``image_embedding_tables`` lists the picture tables
         (``table``, ``pictures``, ``dimension``, ``active``) apart from the
         text tables of ``embedding_tables``.
@@ -617,6 +619,11 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
             image_tables = await service.repository.get_image_embedding_tables()
             last_ingestion = await service.repository.get_last_ingestion()
             attachments = await _attachments_status(config, service.repository)
+            captions = (
+                await service.repository.get_caption_counts(caption_marker)
+                if caption_marker is not None
+                else None
+            )
             health = await _modules_health(config, registered, service.repository)
             if image_config_bad:
                 health["image_embedding"] = _health_entry(False, "config")
@@ -674,6 +681,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                 },
                 "vocabulary": vocabulary,
                 "attachments": attachments,
+                "captions": captions,
             }
 
     except Exception as e:
@@ -1973,22 +1981,18 @@ _CLEAR_MODULE_KEY_SQL = (
     " WHERE entry_id = %(entry_id)s AND enhancement_status ? %(module)s"
 )
 
-#: Entries holding a failed caption under ``%(model)s`` other than ``over_image_cap``.
+#: Entries holding a caption error under ``%(model)s``, ``over_image_cap`` included.
 _CAPTION_ERROR_ENTRIES_SQL = """
-SELECT e.entry_id FROM enhanced_entries e
+SELECT e.entry_id, e.attachments FROM enhanced_entries e
 WHERE jsonb_typeof(e.attachment_captions) = 'object'
 AND EXISTS (
     SELECT 1 FROM jsonb_each(e.attachment_captions) AS c(attachment_id, per_model)
     WHERE jsonb_typeof(c.per_model) = 'object'
     AND jsonb_typeof(c.per_model->%(model)s) = 'object'
     AND c.per_model->%(model)s ? 'error'
-    AND c.per_model->%(model)s->>'error' IS DISTINCT FROM 'over_image_cap'
 )
 ORDER BY e.entry_id
 """
-
-#: The caption error that is a decision, not a failure, and is never retried.
-_OVER_IMAGE_CAP = "over_image_cap"
 
 
 async def retry_failed_entries(config: ARIELConfig, module: str, progress: _ProgressCb) -> int:
@@ -1997,10 +2001,11 @@ async def retry_failed_entries(config: ARIELConfig, module: str, progress: _Prog
     Every module: a failed status loses its ``gave_up`` and ``attempts``. The
     picture modules also forget their per-picture failures under the current
     model, one transaction per entry, the entry row locked first:
-    ``image_caption`` deletes the current model's ``{error}`` captions (keeping
-    ``over_image_cap``), recomposes ``attachment_text`` and clears the text keys
-    when it changed; ``image_embedding`` deletes the current table's rows with a
-    ``skip_reason``. An entry that lost a failure then has its module key
+    ``image_caption`` deletes the current model's ``{error}`` captions, and an
+    ``over_image_cap`` one only when the picture is now within
+    ``max_images_per_entry``, recomposes ``attachment_text`` and clears the text
+    keys when it changed; ``image_embedding`` deletes the current table's rows
+    with a ``skip_reason``. An entry that lost a failure then has its module key
     cleared, so the next pass walks it again.
 
     The whole step runs under the module's advisory lock
@@ -2022,6 +2027,20 @@ async def retry_failed_entries(config: ARIELConfig, module: str, progress: _Prog
 
     logger = get_logger("ariel")
     table: str | None = None
+    caption_cap = 0
+    if module == "image_caption":
+        from osprey.services.ariel_search.enhancement.image_caption.module import (
+            max_images_per_entry,
+        )
+
+        try:
+            caption_cap = max_images_per_entry(
+                config.get_enhancement_module_config("image_caption") or {}
+            )
+        except ModuleConfigError as exc:
+            report_unavailable(module, "config", str(exc), fix_for(module, "config", exc))
+            _say(progress, logger, f"{module}: skipped, unavailable (config: {exc})")
+            return 0
     if module == "image_embedding":
         try:
             table = image_embedding_current_table(config)
@@ -2044,7 +2063,7 @@ async def retry_failed_entries(config: ARIELConfig, module: str, progress: _Prog
                 )
                 retried.update(row[0] for row in await cursor.fetchall())
             if module == "image_caption":
-                retried |= await _forget_caption_failures(pool, config)
+                retried |= await _forget_caption_failures(service.repository, config, caption_cap)
             elif table is not None:
                 retried |= await _forget_embedding_failures(pool, table)
     if progress:
@@ -2052,8 +2071,15 @@ async def retry_failed_entries(config: ARIELConfig, module: str, progress: _Prog
     return len(retried)
 
 
-async def _forget_caption_failures(pool: Any, config: ARIELConfig) -> set[str]:
-    """Delete the current model's failed captions, one entry per transaction."""
+async def _forget_caption_failures(
+    repository: ARIELRepository, config: ARIELConfig, cap: int
+) -> set[str]:
+    """Delete the current model's failed captions, one entry per transaction.
+
+    An ``over_image_cap`` result is deleted only when the picture's place among
+    the entry's viewable pictures is now within ``cap``; captions are never
+    deleted, so lowering the cap keeps them.
+    """
     from psycopg.types.json import Jsonb
 
     from osprey.services.ariel_search.attachments.compose import (
@@ -2061,15 +2087,24 @@ async def _forget_caption_failures(pool: Any, config: ARIELConfig) -> set[str]:
         compose_attachment_text,
     )
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.enhancement.image_caption.module import OVER_IMAGE_CAP
+    from osprey.services.ariel_search.enhancement.image_driver import viewable_in_list_order
 
     model_id = caption_model_id(config)
     if not model_id:
         return set()
+    pool = repository.pool
     async with pool.connection() as conn:
         cursor = await conn.execute(_CAPTION_ERROR_ENTRIES_SQL, {"model": model_id})
-        entry_ids = [row[0] for row in await cursor.fetchall()]
+        candidates = await cursor.fetchall()
     forgotten: set[str] = set()
-    for entry_id in entry_ids:
+    for entry_id, listed in candidates:
+        # Read with no lock, like the module's own to-do read.
+        viewable = await viewable_in_list_order(
+            cast("EnhancedLogbookEntry", {"entry_id": entry_id, "attachments": listed}),
+            repository,
+        )
+        within_cap = set((viewable or [])[:cap])
         async with pool.connection() as conn, conn.transaction():
             cursor = await conn.execute(
                 "SELECT attachments, attachment_text, attachment_captions"
@@ -2088,7 +2123,7 @@ async def _forget_caption_failures(pool: Any, config: ARIELConfig) -> set[str]:
                 value = per_model.get(model_id)
                 if not isinstance(value, Mapping) or "error" not in value:
                     continue
-                if value.get("error") == _OVER_IMAGE_CAP:
+                if value.get("error") == OVER_IMAGE_CAP and attachment_id not in within_cap:
                     continue
                 kept = {k: v for k, v in per_model.items() if k != model_id}
                 if kept:

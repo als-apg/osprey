@@ -399,9 +399,10 @@ class TestRetryFailedCaptions:
         self, repo, scratch_database, monkeypatch
     ):
         cfg = _config_dict(scratch_database, caption=True)
+        cfg["enhancement_modules"][CAPTION]["max_images_per_entry"] = 1
         await _seed(repo, cfg, "cap-1", ["a.png", "b.png"])
         aid, over = _id("cap-1", "a.png"), _id("cap-1", "b.png")
-        # One picture already set aside over the cap: a decision, never retried.
+        # One picture set aside over the cap, and still over it: never retried.
         with psycopg.connect(scratch_database, autocommit=True) as conn:
             conn.execute(
                 "UPDATE enhanced_entries SET attachment_captions = %s::jsonb WHERE entry_id = %s",
@@ -430,4 +431,51 @@ class TestRetryFailedCaptions:
         assert captions[aid][CAPTION_MODEL]["caption"] == "Klystron arc trace on the scope."
         assert captions[over][CAPTION_MODEL] == {"error": "over_image_cap"}
         assert _status(scratch_database, "cap-1")[CAPTION]["status"] == "complete"
+        assert vision.calls == 2
+
+    async def test_raising_the_cap_then_retry_failed_captions_the_pictures_now_under_it(
+        self, repo, scratch_database, monkeypatch
+    ):
+        cfg = _config_dict(scratch_database, caption=True)
+        cfg["enhancement_modules"][CAPTION]["max_images_per_entry"] = 1
+        await _seed(repo, cfg, "cap-2", ["a.png", "b.png", "c.png"])
+        a, b, c = (_id("cap-2", n) for n in ("a.png", "b.png", "c.png"))
+        vision = _Vision(fail=0)
+        monkeypatch.setattr(caption_mod, "_chat_completion", vision)
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
+        assert _captions(scratch_database, "cap-2")[b][CAPTION_MODEL] == {"error": "over_image_cap"}
+        assert vision.calls == 1
+        assert await repo.get_caption_counts(CAPTION_MODEL) == {"over_cap": 2}
+
+        cfg["enhancement_modules"][CAPTION]["max_images_per_entry"] = 2
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
+        assert vision.calls == 1  # a raised cap alone re-captions nothing
+        lines: list[str] = []
+        await ops.run_enhance(
+            cfg, module=CAPTION, force=False, limit=100, retry_failed=True, progress=lines.append
+        )
+
+        captions = _captions(scratch_database, "cap-2")
+        assert captions[a][CAPTION_MODEL]["caption"] == "Klystron arc trace on the scope."
+        assert captions[b][CAPTION_MODEL]["caption"] == "Klystron arc trace on the scope."
+        assert captions[c][CAPTION_MODEL] == {"error": "over_image_cap"}
+        assert _status(scratch_database, "cap-2")[CAPTION]["status"] == "complete"
+        assert vision.calls == 2
+        assert f"{CAPTION}: 1 failed entries will be retried" in lines
+        assert await repo.get_caption_counts(CAPTION_MODEL) == {"over_cap": 1}
+
+    async def test_lowering_the_cap_then_retry_failed_keeps_every_caption(
+        self, repo, scratch_database, monkeypatch
+    ):
+        cfg = _config_dict(scratch_database, caption=True)
+        await _seed(repo, cfg, "cap-3", ["a.png", "b.png"])
+        vision = _Vision(fail=0)
+        monkeypatch.setattr(caption_mod, "_chat_completion", vision)
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
+        before = _captions(scratch_database, "cap-3")
+
+        cfg["enhancement_modules"][CAPTION]["max_images_per_entry"] = 1
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100, retry_failed=True)
+
+        assert _captions(scratch_database, "cap-3") == before
         assert vision.calls == 2
