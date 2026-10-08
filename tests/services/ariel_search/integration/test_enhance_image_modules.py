@@ -514,7 +514,13 @@ class TestRefreshStaleCaptions:
         await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
         assert vision.calls == 2  # a new prompt alone captions nothing again
         counts = await repo.get_caption_counts(CAPTION_MODEL, new_sha)
-        assert counts == {"over_cap": 0, "older_prompt": 1, "unrecorded_prompt": 1}
+        assert counts == {
+            "over_cap": 0,
+            "older_prompt": 1,
+            "refresh_pending": 0,
+            "refresh_failed": 0,
+            "unrecorded_prompt": 1,
+        }
 
         lines: list[str] = []
         await ops.run_enhance(
@@ -529,7 +535,13 @@ class TestRefreshStaleCaptions:
         assert f"{CAPTION}: 1 captions made with an older prompt will be made again" in lines
         assert _status(scratch_database, "stale-1")[CAPTION]["status"] == "complete"
         counts = await repo.get_caption_counts(CAPTION_MODEL, new_sha)
-        assert counts == {"over_cap": 0, "older_prompt": 0, "unrecorded_prompt": 1}
+        assert counts == {
+            "over_cap": 0,
+            "older_prompt": 0,
+            "refresh_pending": 0,
+            "refresh_failed": 0,
+            "unrecorded_prompt": 1,
+        }
 
     async def test_refresh_keeps_the_old_caption_searchable_until_it_is_replaced(
         self, repo, scratch_database, monkeypatch
@@ -550,6 +562,11 @@ class TestRefreshStaleCaptions:
         assert stored["caption"] == "Klystron arc trace on the scope."
         assert stored["refresh"] is True
         assert CAPTION not in _status(scratch_database, "stale-2")
+        prompt = caption_mod.caption_prompt_sha256(cfg["enhancement_modules"][CAPTION])
+        counts = await repo.get_caption_counts(CAPTION_MODEL, prompt)
+        assert (counts["older_prompt"], counts["refresh_pending"]) == (0, 1)
+        # Already marked: a second refresh marks nothing again.
+        assert await ops.refresh_stale_captions(ops._ariel_config(cfg), None) == 0
 
     async def test_a_refresh_the_model_refuses_keeps_the_caption_in_search(
         self, repo, scratch_database, monkeypatch
@@ -575,3 +592,6 @@ class TestRefreshStaleCaptions:
                 "SELECT attachment_text FROM enhanced_entries WHERE entry_id = %s", ("stale-3",)
             ).fetchone()
         assert row is not None and "Klystron arc trace on the scope." in row[0]
+        prompt = caption_mod.caption_prompt_sha256(cfg["enhancement_modules"][CAPTION])
+        counts = await repo.get_caption_counts(CAPTION_MODEL, prompt)
+        assert (counts["older_prompt"], counts["refresh_failed"]) == (0, 1)

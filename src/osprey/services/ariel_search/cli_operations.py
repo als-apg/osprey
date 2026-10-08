@@ -582,8 +582,9 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         ``picture_search_unavailable`` taken from the ``image_embedding``
         health verdict (:func:`_picture_search_unavailable`). ``captions`` is
         the caption counts under the configured caption model and prompt
-        (``over_cap``, ``older_prompt``, ``unrecorded_prompt``), or None when
-        no caption model is configured.
+        (``over_cap``, ``older_prompt``, ``refresh_pending``,
+        ``refresh_failed``, ``unrecorded_prompt``), or None when no caption
+        model is configured.
         ``image_embedding_tables`` lists the picture tables
         (``table``, ``pictures``, ``dimension``, ``active``) apart from the
         text tables of ``embedding_tables``.
@@ -2171,7 +2172,8 @@ async def _forget_caption_failures(
     return forgotten
 
 
-#: Entries holding a caption under ``%(model)s`` that records another prompt's digest.
+#: Entries holding a caption under ``%(model)s`` that records another prompt's digest
+#: and is not already marked to be made again.
 _STALE_CAPTION_ENTRIES_SQL = """
 SELECT e.entry_id FROM enhanced_entries e
 WHERE jsonb_typeof(e.attachment_captions) = 'object'
@@ -2182,6 +2184,7 @@ AND EXISTS (
     AND c.per_model->%(model)s ? 'caption'
     AND c.per_model->%(model)s ? 'prompt_sha256'
     AND c.per_model->%(model)s->>'prompt_sha256' IS DISTINCT FROM %(prompt)s
+    AND NOT c.per_model->%(model)s ? 'refresh'
 )
 ORDER BY e.entry_id
 """
@@ -2191,8 +2194,9 @@ async def refresh_stale_captions(config: ARIELConfig, progress: _ProgressCb) -> 
     """Mark the captions made with another prompt to be made again.
 
     A caption under the current model whose ``prompt_sha256`` differs from the
-    current prompt template's gets ``refresh: true``, one transaction per
-    entry, the entry row locked first, and the entry's ``image_caption`` key is
+    current prompt template's, and is not already marked, gets
+    ``refresh: true`` (losing any ``refresh_error`` from an earlier attempt),
+    one transaction per entry, the entry row locked first, and the entry's ``image_caption`` key is
     cleared so the next pass walks it. The old caption stays in place, and
     searchable, until the new one replaces it. Captions that record no prompt
     digest are left alone. Runs under the module's advisory lock; when another
@@ -2206,6 +2210,7 @@ async def refresh_stale_captions(config: ARIELConfig, progress: _ProgressCb) -> 
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.attachments.compose import caption_model_id
     from osprey.services.ariel_search.enhancement.image_caption.module import (
+        REFRESH_ERROR_KEY,
         REFRESH_KEY,
         caption_prompt_sha256,
     )
@@ -2251,11 +2256,13 @@ async def refresh_stale_captions(config: ARIELConfig, progress: _ProgressCb) -> 
                             or "caption" not in value
                             or "prompt_sha256" not in value
                             or value["prompt_sha256"] == prompt
+                            or REFRESH_KEY in value
                         ):
                             continue
+                        marked_value = {k: v for k, v in value.items() if k != REFRESH_ERROR_KEY}
                         captions[attachment_id] = {
                             **per_model,
-                            model_id: {**value, REFRESH_KEY: True},
+                            model_id: {**marked_value, REFRESH_KEY: True},
                         }
                         count += 1
                     if not count:

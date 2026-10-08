@@ -161,7 +161,13 @@ def _status_repo(
         repo.get_attachment_bytes = AsyncMock(return_value=attachment_bytes)
     repo.get_attachment_copy_counts = AsyncMock(return_value=copy_counts)
     repo.get_caption_counts = AsyncMock(
-        return_value={"over_cap": 0, "older_prompt": 0, "unrecorded_prompt": 0}
+        return_value={
+            "over_cap": 0,
+            "older_prompt": 0,
+            "refresh_pending": 0,
+            "refresh_failed": 0,
+            "unrecorded_prompt": 0,
+        }
     )
     return repo
 

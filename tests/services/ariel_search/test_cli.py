@@ -1347,6 +1347,26 @@ class TestStatusCaptionLines:
         assert "image_caption: 3 captions made with an older prompt." in text
         assert "osprey ariel enhance --module image_caption --refresh-stale" in text
 
+    def test_pending_and_failed_refreshes_are_reported_apart(self, runner, monkeypatch):
+        self._status(
+            monkeypatch,
+            {
+                "over_cap": 0,
+                "older_prompt": 0,
+                "refresh_pending": 2,
+                "refresh_failed": 1,
+                "unrecorded_prompt": 0,
+            },
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        text = _flat(result.stdout)
+        assert "older prompt" not in text
+        assert "image_caption: 2 captions are waiting to be made again" in text
+        assert ("image_caption: 1 captions could not be made again and keep their old text") in text
+
     def test_captions_without_a_prompt_record_are_noted_as_left_alone(self, runner, monkeypatch):
         self._status(monkeypatch, {"over_cap": 0, "older_prompt": 0, "unrecorded_prompt": 7})
 

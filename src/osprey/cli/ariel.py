@@ -151,6 +151,19 @@ def _report_captions(captions: dict | None) -> None:
             f"image_caption: {older} captions made with an older prompt. To caption them "
             f"again with {_CAPTION_KEY}.prompt_template, run {_CAPTION_ENHANCE} --refresh-stale."
         )
+    pending = captions.get("refresh_pending") or 0
+    if pending:
+        output.report(
+            f"image_caption: {pending} captions are waiting to be made again with the "
+            "current prompt; the next picture pass makes them."
+        )
+    failed = captions.get("refresh_failed") or 0
+    if failed:
+        output.report(
+            f"image_caption: {failed} captions could not be made again and keep their old "
+            f"text. After fixing {_CAPTION_KEY}.prompt_template or the model, run "
+            f"{_CAPTION_ENHANCE} --refresh-stale."
+        )
     unrecorded = captions.get("unrecorded_prompt") or 0
     if unrecorded:
         output.note(

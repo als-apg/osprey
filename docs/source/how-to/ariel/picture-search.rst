@@ -372,7 +372,9 @@ Limits you can change
    reports how many captions were made with an older prompt, and
    ``osprey ariel enhance --module image_caption --refresh-stale`` captions
    those pictures again. The old caption stays searchable until the new one
-   replaces it. Captions made before captions recorded their prompt are
+   replaces it; when the model refuses the new prompt, the picture keeps its
+   old caption and ``osprey ariel status`` counts it as a refresh that could
+   not be made. Captions made before captions recorded their prompt are
    counted apart and left as they are; to caption every picture again, change
    ``model.model_id``.
 

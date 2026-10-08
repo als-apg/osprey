@@ -1627,8 +1627,11 @@ class ARIELRepository:
 
         Returns:
             ``over_cap``: pictures recorded as past the cap; ``older_prompt``:
-            captions that record another prompt's digest; ``unrecorded_prompt``:
-            captions that record no prompt digest.
+            captions that record another prompt's digest and are neither marked
+            to be made again nor failed at it; ``refresh_pending``: captions
+            marked to be made again; ``refresh_failed``: captions whose remaking
+            failed and that keep their old text; ``unrecorded_prompt``: captions
+            that record no prompt digest.
         """
         try:
             async with self.pool.connection() as conn:
@@ -1639,6 +1642,11 @@ class ARIELRepository:
                         count(*) FILTER (
                             WHERE v ? 'caption' AND v ? 'prompt_sha256'
                               AND v->>'prompt_sha256' IS DISTINCT FROM %(prompt)s
+                              AND NOT v ? 'refresh' AND NOT v ? 'refresh_error'
+                        ),
+                        count(*) FILTER (WHERE v ? 'caption' AND v ? 'refresh'),
+                        count(*) FILTER (
+                            WHERE v ? 'caption' AND v ? 'refresh_error' AND NOT v ? 'refresh'
                         ),
                         count(*) FILTER (WHERE v ? 'caption' AND NOT v ? 'prompt_sha256')
                     FROM enhanced_entries e,
@@ -1657,10 +1665,12 @@ class ARIELRepository:
                 f"Failed to count captions: {e}",
                 query="SELECT enhanced_entries attachment_captions counts",
             ) from e
-        over_cap, older, unrecorded = row if row is not None else (0, 0, 0)
+        over_cap, older, pending, failed, unrecorded = row if row is not None else (0,) * 5
         return {
             "over_cap": int(over_cap),
             "older_prompt": int(older),
+            "refresh_pending": int(pending),
+            "refresh_failed": int(failed),
             "unrecorded_prompt": int(unrecorded),
         }
 
