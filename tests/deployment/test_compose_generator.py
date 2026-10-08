@@ -40,6 +40,7 @@ from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import container_lifecycle, host_ports
 from osprey.deployment.compose_generator import (
+    guarded_run_relpath,
     prepare_compose_files,
     resolve_project_name,
     resolve_user_volume_names,
@@ -3275,6 +3276,10 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
         "deployed_services": [],
         "control_system": {},
         "osprey_simulator_log_sources": simulator_log_mount_sources(),
+        "osprey_guarded_run_mount": {
+            "source": f"./{guarded_run_relpath()}",
+            "target": f"/app/{project_name}/{guarded_run_relpath()}",
+        },
         **_control_identity_context(),
     }
     ctx.update(overrides)

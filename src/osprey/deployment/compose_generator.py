@@ -1850,6 +1850,15 @@ def _inject_project_metadata(config):
         else None
     )
 
+    # The guarded-run root as an agent container binds it: the host's
+    # `var/guarded_run` at `<container repo root>/var/guarded_run`, the path
+    # `osprey.runtime.guarded_run_dir` resolves from the config the container
+    # loads. Every worker runs the agent, so every worker binds it.
+    config_with_labels["osprey_guarded_run_mount"] = {
+        "source": repo_relative_mount_source(guarded_run_relpath()),
+        "target": (container_project_dir / guarded_run_relpath()).as_posix(),
+    }
+
     # The control-identity step, in the two values a template needs: the fixed
     # container path the module is mounted at (the copy
     # `_stage_control_identity_module` puts in the build context), and the
