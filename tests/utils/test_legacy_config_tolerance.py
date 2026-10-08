@@ -74,6 +74,12 @@ RETIRED_KEYS: dict[str, tuple[str, ...]] = {
     ),
     "P5 — behavior honesty": ("logbook.composition.model_id",),
     "Model ids": ("claude_code.models", "logbook.composition.default_tier"),
+    "Simulation keys": (
+        "control_system.connector.mock.noise_level",
+        "control_system.connector.virtual_accelerator.noise_level",
+        "control_system.connector.mock.simulation_file",
+        "control_system.connector.virtual_accelerator.simulation_file",
+    ),
 }
 
 

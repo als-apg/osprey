@@ -70,7 +70,11 @@ control_system:
     timeout: 5.0             # RETIRED (P2 #18)
     mock:
       simulate_delays: true  # RETIRED (P2 #19) — superseded by response_delay_ms / noise_level
-      simulation_file: data/simulation/machine.json
+      simulation_file: data/simulation/machine.json  # RETIRED — the build writes the simulator view
+      noise_level: 0.0       # RETIRED — the simulator view carries each channel's noise
+    virtual_accelerator:
+      simulation_file: data/simulation/machine.json  # RETIRED — the build writes the simulator view
+      noise_level: 0.0       # RETIRED — the simulator view carries each channel's noise
     epics:
       gateways:
         read_only:
