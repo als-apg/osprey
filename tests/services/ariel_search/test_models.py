@@ -317,3 +317,69 @@ class TestEntryTextFields:
         exact = _format_entry_base(exact_entry)  # type: ignore[arg-type]
         assert "text_truncated" not in exact
         assert "text_length" not in exact
+
+
+class TestParseTimeBound:
+    """Search-window bounds: bare dates name whole days, everything else is exact."""
+
+    @pytest.mark.parametrize("value", ["2025-10-06", "20251006"])
+    def test_a_bare_date_in_either_iso_form_names_the_whole_day(self, value):
+        from datetime import UTC, datetime
+
+        from osprey.services.ariel_search.models import parse_time_bound
+
+        assert parse_time_bound(value, end=False) == datetime(2025, 10, 6, tzinfo=UTC)
+        assert parse_time_bound(value, end=True) == datetime(
+            2025, 10, 6, 23, 59, 59, 999999, tzinfo=UTC
+        )
+
+    @pytest.mark.parametrize("value", ["2025-10-06T00:00:00", "2025-10-06 00:00", "20251006T0000"])
+    def test_a_value_with_a_time_of_day_is_exact(self, value):
+        from datetime import UTC, datetime
+
+        from osprey.services.ariel_search.models import parse_time_bound
+
+        assert parse_time_bound(value, end=True) == datetime(2025, 10, 6, tzinfo=UTC)
+
+    @pytest.mark.parametrize("value", [1759708800, 1759708800.0, "1759708800"])
+    def test_a_number_is_epoch_seconds(self, value):
+        from datetime import UTC, datetime
+
+        from osprey.services.ariel_search.models import parse_time_bound
+
+        assert parse_time_bound(value, end=True) == datetime(2025, 10, 6, tzinfo=UTC)
+
+    def test_anything_else_is_refused(self):
+        from osprey.services.ariel_search.models import parse_time_bound
+
+        with pytest.raises(ValueError):
+            parse_time_bound("yesterday", end=True)
+
+
+class TestSearchInputTimeBounds:
+    """The three search modules' input schemas take the bounds the tools take."""
+
+    @staticmethod
+    def schemas():
+        from osprey.services.ariel_search.search.keyword import KeywordSearchInput
+        from osprey.services.ariel_search.search.qmd import HybridSearchInput
+        from osprey.services.ariel_search.search.semantic import SemanticSearchInput
+
+        return [KeywordSearchInput, SemanticSearchInput, HybridSearchInput]
+
+    def test_a_bare_end_date_is_kept_as_written(self):
+        for schema in self.schemas():
+            parsed = schema(query="beam", start_date="2025-10-06", end_date="2025-10-06")
+            assert parsed.end_date == "2025-10-06", schema.__name__
+
+    def test_a_malformed_bound_is_refused(self):
+        from pydantic import ValidationError
+
+        for schema in self.schemas():
+            with pytest.raises(ValidationError):
+                schema(query="beam", end_date="yesterday")
+
+    def test_the_end_date_text_promises_the_whole_day(self):
+        for schema in self.schemas():
+            description = schema.model_fields["end_date"].description or ""
+            assert "bare date includes that whole day" in description, schema.__name__

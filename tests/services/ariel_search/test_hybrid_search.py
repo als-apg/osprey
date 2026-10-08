@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig, DatabaseConfig, SearchModuleConfig
+from osprey.services.ariel_search.database.search_fts import coverage_terms
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
 from osprey.services.ariel_search.models import DiagnosticLevel
 from osprey.services.ariel_search.search.base import (
@@ -106,11 +107,12 @@ def _lexemes(text: str) -> set[str]:
 
 
 class CaptionRepository(StubRepository):
-    """A stub whose attachments carry captions, matched by lexeme coverage.
+    """A stub whose attachments carry captions, matched by term coverage.
 
-    Mirrors the coverage form of ``ARIELRepository.caption_matches``: the
-    caption's lexemes shared with the flattened query, capped at the original
-    query's lexeme count, must reach ``ceil(min_fraction * n(original))``.
+    Mirrors the coverage form of ``ARIELRepository.caption_matches``: the words
+    of ``terms`` the caption holds (a word holds when it or one of its
+    alternatives does) must reach ``ceil(min_fraction * n)``, ``n`` the words
+    that are not stop words.
     """
 
     def __init__(
@@ -130,15 +132,22 @@ class CaptionRepository(StubRepository):
         await super().caption_matches(entry_ids, model_id, **kwargs)
         if self._error is not None:
             raise self._error
-        original = _lexemes(kwargs["query_original"])
-        flattened = _lexemes(kwargs.get("query_flattened") or kwargs["query_original"])
-        needed = math.ceil(kwargs["min_fraction"] * len(original))
+        terms = [(word, alternatives) for word, alternatives in kwargs["terms"] if _lexemes(word)]
+        needed = math.ceil(kwargs["min_fraction"] * len(terms))
+
+        def held(caption: str) -> int:
+            words = _lexemes(caption)
+            return sum(
+                any(_lexemes(alt) and _lexemes(alt) <= words for alt in alternatives)
+                for _word, alternatives in terms
+            )
+
         out: dict[str, list[str]] = {}
         for entry_id in entry_ids:
             ids = sorted(
                 attachment_id
                 for attachment_id, caption in self._captions.get(entry_id, {}).items()
-                if original and min(len(_lexemes(caption) & flattened), len(original)) >= needed
+                if terms and held(caption) >= needed
             )
             if ids:
                 out[entry_id] = ids
@@ -1286,8 +1295,7 @@ class TestCaptionMatchedIds:
         [call] = repository.caption_calls
         assert sorted(call["entry_ids"]) == ["e1", "e2"]
         assert call["model_id"] is None
-        assert call["query_original"] == "orbit kick near BPM 7"
-        assert call["query_flattened"] == "orbit kick near BPM 7"
+        assert call["terms"] == coverage_terms("orbit kick near BPM 7")
         assert call["min_fraction"] == 0.5
         assert "tsquery_sql" not in call
         assert "pattern_bodies" not in call
@@ -1331,8 +1339,7 @@ class TestCaptionMatchedIds:
         by_id = {entry["entry_id"]: entry for entry, _score, _snippets in output.entries}
         assert by_id["e1"]["_matched_attachment_ids"] == ["att-kick"]
         [call] = repository.caption_calls
-        assert call["query_original"] == "orbit kick near BPM 7"
-        assert call["query_flattened"] == "orbit kick kicker near BPM 7"
+        assert call["terms"] == coverage_terms("orbit kick near BPM 7", KICK_EXPANSION)
 
     @pytest.mark.asyncio
     async def test_ordering_and_scores_are_unchanged(self):
