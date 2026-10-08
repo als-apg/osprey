@@ -155,7 +155,6 @@ in it sets an ``EPICS_*`` variable.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import copy
 import logging
 import sys
@@ -173,11 +172,9 @@ from osprey_connectors.control_system.base import (
     is_readonly_run,
 )
 from osprey_connectors.ipc.launch import (
-    DEFAULT_TERMINATE_GRACE_S,
     AttributedReader,
     host_env,
     spawn_host,
-    terminate_host,
 )
 from osprey_connectors.ipc.proxy import (
     ChildUnresponsiveError,
@@ -191,6 +188,7 @@ from osprey_connectors.ipc.verification import (
     live_collision,
     verify_host_report,
 )
+from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
 from osprey_connectors.types import CHANNEL_ACCESS_TYPES
 
 __all__ = [
@@ -733,10 +731,9 @@ class ConnectorHostPool:
                     # exited, unreaped child reaps it out from under the event
                     # loop's watcher, which then reports exit code 255. The
                     # pipe is known closed here, so this wait runs the full
-                    # grace on purpose, longer than terminate_host's own window.
-                    with contextlib.suppress(TimeoutError):
-                        await asyncio.wait_for(process.wait(), self._terminate_grace_s)
-                    await terminate_host(process, self._terminate_grace_s)
+                    # grace on purpose, longer than terminate's own window.
+                    await reap_exit_code(process, self._terminate_grace_s)
+                    await terminate(process, self._terminate_grace_s)
                     raise failure(
                         STAGE_INIT,
                         f"exited before answering its init frame (exit code "
@@ -921,13 +918,13 @@ class ConnectorHostPool:
         return task
 
     async def _kill(self, child: _PoolChild) -> None:
-        await terminate_host(child.process, self._terminate_grace_s)
+        await terminate(child.process, self._terminate_grace_s)
         await child.proxy.drain(_SETTLE_TIMEOUT_S)
         await child.proxy.disconnect(ack_timeout=0.0)
 
     async def _orderly_stop(self, child: _PoolChild) -> None:
         await child.proxy.disconnect()
-        await terminate_host(child.process, self._terminate_grace_s)
+        await terminate(child.process, self._terminate_grace_s)
 
 
 # ---------------------------------------------------------------------------
