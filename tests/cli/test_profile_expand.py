@@ -247,7 +247,7 @@ def _exemplar(tmp_path: Path) -> Path:
 
 def _preset_config(preset: str) -> dict[str, object]:
     """The preset's rendered ``config:`` leaves, dotted — values included."""
-    materialized = materialized_profile(preset, repo_name="facility", profile_name="Facility")
+    materialized = materialized_profile(preset, project_name="facility", profile_name="Facility")
     return dict(_flatten(materialized.get("config") or {}))
 
 
@@ -313,7 +313,7 @@ def test_every_expanded_key_carries_the_presets_comment(runner: CliRunner, tmp_p
     assert _expand(runner, repo).exit_code == 0
 
     expanded = profile.read_text(encoding="utf-8")
-    reference = emit_standalone_profile_yaml("hello-world", (), "Facility")
+    reference = emit_standalone_profile_yaml("hello-world", (), "Facility", project_name="facility")
     differing = {
         key: (_comment_block_above(expanded, key), _comment_block_above(reference, key))
         for key in removed
@@ -348,7 +348,7 @@ def test_a_whole_missing_branch_comes_back_as_its_leaves(runner: CliRunner, tmp_
 
     text = profile.read_text(encoding="utf-8")
     assert [key for key in removed if key not in _config_keys(text)] == []
-    reference = emit_standalone_profile_yaml("hello-world", (), "Facility")
+    reference = emit_standalone_profile_yaml("hello-world", (), "Facility", project_name="facility")
     assert [
         key
         for key in removed
@@ -820,7 +820,9 @@ def test_control_assistant_keeps_every_section_header_where_it_belongs(
     # after it — the whole shape of the relocation failure.
     assert [line for line in _config_lines(text) if line.startswith("#")] == []
     assert _block_above(text, "dispatch:") == heading
-    reference = emit_standalone_profile_yaml("control-assistant", (), "Facility")
+    reference = emit_standalone_profile_yaml(
+        "control-assistant", (), "Facility", project_name="facility"
+    )
     assert [
         key
         for key in removed

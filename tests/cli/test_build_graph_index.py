@@ -88,6 +88,7 @@ def _graph_repo(root: Path, *, corpus: str | None, personas: tuple[str, ...] = (
         (data / "facility.ttl").write_text(corpus, encoding="utf-8")
     (root / "profile.yml").write_text(
         "name: Graph Index\n"
+        f"project_name: {root.name}\n"
         "provider: anthropic\n"
         "channel_finder_mode: graph\n"
         "data: data\n"

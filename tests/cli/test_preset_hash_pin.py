@@ -194,27 +194,32 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # a different demo logbook, so the staleness advisory firing on
     # already-deployed projects is the correct signal. Every other preset
     # stands still.
+    # The twenty-fifth move, and control-assistant's family alone: the root
+    # preset's persona catalog states each entry's `build_profile` only, because
+    # the build derives every persona's `project`/`project_path` from the
+    # profile's `project_name`. The five `extends` children inherit the
+    # catalog; the other three stand still.
     "ariel-standalone": ("sha256:2619aa34aef8aa2f1812f3f5fc321fb437aca6ca8809a9be99efce4d371e569c"),
     "channel-finder-standalone": (
         "sha256:7bec034ab9e5ae0c11d79df9cf294075e9c38c66bc7251ab9246a684165c9ee5"
     ),
     "control-assistant": (
-        "sha256:88136ad30a695cde18e90f192434944d0d4320319a1b63540549375339559f26"
+        "sha256:4f693bfa36239dedfec8b406e05e00fd3bc8b14d4f5055ca275ea053a3e00c0f"
     ),
     "control-assistant-admin": (
-        "sha256:803f04a65375d434a1c14af754dbf5e77f2ea4eaaca1b3e67080a79608f57ee3"
+        "sha256:715f9ea1629e3289378af079e865ed56a54b63fc5a00276acc80c6ec7e795831"
     ),
     "control-assistant-knowledge": (
-        "sha256:726be2bfd607539a79173d48ad77463c5b77f50eeadfcc4557aae49d5487a721"
+        "sha256:ce785c4677a81ebf000503fb26979819238641a9198f058f3e056724330f213a"
     ),
     "control-assistant-logbook": (
-        "sha256:6297a4053f9d7913e1433aa1730993488450aaa00a6b549c846f1da32fa5c035"
+        "sha256:8f9d7202bf46e67799e4e02a63b9b06cd3f2cf3b4df3b06c8e6a8783cfb0bc44"
     ),
     "control-assistant-readonly": (
-        "sha256:2eb45925ec3d07e5381f0ca11250c6ad0a017deb77762c60993c8ff0fa2e2132"
+        "sha256:bb08a776ddac5125a6ca24aa9fdee207e251aedbad94eb7f7d4326571498b453"
     ),
     "control-assistant-readwrite": (
-        "sha256:843545f7bdb5fce1d654fe9513322572d2ed125f97ab1180952264206b134c2f"
+        "sha256:a9cb9a48abd47750d0b06c77018d829e38f2161ea76f7bb7e49065ce16cb7ded"
     ),
     "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
 }

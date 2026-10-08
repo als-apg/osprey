@@ -392,8 +392,7 @@ def test_persona_the_preset_does_not_know_is_reported_once(repo: Path) -> None:
     _edit(
         profile,
         "      readonly:\n",
-        "      operator:\n        project: demo-operator\n        project_path: build/demo-operator\n"
-        "        build_profile: personas/operator.yml\n      readonly:\n",
+        "      operator:\n        build_profile: personas/operator.yml\n      readonly:\n",
     )
     (repo / "personas" / "operator.yml").write_text(
         "name: Operator\ndeploy_services: false\n", encoding="utf-8"
@@ -529,18 +528,9 @@ def test_two_checkouts_of_one_profile_report_the_same_thing(
     assert [f.subject for f in _report(second / PROFILE).unmarked] == ["config.web.theme"]
 
 
-def test_a_persona_render_name_is_not_preset_content(repo: Path) -> None:
-    """The two rows name the render this deployment builds, so a deployment
-    that pins names of its own has not drifted from the preset. A persona the
-    preset does not know is still reported whole, at the catalog entry above
-    those rows — ``test_persona_the_preset_does_not_know_is_reported_once``
-    covers that."""
+def test_a_deployment_name_of_its_own_is_not_preset_content(repo: Path) -> None:
+    """``project_name`` names this deployment on its hosts; no preset carries one."""
     profile = repo / PROFILE
-    _edit(profile, f"project: {repo.name}-readonly", "project: elsewhere-readonly")
-    _edit(
-        profile,
-        f"project_path: build/{repo.name}-readonly",
-        "project_path: build/elsewhere-readonly",
-    )
+    _edit(profile, f"project_name: {repo.name}", "project_name: elsewhere")
 
     assert _report(profile).unmarked == []

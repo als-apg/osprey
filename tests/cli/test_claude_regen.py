@@ -372,6 +372,7 @@ class TestManifestPresetStamp:
             yaml.safe_dump(
                 {
                     "name": "Hand Written",
+                    "project_name": "hand-written",
                     "data": "data",
                     "provider": "cborg",
                     "model": "claude-haiku-4-5",

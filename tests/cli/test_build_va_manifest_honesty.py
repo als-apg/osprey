@@ -988,6 +988,7 @@ def _graph_repo(root: Path, *, corpus: str | None = _GRAPH_CORPUS, index: bool =
             build_index_from_ttl(data / "facility.ttl", _graph_config(root))
     (root / "profile.yml").write_text(
         "name: Graph VA\n"
+        f"project_name: {root.name}\n"
         "provider: anthropic\n"
         "channel_finder_mode: graph\n"
         "data: data\n"

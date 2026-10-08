@@ -725,7 +725,7 @@ def test_the_build_refuses_the_render_and_restores_the_working_directory(
     from is restored either way — the next build stages from wherever this one
     left the process.
     """
-    zones = _render_zones(tmp_path)
+    zones = _render_zones(tmp_path, tmp_path.name)
     zones.stage.mkdir(parents=True)
     (zones.stage / "config.yml").write_text("{}\n", encoding="utf-8")
 
@@ -750,7 +750,7 @@ def test_a_clean_render_returns_the_config_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The checks are a gate, not a rewrite: a passing render is handed on as it was."""
-    zones = _render_zones(tmp_path)
+    zones = _render_zones(tmp_path, tmp_path.name)
     zones.stage.mkdir(parents=True)
     (zones.stage / "config.yml").write_text("{}\n", encoding="utf-8")
 
@@ -767,4 +767,6 @@ def test_a_clean_render_returns_the_config_unchanged(
 
 def test_a_runtime_root_build_renders_nothing_to_check(tmp_path: Path) -> None:
     """With compose generation skipped there is no render for the checks to read."""
-    assert _render_compose_files(_render_zones(tmp_path), runtime_root="/app") is None
+    assert (
+        _render_compose_files(_render_zones(tmp_path, tmp_path.name), runtime_root="/app") is None
+    )

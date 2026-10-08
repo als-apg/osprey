@@ -108,7 +108,7 @@ keys:
   project_name:
     evidence: 'config\.get\("project_name", project_dir\.name\)'
     default: derived
-    default_note: the project directory's own name
+    default_note: the profile's top-level `project_name:` field
   build_dir:
     evidence: 'config\.get\("build_dir", "\./build"\)'
     default: ./build
@@ -3494,7 +3494,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 367
+  expected_union_size: 357
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
@@ -3730,10 +3730,11 @@ notes:
       any more: the only validation in the tree is a non-emptiness lint at
       deployment/web_terminals/lint.py `_check_empty_facility_prefix`.
     inert: >-
-      Stronger than unenforced. facility.prefix reaches only two container-name
-      interpolations and the personas path — never an nginx location key or a
-      URL segment, which is the specific reason usernames and persona names do
-      get the charset regex. There is NO sink at which violating the
+      Stronger than unenforced. facility.prefix reaches only the facility-graph
+      token and the legacy ``/app/<prefix>-assistant`` persona directory — never
+      a container name, an nginx location key or a URL segment, which is the
+      specific reason usernames and persona names do get the charset regex.
+      There is NO sink at which violating the
       2-6/lowercase rule breaks anything.
     remedy_direction: >-
       None. Do NOT add a validator, and do NOT let this manifest grow a charset
