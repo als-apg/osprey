@@ -22,6 +22,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -115,6 +116,13 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
 #: ``tests/runtime/test_executor_target_stamp.py`` pins the spellings equal.
 ENV_CONTROL_TARGET = "OSPREY_CONTROL_TARGET"
 ENV_CONTROL_TARGET_GENERATION = "OSPREY_CONTROL_TARGET_GENERATION"
+
+#: The absolute Unix time, in seconds, at which this module kills the sandbox
+#: child: the launch time plus the configured execution timeout. Written into
+#: every spawned sandbox, stamped or not, so code inside the child can budget
+#: its own clean exit. Spelled again in :mod:`osprey.runtime` for the reason
+#: the stamp names are; the same test pins the two equal.
+ENV_EXECUTION_DEADLINE = "OSPREY_EXECUTION_DEADLINE"
 
 #: Every name the stamp occupies. Cleared together on every launch, stamped or
 #: not, so no inherited name survives into a sandbox that did not earn it.
@@ -884,6 +892,13 @@ async def _execute_via_local(
 
     timeout = config["timeout"]
     start_time = time.time()
+    # Overwrites or drops any inherited value: the scrub keeps unknown OSPREY_
+    # names. A null ``execution_timeout_seconds`` is an unbounded run, which
+    # has no deadline to announce.
+    if isinstance(timeout, int | float) and math.isfinite(timeout):
+        sandbox_env[ENV_EXECUTION_DEADLINE] = str(start_time + timeout)
+    else:
+        sandbox_env.pop(ENV_EXECUTION_DEADLINE, None)
 
     python_bin = str(resolve_agent_interpreter(project_root))
 
