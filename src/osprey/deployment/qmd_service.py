@@ -202,6 +202,12 @@ INDEX_PREBUILT = "prebuilt"
 _CORPUS_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
 
 
+#: Prefix of every corpus sidecar's compose service name, which is this plus
+#: ``-<corpus>``. Exported so a reader matching sidecars by name (the host-port
+#: preflight) recognises exactly the names :func:`corpus_service_name` builds.
+QMD_SERVICE_PREFIX = QMD_SERVICE_NAME
+
+
 def corpus_service_name(corpus: str) -> str:
     """Compose service name of *corpus*'s sidecar — its DNS name on the network.
 
@@ -211,7 +217,7 @@ def corpus_service_name(corpus: str) -> str:
     Returns:
         ``qmd-<corpus>``.
     """
-    return f"{QMD_SERVICE_NAME}-{corpus}"
+    return f"{QMD_SERVICE_PREFIX}-{corpus}"
 
 
 def corpus_url_env(corpus: str) -> str:
