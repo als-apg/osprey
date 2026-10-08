@@ -213,7 +213,9 @@ def serialize_entry(
 
     Timestamps are converted to the facility timezone for agent consumption.
     ``_score``, ``_matched_via`` and ``_matched_attachment_ids`` on the entry
-    come out as ``score``, ``matched_via`` and ``matched_attachment_ids``.
+    come out as ``score``, ``matched_via`` and ``matched_attachment_ids``, and
+    a partial keyword hit's ``_matched_terms``/``_missing_terms`` as
+    ``matched_terms``/``missing_terms``.
     With ``view_enabled`` false the entry carries no attachment keys at all
     (no ``attachments``, ``attachment_count`` or ``matched_attachment_ids``).
 
@@ -255,6 +257,9 @@ def serialize_entry(
         result["score"] = entry["_score"]
     if "_matched_via" in entry:
         result["matched_via"] = list(entry["_matched_via"])
+    for key in ("matched_terms", "missing_terms"):
+        if f"_{key}" in entry:
+            result[key] = list(entry[f"_{key}"])
     if not view_enabled:
         return result
     if "_matched_attachment_ids" in entry:

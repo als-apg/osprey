@@ -10,9 +10,9 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar, cast
 
 from osprey.imaging.formats import (
     CAPTION_NOT_DONE_SQL,
@@ -25,6 +25,7 @@ from osprey.services.ariel_search.database.search_fts import (
     ATTACHMENT_TEXT_DOCUMENT,
     FTS_CONFIG,
     keyword_search_expressions,
+    lexeme_coverage,
 )
 from osprey.services.ariel_search.exceptions import (
     DatabaseQueryError,
@@ -2652,17 +2653,12 @@ class ARIELRepository:
         if min_fraction is not None:
             if query_original is None:
                 return {}
-
-            def _lexemes(document: str) -> str:
-                return f"tsvector_to_array(to_tsvector({FTS_CONFIG}, {document}))"
-
-            n_orig = f"cardinality({_lexemes('%(q_orig)s::text')})"
-            predicate = (
-                f"({n_orig} > 0 AND LEAST(cardinality(ARRAY("
-                f"SELECT unnest({_lexemes(text)}) "
-                f"INTERSECT SELECT unnest({_lexemes('%(q_flat)s::text')}))), {n_orig}) "
-                f">= ceil(%(f)s::float8 * {n_orig}))"
-            )
+            predicate = lexeme_coverage(
+                f"to_tsvector({FTS_CONFIG}, {text})",
+                original="%(q_orig)s::text",
+                flattened="%(q_flat)s::text",
+                fraction="%(f)s::float8",
+            ).predicate
             params["q_orig"] = query_original
             params["q_flat"] = query_original if query_flattened is None else query_flattened
             params["f"] = float(min_fraction)
@@ -2767,6 +2763,149 @@ class ARIELRepository:
         for row in rows:
             matches.setdefault(row["entry_id"], []).append(row["attachment_id"])
         return matches
+
+    @requires_module("search", "keyword")
+    async def keyword_partial_search(
+        self,
+        where_clauses: list[str],
+        params: list[Any],
+        *,
+        query_original: str,
+        query_flattened: str,
+        terms: Sequence[tuple[str, Sequence[str]]],
+        min_fraction: float,
+        max_results: int = 10,
+        include_highlights: bool = True,
+        v2: bool = False,
+    ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]]:
+        """Find entries holding most, but not necessarily all, of a query's words.
+
+        An entry qualifies when it passes every clause of `where_clauses` and
+        covers at least `min_fraction` of the distinct lexemes of
+        `query_original` (the measure caption matching uses, see
+        :func:`~osprey.services.ariel_search.database.search_fts.lexeme_coverage`),
+        searched in the same document and expression keyword search uses.
+        Entries are ordered by how much of the query they cover, then by
+        ``ts_rank`` against any of the words.
+
+        Each returned entry carries ``_matched_terms`` and ``_missing_terms``:
+        the words of `terms` it holds and lacks, in query order. A word holds
+        when it or any of its alternatives does; a word made only of stop words
+        is neither.
+
+        Args:
+            where_clauses: SQL conditions with positional ``%s`` placeholders:
+                the filters and required phrases of the query.
+            params: One value per placeholder of `where_clauses`, in order.
+            query_original: The plain words as typed.
+            query_flattened: The plain words with vocabulary alternatives
+                folded in; `query_original` when nothing was expanded.
+            terms: ``(word, (word, *alternatives))`` per word, in query order.
+            min_fraction: Required coverage in ``(0, 1]``.
+            max_results: Maximum results to return.
+            include_highlights: Include highlighted snippets of the words.
+            v2: The ``has_v2_fts`` schema fact the caller built `where_clauses`
+                under.
+
+        Returns:
+            List of (entry, ``ts_rank`` score, highlights) tuples.
+
+        Raises:
+            ValueError: If `min_fraction` is outside ``(0, 1]``.
+            DatabaseQueryError: If the query failed.
+        """
+        from psycopg.rows import dict_row
+
+        if not 0 < min_fraction <= 1:
+            raise ValueError(f"min_fraction must be in (0, 1], got {min_fraction!r}")
+        words = [word for word, _queries in terms]
+        queries = list(dict.fromkeys(q for _word, alternatives in terms for q in alternatives))
+        if not words or not queries:
+            return []
+
+        fts_expression, headline_document = keyword_search_expressions(self.config, v2=v2)
+        filters_sql, bound = (
+            named_tsquery(" AND ".join(where_clauses), params, prefix="w")
+            if where_clauses
+            else ("TRUE", {})
+        )
+        named: dict[str, Any] = {
+            **bound,
+            "q_orig": query_original,
+            "q_flat": query_flattened,
+            "f": float(min_fraction),
+            "term_words": [word for word, alternatives in terms for _q in alternatives],
+            "term_queries": [q for _word, alternatives in terms for q in alternatives],
+            "words": words,
+            "limit": max_results,
+        }
+        legs: list[str] = []
+        for index, query in enumerate(queries):
+            named[f"any{index}"] = query
+            legs.append(f"plainto_tsquery({FTS_CONFIG}, %(any{index})s)")
+        any_word = "(" + " || ".join(legs) + ")"
+        coverage = lexeme_coverage(
+            fts_expression,
+            original="%(q_orig)s::text",
+            flattened="%(q_flat)s::text",
+            fraction="%(f)s::float8",
+        )
+        headline = (
+            f"ts_headline({FTS_CONFIG}, {headline_document}, {any_word}, "
+            "'StartSel=<b>, StopSel=</b>, MaxFragments=3')"
+            if include_highlights
+            else "NULL"
+        )
+        query = f"""
+            SELECT m.*, {headline} AS headline
+            FROM (
+                SELECT e.*,
+                       {coverage.covered} AS coverage,
+                       ts_rank({fts_expression}, {any_word}) AS rank,
+                       ARRAY(
+                           SELECT DISTINCT t.word
+                           FROM unnest(%(term_words)s::text[], %(term_queries)s::text[])
+                                AS t(word, q)
+                           WHERE {fts_expression} @@ plainto_tsquery({FTS_CONFIG}, t.q)
+                       ) AS matched_terms,
+                       ARRAY(
+                           SELECT w FROM unnest(%(words)s::text[]) AS w
+                           WHERE numnode(plainto_tsquery({FTS_CONFIG}, w)) > 0
+                       ) AS counted_terms
+                FROM enhanced_entries e
+                WHERE {fts_expression} @@ {any_word}
+                  AND {filters_sql}
+                  AND {coverage.predicate}
+                ORDER BY coverage DESC, rank DESC, e.timestamp DESC
+                LIMIT %(limit)s
+            ) AS m
+            ORDER BY m.coverage DESC, m.rank DESC, m.timestamp DESC
+        """
+
+        try:
+            async with self.pool.connection() as conn:
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    await cur.execute(query, named)
+                    rows = await cur.fetchall()
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Partial keyword search failed: {e}",
+                query=f"PARTIAL KEYWORD SEARCH: {query_original}",
+            ) from e
+
+        results: list[tuple[EnhancedLogbookEntry, float, list[str]]] = []
+        for row in rows:
+            row.pop("coverage", None)
+            rank = float(row.pop("rank", 0.0) or 0.0)
+            snippet = row.pop("headline", "") or ""
+            matched = set(row.pop("matched_terms", None) or ())
+            counted = list(row.pop("counted_terms", None) or ())
+            entry = enhanced_entry_from_row(row)
+            shaped = cast("dict[str, Any]", entry)
+            shaped["_matched_terms"] = [word for word in counted if word in matched]
+            shaped["_missing_terms"] = [word for word in counted if word not in matched]
+            results.append((entry, rank, [snippet] if snippet else []))
+        return results
 
     @requires_module("search", "keyword")
     async def fuzzy_search(

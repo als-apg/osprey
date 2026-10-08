@@ -7,6 +7,8 @@ than letting migrations and search code drift independently.
 
 from __future__ import annotations
 
+import string
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from osprey.services.ariel_search.vocabulary.model import normalize
@@ -77,6 +79,100 @@ def keyword_fts_expression(config: ARIELConfig, *, v2: bool) -> str:
     """Return the FTS predicate expression of :func:`keyword_search_expressions`."""
     expression, _document = keyword_search_expressions(config, v2=v2)
     return expression
+
+
+#: Share of a query's words a text must hold to count as matching it when no
+#: text holds them all: a caption in hybrid search, an entry in keyword search.
+MIN_TERM_COVERAGE = 0.5
+
+
+@dataclass(frozen=True)
+class LexemeCoverage:
+    """SQL measuring how much of a query a document covers, in distinct lexemes.
+
+    Attributes:
+        covered: The document's lexemes shared with the flattened query, capped
+            at `total`.
+        total: The number of distinct lexemes of the original query.
+        predicate: True when `total` is above zero and `covered` reaches
+            ``ceil(fraction * total)``.
+    """
+
+    covered: str
+    total: str
+    predicate: str
+
+
+def lexeme_coverage(
+    tsvector: str, *, original: str, flattened: str, fraction: str
+) -> LexemeCoverage:
+    """Build the lexeme-coverage SQL shared by caption and keyword matching.
+
+    Coverage counts the distinct lexemes of `original` against the document.
+    Lexemes come from the flattened (vocabulary-expanded) query, so an
+    alternative counts as the term it expands; the count is capped at the
+    original's size so the alternatives cannot outnumber what was typed.
+
+    Args:
+        tsvector: SQL producing the document's ``tsvector``.
+        original: SQL producing the typed query text.
+        flattened: SQL producing the expanded query text (`original` when
+            nothing was expanded).
+        fraction: SQL producing the required share in ``(0, 1]``.
+
+    Returns:
+        The three expressions; each embeds the arguments verbatim, so their
+        placeholders must be named ones.
+    """
+    original_lexemes = f"tsvector_to_array(to_tsvector({FTS_CONFIG}, {original}))"
+    flattened_lexemes = f"tsvector_to_array(to_tsvector({FTS_CONFIG}, {flattened}))"
+    total = f"cardinality({original_lexemes})"
+    covered = (
+        f"LEAST(cardinality(ARRAY("
+        f"SELECT unnest(tsvector_to_array({tsvector})) "
+        f"INTERSECT SELECT unnest({flattened_lexemes}))), {total})"
+    )
+    predicate = f"({total} > 0 AND {covered} >= ceil({fraction} * {total}))"
+    return LexemeCoverage(covered=covered, total=total, predicate=predicate)
+
+
+def coverage_terms(
+    search_text: str, expansion: QueryExpansion | None = None
+) -> list[tuple[str, tuple[str, ...]]]:
+    """Split plain query text into the words a partial match reports on.
+
+    Each word is normalized like vocabulary matching normalizes it and has
+    surrounding punctuation dropped. A word inside a span the vocabulary
+    expanded also carries that span's alternatives, so it counts as present
+    when any of them is.
+
+    Args:
+        search_text: The plain (operator-free, phrase-free) query text.
+        expansion: The resolved vocabulary expansion, or None.
+
+    Returns:
+        ``(word, (word, *alternatives))`` per distinct word, in query order.
+    """
+    tokens = normalize(search_text).split()
+    span_alternatives: dict[int, tuple[str, ...]] = {}
+    cursor = 0
+    for group in expansion.groups if expansion is not None else ():
+        span_tokens = group.original.split()
+        position = _locate_span(tokens, span_tokens, cursor)
+        if position is None:
+            continue
+        for index in range(position, position + len(span_tokens)):
+            span_alternatives[index] = group.alternatives
+        cursor = position + len(span_tokens)
+
+    terms: dict[str, list[str]] = {}
+    for index, token in enumerate(tokens):
+        word = token.strip(string.punctuation)
+        if not word:
+            continue
+        queries = terms.setdefault(word, [word])
+        queries.extend(alt for alt in span_alternatives.get(index, ()) if alt not in queries)
+    return [(word, tuple(queries)) for word, queries in terms.items()]
 
 
 PLAIN_TSQUERY_LEG = f"plainto_tsquery({FTS_CONFIG}, %s)"

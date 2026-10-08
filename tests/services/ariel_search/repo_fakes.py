@@ -18,7 +18,8 @@ def attach_fake_fts(repo: Any, *, has_v2: bool, has_copy_state: bool) -> Any:
     Both facts are required keywords, so every caller states the schema it
     pretends to stand on. The double also gets a ``caption_matches`` matching
     nothing (see :func:`attach_fake_caption_matches`), because a keyword search
-    with hits asks for it.
+    with hits asks for it, and a ``keyword_partial_search`` finding nothing,
+    because a multi-word keyword search without hits asks for that.
 
     Args:
         repo: The repository double, typically a ``MagicMock``.
@@ -32,6 +33,7 @@ def attach_fake_fts(repo: Any, *, has_v2: bool, has_copy_state: bool) -> Any:
         return_value=SchemaFacts(has_v2_fts=has_v2, has_copy_state=has_copy_state)
     )
     attach_fake_caption_matches(repo)
+    repo.keyword_partial_search = AsyncMock(return_value=[])
     return repo
 
 

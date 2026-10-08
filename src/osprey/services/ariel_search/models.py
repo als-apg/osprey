@@ -403,15 +403,21 @@ def _format_entry_base(entry: EnhancedLogbookEntry) -> dict[str, Any]:
     Returns:
         Dict with entry_id, timestamp, author, text, and title. The text is cut at
         the listing default and marked as ``text_truncated``/``text_length`` when cut.
+        A partial keyword hit also carries ``matched_terms`` and ``missing_terms``.
     """
     timestamp = entry.get("timestamp")
-    return {
+    formatted = {
         "entry_id": entry.get("entry_id"),
         "timestamp": timestamp.isoformat() if timestamp is not None else None,
         "author": entry.get("author"),
         **entry_text_fields(entry.get("raw_text", ""), DEFAULT_LISTING_TEXT_CHARS, field="text"),
         "title": entry.get("metadata", {}).get("title"),
     }
+    row: dict[str, Any] = dict(entry)
+    for key in ("matched_terms", "missing_terms"):
+        if f"_{key}" in row:
+            formatted[key] = list(row[f"_{key}"])
+    return formatted
 
 
 def resolve_time_range(

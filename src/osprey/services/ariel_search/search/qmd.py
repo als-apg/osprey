@@ -59,6 +59,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 
+from osprey.services.ariel_search.database.search_fts import MIN_TERM_COVERAGE
 from osprey.services.ariel_search.enhancement.qmd_export.writer import entry_id_from_path
 from osprey.services.ariel_search.exceptions import SearchConfigurationError
 from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
@@ -632,10 +633,6 @@ async def _fused_results(
     return results
 
 
-#: Share of the typed query's lexemes a caption must cover to count as matched.
-CAPTION_MIN_FRACTION = 0.5
-
-
 async def _attach_caption_matches(
     results: list[tuple[EnhancedLogbookEntry, float, list[str]]],
     repository: ARIELRepository,
@@ -647,7 +644,7 @@ async def _attach_caption_matches(
     """Mark each result with the ids of its attachments whose caption matched.
 
     One ``caption_matches`` call over the result ids in its coverage form: a
-    caption matches when it shares at least :data:`CAPTION_MIN_FRACTION` of the
+    caption matches when it shares at least :data:`MIN_TERM_COVERAGE` of the
     typed query's lexemes, counted against the expanded query so a vocabulary
     alternative counts as the term it expands. A result whose captions matched
     gets ``_matched_attachment_ids``; ordering and scores are untouched. The
@@ -666,7 +663,7 @@ async def _attach_caption_matches(
             caption_model_id(config),
             query_original=query_original,
             query_flattened=query_flattened,
-            min_fraction=CAPTION_MIN_FRACTION,
+            min_fraction=MIN_TERM_COVERAGE,
         )
     except (SearchTimeoutError, DatabaseQueryError) as e:
         logger.warning(f"hybrid_search: caption matching skipped: {e}")

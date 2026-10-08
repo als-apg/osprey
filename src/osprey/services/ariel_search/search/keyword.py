@@ -6,9 +6,10 @@ text search capabilities with optional fuzzy matching fallback.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
@@ -20,9 +21,11 @@ from osprey.services.ariel_search.database.search_fts import (
     ATTACHMENT_TEXT_DOCUMENT,
     EMPTY_TSQUERY,
     FTS_CONFIG,
+    MIN_TERM_COVERAGE,
     PHRASE_TSQUERY_LEG,
     PLAIN_TSQUERY_LEG,
     build_expanded_tsquery,
+    coverage_terms,
     keyword_fts_expression,
 )
 from osprey.services.ariel_search.exceptions import PatternError
@@ -456,14 +459,13 @@ async def _attach_caption_matches(
     results: list[tuple[EnhancedLogbookEntry, float, list[str]]],
     repository: ARIELRepository,
     config: ARIELConfig,
-    *,
-    tsquery: tuple[str | None, list[Any]],
-    pattern_bodies: list[str],
+    **match: Any,
 ) -> None:
     """Mark each hit with the ids of its attachments whose caption matched.
 
-    One ``caption_matches`` call over the hit ids, with the same tsquery and
-    pattern bodies the main statement used. A hit whose captions matched gets
+    One ``caption_matches`` call over the hit ids with `match` as its match
+    keywords: the tsquery and pattern bodies the main statement used, or the
+    coverage form for partial hits. A hit whose captions matched gets
     ``_matched_attachment_ids``; any other hit is left untouched. The ids are
     supplementary evidence: a timeout or database failure logs one WARNING and
     marks nothing, so it never fails a search the main statement answered.
@@ -474,14 +476,11 @@ async def _attach_caption_matches(
         SearchTimeoutError,
     )
 
-    tsquery_sql, tsquery_params = tsquery
     try:
         matched = await repository.caption_matches(
             [entry["entry_id"] for entry, _score, _highlights in results],
             caption_model_id(config),
-            tsquery_sql=tsquery_sql,
-            tsquery_params=tsquery_params,
-            pattern_bodies=pattern_bodies,
+            **match,
         )
     except (SearchTimeoutError, DatabaseQueryError) as e:
         logger.warning(f"keyword_search: caption matching skipped: {e}")
@@ -490,6 +489,42 @@ async def _attach_caption_matches(
         ids = matched.get(entry["entry_id"])
         if ids:
             cast("dict[str, Any]", entry)["_matched_attachment_ids"] = list(ids)
+
+
+def _phrase_tsquery(
+    parsed: ParsedKeywordQuery, expansion: QueryExpansion | None
+) -> tuple[str, list[Any]] | None:
+    """The tsquery requiring only the query's quoted phrases, or None without any.
+
+    Built the way the strict statement builds its phrase legs, alternatives
+    included, so relaxing the plain words never changes what a phrase means.
+    """
+    if not parsed.phrases:
+        return None
+    if expansion is not None:
+        return build_expanded_tsquery(replace(parsed, search_text=""), expansion)
+    return build_tsquery("", list(parsed.phrases)), list(parsed.phrases)
+
+
+def _partial_diagnostic(
+    results: list[tuple[EnhancedLogbookEntry, float, list[str]]],
+) -> SearchDiagnostic:
+    """INFO diagnostic saying the hits are partial and which words none holds."""
+    first = cast("Mapping[str, Any]", results[0][0])
+    total = len(first.get("_matched_terms", ())) + len(first.get("_missing_terms", ()))
+    needed = math.ceil(MIN_TERM_COVERAGE * total)
+    found = {
+        word
+        for entry, _score, _highlights in results
+        for word in cast("Mapping[str, Any]", entry).get("_matched_terms", ())
+    }
+    absent = [word for word in first.get("_missing_terms", ()) if word not in found]
+    message = f"no entry contains every term; showing entries with at least {needed} of {total}"
+    if absent:
+        message += f"; terms found in no hit: {', '.join(absent)}"
+    return SearchDiagnostic(
+        level=DiagnosticLevel.INFO, source="keyword", message=message, category="partial"
+    )
 
 
 async def keyword_search(
@@ -512,6 +547,15 @@ async def keyword_search(
 
     Uses PostgreSQL full-text search with optional fuzzy matching fallback,
     literal ``raw_text ~* %s`` pattern predicates, and vocabulary expansion.
+
+    **Matching steps.** Plain words are all required first. When no entry has
+    them all and the query has at least two plain words, no boolean operator
+    and no pattern, the entries holding at least :data:`MIN_TERM_COVERAGE` of
+    the words are returned instead, under the same filters and with every
+    quoted phrase still required; each such hit carries ``_matched_terms`` and
+    ``_missing_terms``, and the output an INFO diagnostic of category
+    ``partial``. Only when that finds nothing too does the trigram fuzzy
+    fallback run.
 
     **Return shape.** A call that came through the ARIEL search service -- one
     that supplied `parsed` or `query_expansion` -- gets a `ModuleOutput`
@@ -583,8 +627,12 @@ async def keyword_search(
     tsquery_sql: str | None = None
     tsquery_params: list[Any] | None = None
 
+    # Text, pattern and filter clauses are kept apart so the partial step can
+    # reuse the filters without the all-words requirement.
     params: list[Any] = []
     where_clauses: list[str] = []
+    filter_params: list[Any] = []
+    filter_clauses: list[str] = []
 
     # One read of the schema fact per query: the WHERE built here, the rank and
     # headline the repository builds, and the fuzzy fallback all select from it.
@@ -623,37 +671,40 @@ async def keyword_search(
             params.append(span.body)
 
     if "author" in field_filters:
-        where_clauses.append("author ILIKE %s")
-        params.append(f"%{field_filters['author']}%")
+        filter_clauses.append("author ILIKE %s")
+        filter_params.append(f"%{field_filters['author']}%")
 
     if "date" in field_filters:
         date_val = field_filters["date"]
         if len(date_val) == 7:
-            where_clauses.append("timestamp >= %s AND timestamp < %s")
-            params.append(f"{date_val}-01")
+            filter_clauses.append("timestamp >= %s AND timestamp < %s")
+            filter_params.append(f"{date_val}-01")
             year, month = int(date_val[:4]), int(date_val[5:7])
             if month == 12:
                 next_month = f"{year + 1}-01-01"
             else:
                 next_month = f"{year}-{month + 1:02d}-01"
-            params.append(next_month)
+            filter_params.append(next_month)
         else:
-            where_clauses.append("DATE(timestamp) = %s")
-            params.append(date_val)
+            filter_clauses.append("DATE(timestamp) = %s")
+            filter_params.append(date_val)
 
     if start_date:
-        where_clauses.append("timestamp >= %s")
-        params.append(start_date)
+        filter_clauses.append("timestamp >= %s")
+        filter_params.append(start_date)
     if end_date:
-        where_clauses.append("timestamp <= %s")
-        params.append(end_date)
+        filter_clauses.append("timestamp <= %s")
+        filter_params.append(end_date)
 
     if author and "author" not in field_filters:
-        where_clauses.append("author ILIKE %s")
-        params.append(f"%{author}%")
+        filter_clauses.append("author ILIKE %s")
+        filter_params.append(f"%{author}%")
     if source_system:
-        where_clauses.append("source_system = %s")
-        params.append(source_system)
+        filter_clauses.append("source_system = %s")
+        filter_params.append(source_system)
+
+    where_clauses.extend(filter_clauses)
+    params.extend(filter_params)
 
     # Only a search that actually emitted a ``~*`` predicate asks for the
     # timeout envelope; without the keyword the repository runs exactly the
@@ -692,9 +743,52 @@ async def keyword_search(
             results,
             repository,
             config,
-            tsquery=caption_tsquery,
+            tsquery_sql=caption_tsquery[0],
+            tsquery_params=caption_tsquery[1],
             pattern_bodies=[span.body for span in parsed.pattern_spans],
         )
+
+    # Partial step: no entry holds every plain word. Operator queries already
+    # say how their words combine, and a literal pattern is never relaxed.
+    if (
+        not results
+        and search_text.strip()
+        and not parsed.pattern_spans
+        and not has_boolean_operators(search_text)
+    ):
+        applied = query_expansion if expansion_applied else None
+        terms = coverage_terms(search_text, applied)
+        if len(terms) >= 2:
+            partial_clauses = list(filter_clauses)
+            partial_params = list(filter_params)
+            phrase_tsquery = _phrase_tsquery(parsed, applied)
+            if phrase_tsquery is not None:
+                partial_clauses.insert(
+                    0, f"{keyword_fts_expression(config, v2=v2)} @@ ({phrase_tsquery[0]})"
+                )
+                partial_params[:0] = phrase_tsquery[1]
+            flattened = applied.flattened_text if applied is not None else search_text
+            results = await repository.keyword_partial_search(
+                where_clauses=partial_clauses,
+                params=partial_params,
+                query_original=search_text,
+                query_flattened=flattened,
+                terms=terms,
+                min_fraction=MIN_TERM_COVERAGE,
+                max_results=max_results,
+                include_highlights=include_highlights,
+                v2=v2,
+            )
+            if results:
+                diagnostics.append(_partial_diagnostic(results))
+                await _attach_caption_matches(
+                    results,
+                    repository,
+                    config,
+                    query_original=search_text,
+                    query_flattened=flattened,
+                    min_fraction=MIN_TERM_COVERAGE,
+                )
 
     # Fuzzy fallback probes the text the operator typed first, so expansion can
     # only ever add hits, never remove one. A pattern search never falls back: a
@@ -733,7 +827,13 @@ class KeywordSearchInput(BaseModel):
     """Input schema for keyword search tool."""
 
     query: str = Field(
-        description="Search terms. Supports phrases in quotes, AND/OR/NOT operators."
+        description=(
+            "Search terms. Plain words must all appear; only when no entry has them "
+            "all are entries holding most of them returned, ranked, with "
+            "matched_terms/missing_terms. Quoted phrases are always required; OR "
+            "widens, AND/NOT narrow. Put dates and authors in start_date/end_date/"
+            "author, never in the query text."
+        )
     )
     max_results: int = Field(
         default=10,
@@ -747,7 +847,10 @@ class KeywordSearchInput(BaseModel):
     )
     end_date: datetime | None = Field(
         default=None,
-        description="Filter entries created before this time (inclusive)",
+        description=(
+            "Filter entries created up to this time (inclusive); a bare date "
+            "includes that whole day"
+        ),
     )
     expand_query: bool | None = Field(
         default=None,
@@ -807,7 +910,10 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         description=(
             "Fast text-based lookup using full-text search. "
             "Use for specific terms, equipment names, PV names, or phrases. "
-            "Supports quoted phrases and AND/OR/NOT operators."
+            "Plain words must all appear, with a ranked partial fallback only when "
+            "no entry has them all; quoted phrases are always required; OR widens, "
+            "AND/NOT narrow. "
+            "Dates and authors go in the date and author filters, not the query."
         ),
         search_mode="keyword",
         args_schema=KeywordSearchInput,
