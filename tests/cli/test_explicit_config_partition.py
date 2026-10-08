@@ -133,7 +133,9 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
 #: ``facility.name`` and ``facility.ontology`` have no reader: the display name
 #: is the facility identity's and the terminology tables render from the build's
 #: facts, so no preset states either leaf. ``facility.prefix`` is deleted:
-#: container names and persona projects come from the project name.
+#: container names and persona projects come from the project name. The two
+#: ``simulation_file`` leaves are deleted: every connector serves the simulator
+#: view the build writes, so no connector block names a model file.
 _RETIRED_SINCE_THE_FREEZE = frozenset(
     {
         "web.docs_url",
@@ -145,6 +147,8 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
         "facility.name",
         "facility.ontology",
         "facility.prefix",
+        "control_system.connector.mock.simulation_file",
+        "control_system.connector.virtual_accelerator.simulation_file",
     }
 )
 

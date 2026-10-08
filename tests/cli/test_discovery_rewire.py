@@ -45,17 +45,13 @@ from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
 from tests.cli._simulator_view import register_stub_engine, write_simulator_view
 
-#: A render that is also simulation-backed. The model path is repo-relative on
-#: purpose: resolving it is exactly the question of which directory the sim
-#: commands anchor at, and the exemplar ships the model at that path.
+#: A render that is also simulation-backed: the mock connector serves the
+#: simulator view the tests write into the render.
 SIM_CONFIG = """\
 claude_code:
   provider: anthropic
 control_system:
   type: mock
-  connector:
-    mock:
-      simulation_file: data/simulation/machine.json
 """
 
 #: The scenarios the simulator view of a ``SIM_CONFIG`` render lists.

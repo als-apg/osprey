@@ -256,7 +256,6 @@ def _write_config(path: Path, *, writes_enabled: bool = True) -> Path:
                             },
                         },
                         "virtual_accelerator": {
-                            "simulation_file": "data/sim.json",
                             "probe_channel": "SIM:PROBE",
                             "gateways": {"read_only": dict(gateway)},
                         },

@@ -47,11 +47,7 @@ def _stage(built: BuiltProject, tmp_path: Path) -> tuple[Path, Path]:
         The repo and its simulator view.
     """
     repo = build_exemplar_repo(tmp_path / "repo")
-    config = {
-        "control_system": {
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
-        },
-    }
+    config = {"control_system": {"connector": {"mock": {}}}}
     build = stub_build(repo, config=yaml.safe_dump(config))
     prefix = "data/simulator/"
     for name, data in built.outputs[0].files.items():

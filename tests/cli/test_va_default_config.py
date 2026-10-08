@@ -8,8 +8,8 @@ A freshly scaffolded Control Assistant project must:
      nothing). The virtual accelerator ships beside it, one ``osprey set``
      away.
   2. Engage the Mock connector when control_system.type is switched to mock
-     (real ConnectorFactory resolution using the scaffolded connector.mock
-     config block, not just a string check) — the documented fallback for
+     (real ConnectorFactory resolution of the scaffolded control_system
+     section, not just a string check) — the documented fallback for
      environments with no containers to depend on.
   3. Leave the epics block untouched by that switch — and untouched by the
      build in the first place.
@@ -115,11 +115,12 @@ class TestFreshProjectDefaultsToTheSimulator:
         config = _load_config(scaffolded_repo)
         assert config["control_system"]["type"] == "virtual_accelerator"
 
-    def test_mock_and_virtual_accelerator_and_epics_blocks_all_present(self, scaffolded_repo: Path):
-        """The three authored connector blocks are fully materialized even
-        though none of them is the active type — each is ready to flip to."""
+    def test_virtual_accelerator_and_epics_blocks_present(self, scaffolded_repo: Path):
+        """The authored connector blocks are fully materialized even though
+        neither is the active type — each is ready to flip to. The mock
+        connector takes no setting the preset states, so it has no block."""
         connector = _load_config(scaffolded_repo)["control_system"]["connector"]
-        assert "mock" in connector
+        assert "mock" not in connector
         assert "virtual_accelerator" in connector
         assert "epics" in connector
 
@@ -152,19 +153,15 @@ class TestSwitchingToMockEngagesTheConnector:
     async def test_scaffolded_mock_config_block_resolves_to_mock_connector(
         self, runner: CliRunner, scaffolded_repo: Path, monkeypatch
     ):
-        """The actual connector.mock block from the scaffolded project, fed
-        through the real ConnectorFactory, produces a MockConnector instance —
-        not just a config string. Unlike the VA/epics connectors, MockConnector
-        has no real network I/O in connect(), so no stubbing is needed.
+        """The scaffolded project's control_system section, fed through the
+        real ConnectorFactory, produces a MockConnector instance — not just a
+        config string. Unlike the VA/epics connectors, MockConnector has no
+        real network I/O in connect(), so no stubbing is needed.
 
-        chdir into the repo root first: the mock block's ``simulation_file`` is
-        a path relative to the project root (resolved against the
-        ``project_root`` config value in production, which for a three-zone
-        deployment IS the repo root; this test reads build/config.yml directly
-        rather than going through the app's config loader, so CWD is the
-        fallback resolution root instead). For the same reason the block is
-        handed the render's own simulator view, which the loader would find
-        beside build/config.yml.
+        The section carries no mock block: the mock connector serves the
+        render's own simulator view, which the app's config loader would find
+        beside build/config.yml. This test reads build/config.yml directly, so
+        it hands the connector that view itself, from the repo root.
         """
         _switch_to_mock(runner, scaffolded_repo)
 
@@ -174,7 +171,7 @@ class TestSwitchingToMockEngagesTheConnector:
 
         monkeypatch.chdir(scaffolded_repo)
         render_view = scaffolded_repo / "build" / "data" / "simulator"
-        cs_config["connector"]["mock"] = mock_config(render_view, **cs_config["connector"]["mock"])
+        cs_config["connector"]["mock"] = mock_config(render_view)
         connector = await ConnectorFactory.create_control_system_connector(cs_config)
         try:
             assert isinstance(connector, MockConnector)

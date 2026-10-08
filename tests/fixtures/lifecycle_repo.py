@@ -404,18 +404,15 @@ config:
   # control_system.patterns.write: ['my_custom_cs_lib\.write\(']
   # control_system.patterns.read: ['my_custom_cs_lib\.read\(']
   #
-  # Mock connector: driven by the simulation machine model below. Switch
-  # scenarios with `osprey sim apply NAME...` (see the simulation bundle reference).
-  control_system.connector.mock.simulation_file: data/simulation/machine.json
+  # Mock connector: serves the build's simulator view in-process, with no
+  # container. Its one setting is how long each read and write takes.
+  # control_system.connector.mock.response_delay_ms: 10
   # Virtual-accelerator connector: a containerized PyAT-backed soft IOC
   # reached over real EPICS Channel Access, with the same gateway shape as the
   # `epics` block. Deployed by the `virtual_accelerator:` section above.
   #
   # Channel Access timeout in seconds.
   control_system.connector.virtual_accelerator.timeout_s: 5.0
-  # Same machine model as the mock connector, so `osprey sim apply` stays
-  # consistent whichever connector is active.
-  control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
   # `control-assistant-readwrite` and `control-assistant-admin` personas write
@@ -520,11 +517,10 @@ config:
   # When a read names no bin size, the bin is chosen so a continuously archived
   # channel returns about this many points. The agent is told which bin it got.
   archiver.auto_bin_points: 10000
-  # Mock archiver: synthesizes history from the same simulation machine model
-  # as the control-system connector, derived from
-  # `control_system.connector.<type>.simulation_file`. Set only to override.
+  # Mock archiver: replays history from the build's simulator view, the same
+  # view the mock connector serves; it takes no file setting.
   # archiver.type: mock_archiver
-  # archiver.settings.simulation_file: data/simulation/machine.json
+  # archiver.settings.sample_rate_hz: 1.0
   # EPICS Archiver Appliance: ships unconfigured on purpose, for the same
   # reason as the `epics` gateways. Authoring it travels with the flip to
   # `archiver.type: epics_archiver`.

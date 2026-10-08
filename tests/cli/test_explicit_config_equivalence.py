@@ -1006,6 +1006,32 @@ def _simulation_models_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _simulation_file_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The model-file leaves the control-assistant preset no longer states.
+
+    Every connector serves the simulator view the build writes, so neither the
+    mock nor the Virtual Accelerator block names a model file. The fixtures were
+    frozen while the preset still named one under both.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        Two deltas per document, one per connector block.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path=f"control_system.connector.{connector}.simulation_file",
+            fixture="data/simulation/machine.json",
+            live=ABSENT,
+        )
+        for document in documents
+        for connector in ("mock", "virtual_accelerator")
+    )
+
+
 def _simulation_tick_deltas(*documents: str) -> tuple[Delta, ...]:
     """The simulator tick period every preset states.
 
@@ -1386,6 +1412,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_file_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1418,6 +1445,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_file_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1450,6 +1478,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_file_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1482,6 +1511,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_file_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
