@@ -175,12 +175,12 @@ def collect_schema(run: RunCypher, *, sample_size: int | None = None) -> dict[st
 # Vocabulary collection — the facility's own class synonyms
 # ---------------------------------------------------------------------------
 
-#: Every ontology class that declares synonyms, with them. The facility authors
-#: these as ``aliases`` in its LinkML ontology; ``compile-ontology`` emits them
-#: as ``skos:altLabel`` and n10s lands them on ``(c:Class).altLabel``. Capturing
-#: them here is what keeps the prompt's vocabulary *this* facility's rather than
-#: a table of names hard-coded in the framework, which a corpus spelling its
-#: classes differently would silently fail to match.
+#: Every ontology class that declares synonyms, with them. Class synonyms reach
+#: the store as ``skos:altLabel``, and n10s lands them on
+#: ``(c:Class).altLabel``. Capturing them here is what keeps the prompt's
+#: vocabulary *this* facility's rather than a table of names hard-coded in the
+#: framework, which a corpus spelling its classes differently would silently
+#: fail to match.
 VOCABULARY_CYPHER = (
     "MATCH (c:Class) WHERE c.altLabel IS NOT NULL "
     "RETURN c.uri AS uri, c.altLabel AS synonyms ORDER BY c.uri"

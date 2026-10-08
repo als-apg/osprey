@@ -909,17 +909,6 @@ up`` seeds the store from that view. See
    fill in. Each stub's ``device_id`` is the facility file's device id, so the
    build links the page to its device.
 
-``osprey knowledge compile-ontology SOURCE OUTPUT [--check]``
-   Compile an authored LinkML schema into the ontology table. ``SOURCE`` is
-   the schema, and ``OUTPUT`` the JSON table to write; an existing file is
-   overwritten. The output is deterministic, so compiling an
-   unchanged schema twice leaves ``git diff`` silent.
-
-   ``--check`` writes nothing. It compares ``OUTPUT`` against a fresh compile of
-   ``SOURCE`` and exits non-zero when the two disagree, naming the classes,
-   synonyms and families that differ --- which is what a CI job or a pre-commit
-   hook runs to prove a committed table still matches its schema.
-
 .. code-block:: bash
 
    osprey knowledge seed-from-ttl build/data/graph/facility.ttl data/facility/knowledge
