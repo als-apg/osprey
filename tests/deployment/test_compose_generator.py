@@ -1061,7 +1061,7 @@ def test_every_dispatch_worker_reads_the_same_whole_tree() -> None:
         pytest.param({"simulation": {"state_dir": "run/scenarios"}}, id="explicit-state-dir"),
     ],
 )
-def test_va_state_mount_matches_what_the_engine_writes(
+def test_va_state_mount_matches_the_scenario_state_dir(
     tmp_path: Path, relocation: dict[str, Any]
 ) -> None:
     """The mount source and the writer's target are one directory.
@@ -1070,15 +1070,15 @@ def test_va_state_mount_matches_what_the_engine_writes(
     relocating the agent-data root, or naming the state dir outright. The mount
     is rendered relative to the pinned compose project directory — the repo root
     — so resolving it from there must land on exactly the path
-    ``resolve_state_dir`` hands the engine.
+    ``resolve_simulation_state_dir`` resolves, where ``sim apply`` writes.
     """
-    from osprey.simulation.engine import resolve_state_dir
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
     config: dict[str, Any] = {"project_root": str(tmp_path), **relocation}
     rendered = _render_va_template(config)
     source = re.search(r"- (\S+):/state/simulation:ro", rendered).group(1)
 
-    assert (tmp_path / source).resolve() == resolve_state_dir(config, tmp_path).resolve()
+    assert (tmp_path / source).resolve() == resolve_simulation_state_dir(config, tmp_path).resolve()
 
 
 # ---------------------------------------------------------------------------

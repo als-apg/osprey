@@ -63,7 +63,6 @@ from osprey.simulation.apply import (
     event_subwindows,
     event_window,
 )
-from osprey.simulation.series import epoch_seconds_array
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
@@ -78,6 +77,7 @@ from osprey_connectors.simulation.archive import (
     synthesize_documents,
     tier_expiry,
 )
+from osprey_connectors.simulation.series import epoch_seconds_array
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 from tests._simulator_view import write_scenarios_view, write_texture_view

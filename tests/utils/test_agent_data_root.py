@@ -291,9 +291,9 @@ class TestScenarioStateMountPoint:
 
         assert (project / "scratch-data" / "simulation").is_dir()
 
-    def test_matches_what_the_engine_resolves(self, project: Path) -> None:
+    def test_matches_the_resolved_simulation_state_dir(self, project: Path) -> None:
         """The pre-created mount point and the runtime write target are one path."""
-        from osprey.simulation.engine import resolve_state_dir
+        from osprey_connectors.workspace import resolve_simulation_state_dir
 
         config: dict[str, Any] = {
             "project_root": str(project),
@@ -302,7 +302,7 @@ class TestScenarioStateMountPoint:
         }
         _ensure_agent_data_structure(config)
 
-        assert resolve_state_dir(config, project).is_dir()
+        assert resolve_simulation_state_dir(config, project).is_dir()
 
 
 class TestHealthRow:
