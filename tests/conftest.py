@@ -1483,10 +1483,10 @@ def pytest_configure(config):
     # run at all, so the marker and its reason are read together.
     config.addinivalue_line(
         "markers",
-        "requires_als_profiles: the full install chain over a real facility's "
-        "MML export, which never enters the repo — needs that facility's "
-        "profiles checkout and the MATLAB its 2.0 export is produced on, and "
-        "skips with a named reason anywhere else.",
+        "requires_als_profiles: the install over a real facility's MML export, "
+        "which never enters the repo — import, build and boot; needs that "
+        "facility's profiles checkout, a named export and mapping, or a "
+        "stand-in tree, and skips naming the unset variables anywhere else.",
     )
 
     global _CI_DIAGNOSTICS
