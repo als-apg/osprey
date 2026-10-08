@@ -100,10 +100,11 @@ def render_facility_outputs(
 
     Raises:
         FacilityBuildError: ``profile-invalid`` when the render's
-            ``simulation.models`` does not resolve against the facility file.
+            ``simulation.models`` does not resolve against the facility file,
+            or a served block's ``probe_channel`` is not one of its channels.
     """
     from osprey.facility import views
-    from osprey.facility.served import resolve_served
+    from osprey.facility.served import check_served_probes, resolve_served
 
     inputs = views.ViewInputs(
         doc=doc,
@@ -112,6 +113,7 @@ def render_facility_outputs(
         served=resolve_served(rendered_config, doc),
         reported=omitted_reported,
     )
+    check_served_probes(rendered_config, doc)
     target = render_dir / FACILITY_FILE
     target.write_bytes(facility_bytes(doc))
     written = [target]

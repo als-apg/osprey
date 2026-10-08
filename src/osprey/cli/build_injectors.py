@@ -1439,11 +1439,10 @@ def _ensure_va_connector_gateways(config: Any) -> bool:
     :func:`~osprey.utils.config_writer.anchored_put` so a section comment
     trailing the last entry stays anchored where it was.
 
-    ``probe_channel`` is deliberately NOT written. The channel a VA serves comes
-    from that project's own machine model, so no value could be derived here,
-    and a placeholder would make the target look eligible while naming a channel
-    nothing serves. Eligibility reports the missing probe_channel as the reason
-    the target is not switchable yet, which is the honest thing for it to say.
+    ``probe_channel`` is deliberately NOT written. The build holds a stated
+    served probe to the facility file, and the channel to probe is the
+    deployment's choice among the channels that file holds. Eligibility reports
+    a missing probe_channel as the reason the target is not switchable yet.
 
     Args:
         config: The round-trip-loaded ``config.yml`` document, mutated in place.

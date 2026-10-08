@@ -116,6 +116,16 @@ nothing, and
 ``osprey build`` stops while one is left: remove each listed file, or point it
 at the imported channels.
 
+A deployment that began as a preset states
+``control_system.connector.virtual_accelerator.probe_channel`` for the demo's
+channels. ``osprey build`` and ``osprey facility validate`` stop with
+``profile-invalid`` while it names a channel the imported facility does not
+hold, and name one it does. Set it to that channel:
+
+.. code-block:: bash
+
+   osprey set config.control_system.connector.virtual_accelerator.probe_channel=<channel>
+
 Check the result
 ================
 

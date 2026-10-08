@@ -3087,6 +3087,34 @@ Never open a sector valve against a pressure differential. The interlock will
 refuse, and forcing it risks the whole ring's vacuum.
 """
 
+#: The facility's records, cut to the one channel the profile names: the
+#: virtual accelerator's ``probe_channel`` must be a channel of the facility
+#: file the build assembles from them.
+FACILITY_PLACES_YAML = """\
+- id: SR
+  level: machine
+  description: Storage ring
+"""
+
+FACILITY_DEVICES_YAML = """\
+- id: SR/GAUGESR01
+  class: Gauge
+  names:
+  - GAUGESR01
+  place: SR
+"""
+
+FACILITY_CHANNELS_YAML = """\
+- id: SR:VAC:GAUGE:SR01:PRESSURE:RB
+  'on':
+    device: SR/GAUGESR01
+  signal: vacuum_readback
+  unit: Pa
+  names:
+  - StorageRing_VacGauge_SR01_Pressure_Readback
+  description: Storage ring vacuum gauge SR01 pressure readback
+"""
+
 # ─────────────────────────────────────────────────────────────────────────────
 # The exemplar, assembled
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3116,6 +3144,9 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/channel_databases/tiers/tier3/hierarchical.json": CHANNEL_DB_HIERARCHICAL_JSON,
     "data/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
     "data/machine_state_channels.json": MACHINE_STATE_CHANNELS_JSON,
+    "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
+    "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
+    "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
     "data/facility/knowledge/index.md": FK_INDEX_MD,
     "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
     "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,

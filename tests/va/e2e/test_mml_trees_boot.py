@@ -393,6 +393,14 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     recipes.invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
     recipes.clear_authored(runner, repo, exports)
     imported = recipes.import_facility(runner, repo, exports, recipes.facility_mapping(fixture))
+    recipes.invoke(
+        runner,
+        "set",
+        "--repo",
+        str(repo),
+        "config.control_system.connector.virtual_accelerator.probe_channel="
+        + recipes.imported_probe(repo),
+    )
     recipes.remove_stale_scenarios(repo, imported)
     recipes.invoke(runner, "mml", "import", *exports, "--repo", str(repo))
     shutil.copy(fixture / "mapping.yaml", repo / "data" / "mml" / "mapping.yaml")

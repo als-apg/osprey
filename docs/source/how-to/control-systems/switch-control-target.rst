@@ -329,8 +329,9 @@ channel the switch reads to prove that target is reachable:
    * - Target
      - ``probe_channel``
    * - ``va``
-     - Shipped set, to a placeholder you replace with a channel your virtual
-       accelerator's model actually serves.
+     - Shipped set to a channel the demo facility serves. The build stops
+       while it names a channel the facility file does not hold, so an
+       imported facility replaces it with one of its own readbacks.
    * - ``live``
      - Shipped **commented out**. A facility's channel names cannot be guessed,
        and a placeholder here would make the live target look ready while naming
