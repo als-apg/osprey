@@ -301,6 +301,30 @@ class ExecutionWrapper:
     def _get_imports(self) -> str:
         """Get standard imports."""
         imports = """
+# Interrupt prologue. The executor cancels a run by sending SIGINT, and a child
+# inherits an ignored SIGINT from a parent that ignores it (SIG_IGN survives
+# exec, and Python keeps it), so the default handler is put back first: an
+# interrupt then raises KeyboardInterrupt, which the handlers below record
+# before the script leaves through os._exit like any other run.
+import signal
+
+
+def _osprey_set_sigint(handler):
+    try:
+        signal.signal(signal.SIGINT, handler)
+    except (ValueError, OSError):
+        pass  # not the main thread of the main interpreter: nothing to install
+
+
+def _osprey_ignore_sigint():
+    # Once the script is done or failing, a late interrupt has nothing left to
+    # stop; ignoring it keeps a KeyboardInterrupt from escaping the tail past
+    # the metadata persistence and os._exit.
+    _osprey_set_sigint(signal.SIG_IGN)
+
+
+_osprey_set_sigint(signal.default_int_handler)
+
 # Standard imports for agent execution
 import sys
 import json
@@ -1242,13 +1266,18 @@ if not _execution_dir.exists():
     try:
 {indented_code}
 
+        # The script is done: an interrupt from here on has nothing to stop.
+        _osprey_ignore_sigint()
+
         # Mark successful execution
         execution_metadata["success"] = True
         execution_metadata["error_type"] = None
         execution_metadata["end_time"] = _datetime.now().astimezone().isoformat()
 
-    except Exception as user_code_error:
-        # Capture user code errors
+    except (Exception, KeyboardInterrupt) as user_code_error:
+        # Capture user code errors, an interrupt included (error_type
+        # 'KeyboardInterrupt'), so the tail still persists the record.
+        _osprey_ignore_sigint()
         execution_metadata["success"] = False
         execution_metadata["error_type"] = type(user_code_error).__name__
         execution_metadata["error_message"] = str(user_code_error)
@@ -1276,6 +1305,14 @@ if not _execution_dir.exists():
         Everything the executor reads is on disk or already flushed to the
         pipes by then, so the abrupt exit costs nothing; the exit code stays 0
         because the outcome is read from the record, not from the status.
+
+        An interrupted run takes the same way out. The executor cancels a run
+        with ``SIGINT``; the prologue in :meth:`_get_imports` restores the
+        default handler, the ``KeyboardInterrupt`` is recorded (error_type
+        ``'KeyboardInterrupt'``, plus the ``restore_report`` a guarded pyAML
+        run raises with), and every handler here first ignores further
+        ``SIGINT``, so no second interrupt can carry an exception past the
+        persistence and ``os._exit``.
         """
 
         # Output captured content so the host process can see it
@@ -1303,7 +1340,34 @@ if not _execution_dir.exists():
         # Build the complete code block properly
         base_cleanup = textwrap.dedent(
             """
+            except KeyboardInterrupt as e:
+                # Interrupted (the executor's cancel sends SIGINT). Recorded like
+                # a failure, so the tail below persists the record, echoes the
+                # output and leaves through os._exit - never interpreter
+                # shutdown, where a client's shutdown hook can wedge the child.
+                _osprey_ignore_sigint()
+                execution_metadata["success"] = False
+                execution_metadata["error_type"] = "KeyboardInterrupt"
+                execution_metadata["error"] = "Interrupted (SIGINT) before the script finished"
+                execution_metadata["traceback"] = traceback.format_exc()
+                # A guarded pyAML run interrupted mid-run_tool raises carrying
+                # its restore report; keep it in the record as well.
+                _osprey_restore_report = getattr(e, "restore_report", None)
+                if _osprey_restore_report is not None:
+                    try:
+                        execution_metadata["restore_report"] = json.loads(
+                            _osprey_restore_report.to_json()
+                        )
+                    except Exception:
+                        execution_metadata["restore_report"] = repr(_osprey_restore_report)
+                print(f"\\n{'='*60}", file=sys.stderr)
+                print("PYTHON EXECUTION INTERRUPTED (KeyboardInterrupt)", file=sys.stderr)
+                print(f"{'='*60}", file=sys.stderr)
+                print(f"{traceback.format_exc()}", file=sys.stderr)
+                print(f"{'='*60}\\n", file=sys.stderr)
+
             except Exception as e:
+                _osprey_ignore_sigint()
                 execution_metadata["success"] = False
                 execution_metadata["error"] = str(e)
                 execution_metadata["traceback"] = traceback.format_exc()
@@ -1319,6 +1383,7 @@ if not _execution_dir.exists():
                 print(f"{'='*60}\\n", file=sys.stderr)
 
             finally:
+                _osprey_ignore_sigint()
                 # Restore stdout/stderr and capture output
                 sys.stdout = original_stdout
                 sys.stderr = original_stderr

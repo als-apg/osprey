@@ -24,6 +24,7 @@ import json
 import logging
 import math
 import os
+import signal
 import sys
 import time
 import traceback
@@ -178,6 +179,39 @@ FAILURE_KIND_TIMEOUT = "timeout"
 #: the switch lands — which is what makes it neither a setup failure (the
 #: service is healthy) nor a script error (the code is fine).
 FAILURE_KIND_SWITCH_IN_PROGRESS = "switch_in_progress"
+
+#: Prefix of the line an interrupted run prints with its restore report: the
+#: tag, one space, then the report as a single JSON object. The executor reads
+#: only lines that carry it and skips any whose payload is not JSON.
+RESTORE_REPORT_TAG = "OSPREY_PYAML_RESTORE"
+
+#: The file in the execution folder that holds the restore reports parsed from
+#: an interrupted run's pipes, as a JSON list in the order they were read.
+RESTORE_REPORT_FILE = "pyaml_restore_reports.json"
+
+#: Upper bound, in seconds, on winding down a cancelled run that has no finite
+#: deadline: how long its child gets to exit after ``SIGINT`` before it is
+#: killed, and how long reaping a killed child may take. A run WITH a deadline
+#: is given the time left to it instead, so a cancel never cuts a run's
+#: restore shorter than the timeout that run was granted; a cancel that lands
+#: at or after that deadline has no time left, and its child is killed at once.
+CANCEL_DRAIN_CAP_S = 30.0
+
+#: Seconds a cancelled run's pipes get, after its child has exited, to deliver
+#: what is still in them. A child's pipes normally close with it; this bounds
+#: the wait when a descendant inherited them and holds them open.
+_CANCEL_PIPE_GRACE_S = 1.0
+
+#: Poll interval, in seconds, for a cancelled run's child to exit.
+_CANCEL_EXIT_POLL_S = 0.02
+
+#: Bytes per read while a cancelled run's pipes are drained.
+_CANCEL_READ_CHUNK = 65536
+
+#: Audit ``reason`` for a restore that wrote every journaled address back.
+REASON_RESTORE_COMPLETE = "pyaml_restore_complete"
+#: Audit ``reason`` for a restore that left an address refused or unconfirmed.
+REASON_RESTORE_INCOMPLETE = "pyaml_restore_incomplete"
 
 
 @dataclass
@@ -908,6 +942,7 @@ async def _execute_via_local(
     # and carries the posture stamp the sandbox launched under so a reader can
     # say which way this run may still be moved.
     with _in_flight_marker(control_target, sandbox_env.get(ENV_LAUNCH_POSTURE)):
+        proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 python_bin,
@@ -920,7 +955,15 @@ async def _execute_via_local(
             stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             stdout_text = stdout_bytes.decode("utf-8", errors="replace")
             stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+        except asyncio.CancelledError:
+            # A cancel that lands before the child exists has nothing to wind
+            # down. One that lands after it is answered before it propagates,
+            # inside the marker, so the marker outlives the child.
+            if proc is not None:
+                await _interrupt_and_drain(proc, start_time, timeout, execution_folder)
+            raise
         except TimeoutError:
+            assert proc is not None  # the wait that timed out is the child's
             proc.kill()
             await proc.wait()
             elapsed = time.time() - start_time
@@ -972,6 +1015,104 @@ async def _execute_via_local(
         elapsed=time.time() - start_time,
         control_target=control_target,
     )
+
+
+async def _interrupt_and_drain(
+    proc: asyncio.subprocess.Process,
+    start_time: float,
+    timeout: Any,
+    execution_folder: Path,
+) -> None:
+    """Wind down a cancelled run's child: SIGINT, drain, kill only at the bound.
+
+    MCP cancels a tool call through an anyio cancel scope that re-cancels on
+    every await, so the whole sequence runs shielded. ``SIGINT`` lets the
+    wrapped script end the way an interrupted one does — a guarded pyAML run
+    restores what it moved and prints its report. Both pipes are read into
+    buffers for the whole wind-down, so an echo larger than a pipe buffer
+    cannot wedge the child and nothing read is lost when a wait is cut short.
+
+    The wait is on the child's exit, not on its pipes: a descendant that
+    inherited them (a detached EPICS helper) may hold them open long after the
+    child is gone. The bound is the time left to the run's deadline — zero when
+    that deadline has already passed, so such a child is killed at once — or
+    :data:`CANCEL_DRAIN_CAP_S` when the run has no finite deadline. A child
+    still alive at the bound is killed and reaped. Once it has exited the pipes
+    get :data:`_CANCEL_PIPE_GRACE_S` to deliver what is left, and whatever was
+    read is handed to :func:`_record_restore_report`.
+
+    The report is filed, and a still-running child killed, even when a native
+    asyncio cancellation breaks through the shield; that cancellation then
+    propagates. Under anyio cancellation this never raises: the caller
+    re-raises the cancellation.
+    """
+    import anyio
+
+    remaining: float | None = None
+    if isinstance(timeout, int | float) and math.isfinite(timeout):
+        remaining = max(0.0, start_time + timeout - time.time())
+    bound = CANCEL_DRAIN_CAP_S if remaining is None else remaining
+    out = bytearray()
+    err = bytearray()
+
+    async def _exited() -> None:
+        # ``Process.wait`` also waits for the pipes to close; the return code
+        # alone says the child is gone.
+        while proc.returncode is None:
+            await anyio.sleep(_CANCEL_EXIT_POLL_S)
+
+    try:
+        with anyio.CancelScope(shield=True):
+            async with anyio.create_task_group() as readers:
+                pipes_done = [
+                    _start_pump(readers, proc.stdout, out),
+                    _start_pump(readers, proc.stderr, err),
+                ]
+                with contextlib.suppress(ProcessLookupError):
+                    proc.send_signal(signal.SIGINT)
+                with anyio.move_on_after(bound):
+                    await _exited()
+                if proc.returncode is None:
+                    logger.warning(
+                        "Cancelled sandbox %s did not exit after SIGINT; killed",
+                        execution_folder.name,
+                    )
+                    with contextlib.suppress(ProcessLookupError):
+                        proc.kill()
+                    with anyio.move_on_after(CANCEL_DRAIN_CAP_S):
+                        await _exited()
+                with anyio.move_on_after(_CANCEL_PIPE_GRACE_S):
+                    for done in pipes_done:
+                        await done.wait()
+                readers.cancel_scope.cancel()
+    finally:
+        if proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+        _record_restore_report(bytes(out), bytes(err), execution_folder)
+
+
+def _start_pump(tg: Any, stream: asyncio.StreamReader | None, sink: bytearray) -> Any:
+    """Start copying *stream* into *sink* until EOF; return the event set at EOF.
+
+    Each chunk is appended as soon as it is read, so cancelling the copy loses
+    nothing already read: a pending ``read`` leaves unread data in the stream.
+    """
+    import anyio
+
+    done = anyio.Event()
+
+    async def _pump() -> None:
+        try:
+            if stream is None:
+                return
+            while chunk := await stream.read(_CANCEL_READ_CHUNK):
+                sink.extend(chunk)
+        finally:
+            done.set()
+
+    tg.start_soon(_pump)
+    return done
 
 
 def _result_from_run(
@@ -1064,6 +1205,140 @@ def _read_execution_metadata(execution_folder: Path) -> dict | None:
         except Exception:
             logger.debug("Failed to read execution metadata", exc_info=True)
     return None
+
+
+def _parse_restore_reports(*streams: bytes | str) -> list[dict]:
+    """Every ``OSPREY_PYAML_RESTORE`` report in *streams*, in stream then line order.
+
+    A tagged line whose payload is not a JSON object is skipped: the tag is
+    plain text any script could print, and a malformed line is no report.
+    """
+    prefix = RESTORE_REPORT_TAG + " "
+    reports: list[dict] = []
+    for stream in streams:
+        text = stream.decode("utf-8", errors="replace") if isinstance(stream, bytes) else stream
+        for line in (text or "").splitlines():
+            if not line.startswith(prefix):
+                continue
+            try:
+                report = json.loads(line[len(prefix) :])
+            except ValueError:
+                continue
+            if isinstance(report, dict):
+                reports.append(report)
+    return reports
+
+
+def _addresses(entries: Any) -> list[str]:
+    """The addresses of a report's ``refused``/``failed`` entries, values dropped."""
+    names: list[str] = []
+    for entry in entries or ():
+        if isinstance(entry, list | tuple) and entry:
+            names.append(str(entry[0]))
+        elif isinstance(entry, str):
+            names.append(entry)
+    return names
+
+
+def _restore_detail(execution_dir: Path, report: dict) -> str:
+    """The audit ``detail`` of one restore report: addresses and flags, no values.
+
+    The ledger holds identifiers only, so a refused write's left-behind value
+    stays in the execution folder's copy of the report. Cut to the envelope's
+    detail bound so the record is never dropped for its length.
+    """
+    from osprey.audit.envelope import MAX_DETAIL_CHARS
+
+    restored = [str(a) for a in report.get("restored") or ()]
+    detail = (
+        f"execution={execution_dir.name} "
+        f"aborted={bool(report.get('aborted'))} "
+        f"deadline_guard={bool(report.get('deadline_guard'))} "
+        f"unchanged={len(report.get('unchanged') or ())} "
+        f"refused={','.join(_addresses(report.get('refused')))} "
+        f"failed={','.join(_addresses(report.get('failed')))} "
+        f"restored={','.join(restored)}"
+    )
+    if len(detail) > MAX_DETAIL_CHARS:
+        detail = detail[: MAX_DETAIL_CHARS - 3] + "..."
+    return detail
+
+
+def _write_restore_file(execution_dir: Path, reports: list[dict]) -> None:
+    """Write *reports* to :data:`RESTORE_REPORT_FILE`, replacing it atomically."""
+    target = execution_dir / RESTORE_REPORT_FILE
+    temporary = execution_dir / f".{RESTORE_REPORT_FILE}.{uuid.uuid4().hex}.tmp"
+    try:
+        temporary.write_text(json.dumps(reports, indent=2), encoding="utf-8")
+        os.replace(temporary, target)
+    finally:
+        with contextlib.suppress(OSError):
+            temporary.unlink()
+
+
+def _record_restore_report(
+    stdout: bytes | str,
+    stderr: bytes | str,
+    execution_dir: Path,
+    ledger: Path | None = None,
+) -> list[dict]:
+    """File the restore reports an interrupted run printed; return them.
+
+    A guarded pyAML run that is interrupted restores the setpoints it moved and
+    prints its report as an ``OSPREY_PYAML_RESTORE`` line (on stderr, inside the
+    sandbox's captured output, which the wrapper echoes to the pipes on its way
+    out). The parent reads both drained pipes and keeps what it finds twice:
+    the full reports in the execution folder (:data:`RESTORE_REPORT_FILE`), and
+    one executor-surface audit record per report — addresses and flags, never
+    values — in the audit ledger.
+
+    Args:
+        stdout: The child's drained stdout, bytes or text.
+        stderr: The child's drained stderr, bytes or text.
+        execution_dir: The run's execution folder.
+        ledger: The ledger file to append to; ``None`` routes the records the
+            way every executor record is routed (``var/audit/<identity>/``).
+
+    Returns:
+        The parsed reports, in the order read (stdout first). Nothing is written
+        when there are none. Never raises: a record that cannot be stored costs
+        the audit trail that record and is logged, not the cancellation.
+    """
+    reports = _parse_restore_reports(stdout, stderr)
+    if not reports:
+        return reports
+
+    try:
+        _write_restore_file(execution_dir, reports)
+    except Exception:  # the ledger record below still lands
+        logger.warning("Could not write the restore reports into %s", execution_dir, exc_info=True)
+
+    for report in reports:
+        try:
+            from osprey.audit.envelope import DECISION_ALLOWED, SURFACE_EXECUTOR, AuditEnvelope
+            from osprey.audit.writer import append_envelope, record_envelope
+            from osprey.utils.identity import acting_identity
+
+            incomplete = bool(report.get("refused") or report.get("failed"))
+            envelope = AuditEnvelope(
+                surface=SURFACE_EXECUTOR,
+                actor=acting_identity(),
+                posture=posture.posture(),
+                posture_source=posture.posture_source(),
+                session=posture.posture_session(),
+                subject=f"execution/{execution_dir.name}",
+                decision=DECISION_ALLOWED,
+                reason=REASON_RESTORE_INCOMPLETE if incomplete else REASON_RESTORE_COMPLETE,
+                detail=_restore_detail(execution_dir, report),
+            )
+            if ledger is None:
+                record_envelope(envelope)
+            else:
+                ledger.parent.mkdir(parents=True, exist_ok=True)
+                append_envelope(ledger, envelope)
+        except Exception:  # the audit trail degrades; the run's outcome does not
+            logger.warning("Could not record a restore report for audit", exc_info=True)
+    return reports
 
 
 def _collect_figures(execution_folder: Path) -> list[Path]:
