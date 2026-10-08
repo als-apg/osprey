@@ -164,3 +164,16 @@ def test_registered_allowed_and_offered_to_the_main_agent():
     assert "entry_open" not in FRAMEWORK_SERVERS["ariel"].permissions_ask
     assert "entry_open" in _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL
     assert "entry_open" not in _ariel_read_tools(True)
+
+
+def test_the_description_asks_for_the_picture_under_discussion():
+    from osprey.mcp_server.ariel.tools.entry import entry_open
+
+    description = " ".join(
+        (getattr(entry_open, "description", None) or get_tool_fn(entry_open).__doc__).split()
+    )
+    assert (
+        "When the conversation is about one of the entry's pictures (one viewed, described "
+        "or reported earlier), pass its `attachment_id` too, even when the operator only "
+        "asks for the entry."
+    ) in description

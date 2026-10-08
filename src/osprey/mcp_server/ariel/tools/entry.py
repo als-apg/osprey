@@ -275,7 +275,10 @@ async def entry_open(
     to the front. With `attachment_id` it also opens that picture enlarged,
     when the picture is one of this entry's and `viewable`. Use it whenever
     the operator asks to see an entry or one of its pictures; it reads no
-    picture into this conversation and writes nothing.
+    picture into this conversation and writes nothing. When the conversation
+    is about one of the entry's pictures (one viewed, described or reported
+    earlier), pass its `attachment_id` too, even when the operator only asks
+    for the entry.
 
     Args:
         entry_id: The entry to show, as listed by a search, browse or entry_get.

@@ -182,6 +182,7 @@ def _entry_to_response(
     Returns:
         The entry response.
     """
+    from osprey.imaging.formats import skip_reason_text
     from osprey.services.ariel_search.attachments.summaries import (
         build_attachment_summary_pairs,
     )
@@ -199,12 +200,14 @@ def _entry_to_response(
     attachments = []
     for summary, item in pairs:
         display_url = _display_url(entry_id, summary, item, copy_state=attachment_rows is not None)
+        reason = summary.get("skip_reason")
         attachments.append(
             AttachmentResponse(
                 **{
                     **summary,
                     "url": _safe_url(summary.get("url")),
                     "display_url": display_url,
+                    "skip_reason_text": skip_reason_text(reason) if reason else None,
                 }
             )
         )

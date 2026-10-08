@@ -25,6 +25,11 @@ reporting the qmd sidecar the harness never starts (see
 :func:`_absent_qmd_sidecar`). The log check covers the one step that runs in
 this process, the seeding.
 
+A second turn of the same conversation asks to open "that entry" in the
+logbook panel. The operator names the entry, not the picture, yet the
+conversation is about the plot, so ``entry_open`` must carry the plot's
+``attachment_id`` as well as the entry id.
+
 The plot fixture, ``fixtures/ariel_picture/orbit_drift.png``, is a matplotlib
 line plot titled ``Run QX-7713`` with the same token boxed inside the axes,
 saved with no text metadata.
@@ -87,6 +92,10 @@ PROMPT = "What is the run identifier of the sector 9 horizontal orbit drift stud
 
 LOGBOOK_SUBAGENT = "logbook-search"
 VIEW_TOOL = "mcp__ariel__attachment_view"
+OPEN_TOOL = "mcp__ariel__entry_open"
+
+#: The follow-up turn: it names the entry only.
+FOLLOW_UP = "Open that entry in the logbook panel."
 
 #: Where the picture feature's in-process code lives, for the seeding log check.
 #: The shared ``ariel`` logger also carries the semantic-search ERROR an absent
@@ -298,7 +307,10 @@ async def test_agent_reads_the_attached_plot(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Asked a neutral question, the logbook agent opens the plot and reports its token."""
+    """Asked a neutral question, the logbook agent opens the plot and reports its token.
+
+    Asked next to open the entry, the agent shows it with the plot it discussed.
+    """
     provider = e2e_provider()
     if not _effective_supports_images(provider):
         pytest.skip(f"provider {provider} does not carry images on its route")
@@ -317,7 +329,7 @@ async def test_agent_reads_the_attached_plot(
     assert (ariel.get("database") or {}).get("uri") == db_uri
 
     with caplog.at_level(logging.WARNING):
-        _entry_id, attachment_id = await _seed_picture_entry(ariel)
+        entry_id, attachment_id = await _seed_picture_entry(ariel)
     feature_errors = _feature_errors(caplog.records)
     assert not feature_errors, "the picture feature logged ERROR while seeding: " + "; ".join(
         f"{r.pathname}:{r.lineno} {r.getMessage()}" for r in feature_errors
@@ -375,4 +387,27 @@ async def test_agent_reads_the_attached_plot(
 
     assert TOKEN.lower() in final.lower(), (
         f"the answer does not name {TOKEN}, the token only the plot carries: {final!r}"
+    )
+
+    session_id = result.result.session_id
+    assert session_id, "the first turn reported no session id to resume"
+    follow = await run_sdk_query(
+        repo, FOLLOW_UP, max_turns=10, max_budget_usd=1.0, resume=session_id
+    )
+    follow_final = (follow.result.result if follow.result is not None else None) or ""
+    (tmp_path / "follow_up_excerpt.json").write_text(
+        json.dumps(_trace_excerpt(follow, follow_final), indent=2, default=str), encoding="utf-8"
+    )
+
+    assert follow.result is not None, "no ResultMessage received for the follow-up"
+    assert not follow.result.is_error, f"the follow-up turn ended in error: {follow_final}"
+    opens = [t for t in follow.tool_traces if t.name == OPEN_TOOL]
+    assert opens, f"entry_open was never called on the follow-up. Tools: {follow.tool_names}"
+    assert any(
+        (t.input or {}).get("entry_id") == entry_id
+        and (t.input or {}).get("attachment_id") == attachment_id
+        for t in opens
+    ), (
+        f"entry_open never carried the plot under discussion ({entry_id}, {attachment_id}): "
+        f"{[t.input for t in opens]}"
     )

@@ -235,7 +235,10 @@ class TestEnhanceImageEmbedding:
             assert held
             await ops.run_enhance(cfg, module=EMBED, force=False, limit=100, progress=lines.append)
 
-        assert f"{EMBED}: running in another process" in lines
+        assert (
+            f"{EMBED}: skipped, another pass is running it (osprey ariel watch runs the picture modules on every poll)"
+            in lines
+        )
         assert _vectors(scratch_database) == {}
         assert stub.embeddings == []
 
@@ -399,9 +402,10 @@ class TestRetryFailedCaptions:
         self, repo, scratch_database, monkeypatch
     ):
         cfg = _config_dict(scratch_database, caption=True)
+        cfg["enhancement_modules"][CAPTION]["max_images_per_entry"] = 1
         await _seed(repo, cfg, "cap-1", ["a.png", "b.png"])
         aid, over = _id("cap-1", "a.png"), _id("cap-1", "b.png")
-        # One picture already set aside over the cap: a decision, never retried.
+        # One picture set aside over the cap, and still over it: never retried.
         with psycopg.connect(scratch_database, autocommit=True) as conn:
             conn.execute(
                 "UPDATE enhanced_entries SET attachment_captions = %s::jsonb WHERE entry_id = %s",
@@ -431,3 +435,163 @@ class TestRetryFailedCaptions:
         assert captions[over][CAPTION_MODEL] == {"error": "over_image_cap"}
         assert _status(scratch_database, "cap-1")[CAPTION]["status"] == "complete"
         assert vision.calls == 2
+
+    async def test_raising_the_cap_then_retry_failed_captions_the_pictures_now_under_it(
+        self, repo, scratch_database, monkeypatch
+    ):
+        cfg = _config_dict(scratch_database, caption=True)
+        cfg["enhancement_modules"][CAPTION]["max_images_per_entry"] = 1
+        await _seed(repo, cfg, "cap-2", ["a.png", "b.png", "c.png"])
+        a, b, c = (_id("cap-2", n) for n in ("a.png", "b.png", "c.png"))
+        vision = _Vision(fail=0)
+        monkeypatch.setattr(caption_mod, "_chat_completion", vision)
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
+        assert _captions(scratch_database, "cap-2")[b][CAPTION_MODEL] == {"error": "over_image_cap"}
+        assert vision.calls == 1
+        counts = await repo.get_caption_counts(CAPTION_MODEL, caption_mod.caption_prompt_sha256({}))
+        assert counts["over_cap"] == 2
+
+        cfg["enhancement_modules"][CAPTION]["max_images_per_entry"] = 2
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
+        assert vision.calls == 1  # a raised cap alone re-captions nothing
+        lines: list[str] = []
+        await ops.run_enhance(
+            cfg, module=CAPTION, force=False, limit=100, retry_failed=True, progress=lines.append
+        )
+
+        captions = _captions(scratch_database, "cap-2")
+        assert captions[a][CAPTION_MODEL]["caption"] == "Klystron arc trace on the scope."
+        assert captions[b][CAPTION_MODEL]["caption"] == "Klystron arc trace on the scope."
+        assert captions[c][CAPTION_MODEL] == {"error": "over_image_cap"}
+        assert _status(scratch_database, "cap-2")[CAPTION]["status"] == "complete"
+        assert vision.calls == 2
+        assert f"{CAPTION}: 1 failed entries will be retried" in lines
+        counts = await repo.get_caption_counts(CAPTION_MODEL, caption_mod.caption_prompt_sha256({}))
+        assert counts["over_cap"] == 1
+
+    async def test_lowering_the_cap_then_retry_failed_keeps_every_caption(
+        self, repo, scratch_database, monkeypatch
+    ):
+        cfg = _config_dict(scratch_database, caption=True)
+        await _seed(repo, cfg, "cap-3", ["a.png", "b.png"])
+        vision = _Vision(fail=0)
+        monkeypatch.setattr(caption_mod, "_chat_completion", vision)
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
+        before = _captions(scratch_database, "cap-3")
+
+        cfg["enhancement_modules"][CAPTION]["max_images_per_entry"] = 1
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100, retry_failed=True)
+
+        assert _captions(scratch_database, "cap-3") == before
+        assert vision.calls == 2
+
+
+# --- --refresh-stale on image_caption ------------------------------------------------
+
+
+class TestRefreshStaleCaptions:
+    async def test_a_new_prompt_is_reported_and_only_refresh_stale_captions_again(
+        self, repo, scratch_database, monkeypatch
+    ):
+        cfg = _config_dict(scratch_database, caption=True)
+        await _seed(repo, cfg, "stale-1", ["a.png", "b.png"])
+        a, b = _id("stale-1", "a.png"), _id("stale-1", "b.png")
+        vision = _Vision(fail=0)
+        monkeypatch.setattr(caption_mod, "_chat_completion", vision)
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
+        # A caption stored before captions recorded their prompt.
+        captions = _captions(scratch_database, "stale-1")
+        del captions[b][CAPTION_MODEL]["prompt_sha256"]
+        with psycopg.connect(scratch_database, autocommit=True) as conn:
+            conn.execute(
+                "UPDATE enhanced_entries SET attachment_captions = %s::jsonb WHERE entry_id = %s",
+                (psycopg.types.json.Jsonb(captions), "stale-1"),
+            )
+        new_prompt = "Describe the picture.\n{text}\nVisible text:"
+        cfg["enhancement_modules"][CAPTION]["prompt_template"] = new_prompt
+        new_sha = caption_mod.caption_prompt_sha256({"prompt_template": new_prompt})
+
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
+        assert vision.calls == 2  # a new prompt alone captions nothing again
+        counts = await repo.get_caption_counts(CAPTION_MODEL, new_sha)
+        assert counts == {
+            "over_cap": 0,
+            "older_prompt": 1,
+            "refresh_pending": 0,
+            "refresh_failed": 0,
+            "unrecorded_prompt": 1,
+        }
+
+        lines: list[str] = []
+        await ops.run_enhance(
+            cfg, module=CAPTION, force=False, limit=100, refresh_stale=True, progress=lines.append
+        )
+
+        captions = _captions(scratch_database, "stale-1")
+        assert captions[a][CAPTION_MODEL]["prompt_sha256"] == new_sha
+        assert "refresh" not in captions[a][CAPTION_MODEL]
+        assert "prompt_sha256" not in captions[b][CAPTION_MODEL]
+        assert vision.calls == 3
+        assert f"{CAPTION}: 1 captions made with an older prompt will be made again" in lines
+        assert _status(scratch_database, "stale-1")[CAPTION]["status"] == "complete"
+        counts = await repo.get_caption_counts(CAPTION_MODEL, new_sha)
+        assert counts == {
+            "over_cap": 0,
+            "older_prompt": 0,
+            "refresh_pending": 0,
+            "refresh_failed": 0,
+            "unrecorded_prompt": 1,
+        }
+
+    async def test_refresh_keeps_the_old_caption_searchable_until_it_is_replaced(
+        self, repo, scratch_database, monkeypatch
+    ):
+        cfg = _config_dict(scratch_database, caption=True)
+        await _seed(repo, cfg, "stale-2", ["a.png"])
+        monkeypatch.setattr(caption_mod, "_chat_completion", _Vision(fail=0))
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
+        cfg["enhancement_modules"][CAPTION]["prompt_template"] = "Other.\n{text}\nVisible text:"
+        # The vision call is down for the refresh pass.
+        monkeypatch.setattr(caption_mod, "_chat_completion", _Vision(fail=100))
+        availability.note_success(CAPTION, CAPTION_MODEL)
+
+        await ops.refresh_stale_captions(ops._ariel_config(cfg), None)
+
+        aid = _id("stale-2", "a.png")
+        stored = _captions(scratch_database, "stale-2")[aid][CAPTION_MODEL]
+        assert stored["caption"] == "Klystron arc trace on the scope."
+        assert stored["refresh"] is True
+        assert CAPTION not in _status(scratch_database, "stale-2")
+        prompt = caption_mod.caption_prompt_sha256(cfg["enhancement_modules"][CAPTION])
+        counts = await repo.get_caption_counts(CAPTION_MODEL, prompt)
+        assert (counts["older_prompt"], counts["refresh_pending"]) == (0, 1)
+        # Already marked: a second refresh marks nothing again.
+        assert await ops.refresh_stale_captions(ops._ariel_config(cfg), None) == 0
+
+    async def test_a_refresh_the_model_refuses_keeps_the_caption_in_search(
+        self, repo, scratch_database, monkeypatch
+    ):
+        cfg = _config_dict(scratch_database, caption=True)
+        await _seed(repo, cfg, "stale-3", ["a.png"])
+        monkeypatch.setattr(caption_mod, "_chat_completion", _Vision(fail=0))
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
+        cfg["enhancement_modules"][CAPTION]["prompt_template"] = "Broken.\n{text}\nVisible text:"
+        # The new prompt is refused on every call: a deterministic failure.
+        monkeypatch.setattr(caption_mod, "_chat_completion", _Vision(fail=100))
+        availability.note_success(CAPTION, CAPTION_MODEL)
+
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100, refresh_stale=True)
+
+        aid = _id("stale-3", "a.png")
+        stored = _captions(scratch_database, "stale-3")[aid][CAPTION_MODEL]
+        assert stored["caption"] == "Klystron arc trace on the scope."
+        assert stored["refresh_error"] == "EmptyReplyError: the model answered nothing"
+        assert "refresh" not in stored
+        with psycopg.connect(scratch_database) as conn:
+            row = conn.execute(
+                "SELECT attachment_text FROM enhanced_entries WHERE entry_id = %s", ("stale-3",)
+            ).fetchone()
+        assert row is not None and "Klystron arc trace on the scope." in row[0]
+        prompt = caption_mod.caption_prompt_sha256(cfg["enhancement_modules"][CAPTION])
+        counts = await repo.get_caption_counts(CAPTION_MODEL, prompt)
+        assert (counts["older_prompt"], counts["refresh_failed"]) == (0, 1)
