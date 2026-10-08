@@ -24,7 +24,6 @@ from osprey_connectors.simulation.series import (
     epoch_seconds_array,
     event_positions,
     keyed_normals,
-    string_series,
     wander,
 )
 
@@ -217,17 +216,6 @@ class TestDailyOccurrences:
         for epoch in occ:
             local = datetime.fromtimestamp(epoch, ny)
             assert (local.hour, local.minute) == (12, 0)
-
-
-class TestStringSeries:
-    def test_step_switches_value(self):
-        out = string_series("OPEN", [{"shape": "step", "at": 0.5, "to": "CLOSED"}], 5, None, 0.0)
-        # t_frac = [0, .25, .5, .75, 1]; switch at >= 0.5 → last 3 entries.
-        assert out == ["OPEN", "OPEN", "CLOSED", "CLOSED", "CLOSED"]
-
-    def test_non_step_events_ignored_for_strings(self):
-        out = string_series("OPEN", [{"shape": "spike", "at": 0.5}], 3, None, 0.0)
-        assert out == ["OPEN", "OPEN", "OPEN"]
 
 
 class TestApplyEvents:

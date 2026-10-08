@@ -355,27 +355,6 @@ def daily_occurrences(at_time: str, t_abs: "np.ndarray", tz: ZoneInfo | None = N
     return positions
 
 
-def string_series(
-    baseline: str,
-    events: list[dict[str, Any]],
-    n: int,
-    t_abs: "np.ndarray | None",
-    anchor: float,
-    tz: ZoneInfo | None = None,
-) -> list[str]:
-    """Constant string series; only 'step' events are meaningful for strings."""
-    t_frac = np.linspace(0.0, 1.0, n)
-    series = [baseline] * n
-    for event in events:
-        if event["shape"] != "step":
-            continue
-        for x, at in event_positions(event, t_frac, t_abs, anchor, tz):
-            for i in range(n):
-                if x[i] >= at:
-                    series[i] = str(event["to"])
-    return series
-
-
 def apply_events(
     series: "np.ndarray",
     events: list[dict[str, Any]],

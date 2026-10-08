@@ -584,26 +584,28 @@ def _event_problem(
             f"has `width` {event['width']!r}, not greater than 0",
             "write `width` as a number greater than 0",
         )
-    if position == "at_time" and _time_of_day(event["at_time"]) is None:
-        return (
-            f"has `at_time` {event['at_time']!r}, not an HH:MM[:SS] time of day",
-            "write `at_time` as HH:MM:SS",
-        )
-    if position == "at_when" and not _relative_when(event["at_when"]):
-        return (
-            f"has `at_when` {event['at_when']!r}, not {{days_ago: <int>, time: HH:MM[:SS]}}",
-            "write `at_when` as {days_ago: <int>, time: HH:MM:SS}",
-        )
     # The logbook reads the same {days_ago, time} grammar; a value it refuses
     # must not be served misplaced here.
     offset = "time is local time and must not carry a timezone offset"
-    if position == "at_time" and _has_offset(event["at_time"]):
-        return (
-            f"has `at_time` {event['at_time']!r}; {offset}",
-            "write `at_time` as HH:MM:SS without an offset",
-        )
+    if position == "at_time":
+        at_time = event["at_time"]
+        if _time_of_day(at_time) is None:
+            return (
+                f"has `at_time` {at_time!r}, not an HH:MM[:SS] time of day",
+                "write `at_time` as HH:MM:SS",
+            )
+        if _has_offset(at_time):
+            return (
+                f"has `at_time` {at_time!r}; {offset}",
+                "write `at_time` as HH:MM:SS without an offset",
+            )
     if position == "at_when":
         when = event["at_when"]
+        if not _relative_when(when):
+            return (
+                f"has `at_when` {when!r}, not {{days_ago: <int>, time: HH:MM[:SS]}}",
+                "write `at_when` as {days_ago: <int>, time: HH:MM:SS}",
+            )
         if when["days_ago"] < 0:
             return (
                 f"has `at_when` {when!r}; days_ago must be a non-negative integer",
