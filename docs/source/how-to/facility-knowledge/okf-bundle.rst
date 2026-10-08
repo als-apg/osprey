@@ -290,11 +290,12 @@ Working with a Bundle
       if any file fails.
 
       **seed-from-ttl** — seeds one OKF stub document per device of the build's
-      graph view, ``data/graph/facility.ttl`` under the render:
+      graph view, ``build/data/graph/facility.ttl`` in the deployment repo
+      (``--ttl`` names another Turtle file):
 
       .. code-block:: console
 
-         $ osprey knowledge seed-from-ttl build/data/graph/facility.ttl data/facility/knowledge
+         $ osprey knowledge seed-from-ttl data/facility/knowledge
 
       Idempotency rules applied per stub:
 

@@ -1,1 +1,1 @@
-`osprey knowledge seed-from-ttl` reads the build's graph view, `data/graph/facility.ttl`: every stub's `device_id` is the facility file's device id, so the build links the page to its device.
+`osprey knowledge seed-from-ttl` takes the bundle as its one argument and reads the build's graph view, `build/data/graph/facility.ttl` in the deployment repo you stand in or `--repo` names, unless `--ttl` names another Turtle file: every stub's `device_id` is the facility file's device id, so the build links the page to its device.

@@ -77,6 +77,14 @@ REPO_FREE_COMMANDS: frozenset[str] = frozenset(
 #: repo, like every repo-scoped verb. ``health`` reports ON a deployment; it was
 #: previously filed under :data:`REPO_FREE_COMMANDS`, whose members act on the
 #: machine or the installed framework, and that claim was simply false.
+#:
+#: The ``knowledge`` entry names a GROUP, and one verb under it does not need
+#: the exemption: ``knowledge seed-from-ttl`` reads the graph view of the
+#: deployment the operator is standing in when no ``--ttl`` is given, so it
+#: finds its repo through :func:`find_repo_root` and takes ``--repo`` like every
+#: other repo-scoped verb. ``knowledge``'s other subcommands act on the bundle
+#: path they are handed or resolve their own inputs, which is what the entry is
+#: here for.
 SELF_DISCOVERING_COMMANDS: frozenset[str] = frozenset(
     {
         "knowledge",

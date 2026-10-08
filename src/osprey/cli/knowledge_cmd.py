@@ -21,6 +21,7 @@ import click
 from osprey_connectors.config import get_config_value
 
 from .output import fail, note, report, warn
+from .repo_resolver import repo_option
 
 
 @click.group()
@@ -156,11 +157,43 @@ def validate(bundle: Path | None) -> None:
     raise SystemExit(1)
 
 
+def _build_graph_view(repo: Path | None) -> Path:
+    """Return the graph view the build wrote for the deployment repo in use.
+
+    The repo is found by the shared walk from *repo*, or from the working
+    directory when *repo* is None, and the view sits at
+    ``build/data/graph/facility.ttl`` under its root.
+
+    Raises:
+        click.ClickException: When no deployment repo encloses the working
+            directory, or its build has written no graph view.
+    """
+    from osprey.cli.repo_resolver import RepoNotFoundError, find_repo_root
+    from osprey.facility.views.graph import GRAPH_FILE
+    from osprey_connectors.workspace import BUILD_DIR_NAME
+
+    try:
+        repo_root = find_repo_root(repo)
+    except RepoNotFoundError as exc:
+        raise click.ClickException(
+            "No deployment repo found. Pass the repo with --repo or the Turtle file with --ttl."
+        ) from exc
+    view = repo_root / BUILD_DIR_NAME / "data" / "graph" / GRAPH_FILE
+    if not view.is_file():
+        raise click.ClickException(f"No graph view at {view}. Run osprey build first.")
+    return view
+
+
 @knowledge.command("seed-from-ttl")
-@click.argument("ttl", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.argument(
     "bundle",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
+@click.option(
+    "--ttl",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Turtle file to read. Default: build/data/graph/facility.ttl in the deployment repo.",
 )
 @click.option(
     "--force",
@@ -168,16 +201,19 @@ def validate(bundle: Path | None) -> None:
     default=False,
     help="Overwrite existing stub files even when their content differs.",
 )
-def seed_from_ttl(ttl: Path, bundle: Path, force: bool) -> None:
+@repo_option
+def seed_from_ttl(bundle: Path, ttl: Path | None, force: bool, repo: Path | None) -> None:
     """Seed OKF stub documents from the build's graph view.
-
-    TTL is the graph view 'osprey build' writes, data/graph/facility.ttl under
-    the render, or any other NARAD Turtle file.  Each stub's device_id is the
-    facility file's device id, so the build links the page to its device.
 
     BUNDLE is the path to the root directory of an OKF bundle.  One stub
     .md file is written per device node in the TTL, placed at
     <bundle>/<local-iri-name>.md.
+
+    --ttl names the Turtle file to read.  Without it the verb reads the graph
+    view 'osprey build' wrote, build/data/graph/facility.ttl in the deployment
+    repo it is run in or the one --repo names; any other NARAD Turtle file is
+    accepted too.  Each stub's device_id is the facility file's device id, so the build links the
+    page to its device.
 
     Idempotency rules (applied per stub):
 
@@ -193,6 +229,9 @@ def seed_from_ttl(ttl: Path, bundle: Path, force: bool) -> None:
     # rdflib is imported lazily inside the seeder, so an absent one surfaces
     # either here at import time or inside seed_from_ttl itself.  Both mean the
     # same broken environment, so both get the same repair hint.
+    if ttl is None:
+        ttl = _build_graph_view(repo)
+
     try:
         from osprey.services.facility_knowledge.seeder.ttl_seeder import seed_from_ttl as _seed
 

@@ -157,7 +157,7 @@ def test_stubs_seeded_from_the_graph_view_link_held_devices(
     bundle = tmp_path / "knowledge"
     bundle.mkdir()
 
-    result = CliRunner().invoke(knowledge, ["seed-from-ttl", str(graph_view), str(bundle)])
+    result = CliRunner().invoke(knowledge, ["seed-from-ttl", str(bundle), "--ttl", str(graph_view)])
 
     assert result.exit_code == 0, result.output
     held = {device["id"] for device in built_control_assistant.facility["devices"]}
