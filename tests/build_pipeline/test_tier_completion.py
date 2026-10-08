@@ -60,13 +60,11 @@ ALLOWLIST: dict[str, str] = {
     "tests/services/channel_finder/benchmarks/test_generator.py": "7d2",
     "tests/services/channel_finder/databases/test_template_presentation.py": "7e",
     "tests/services/channel_finder/databases/test_template_suffix_map.py": "7e",
-    "tests/services/channel_finder/tools/test_preview_database.py": "7d2",
     "tests/services/facility_knowledge/test_demo_ttl_consistency.py": "7e",
     "tests/services/facility_knowledge/test_ttl_generator_direction.py": "7e",
     "tests/services/facility_knowledge/test_ttl_generator_emitter.py": "7e",
     "tests/services/facility_knowledge/test_ttl_generator_model.py": "7e",
     "tests/services/facility_knowledge/test_ttl_generator_ontology.py": "7e",
-    "tests/va/e2e/test_finder_live_reads.py": "7d2",
 }
 
 
