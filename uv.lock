@@ -5095,7 +5095,6 @@ all = [
     { name = "graphviz" },
     { name = "httpx2" },
     { name = "linkml" },
-    { name = "linkml-runtime" },
     { name = "mss" },
     { name = "mypy" },
     { name = "myst-parser" },
@@ -5139,7 +5138,6 @@ dev = [
     { name = "docker" },
     { name = "httpx2" },
     { name = "linkml" },
-    { name = "linkml-runtime" },
     { name = "mypy" },
     { name = "pillow" },
     { name = "pre-commit" },
@@ -5178,9 +5176,6 @@ gchat = [
     { name = "google-cloud-pubsub" },
     { name = "google-cloud-storage" },
     { name = "pysocks" },
-]
-knowledge = [
-    { name = "linkml-runtime" },
 ]
 screen-capture-linux = [
     { name = "mss" },
@@ -5244,9 +5239,6 @@ requires-dist = [
     { name = "jupyterlab", specifier = ">=4.6,<5" },
     { name = "linkml", marker = "extra == 'all'", specifier = "==1.11.1" },
     { name = "linkml", marker = "extra == 'dev'", specifier = "==1.11.1" },
-    { name = "linkml-runtime", marker = "extra == 'all'", specifier = ">=1.11.1,<2" },
-    { name = "linkml-runtime", marker = "extra == 'dev'", specifier = ">=1.11.1,<2" },
-    { name = "linkml-runtime", marker = "extra == 'knowledge'", specifier = ">=1.11.1,<2" },
     { name = "litellm", specifier = ">=1.56.0" },
     { name = "lume-base", specifier = "==0.5.0" },
     { name = "lume-pva-apg", extras = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'virtual-accelerator'", specifier = "==0.1.5" },
@@ -5362,7 +5354,7 @@ requires-dist = [
     { name = "websocket-client", specifier = ">=1.7.0" },
     { name = "websockets", specifier = ">=14" },
 ]
-provides-extras = ["all", "ariel", "ariel-proxy", "dev", "docs", "gchat", "knowledge", "screen-capture-linux", "teams", "virtual-accelerator"]
+provides-extras = ["all", "ariel", "ariel-proxy", "dev", "docs", "gchat", "screen-capture-linux", "teams", "virtual-accelerator"]
 
 [[package]]
 name = "overrides"
