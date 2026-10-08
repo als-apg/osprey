@@ -61,6 +61,19 @@ _ENV_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]+$")
 #: one needs an argument.
 _EXEMPTIONS: dict[str, str] = {}
 
+#: Virtual-accelerator variables nothing reads any more. The page must not
+#: name them: a deployer who exports one sees no effect.
+_RETIRED_VA_NAMES: tuple[str, ...] = (
+    "VA_BPM_ERRORS",
+    "VA_CHANNELS_FILE",
+    "VA_CORR_GAIN",
+    "VA_ENTRYPOINT_MODULE",
+    "VA_LATTICE",
+    "VA_NOISE_LEVEL",
+    "VA_STANDIN_BPM_ERRORS",
+    "VA_STUCK_SETPOINTS",
+)
+
 
 def _documented_names(root_dir: Path | None = None) -> list[tuple[int, str]]:
     """Every ``(line number, name)`` the page writes as an uppercase literal."""
@@ -126,6 +139,15 @@ def test_every_documented_variable_is_read_somewhere_in_the_source() -> None:
         "shipped module reads is a knob the reader exports and watches do "
         "nothing. Unread names remain:\n" + "\n".join(detail)
     )
+
+
+def test_no_retired_va_variable_is_documented() -> None:
+    """The page names none of the retired virtual-accelerator variables."""
+    documented = _documented_names()
+    offenders = [
+        f"{_PAGE}:{number}: {name}" for number, name in documented if name in _RETIRED_VA_NAMES
+    ]
+    assert offenders == [], "retired variables still documented:\n" + "\n".join(offenders)
 
 
 def test_the_page_yields_literals() -> None:
