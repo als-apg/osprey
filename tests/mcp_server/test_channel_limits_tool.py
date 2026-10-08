@@ -23,7 +23,6 @@ from tests.mcp_server.conftest import (
 
 TEST_LIMITS_DB = {
     "_version": "1.0",
-    "defaults": {"writable": True, "confirm": True},
     "MAG:HCM01:CURRENT:SP": {
         "min_value": -10.0,
         "max_value": 10.0,
@@ -61,11 +60,11 @@ class FakeChannelLimitsConfig:
 
 
 def _resolve_confirm(channel_address: str) -> bool:
-    """Mirror LimitsValidator.resolve_confirm: channel → defaults → True."""
+    """Mirror LimitsValidator.resolve_confirm: channel → True."""
     cfg = TEST_LIMITS_DB.get(channel_address)
     if isinstance(cfg, dict) and "confirm" in cfg:
         return bool(cfg["confirm"])
-    return bool(TEST_LIMITS_DB["defaults"].get("confirm", True))
+    return True
 
 
 DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.mode"
@@ -90,14 +89,14 @@ def _make_validator(
 
     limits = {}
     for addr, cfg in TEST_LIMITS_DB.items():
-        if addr.startswith("_") or addr == "defaults" or not isinstance(cfg, dict):
+        if addr.startswith("_") or not isinstance(cfg, dict):
             continue
         limits[addr] = FakeChannelLimitsConfig(
             channel_address=addr,
             min_value=cfg.get("min_value"),
             max_value=cfg.get("max_value"),
             max_step=cfg.get("max_step"),
-            writable=cfg.get("writable", True),
+            writable=cfg["writable"],
         )
     validator.limits = limits
     validator.policy = {
@@ -128,7 +127,7 @@ def _get_channel_limits():
 
 
 async def test_summary_mode():
-    """No params → stats, policy, defaults, version."""
+    """No params → stats, policy, version."""
     with patch(
         "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
@@ -145,7 +144,7 @@ async def test_summary_mode():
     assert data["summary"]["version"] == "1.0"
     assert data["access_details"]["policy"]["mode"] == "optional"
     assert data["access_details"]["policy"]["mode_key"] == DEPLOYMENT_WIDE_KEY
-    assert data["access_details"]["defaults"]["writable"] is True
+    assert "defaults" not in data["access_details"]
 
 
 async def test_summary_confirm_breakdown():
@@ -158,7 +157,7 @@ async def test_summary_confirm_breakdown():
         result = await fn()
 
     data = extract_response_dict(result)
-    # Only DIAG:TEMP:SP opts out; the rest inherit defaults.confirm = true.
+    # Only DIAG:TEMP:SP opts out; the rest state no confirm and confirm.
     assert data["summary"]["confirm_breakdown"] == {"true": 5, "false": 1}
     # The retired per-level breakdown is gone: no summary key names it any more.
     assert not [key for key in data["summary"] if "verification" in key]
@@ -190,7 +189,7 @@ async def test_lookup_found():
 
 
 async def test_lookup_confirm_opt_out():
-    """A channel with confirm: false reports it; defaults are not applied over it."""
+    """A channel with confirm: false reports it."""
     with patch(
         "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),

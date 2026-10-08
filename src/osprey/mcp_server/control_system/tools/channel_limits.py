@@ -111,7 +111,6 @@ def _build_summary(validator) -> dict:
                 "mode": mode,
                 "mode_key": answering_key,
             },
-            "defaults": validator._raw_db.get("defaults"),
         },
     }
 
