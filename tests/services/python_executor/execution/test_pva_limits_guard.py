@@ -1169,13 +1169,14 @@ def _make_pva_validator():
     """The pvaPy tests' channels: one plain, one with ``max_step``."""
     limits = {
         "TEST:MAG:SP": ChannelLimitsConfig(
-            channel_address="TEST:MAG:SP", min_value=0.0, max_value=10.0
+            channel_address="TEST:MAG:SP", min_value=0.0, max_value=10.0, writable=True
         ),
         "TEST:MAG:STEP": ChannelLimitsConfig(
             channel_address="TEST:MAG:STEP",
             min_value=0.0,
             max_value=100.0,
             max_step=2.0,
+            writable=True,
         ),
     }
     return LimitsValidator(limits, {"mode": "exclusive"})
