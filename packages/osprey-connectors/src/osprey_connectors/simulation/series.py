@@ -1,13 +1,11 @@
-"""Pure time-series synthesis primitives for the simulation engine.
+"""Pure time-series synthesis primitives for the simulated archive and texture.
 
-These functions are the stateless computational core behind
-:meth:`SimulationEngine.synthesize_series`: they turn a baseline series plus a
-scenario's archiver event scripts (step/ramp/spike, positioned by window
-fraction, wall-clock offset, or daily time-of-day) into a concrete value series.
-They hold no engine state — the engine supplies the channel values and events
-and these functions do the math — which keeps the synthesis logic unit-testable
-in isolation (see ``tests/simulation/test_series_primitives.py``; the
-engine-driven behavior is covered in ``tests/simulation/test_series.py``).
+These functions turn a baseline series plus a scenario's archiver events
+(step/ramp/spike, positioned by window fraction, wall-clock offset, or daily
+time-of-day) into a concrete value series, and supply the keyed draws and the
+band-limited texture the texture engine layers on a served value. They hold no
+state: the caller supplies the channel values and events and these functions
+do the math (see ``tests/simulation/test_series_primitives.py``).
 """
 
 import hashlib
@@ -21,7 +19,6 @@ import numpy as np
 
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
-from osprey_connectors.simulation.expressions import ExpressionError
 
 logger = get_logger("simulation_series")
 
@@ -234,9 +231,8 @@ def wander(
         A float64 array of texture offsets with the shape of ``t_abs_s``.
 
     Raises:
-        ValueError: If ``period_s`` is not positive. Machine-file parsing
-            already rejects this; the guard keeps a direct caller from turning
-            a division by zero into silent ``NaN`` in the series.
+        ValueError: If ``period_s`` is not positive; the guard keeps a caller
+            from turning a division by zero into silent ``NaN`` in the series.
     """
     if period_s <= 0.0:
         raise ValueError(f"wander period_s must be > 0, got {period_s!r}")
@@ -259,16 +255,6 @@ def clamp(value: float, min_value: float | None, max_value: float | None) -> flo
     if max_value is not None and value > max_value:
         return float(max_value)
     return value
-
-
-def ref_value(ref_series: dict[str, "np.ndarray | list[str]"], name: str, index: int) -> float:
-    """Resolver for pointwise expression evaluation over referenced series."""
-    value = ref_series[name][index]
-    if isinstance(value, str):
-        raise ExpressionError(
-            f"Channel {name!r} holds string values and cannot be used in an expression"
-        )
-    return float(value)
 
 
 def epoch_seconds_array(timestamps: "Sequence[Any]") -> "np.ndarray | None":
@@ -348,8 +334,8 @@ def daily_occurrences(at_time: str, t_abs: "np.ndarray", tz: ZoneInfo | None = N
     and keeps every occurrence of ``at_time`` that falls inside the window.
     Placing the time-of-day in an explicit zone — rather than the deploy host's
     local zone — makes the result independent of the box ``$TZ``. ``tz`` defaults
-    to UTC; the engine resolves and threads the facility zone (so this module
-    stays free of config), so production callers always supply it explicitly.
+    to UTC; callers resolve and pass the facility zone, so this module stays
+    free of config.
     Assumes ascending timestamps (the same contract ``apply_events`` relies
     on via ``np.searchsorted``).
     """

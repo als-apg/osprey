@@ -8,13 +8,6 @@ import pytest
 from osprey_connectors.simulation import state, values
 
 
-def test_engine_takes_the_state_names_from_the_state_module():
-    from osprey_connectors.simulation import engine
-
-    assert engine.ACTIVE_SCENARIOS_FILENAME is state.ACTIVE_SCENARIOS_FILENAME
-    assert engine.resolve_active_scenarios is state.resolve_active_scenarios
-
-
 def test_two_scenarios_writing_one_address_give_one_overlap_naming_it():
     view = {"a": {"SR:BPM1:X", "SR:Q1:I"}, "b": {"SR:BPM1:X", "SR:Q2:I"}}
 
@@ -58,10 +51,9 @@ def test_the_state_file_parser_ignores_a_malformed_anchor():
     assert state.parse_active_state("anchor=not-a-time\nburst\n") == (["burst"], None)
 
 
-def test_the_engine_and_the_composite_read_the_state_file_through_one_parser():
-    from osprey_connectors.simulation import composite, engine
+def test_the_composite_reads_the_state_file_through_the_state_parser():
+    from osprey_connectors.simulation import composite
 
-    assert engine.parse_active_state is state.parse_active_state
     assert composite.parse_active_state is state.parse_active_state
     assert not hasattr(composite, "_active_state_names")
 

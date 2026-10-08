@@ -3,8 +3,8 @@
 The package root holds only what every reader needs without loading a model:
 the tick period, value coercion, char-waveform decoding, the active-scenario
 state helpers and the model status lookups. It imports neither numpy nor lume;
-the engine, machine and expression names are imported from their own modules
-(:mod:`.engine`, :mod:`.machine`, :mod:`.expressions`).
+the composite, the texture engine, the archive and the series primitives are
+imported from their own modules.
 """
 
 from collections.abc import Mapping
@@ -12,6 +12,7 @@ from typing import Any
 
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
+    DEFAULT_SCENARIO,
     OVERLAP_EVENT,
     Overlap,
     composed_set,
@@ -29,6 +30,7 @@ from osprey_connectors.simulation.values import coerce
 
 __all__ = [
     "ACTIVE_SCENARIOS_FILENAME",
+    "DEFAULT_SCENARIO",
     "DEFAULT_TICK_S",
     "OVERLAP_EVENT",
     "Overlap",

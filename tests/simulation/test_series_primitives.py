@@ -1,9 +1,8 @@
-"""Direct unit tests for the pure synthesis primitives in ``simulation.series``.
+"""The pure synthesis primitives of ``osprey_connectors.simulation.series``.
 
-These cover the stateless functions in isolation (no engine). The engine-driven
-behavior is exercised separately in ``test_series.py``; this file locks the
-module's standalone contract so the extracted primitives can be refactored
-without going through the full engine each time.
+Each function is stateless, so these cases pin the module's contract directly:
+the keyed draws, the texture stack, the clamp, the timestamp conversion and
+the event placement every series reader shares.
 """
 
 import hashlib
@@ -16,9 +15,8 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pytest
 
-from osprey.simulation import series as series_module
-from osprey.simulation.expressions import ExpressionError
-from osprey.simulation.series import (
+from osprey_connectors.simulation import series as series_module
+from osprey_connectors.simulation.series import (
     apply_events,
     channel_key_bytes,
     clamp,
@@ -26,7 +24,6 @@ from osprey.simulation.series import (
     epoch_seconds_array,
     event_positions,
     keyed_normals,
-    ref_value,
     string_series,
     wander,
 )
@@ -127,17 +124,6 @@ class TestEpochSecondsArray:
     def test_bool_is_rejected(self):
         # bool is an int subclass but must not be treated as an epoch second.
         assert epoch_seconds_array([True]) is None
-
-
-class TestRefValue:
-    def test_numeric_lookup(self):
-        ref_series = {"PV:A": np.array([1.0, 2.0, 3.0])}
-        assert ref_value(ref_series, "PV:A", 2) == 3.0
-
-    def test_string_series_raises(self):
-        ref_series = {"PV:STATE": ["OPEN", "CLOSED"]}
-        with pytest.raises(ExpressionError, match="cannot be used in an expression"):
-            ref_value(ref_series, "PV:STATE", 0)
 
 
 class TestEventPositions:

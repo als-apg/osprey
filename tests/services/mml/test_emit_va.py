@@ -4,9 +4,8 @@
 deployment starts from, ``emit_lattice`` saves the deck, ``emit_bindings`` says
 what each coupled address does to it, and ``channel_bands`` derives the band
 each driven setpoint is held to. So every case here reads the emitted text back
-through the readers that consume it in production -- ``parse_machine`` (the
-simulation engine's own parser), ``load_machine_json_channels``, the
-machine-state loader's key scan and ``load_bindings`` -- rather than through
+through the readers that consume it in production -- ``load_machine_json_channels``,
+the machine-state loader's key scan and ``load_bindings`` -- rather than through
 assertions on a dict the emitter happened to build.
 
 What is pinned: every hardware nominal reaches its addresses, a family the
@@ -53,7 +52,6 @@ from osprey.services.mml.mapping.schema import (
 from osprey.services.mml.va.elements import ElementBinding, ElementSlice
 from osprey.services.virtual_accelerator.bindings import Table, load_bindings
 from osprey.services.virtual_accelerator.lattice.calibration import to_hardware, to_physics
-from osprey_connectors.simulation.machine import parse_machine
 
 SYSTEM = "RING"
 
@@ -349,11 +347,9 @@ class TestMachineDocumentShape:
         )
         path = tmp_path / "machine.json"
         path.write_text(text)
-        assert load_machine_json_channels(path)["SR:QF:1:SP"]["value"] == 1.5
-        parsed = parse_machine(json.loads(text), path)
-        assert parsed.channels["SR:QF:1:SP"].value == 1.5
-        assert parsed.channels["SR:QF:1:SP"].units == "A"
-        assert parsed.name == "Quokka storage ring"
+        channels = load_machine_json_channels(path)
+        assert channels["SR:QF:1:SP"]["value"] == 1.5
+        assert channels["SR:QF:1:SP"]["units"] == "A"
 
     def test_machine_json_is_byte_stable_and_sorted(self, tmp_path):
         views = [_view("QF", _quad_body()), _view("DCCT", _dcct_body())]
@@ -587,12 +583,15 @@ class TestMachineOnTheCommittedExport:
         }
         assert set(document["channels"]) <= exported
 
-    def test_machine_json_of_the_export_parses_as_a_machine_file(self, emitted, tmp_path):
+    def test_machine_json_of_the_export_loads_through_the_channel_reader(self, emitted, tmp_path):
+        from osprey.services.virtual_accelerator.manifest.loaders import (
+            load_machine_json_channels,
+        )
+
         _, _, text = emitted
         path = tmp_path / "machine.json"
         path.write_text(text)
-        parsed = parse_machine(json.loads(text), path)
-        assert parsed.channels["QK:QF:1:CUR:SP"].value == 120.0
+        assert load_machine_json_channels(path)["QK:QF:1:CUR:SP"]["value"] == 120.0
 
 
 def _listed(value) -> list[str]:

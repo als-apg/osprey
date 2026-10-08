@@ -467,6 +467,16 @@ def _attachment_errors(
 #: The keys that place an archiver event; an event states exactly one.
 _EVENT_POSITIONS = ("at", "at_offset", "at_time", "at_when")
 
+#: The keys each archiver event shape carries besides its position.
+_EVENT_VALUE_KEYS: dict[str, tuple[str, ...]] = {
+    "ramp": ("to",),
+    "spike": ("amplitude", "width"),
+    "step": ("to",),
+}
+
+#: The keys holding a window fraction, read on the closed interval 0 to 1.
+_EVENT_FRACTIONS = ("at", "until")
+
 #: The ``ramp`` end key each position key pairs with.
 _RAMP_UNTIL = {"at": "until", "at_offset": "until_offset"}
 
@@ -478,9 +488,12 @@ def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildErro
     keys, exactly one position key (``at``, ``at_offset``, ``at_time``,
     ``at_when``), a number wherever the archive reads one, and a shape other
     than ``step`` only on a ``float`` channel. A ``ramp`` is placed by ``at``
-    with ``until`` or by ``at_offset`` with ``until_offset``. An entry naming
-    no channel is left to the reference check. Each malformed event is one
-    ``value-invalid``.
+    with ``until`` or by ``at_offset`` with ``until_offset``. ``at`` and
+    ``until`` lie from 0 to 1, a ``width`` is greater than 0, ``at_time`` is
+    an ``HH:MM[:SS]`` time of day, ``at_when`` is ``{days_ago: <int>, time:
+    HH:MM[:SS]}``, and a ``to`` coerces to the channel's value type, options
+    and shape. An entry naming no channel is left to the reference check.
+    Each malformed event is one ``value-invalid``.
 
     Args:
         document: The combined document.
@@ -488,7 +501,6 @@ def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildErro
     Returns:
         Every stop, in scenario, entry and event order.
     """
-    from osprey_connectors.simulation.machine import _EVENT_VALUE_KEYS
     from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 
     channels = {str(c["id"]): c for c in document.get("channels") or [] if isinstance(c, dict)}
@@ -503,7 +515,8 @@ def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildErro
             if not isinstance(entry, dict) or str(entry.get("channel")) not in channels:
                 continue
             address = str(entry["channel"])
-            value_type = channels[address].get("value_type") or DEFAULT_VALUE_TYPE
+            channel = channels[address]
+            value_type = channel.get("value_type") or DEFAULT_VALUE_TYPE
             events = entry.get("events", [])
             if not isinstance(events, list):
                 errors.append(
@@ -518,7 +531,7 @@ def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildErro
                 continue
             for index, event in enumerate(events, start=1):
                 where = f"{files[0]} `archiver` event {index} of channel {address}"
-                problem = _event_problem(event, value_type, _EVENT_VALUE_KEYS, shapes)
+                problem = _event_problem(event, channel, value_type, shapes)
                 if problem is not None:
                     detail, remedy = problem
                     errors.append(_error("value-invalid", name, files, f"{where} {detail}", remedy))
@@ -526,13 +539,13 @@ def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildErro
 
 
 def _event_problem(
-    event: Any, value_type: str, value_keys: Mapping[str, tuple[str, ...]], shapes: str
+    event: Any, channel: Mapping[str, Any], value_type: str, shapes: str
 ) -> tuple[str, str] | None:
     """The first broken rule of one archiver event, as ``(detail, remedy)``."""
     if not isinstance(event, Mapping):
         return f"is {event!r}, not a mapping", "write the event as a mapping with a `shape`"
     shape = event.get("shape")
-    if not isinstance(shape, str) or shape not in value_keys:
+    if not isinstance(shape, str) or shape not in _EVENT_VALUE_KEYS:
         return f"has shape {shape!r}, not one of {shapes}", f"write `shape` as one of {shapes}"
     positions = [key for key in _EVENT_POSITIONS if key in event]
     if len(positions) != 1:
@@ -542,7 +555,7 @@ def _event_problem(
             f"state exactly one of {quoted_slots(_EVENT_POSITIONS)}",
         )
     (position,) = positions
-    required = list(value_keys[shape])
+    required = list(_EVENT_VALUE_KEYS[shape])
     if shape == "ramp":
         until = _RAMP_UNTIL.get(position)
         if until is None:
@@ -555,17 +568,68 @@ def _event_problem(
     if missing:
         return f"lacks {quoted_slots(missing)}", f"give the `{shape}` event {quoted_slots(missing)}"
     numbers = [key for key in (position, *required) if key in ("at", "at_offset")]
-    numbers += [key for key in required if key != "to" or value_type == "float"]
+    numbers += [key for key in required if key != "to"]
     for key in numbers:
         value = event[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return f"has `{key}` {value!r}, not a number", f"write `{key}` as a number"
+    for key in _EVENT_FRACTIONS:
+        if key in numbers and not 0.0 <= event[key] <= 1.0:
+            return (
+                f"has `{key}` {event[key]!r}, outside 0 to 1",
+                f"write `{key}` as a window fraction from 0 to 1",
+            )
+    if "width" in numbers and event["width"] <= 0:
+        return (
+            f"has `width` {event['width']!r}, not greater than 0",
+            "write `width` as a number greater than 0",
+        )
+    if position == "at_time" and _time_of_day(event["at_time"]) is None:
+        return (
+            f"has `at_time` {event['at_time']!r}, not an HH:MM[:SS] time of day",
+            "write `at_time` as HH:MM:SS",
+        )
+    if position == "at_when" and not _relative_when(event["at_when"]):
+        return (
+            f"has `at_when` {event['at_when']!r}, not {{days_ago: <int>, time: HH:MM[:SS]}}",
+            "write `at_when` as {days_ago: <int>, time: HH:MM:SS}",
+        )
     if shape != "step" and value_type != "float":
         return (
             f"is a `{shape}` on a {value_type} channel",
             "use a `step` event, or move the event to a float channel",
         )
+    if "to" in required:
+        from osprey_connectors.simulation.values import coerce
+
+        try:
+            coerce(event["to"], value_type, channel.get("options"), channel.get("shape"))
+        except ValueError as exc:
+            return (
+                f"has `to` {event['to']!r}, {exc}",
+                f"write `to` as a value the {value_type} channel holds",
+            )
     return None
+
+
+def _time_of_day(value: Any) -> time | None:
+    """``value`` read as a time of day, or ``None`` when it is not one."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return time.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _relative_when(value: Any) -> bool:
+    """Whether ``value`` is ``{days_ago: <int>, time: HH:MM[:SS]}``."""
+    if not isinstance(value, Mapping):
+        return False
+    days_ago = value.get("days_ago")
+    if isinstance(days_ago, bool) or not isinstance(days_ago, int):
+        return False
+    return _time_of_day(value.get("time")) is not None
 
 
 def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildError]:

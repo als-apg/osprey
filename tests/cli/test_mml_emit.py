@@ -40,7 +40,7 @@ Four more classes ask of that lane what a file on a served tree is for. Every
 discovered from the fixtures rather than listed here, so a tree committed later
 is covered the day it lands. Each of the four documents is then read back
 through the code that reads it in production -- ``at.load_lattice``,
-``load_bindings``, ``parse_machine`` beside ``load_machine_json_channels`` and
+``load_bindings``, ``load_machine_json_channels`` and
 ``load_machine_state_candidate_addresses`` -- and across documents, because
 the bindings and the seed only describe one machine if they name the same
 addresses. And every refusal leaves the tree byte-for-byte as it
@@ -85,7 +85,6 @@ from osprey.services.virtual_accelerator.manifest.loaders import (
 )
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 from osprey.services.virtual_accelerator.model.bindings import build_action_variables
-from osprey.simulation.machine import parse_machine
 from tests.cli.test_mml_map import _fill
 from tests.templates.mml_export_contract import EXPORTER_VERSION
 
@@ -1575,17 +1574,12 @@ class TestEachDocumentThroughItsOwnReader:
         assert document.provenance == _stamp(one_emit.repo)
         assert setpoints(document), "the export couples families and none is writable"
 
-    def test_the_starting_state_parses_through_the_simulation_reader(
-        self, one_emit: _OneEmit
-    ) -> None:
+    def test_the_starting_state_loads_through_the_channel_reader(self, one_emit: _OneEmit) -> None:
         assert one_emit.result.exit_code == 0
 
         path = one_emit.repo / "data" / "simulation" / "machine.json"
-        model = parse_machine(json.loads(path.read_text(encoding="utf-8")), path)
         channels = load_machine_json_channels(path)
-        assert set(channels) == set(model.channels)
         assert "_provenance" not in channels
-        assert "nominal" in model.scenarios
         # The one cross-document claim that makes it a starting state: every
         # address the served machine can be written on has a value to start at.
         assert set(setpoints(_bindings(one_emit.repo))) <= set(channels)

@@ -1,22 +1,7 @@
-"""Data-driven simulation engine.
+"""Scenario application, scenario plots and the simulation engine plug-ins.
 
-Provides :class:`SimulationEngine`, which loads a machine description
-(``machine.json``) and serves channel reads/writes plus synthesized archiver
-time-series.
+:mod:`osprey.simulation.apply` composes a set of the render's scenarios and
+makes their telemetry and logbook live, :mod:`osprey.simulation.plots` draws a
+scenario plot spec, and ``osprey.simulation.engines`` holds the engine plug-ins
+a served model is built from. The package root exports nothing.
 """
-
-from osprey_connectors.simulation.engine import (
-    SimReading,
-    SimulationEngine,
-    engine_serves,
-)
-from osprey_connectors.simulation.expressions import ExpressionError
-from osprey_connectors.simulation.machine import DEFAULT_SCENARIO
-
-__all__ = [
-    "DEFAULT_SCENARIO",
-    "ExpressionError",
-    "SimReading",
-    "SimulationEngine",
-    "engine_serves",
-]
