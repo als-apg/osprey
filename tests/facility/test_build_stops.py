@@ -362,6 +362,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("value_invalid__clamp_order", "value-invalid", "`clamp` lo > hi"),
     ("value_invalid__clamp_non_float", "value-invalid", "`clamp` on a non-float"),
     ("value_invalid__stuck_non_setpoint", "value-invalid", "`stuck` on a non-setpoint"),
+    (
+        "value_invalid__archiver_days_ago_negative",
+        "value-invalid",
+        "archiver event `at_when.days_ago` negative",
+    ),
+    (
+        "value_invalid__archiver_time_offset",
+        "value-invalid",
+        "archiver event time with a timezone offset",
+    ),
     ("seed_invalid__nominal_out_of_band", "seed-invalid", "nominal out of band"),
     ("seed_invalid__nominal_wired", "seed-invalid", "nominal on a wired channel"),
     ("seed_invalid__motion_on_setpoint", "seed-invalid", "noise/drift on a setpoint"),
@@ -1368,6 +1378,52 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: value-invalid: scenario warm — `faults.optics.BPM1:X` is `stuck` on a "
             "readback channel; fix: fault a setpoint with `stuck`, or write a value"
+        ),
+    ),
+    "value_invalid__archiver_days_ago_negative": (
+        _plain(
+            scenario(
+                "warm",
+                {
+                    "archiver": [
+                        {
+                            "channel": "BPM1:X",
+                            "events": [
+                                {
+                                    "shape": "step",
+                                    "at_when": {"days_ago": -1, "time": "08:00"},
+                                    "to": 1.0,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            )
+        ),
+        (
+            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 of "
+            "channel BPM1:X has `at_when` {'days_ago': -1, 'time': '08:00'}; days_ago must be a "
+            "non-negative integer; fix: write `days_ago` as 0 or more"
+        ),
+    ),
+    "value_invalid__archiver_time_offset": (
+        _plain(
+            scenario(
+                "warm",
+                {
+                    "archiver": [
+                        {
+                            "channel": "BPM1:X",
+                            "events": [{"shape": "step", "at_time": "08:00+02:00", "to": 1.0}],
+                        }
+                    ]
+                },
+            )
+        ),
+        (
+            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 of "
+            "channel BPM1:X has `at_time` '08:00+02:00'; time is local time and must not carry "
+            "a timezone offset; fix: write `at_time` as HH:MM:SS without an offset"
         ),
     ),
     "seed_invalid__nominal_out_of_band": (

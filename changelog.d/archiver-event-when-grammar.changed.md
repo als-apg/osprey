@@ -1,0 +1,1 @@
+`osprey build` and `osprey facility validate` stop with one `value-invalid` line on a scenario `archiver` event whose `at_when.days_ago` is negative, or whose `at_time` or `at_when.time` carries a timezone offset. Archiver events now read `{days_ago, time}` by the same rules as logbook entries.

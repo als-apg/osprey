@@ -186,6 +186,25 @@ def test_a_malformed_event_stops_naming_the_file_and_the_channel(
             "{days_ago: <int>, time: HH:MM[:SS]}; fix: write `at_when` as {days_ago: <int>, "
             "time: HH:MM:SS}",
         ),
+        (
+            {"shape": "step", "at_when": {"days_ago": -1, "time": "08:00"}, "to": 1.0},
+            "SR:X",
+            f"{_HEAD} SR:X has `at_when` {{'days_ago': -1, 'time': '08:00'}}; days_ago must be "
+            "a non-negative integer; fix: write `days_ago` as 0 or more",
+        ),
+        (
+            {"shape": "step", "at_time": "08:00:00+02:00", "to": 1.0},
+            "SR:X",
+            f"{_HEAD} SR:X has `at_time` '08:00:00+02:00'; time is local time and must not "
+            "carry a timezone offset; fix: write `at_time` as HH:MM:SS without an offset",
+        ),
+        (
+            {"shape": "step", "at_when": {"days_ago": 1, "time": "08:00Z"}, "to": 1.0},
+            "SR:X",
+            f"{_HEAD} SR:X has `at_when` {{'days_ago': 1, 'time': '08:00Z'}}; time is local "
+            "time and must not carry a timezone offset; fix: write `at_when.time` as HH:MM:SS "
+            "without an offset",
+        ),
     ],
     ids=[
         "at-outside-window",
@@ -198,6 +217,9 @@ def test_a_malformed_event_stops_naming_the_file_and_the_channel(
         "at-time-unreadable",
         "at-when-days-not-int",
         "at-when-time-unreadable",
+        "at-when-days-negative",
+        "at-time-offset",
+        "at-when-time-offset",
     ],
 )
 def test_an_event_value_out_of_its_rule_stops(

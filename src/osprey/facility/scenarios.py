@@ -594,6 +594,26 @@ def _event_problem(
             f"has `at_when` {event['at_when']!r}, not {{days_ago: <int>, time: HH:MM[:SS]}}",
             "write `at_when` as {days_ago: <int>, time: HH:MM:SS}",
         )
+    # The logbook reads the same {days_ago, time} grammar; a value it refuses
+    # must not be served misplaced here.
+    offset = "time is local time and must not carry a timezone offset"
+    if position == "at_time" and _has_offset(event["at_time"]):
+        return (
+            f"has `at_time` {event['at_time']!r}; {offset}",
+            "write `at_time` as HH:MM:SS without an offset",
+        )
+    if position == "at_when":
+        when = event["at_when"]
+        if when["days_ago"] < 0:
+            return (
+                f"has `at_when` {when!r}; days_ago must be a non-negative integer",
+                "write `days_ago` as 0 or more",
+            )
+        if _has_offset(when["time"]):
+            return (
+                f"has `at_when` {when!r}; {offset}",
+                "write `at_when.time` as HH:MM:SS without an offset",
+            )
     if shape != "step" and value_type != "float":
         return (
             f"is a `{shape}` on a {value_type} channel",
@@ -620,6 +640,12 @@ def _time_of_day(value: Any) -> time | None:
         return time.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _has_offset(value: Any) -> bool:
+    """Whether ``value``, a readable time of day, carries a timezone offset."""
+    parsed = _time_of_day(value)
+    return parsed is not None and parsed.tzinfo is not None
 
 
 def _relative_when(value: Any) -> bool:
