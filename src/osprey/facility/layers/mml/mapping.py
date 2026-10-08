@@ -42,11 +42,15 @@ every slot a reviewer decides, so a freshly written draft parses;
 ``null`` (``import mml: mapping-undecided``).
 
 A family's ``devices`` says which device each of its slots is, the one thing
-an export may leave unstated: ``names`` (the export's ``CommonNames`` by
-position), a list of local names (one per device), ``address`` (each slot
-named by the device segment of its address) or ``{same_as: <raw family>}``
-(slot ``i`` is the device slot ``i`` of the named family is). A family
-without the key is identified by ``names``; the import stops
+an export may leave unstated, in one of five forms: ``names`` (the export's
+``CommonNames`` by position), a list of local names (one per device),
+``address`` (each slot named by the device segment of its address),
+``{coordinates: <stem>}`` (each slot is ``<stem>_<sector>_<device>``, read
+from its ``DeviceList`` row, whichever family states it) or
+``{same_as: <raw family>}`` (each slot is the named family's device at the
+same ``[sector, device]`` where both families state a ``DeviceList``, so the
+named family may carry more devices; slot ``i`` is its slot ``i`` otherwise).
+A family without the key is identified by ``names``; the import stops
 (``mapping-undecided``) where the export names no device for one of its
 slots, and (``mapping-invalid``) where an answer does not fit the export.
 
@@ -58,8 +62,8 @@ direction is ``write`` is a setpoint of its own and pairs with nothing.
 
 :func:`check_mapping` checks meaning: identity and model names are PN_LOCAL,
 ``section_order`` lists every model once, classes and branches resolve against
-the vocabulary, a ``devices`` answer names another family or one-word device
-names, every direction and wiring family names a field the mapping
+the vocabulary, a ``devices`` answer names another family, one-word device
+names or a one-word stem, every direction and wiring family names a field the mapping
 describes, a field's ``signal`` is a vocabulary signal role, and -- given the
 export -- the mapping names exactly the export's
 systems and families, gives every channel-bearing field a direction, a
@@ -97,6 +101,7 @@ import click
 
 __all__ = [
     "CALIBRATION_KINDS",
+    "Coordinates",
     "LAYER_DIR",
     "MAPPING_FILE",
     "PHYSICS_UNITS",
@@ -332,9 +337,20 @@ class SameAs:
     family: str
 
 
-#: How a family's devices are identified: by the export's names, by address,
-#: by the mapping's own list of local names, or as another family's devices.
-DeviceIdentity = Literal["names", "address"] | tuple[str, ...] | SameAs
+@dataclass(frozen=True)
+class Coordinates:
+    """The ``{coordinates: <stem>}`` answer.
+
+    Each slot is the device ``<stem>_<sector>_<device>`` its DeviceList row places.
+    """
+
+    stem: str
+
+
+#: How a family's devices are identified, in one of five forms: by the
+#: export's names, by address, by the mapping's own list of local names, by
+#: each slot's DeviceList coordinate, or as another family's devices.
+DeviceIdentity = Literal["names", "address"] | tuple[str, ...] | Coordinates | SameAs
 
 
 @dataclass(frozen=True)
@@ -558,7 +574,7 @@ _ENGINE_KEYS = frozenset({"attribute", "index", "axis"})
 _BRANCH_KEYS = frozenset({"parent", "description"})
 _FAMILY_REQUIRED = frozenset({"aliases", "description", "provenance", "channels", "fields"})
 _FAMILY_OPTIONAL = frozenset({"rename", "branch", "class", "devices"})
-_SAME_AS_KEYS = frozenset({"same_as"})
+_ENTRY_KEYS = ("same_as", "coordinates")
 _FIELD_KEYS = frozenset({"description", "provenance"})
 _FIELD_OPTIONAL = frozenset({"signal"})
 _DIRECTION_REQUIRED = frozenset({"direction", "provenance"})
@@ -720,15 +736,21 @@ def _devices(body: dict, path: str) -> DeviceIdentity | None:
                 raise MappingError(f"{key}[{index}]", "must name a device, got an empty string")
         return names
     if isinstance(value, dict):
-        _keys(value, key, _SAME_AS_KEYS, _NONE)
-        return SameAs(family=_str(value, "same_as", key, nullable=False))
+        if len(value) != 1 or next(iter(value)) not in _ENTRY_KEYS:
+            got = ", ".join(map(str, value)) or "no key"
+            raise MappingError(key, f"must hold one key, same_as or coordinates, got {got}")
+        name, text = next(iter(value.items()))
+        if not isinstance(text, str):
+            raise MappingError(key, f"{name} must be a string, got {_type_name(text)}")
+        return SameAs(family=text) if name == "same_as" else Coordinates(stem=text)
     if value == "names":
         return "names"
     if value == "address":
         return "address"
     raise MappingError(
         key,
-        f"must be names, address, a list of names, a same_as: entry or null, got {_shown(value)}",
+        "must be names, address, a list of names, a same_as: entry, a coordinates: entry "
+        f"or null, got {_shown(value)}",
     )
 
 
@@ -981,7 +1003,9 @@ _DESCRIBE = "describe it"
 _ANSWER_ROW = "answer drop, device or {field: <name>}"
 _ANSWER_UNBOUND = "answer drop or keep"
 _ANSWER_SHARED = "answer keep_all or name each group's owner"
-_ANSWER_DEVICES = "write names, address, a list of names or {same_as: <family>}"
+_ANSWER_DEVICES = (
+    "write names, address, a list of names, {coordinates: <stem>} or {same_as: <family>}"
+)
 
 
 @functools.cache
@@ -1204,6 +1228,9 @@ def _family_devices(mapping: Mapping) -> Iterator[Problem]:
                 yield Problem(key, f"{raw} cannot take its devices from itself")
             elif answer.family not in mapping.families:
                 yield Problem(key, f"{answer.family} is no family")
+        elif isinstance(answer, Coordinates):
+            if _LOCAL_NAME.fullmatch(answer.stem) is None:
+                yield Problem(key, f"{answer.stem!r} is not one word of letters, digits and _")
         elif isinstance(answer, tuple):
             for index, name in enumerate(answer):
                 if _LOCAL_NAME.fullmatch(name) is None:

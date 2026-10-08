@@ -29,7 +29,7 @@ from osprey.facility.layers.mml.identity import (
     endpoints,
 )
 from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop, SameAs
+from osprey.facility.layers.mml.mapping import MAPPING_FILE, Coordinates, ImportStop, SameAs
 from osprey.facility.validate import run_stages
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -252,9 +252,9 @@ def test_a_family_naming_no_device_stops_until_the_mapping_decides() -> None:
     assert stop.problem == "mapping-undecided"
     assert stop.format_message().splitlines() == [
         "import mml: mapping-undecided: families.G.devices: "
-        "write address, a list of names or {same_as: <family>}",
+        "write address, a list of names, {coordinates: <stem>} or {same_as: <family>}",
         "import mml: mapping-undecided: families.H.devices: "
-        "write address, a list of names or {same_as: <family>}",
+        "write address, a list of names, {coordinates: <stem>} or {same_as: <family>}",
     ]
 
 
@@ -262,7 +262,7 @@ def test_names_on_a_family_naming_no_device_is_invalid() -> None:
     stop = _stop([_view("Up", "H", ["H1", ""], ["Up:H1:SP", "Up:H2:SP"])], {"H": "names"})
     assert stop.format_message() == (
         "import mml: mapping-invalid: families.H.devices: H in Up names no device 2; "
-        "write address, a list of names or {same_as: <family>}"
+        "write address, a list of names, {coordinates: <stem>} or {same_as: <family>}"
     )
 
 
@@ -338,12 +338,8 @@ def test_same_as_follows_a_list_too() -> None:
     ("answers", "line"),
     [
         (
-            {"Py": SameAs("Px"), "Px": "address"},
-            "Px is not identified by names or a list; name a family that is",
-        ),
-        (
             {"Py": SameAs("Pz"), "Pz": SameAs("Px")},
-            "Pz is not identified by names or a list; name a family that is",
+            "Pz is itself a same_as; name the family it names",
         ),
         ({"Py": SameAs("Other")}, "Up carries no family Other"),
         ({"Py": SameAs("Q")}, "Py has 2 devices in Up and Q has 1"),
@@ -357,6 +353,111 @@ def test_same_as_a_family_that_cannot_lend_its_devices_is_invalid(
     assert stop.format_message().splitlines() == [
         f"import mml: mapping-invalid: families.Py.devices: {line}"
     ]
+
+
+def test_same_as_may_name_an_address_family() -> None:
+    views = _axes()
+    ids = device_ids(views, {"Up": "First"}, {"Py": SameAs("Px"), "Px": "address"})
+    assert ids == [["First/Up_P_1", "First/Up_P_2"], ["First/Up_P_1", "First/Up_P_2"]]
+
+
+def test_same_as_without_device_lists_stays_positional() -> None:
+    views = [
+        _view("Up", "Py", [], ["Up:B2:Y", "Up:B1:Y"]),
+        _listed("Up", "Px", ["B1", "B2"], ["Up:B1:X", "Up:B2:X"], [[1, 1], [1, 2]]),
+    ]
+    ids = device_ids(views, {"Up": "First"}, {"Py": SameAs("Px")})
+    assert ids == [["First/B1", "First/B2"], ["First/B1", "First/B2"]]
+
+
+def _listed(
+    system: str, family: str, names: list[str], addresses: list[str], rows: Any
+) -> FamilyView:
+    body = {
+        "DeviceList": rows,
+        "CommonNames": names,
+        "Monitor": {"ChannelNames": addresses},
+    }
+    return FamilyView(system, family, body)
+
+
+def _bpms(rows: list[list[int]]) -> list[FamilyView]:
+    """BPMx answered by coordinates over four cells, and BPM over ``rows``."""
+    cells = [[1, 1], [2, 1], [3, 1], [4, 1]]
+    return [
+        _listed("Up", "BPMx", [], [f"Up:BPM{s}:X" for s, _ in cells], cells),
+        _listed("Up", "BPM", [], [f"Up:BPM{s}:X" for s, _ in rows], rows),
+    ]
+
+
+def test_coordinates_name_each_slot_by_its_sector_and_device() -> None:
+    views = [_listed("Up", "B", [], ["Up:B1:X", "Up:B2:X"], [[1, 2], [3, 10]])]
+    ids = device_ids(views, {"Up": "First"}, {"B": Coordinates("BPM")})
+    assert ids == [["First/BPM_1_2", "First/BPM_3_10"]]
+    views = [_listed("Up", "B", [], ["Up:B1:X", "Up:B2:X"], [[1.0, 2.0], [1, 2]])]
+    assert device_ids(views, {"Up": "First"}, {"B": Coordinates("BPM")}) == [
+        ["First/BPM_1_2", "First/BPM_1_2"]
+    ]
+
+
+def test_coordinates_give_the_id_a_sibling_s_common_names_give() -> None:
+    views = [
+        _listed("Up", "BPMx", [], ["Up:BPM1:X", "Up:BPM2:X"], [[1, 2], [2, 2]]),
+        _listed(
+            "Up", "BPM", ["BPM(1,2)", "BPM(2,2)"], ["Up:BPM1:X", "Up:BPM2:X"], [[1, 2], [2, 2]]
+        ),
+    ]
+    ids = device_ids(views, {"Up": "First"}, {"BPMx": Coordinates("BPM"), "BPM": "names"})
+    assert ids[0] == ids[1] == ["First/BPM_1_2", "First/BPM_2_2"]
+    assert endpoints(views, ids) == {
+        "Up:BPM1:X": ["First/BPM_1_2"],
+        "Up:BPM2:X": ["First/BPM_2_2"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("rows", "line"),
+    [
+        (None, "B in Up states no DeviceList"),
+        ([[1, 1], [1, -1]], "B device 2 in Up states no [sector, device]"),
+        ([[1, 1.5], [1, 2]], "B device 1 in Up states no [sector, device]"),
+        ([[1, 1], [True, 2]], "B device 2 in Up states no [sector, device]"),
+    ],
+)
+def test_coordinates_on_a_family_without_a_device_list_are_invalid(rows: Any, line: str) -> None:
+    stop = _stop([_listed("Up", "B", [], ["Up:B1:X", "Up:B2:X"], rows)], {"B": Coordinates("B")})
+    assert stop.format_message() == (
+        f"import mml: mapping-invalid: families.B.devices: {line}; "
+        "write address, a list of names, {coordinates: <stem>} or {same_as: <family>}"
+    )
+
+
+def test_same_as_matches_by_coordinate_and_may_be_a_subset() -> None:
+    views = _bpms([[3, 1], [1, 1]])
+    ids = device_ids(views, {"Up": "First"}, {"BPMx": Coordinates("BPM"), "BPM": SameAs("BPMx")})
+    assert ids[1] == ["First/BPM_3_1", "First/BPM_1_1"]
+    assert endpoints(views, ids)["Up:BPM3:X"] == ["First/BPM_3_1"]
+
+
+def test_same_as_a_coordinate_the_named_family_lacks_is_invalid() -> None:
+    stop = _stop(_bpms([[1, 1], [5, 1]]), {"BPMx": Coordinates("BPM"), "BPM": SameAs("BPMx")})
+    assert stop.format_message() == (
+        "import mml: mapping-invalid: families.BPM.devices: BPM device [5, 1] in Up is no "
+        "device of BPMx; name a family that carries every device of BPM"
+    )
+
+
+@pytest.mark.parametrize("answer", ["address", ("A", "B", "C")])
+def test_same_as_a_row_the_named_family_states_for_two_devices_is_invalid(answer: Any) -> None:
+    views = [
+        _listed("Up", "P", [], ["Up:A:X", "Up:B:X", "Up:C:X"], [[1, 1], [1, 1], [2, 1]]),
+        _listed("Up", "Q", [], ["Up:A:Y"], [[1, 1]]),
+    ]
+    stop = _stop(views, {"P": answer, "Q": SameAs("P")})
+    assert stop.format_message() == (
+        "import mml: mapping-invalid: families.Q.devices: "
+        "P states [1, 1] at slots that are different devices"
+    )
 
 
 def test_families_binding_the_two_axes_of_one_address_are_twins() -> None:
@@ -381,7 +482,7 @@ def test_a_nameless_family_the_mapping_leaves_out_stops_the_import(tmp_path: Pat
         )
     assert stop.value.format_message() == (
         "import mml: mapping-undecided: families.BPMy.devices: "
-        "write address, a list of names or {same_as: <family>}"
+        "write address, a list of names, {coordinates: <stem>} or {same_as: <family>}"
     )
     assert not (facility / LAYER_DIR / "devices.yaml").exists()
 

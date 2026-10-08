@@ -14,6 +14,7 @@ from click.testing import CliRunner
 
 from osprey.facility.layers.mml.mapping import (
     MAPPING_FILE,
+    Coordinates,
     EngineBlock,
     FieldRole,
     Identity,
@@ -152,6 +153,7 @@ class TestParse:
             ("address", "address"),
             (["Q_A", "Q_B", "Q_C", "Q_D"], ("Q_A", "Q_B", "Q_C", "Q_D")),
             ({"same_as": "BPMx"}, SameAs("BPMx")),
+            ({"coordinates": "BPM"}, Coordinates("BPM")),
         ],
     )
     def test_a_family_says_how_its_devices_are_identified(self, written: Any, parsed: Any) -> None:
@@ -167,18 +169,34 @@ class TestParse:
             (
                 "ordinal",
                 "families.QF.devices",
-                "must be names, address, a list of names, a same_as: entry or null, got 'ordinal'",
+                "must be names, address, a list of names, a same_as: entry, a coordinates: entry "
+                "or null, got 'ordinal'",
             ),
             (
                 3,
                 "families.QF.devices",
-                "must be names, address, a list of names, a same_as: entry or null, got int",
+                "must be names, address, a list of names, a same_as: entry, a coordinates: entry "
+                "or null, got int",
             ),
             ([], "families.QF.devices", "must name at least one device"),
             (["Q_A", 2], "families.QF.devices[1]", "must be a string, got int"),
             (["Q_A", " "], "families.QF.devices[1]", "must name a device, got an empty string"),
-            ({"like": "BPMx"}, "families.QF.devices.like", "unknown key"),
-            ({"same_as": None}, "families.QF.devices.same_as", "must be a string, got null"),
+            (
+                {"like": "BPMx"},
+                "families.QF.devices",
+                "must hold one key, same_as or coordinates, got like",
+            ),
+            ({"same_as": None}, "families.QF.devices", "same_as must be a string, got null"),
+            (
+                {"same_as": "BPMx", "coordinates": "BPM"},
+                "families.QF.devices",
+                "must hold one key, same_as or coordinates, got same_as, coordinates",
+            ),
+            (
+                {"coordinates": ["BPM"]},
+                "families.QF.devices",
+                "coordinates must be a string, got list",
+            ),
         ],
     )
     def test_a_devices_answer_of_another_shape_is_refused(
@@ -447,7 +465,7 @@ class TestUndecided:
         assert undecided_slots(parse_mapping(document)) == [
             (
                 "families.QF.devices",
-                "write names, address, a list of names or {same_as: <family>}",
+                "write names, address, a list of names, {coordinates: <stem>} or {same_as: <family>}",
             )
         ]
 
@@ -746,6 +764,10 @@ class TestCheckJudgments:
         assert _problems(document) == [
             "families.QF.devices[1]: 'Q-2' is not one word of letters, digits and _",
             "families.QF.devices[3]: 'Q 4' is not one word of letters, digits and _",
+        ]
+        document["families"]["QF"]["devices"] = {"coordinates": "Q F"}
+        assert _problems(document) == [
+            "families.QF.devices: 'Q F' is not one word of letters, digits and _",
         ]
 
     def test_an_answer_names_a_judgment_the_export_pends(self) -> None:
