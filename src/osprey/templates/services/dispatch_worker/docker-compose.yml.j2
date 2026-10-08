@@ -288,8 +288,8 @@ services:
 {#- Last in the block, unlike the other service templates, where `TZ:` is the
     last line and the call sits under it: this one's `environment:` ends with
     the mode-dependent store addresses, and the axis is documented as the
-    block's final entries. This spelling leaves a deployment that declares nothing rendering
-    this file byte for byte as it did before the axis reached it. -#}
+    block's final entries. A deployment that declares nothing renders no
+    passthrough lines. -#}
 {{- hostenv.passthrough(services.dispatch_worker) }}
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT — hence the build/services/ prefix on
