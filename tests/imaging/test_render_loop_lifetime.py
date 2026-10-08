@@ -53,6 +53,29 @@ def _silent_worker(tmp_path) -> tuple[str, ...]:
     return (sys.executable, "-I", str(path))
 
 
+def _stubborn_worker(tmp_path) -> tuple[str, ...]:
+    """A worker that answers one render, then ignores end of input until killed."""
+    path = tmp_path / "stubborn_worker.py"
+    path.write_text(
+        textwrap.dedent(
+            f"""
+            import json, struct, sys, time
+            PNG = {PNG!r}
+            out, inp = sys.stdout.buffer, sys.stdin.buffer
+            out.write(b'{{"ready": true}}\\n'); out.flush()
+            (n,) = struct.unpack(">I", inp.read(4)); inp.read(n)
+            header = {{"ok": True, "format": "PNG", "w": 8, "h": 8, "mode": "RGB",
+                       "mime": "image/png", "reason": None}}
+            out.write(json.dumps(header).encode() + b"\\n" + struct.pack(">I", len(PNG)) + PNG)
+            out.flush()
+            inp.read()
+            time.sleep(30)
+            """
+        )
+    )
+    return (sys.executable, "-I", str(path))
+
+
 @pytest.fixture(autouse=True)
 def _no_worker(monkeypatch):
     monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
@@ -151,6 +174,28 @@ async def test_a_second_cancel_during_the_close_still_reaps_the_worker(monkeypat
         await task
     assert process.returncode is not None
     await render.close_render_worker()
+
+
+def test_an_idle_close_cut_short_by_the_loop_shutdown_still_reaps(monkeypatch, tmp_path):
+    monkeypatch.setattr(render, "WORKER_ARGV", _stubborn_worker(tmp_path))
+    monkeypatch.setattr(render, "RENDER_WORKER_IDLE_S", 0.05)
+    seen = []
+
+    async def run() -> None:
+        outcome = await render.render_isolated(PNG, task_id="a")
+        assert outcome.rendition is not None
+        seen.append(_cached_process())
+        # The idle close starts and waits out the grace period of a worker that
+        # ignores end of input; the loop then shuts down under it.
+        await asyncio.sleep(0.3)
+        assert render._CLIENT is not None and render._CLIENT.worker is None
+
+    with _unraisable() as unraisable:
+        asyncio.run(run())
+        gc.collect()
+
+    assert seen[0].returncode is not None, "worker outlived its event loop"
+    assert unraisable == []
 
 
 def test_a_second_loop_finds_no_worker_of_the_first():

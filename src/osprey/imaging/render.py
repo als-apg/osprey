@@ -210,17 +210,30 @@ class _Worker:
         await asyncio.sleep(0)
         return self.process.returncode
 
-    async def reap(self) -> None:
-        """Kill and reap the worker, finishing even when cancelled again meanwhile.
+    async def finish(self, *, kill: bool) -> int | None:
+        """:meth:`close` the worker, completing the close even when cancelled meanwhile.
 
-        Used on cancellation paths: the caller re-raises its own cancellation
-        afterwards, so a further cancel delivered during the close is absorbed
-        rather than leaving the process to outlive its loop.
+        The close runs in the calling task, not a task of its own: a loop's
+        shutdown cancels every task, so a separate close task would be cut
+        short too. A cancellation turns the close into a kill and is raised
+        once the worker is reaped, so the process never outlives its loop.
         """
-        closing = asyncio.ensure_future(self.close(kill=True))
-        while not closing.done():
-            with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.shield(closing)
+        cancelled = False
+        while True:
+            try:
+                exit_code = await self.close(kill=kill)
+                break
+            except asyncio.CancelledError:
+                cancelled = True
+                kill = True
+        if cancelled:
+            raise asyncio.CancelledError
+        return exit_code
+
+    async def reap(self) -> None:
+        """Kill and reap the worker on a cancellation path, whose caller re-raises."""
+        with contextlib.suppress(asyncio.CancelledError):
+            await self.finish(kill=True)
 
 
 async def _spawn() -> _Worker:
@@ -323,7 +336,7 @@ class _Client:
         worker, self.worker = self.worker, None
         if worker is None:
             return None
-        return await worker.close(kill=kill)
+        return await worker.finish(kill=kill)
 
     async def _ready_worker(self) -> _Worker:
         if self.worker is not None and not self.worker.alive:
