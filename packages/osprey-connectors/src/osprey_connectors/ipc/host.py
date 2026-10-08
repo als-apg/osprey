@@ -145,12 +145,14 @@ The child exits:
 - with 0 when stdin reaches **EOF** — the parent closed the pipe or died;
 - with 0 after a ``disconnect`` request, once outstanding work has finished and
   the acknowledgement has been written;
-- with :data:`EXIT_ORPHANED` when the **watchdog** thread sees
-  ``os.getppid() == 1``, meaning it has been reparented to init because its
-  parent died without closing the pipe. A polling thread is used rather than a
-  signal: ``PR_SET_PDEATHSIG`` does not exist on macOS and there is no
-  ``/proc`` to watch, and a thread polling ``getppid()`` behaves identically on
-  both platforms;
+- with :data:`EXIT_ORPHANED` when the **watchdog** thread finds it
+  reparented: the parent PID differs from the one recorded at start (init or a
+  subreaper), because its parent died without closing the pipe. This holds
+  because the child is spawned directly by its supervisor, with no wrapper
+  process between them; the recorded parent is the supervisor itself. A
+  polling thread is used rather than a signal: ``PR_SET_PDEATHSIG`` does not
+  exist on macOS and there is no ``/proc`` to watch, and a thread polling
+  ``getppid()`` behaves identically on both platforms;
 - with :data:`EXIT_INIT_FAILED` when the first frame is not a usable ``init``
   or the connector fails to connect. Either way a typed error frame naming the
   failure is written first, so the parent learns why rather than seeing only a
@@ -194,7 +196,8 @@ EXIT_OK = 0
 #: describing the failure is always written before exiting with this code.
 EXIT_INIT_FAILED = 2
 
-#: The watchdog found the process reparented to init: the parent is gone.
+#: The watchdog found the process reparented: the parent PID differs from the
+#: one recorded at start (init or a subreaper), so the parent is gone.
 EXIT_ORPHANED = 3
 
 #: Method name of the configuration frame, which must arrive first.
@@ -272,13 +275,33 @@ def _write_frame(fd: int, payload: bytes) -> None:
         view = view[os.write(fd, view) :]
 
 
-def _start_watchdog(interval: float = WATCHDOG_INTERVAL_S) -> threading.Thread:
-    """Start the daemon thread that exits when this process is orphaned."""
+def _parent_changed(parent_pid: int) -> bool:
+    """Whether this process's parent is no longer *parent_pid*.
+
+    A parent of init counts as changed even when it is the one recorded: a
+    supervisor that died before the record was taken has already handed the
+    child to init, and a supervisor is never init itself.
+    """
+    parent = os.getppid()
+    return parent != parent_pid or parent == 1
+
+
+def _start_watchdog(interval: float = WATCHDOG_INTERVAL_S, *, parent_pid: int) -> threading.Thread:
+    """Start the daemon thread that exits when this process is orphaned.
+
+    Args:
+        interval: Seconds between polls.
+        parent_pid: The parent PID recorded at start.
+    """
 
     def _poll() -> None:
         while True:
-            if os.getppid() == 1:
-                logger.warning("connector host: parent is gone (getppid() == 1); exiting")
+            if _parent_changed(parent_pid):
+                logger.warning(
+                    "connector host: parent %s is gone (now reparented to %s); exiting",
+                    parent_pid,
+                    os.getppid(),
+                )
                 _exit_now(EXIT_ORPHANED)
             time.sleep(interval)
 
@@ -773,6 +796,7 @@ async def _run(channel_fd: int) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point for ``python -m osprey_connectors.ipc.host``."""
+    parent = os.getppid()
     del argv  # the launch contract carries no arguments; config arrives on the wire
     removed = scrub_epics_env()
     channel_fd = _claim_frame_channel()
@@ -783,7 +807,7 @@ def main(argv: list[str] | None = None) -> int:
     if removed:
         logger.warning("connector host: scrubbed inherited %s", ", ".join(sorted(removed)))
 
-    _start_watchdog()
+    _start_watchdog(WATCHDOG_INTERVAL_S, parent_pid=parent)
     try:
         return asyncio.run(_run(channel_fd))
     except KeyboardInterrupt:  # pragma: no cover - parent-initiated

@@ -143,7 +143,8 @@ still starting and for any teardown already under way. A child also never
 outlives this process: it exits when its stdin reaches end-of-file — which the
 kernel delivers when this process dies, however it dies, because the pipe
 descriptors are non-inheritable (PEP 446) and no sibling child holds another's
-pipe open — and its watchdog exits it if it is ever reparented to init.
+pipe open — and its watchdog exits it once its parent PID differs from the one
+recorded at start.
 
 Teardown is shielded from the caller's cancellation: a call cancelled while its
 child is being killed does not leave the kill half-done.

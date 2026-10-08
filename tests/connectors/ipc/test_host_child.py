@@ -571,6 +571,93 @@ def test_the_watchdog_exits_a_child_whose_parent_died(tmp_path):
         os.close(write_fd)
 
 
+def test_a_connector_host_exits_when_its_parent_changes(monkeypatch):
+    """The watchdog's test is "not the parent recorded at start", not "init"."""
+    monkeypatch.setattr(host.os, "getppid", lambda: 4242)
+
+    assert host._parent_changed(4242) is False
+    assert host._parent_changed(1) is True
+    assert host._parent_changed(5151) is True
+
+    # A supervisor that died before the record was taken left init recorded.
+    monkeypatch.setattr(host.os, "getppid", lambda: 1)
+    assert host._parent_changed(1) is True
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="PR_SET_CHILD_SUBREAPER is Linux-only")
+def test_a_connector_host_handed_to_a_subreaper_exits(tmp_path):
+    """A child reparented to a subreaper, not to init, still goes away.
+
+    The launcher marks itself a child subreaper, then runs an intermediate
+    process that spawns the host and exits. The host is reparented to the
+    launcher, so ``getppid()`` never reads 1; only a watchdog that compares
+    against the parent recorded at start notices. The pipe's write end stays
+    open in this process, so EOF cannot end the child either.
+    """
+    read_fd, write_fd = os.pipe()
+    bound = CHILD_STARTUP_TIMEOUT_S + REPLY_TIMEOUT_S
+    started = tmp_path / "host.stderr"
+    # The intermediate leaves only once the host has recorded it as its parent:
+    # the host scrubs the planted EPICS variable after taking that record, and
+    # the scrub's log line is the sign.
+    intermediate = (
+        "import os, subprocess, sys, time\n"
+        "env = dict(os.environ, EPICS_CA_ADDR_LIST='127.0.0.1')\n"
+        f"err = open({str(started)!r}, 'w')\n"
+        "proc = subprocess.Popen(\n"
+        "    [sys.executable, '-m', 'osprey_connectors.ipc.host'],\n"
+        f"    stdin={read_fd}, stdout=subprocess.DEVNULL, stderr=err, env=env,\n"
+        ")\n"
+        f"deadline = time.monotonic() + {CHILD_STARTUP_TIMEOUT_S}\n"
+        f"while not open({str(started)!r}).read() and time.monotonic() < deadline:\n"
+        "    time.sleep(0.05)\n"
+        "print(proc.pid, flush=True)\n"
+        "os._exit(0)\n"
+    )
+    launcher = (
+        "import ctypes, os, signal, subprocess, sys, time\n"
+        "libc = ctypes.CDLL(None, use_errno=True)\n"
+        "if libc.prctl(36, 1, 0, 0, 0) != 0:\n"
+        "    sys.exit('prctl(PR_SET_CHILD_SUBREAPER) failed')\n"
+        "out = subprocess.run(\n"
+        f"    [sys.executable, '-c', {intermediate!r}],\n"
+        f"    pass_fds=({read_fd},), capture_output=True, text=True, check=True,\n"
+        ").stdout\n"
+        "pid = int(out.split()[0])\n"
+        f"deadline = time.monotonic() + {bound}\n"
+        "while time.monotonic() < deadline:\n"
+        "    reaped, status = os.waitpid(pid, os.WNOHANG)\n"
+        "    if reaped:\n"
+        "        print(os.waitstatus_to_exitcode(status))\n"
+        "        sys.exit(0)\n"
+        "    time.sleep(0.1)\n"
+        "os.kill(pid, signal.SIGKILL)\n"
+        "os.waitpid(pid, 0)\n"
+        "print('alive')\n"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "CONFIG_FILE"}
+    env["PYTHONPATH"] = PYTHONPATH
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", launcher],
+            cwd=str(tmp_path),
+            env=env,
+            pass_fds=(read_fd,),
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=CHILD_STARTUP_TIMEOUT_S + bound,
+        )
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+    assert result.stdout.strip() == str(host.EXIT_ORPHANED), (
+        f"a child reparented to a subreaper was still alive after {bound}s: {result.stdout!r}"
+    )
+
+
 def test_only_the_first_frame_gets_the_startup_budget(monkeypatch):
     """The startup allowance never widens the bound on a reply.
 
