@@ -423,6 +423,13 @@ independently of the control system:
                password_env: MONGODB_READONLY_PASSWORD
              timeout_s: 60     # seconds, default 60
 
+      The collection holds one document per instant: a ``date`` field plus one
+      field per channel sampled at that instant. A channel's field name is its
+      address, with ``%``, ``.`` and NUL written as ``%25``, ``%2E`` and
+      ``%00``, and a leading ``$`` as ``%24``; every other address is its own
+      field name. A site writing its own store names its fields the same way,
+      so ``SR:MOT1.RBV`` is stored as ``SR:MOT1%2ERBV``.
+
       The password is only ever named, never written: ``auth.password_env`` is
       the environment variable that holds it. ``auth.source`` is the database
       the user is defined in.
