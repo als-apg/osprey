@@ -3303,6 +3303,59 @@ def ensure_simulator_log_dirs(repo_root, relative_to=None):
     return gid
 
 
+def guarded_run_relpath():
+    """``var/guarded_run``, the guarded-run root relative to the repo root.
+
+    Spelled from the state-zone name and the runtime's own directory name, so
+    the directory the deploy provisions and binds is the one
+    :func:`osprey.runtime.guarded_run.guarded_run_dir` resolves inside every
+    container.
+
+    :return: The repo-relative POSIX path
+    :rtype: str
+    """
+    from osprey.runtime.guarded_run import GUARDED_RUN_DIR
+    from osprey.utils.workspace import STATE_DIR_NAME
+
+    return f"{STATE_DIR_NAME}/{GUARDED_RUN_DIR}"
+
+
+def ensure_guarded_run_dirs(repo_root, config, relative_to=None):
+    """Provision the guarded-run directory of every target the deployment has.
+
+    ``var/guarded_run/`` and one ``<target>/`` below it per configured control
+    target, each setgid and group-writable (see :func:`ensure_shared_corpus_dir`):
+    a guarded run's lock and journal are shared by every container of the
+    deployment, each under its own uid, and the setgid group is what they
+    share. Created here, before compose runs, for the root-owned-mount-source
+    reason every provisioned bind has.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param config: The rendered project config
+    :type config: dict
+    :param relative_to: Root to spell the directories against in the INFO line
+    :type relative_to: str | pathlib.Path | None
+    :return: The group id of ``var/guarded_run/``, or ``None`` when it could not
+        be provisioned or the platform reports none
+    :rtype: int | None
+    """
+    from osprey.connectors.types import configured_targets
+
+    section = config.get("control_system") if isinstance(config, Mapping) else None
+    root = Path(repo_root) / guarded_run_relpath()
+    provision = {
+        "relative_to": relative_to,
+        "label": "Guarded-run dir",
+        "noun": "guarded-run directory",
+        "consequence": "A guarded run may be unable to take its lock or keep its journal.",
+    }
+    gid = _ensure_group_shared_dir(root, **provision)
+    for target in configured_targets(section):
+        _ensure_group_shared_dir(root / target, **provision)
+    return gid
+
+
 def _ensure_agent_data_structure(config):
     """Ensure the agent-data directory and subdirectories exist before deployment.
 
@@ -3376,6 +3429,10 @@ def _ensure_agent_data_structure(config):
     deployed = {str(name) for name in config.get("deployed_services") or []}
     if VIRTUAL_ACCELERATOR in deployed or simulated_target_configured(config):
         ensure_simulator_log_dirs(project_root, relative_to=project_root)
+
+    # The guarded-run directories, bound read-write into every container that
+    # runs the agent, whatever the deployment's targets are.
+    ensure_guarded_run_dirs(project_root, config, relative_to=project_root)
 
     # The facility-knowledge bundle, for the same root-owned-mount-source reason
     # as the scenario state directory above — the qmd sidecar binds it READ-ONLY
