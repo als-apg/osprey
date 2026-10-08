@@ -192,8 +192,6 @@ services:
 
 volumes:
   gchat_bridge_data:
-    labels:
-      com.osprey.repo-id: "0123456789ab"
 
 networks:
   osprey-network:

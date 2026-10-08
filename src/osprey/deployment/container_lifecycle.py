@@ -4631,6 +4631,82 @@ def _report_port_conflicts(conflicts):
     logger.key_info(report)
 
 
+def _ownership_probe(config: dict) -> Any:
+    """The runtime seam the foreign-checkout check reads the host through.
+
+    Imported here, not at module scope: :mod:`osprey.deployment.reset` imports
+    THIS module, so a top-level import would close a cycle. ``subprocess.run``
+    is resolved at call time so the probe runs whatever this module runs.
+    """
+    from osprey.deployment.reset import RuntimeProbe
+
+    return RuntimeProbe(
+        get_runtime_command(config)[0],
+        env=runtime_env(config, dict(os.environ)),
+        run=subprocess.run,
+    )
+
+
+def _own_name_recipe(project: str) -> str:
+    """The second way out of a foreign-checkout refusal: give this copy a name of its own.
+
+    An overlay that only this host selects renames the instance without
+    touching the tracked profile, so the other copy keeps its name and its data.
+    """
+    from osprey.cli.variant_selection import (
+        VARIANT_DIRNAME,
+        VARIANT_SETTING_FILENAME,
+        VARIANT_SETTING_KEY,
+    )
+
+    overlay = f"{VARIANT_DIRNAME}/scratch.yml:"
+    setting = f"{VARIANT_SETTING_FILENAME}:"
+    width = max(len(overlay), len(setting)) + 2
+    return (
+        "give this copy its own name:\n"
+        f"       {overlay:<{width}}project_name: {project}-scratch\n"
+        f"       {setting:<{width}}{VARIANT_SETTING_KEY}=scratch\n"
+        "     then `osprey build` and start again."
+    )
+
+
+def _refuse_foreign_checkout(config: dict, repo_root: Path | str) -> None:
+    """Refuse to start while another copy of this repo holds the project name.
+
+    Two checkouts that declare one ``project_name`` are one compose project:
+    starting the second recreates the first's containers as its own, over the
+    same volumes. Containers carry the checkout identity that tells them apart
+    (:func:`~osprey.deployment.container_ownership.host_claim`); an unlabelled
+    container of this project counts as ours, so a deployment that predates the
+    label starts as it always did.
+
+    Read-only, and best-effort in one direction only: a runtime that cannot be
+    asked is not a refusal, since every later step meets the same runtime and
+    reports it in its own words.
+
+    Args:
+        config: The as-built config of the deployment about to start.
+        repo_root: The checkout the start runs from.
+
+    Raises:
+        ForeignCheckoutError: When another checkout's containers hold the name.
+    """
+    from osprey.deployment.container_ownership import START_REFUSAL, host_claim
+
+    project = resolve_project_name(config)
+    try:
+        claim = host_claim(project, repo_identity(Path(repo_root)), probe=_ownership_probe(config))
+    except Exception as exc:  # an unanswerable runtime is reported by the start itself
+        logger.debug("Skipped the other-checkout check: %s", exc)
+        return
+    if claim.held_elsewhere:
+        # A copy that is gone from this host leaves containers to remove, not a
+        # name to share: renaming this copy would strand the volumes it means
+        # to keep, so the rename is offered only while the other copy exists.
+        rename = None if claim.other_copy_gone else _own_name_recipe(project)
+        raise claim.refusal(START_REFUSAL, extra_remedy=rename)
+
+
 def _reconcile_orphan_terminals(config):
     """Remove this deployment's terminal containers whose user left the roster.
 
@@ -6650,6 +6726,11 @@ def _start_stack(
     # leaves the host untouched.
     _preflight_bluesky_network_backend(config)
 
+    # Another copy of this repo holding the project name is refused before the
+    # first container-touching step: every step below would act on that copy's
+    # containers as if they were this one's.
+    _refuse_foreign_checkout(config, repo_root)
+
     # Reconcile the web slice's orphans FIRST: a terminal whose user was renamed
     # or dropped from the roster keeps running on the host network, holding
     # every port of the index it used to serve, and the plain path's
@@ -7834,9 +7915,8 @@ def down_deployment(repo_root: Path | str) -> None:
     Order matters, and it is web-stack-first. A web-terminal deployment runs two
     compose invocations against one project, so the services ``down`` does not
     carry ``docker-compose.web.yml`` in its ``-f`` list and would leave the web
-    containers running — holding the host-global container names
-    (``<prefix>-nginx``, ``<prefix>-web-<user>``) that the next web deploy on
-    this host, from any project, then collides with.
+    containers running beside a stopped services stack, still holding their
+    host-global names (``<project>-nginx``, ``<project>-web-<user>``) and ports.
 
     Volumes are never removed, on either path. Per-user terminal state, the
     databases, the artifact store: all of it survives a ``down`` and is
@@ -7963,10 +8043,16 @@ def restart_deployment(
     Raises:
         NoRenderedBuildError: When ``build/`` holds nothing to start. Nothing is
             stopped.
+        ForeignCheckoutError: When another copy of this repo's containers hold
+            the project name. Nothing is stopped.
         RuntimeError: From the preflights or from the stop itself.
     """
     repo_root = Path(repo_root)
     config, compose_files, exposed = _resolve_as_built_inputs(repo_root, dev_mode=dev_mode)
+
+    # Before the stop: a `down` from here would stop another copy's containers
+    # on the way to a start that is refused anyway.
+    _refuse_foreign_checkout(config, repo_root)
 
     # BEFORE the stop, unlike every other start path, and that ordering is the
     # whole point: `down` removes the store containers, and a removed container

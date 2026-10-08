@@ -161,5 +161,3 @@ services:
 
 volumes:
   nextcloud_bridge_data:
-    labels:
-      com.osprey.repo-id: "0123456789ab"

@@ -4843,3 +4843,187 @@ def test_a_failed_start_still_clears_the_ca_it_staged(tmp_path, monkeypatch):
 
     assert seen == [True], "the build did not run with the CA staged"
     assert not staged.exists(), "a failed start left the operator's CA in the context"
+
+
+# ---------------------------------------------------------------------------
+# Another copy of this repo holds the project name: refuse before the host
+# ---------------------------------------------------------------------------
+
+
+class _Stop(Exception):
+    """Raised by the first container-touching step, to end a start that got that far."""
+
+
+def _ownership_probe_with(monkeypatch, containers=(), *, fails: bool = False):
+    """Install a runtime probe that lists *containers* for the project, or cannot answer."""
+    from osprey.deployment.container_ownership import Resource
+
+    class _Probe:
+        runtime = "docker"
+
+        def containers_for_project(self, project, *, include_stopped=True):  # noqa: ARG002 - RuntimeProbe's signature
+            if fails:
+                raise RuntimeError("Cannot connect to the Docker daemon")
+            return [Resource("container", name, labels) for name, labels in containers]
+
+        def volumes_for_project(self, project):
+            return [Resource("volume", f"{project}_data", {})]
+
+    monkeypatch.setattr(container_lifecycle, "_ownership_probe", lambda config: _Probe())
+
+
+def _start_until_the_host(monkeypatch, tmp_path, *, web_terminals: bool = True):
+    """Drive ``_start_stack`` up to its first container-touching step, recording the steps."""
+    touched: list[str] = []
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "_preflight_bluesky_network_backend", lambda config: None
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_reconcile_orphan_terminals",
+        lambda config: touched.append("reconcile"),
+    )
+
+    def _ports(config, compose_files):  # noqa: ARG001 - _preflight_host_ports's signature
+        touched.append("ports")
+        raise _Stop
+
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", _ports)
+    monkeypatch.setattr(container_lifecycle, "_web_terminals_enabled", lambda c: web_terminals)
+    config = {
+        "project_name": "mine",
+        "project_root": str(tmp_path),
+        "deployed_services": ["event_dispatcher"],
+    }
+    return config, touched
+
+
+def _other_copy(path: str = "/elsewhere/mine") -> dict[str, str]:
+    from osprey.deployment.compose_generator import REPO_ID_LABEL
+
+    return {
+        "com.docker.compose.project": "mine",
+        REPO_ID_LABEL: "0123456789ab",
+        "com.docker.compose.project.working_dir": path,
+    }
+
+
+def test_up_refuses_another_copys_containers_before_any_container_is_touched(monkeypatch, tmp_path):
+    from osprey.deployment.container_ownership import ForeignCheckoutError
+
+    other = tmp_path / "other"
+    other.mkdir()
+    config, touched = _start_until_the_host(monkeypatch, tmp_path)
+    _ownership_probe_with(monkeypatch, [("mine-dispatcher", _other_copy(str(other)))])
+
+    with pytest.raises(ForeignCheckoutError) as excinfo:
+        container_lifecycle._start_stack(config, ["docker-compose.yml"], tmp_path, detached=True)
+
+    assert touched == []
+    error = excinfo.value
+    assert error.summary("osprey up") == (
+        "osprey up will not start over containers from another copy of this repo"
+    )
+    assert "profiles/scratch.yml" in error.extra_remedy
+    assert "project_name: mine-scratch" in error.extra_remedy
+    assert "OSPREY_PROFILE_VARIANT=scratch" in error.extra_remedy
+    assert "osprey build" in error.extra_remedy
+
+
+def test_up_after_a_move_offers_the_rm_command_and_no_rename(monkeypatch, tmp_path):
+    """The other copy is gone: freeing the name is the fix, and the data stays."""
+    from osprey.deployment.container_ownership import ForeignCheckoutError
+
+    config, touched = _start_until_the_host(monkeypatch, tmp_path)
+    _ownership_probe_with(
+        monkeypatch,
+        [("mine-a", _other_copy("/nowhere/mine")), ("mine-b", _other_copy("/nowhere/mine"))],
+    )
+
+    with pytest.raises(ForeignCheckoutError) as excinfo:
+        container_lifecycle._start_stack(config, ["docker-compose.yml"], tmp_path, detached=True)
+
+    assert touched == []
+    assert "`docker rm -f mine-a mine-b`" in excinfo.value.remedy
+    assert "volumes are untouched and keep their data" in excinfo.value.remedy
+    assert excinfo.value.extra_remedy is None
+
+
+def test_up_with_the_other_copy_on_disk_offers_stop_and_rename(monkeypatch, tmp_path):
+    from osprey.deployment.container_ownership import ForeignCheckoutError
+
+    other = tmp_path / "other"
+    other.mkdir()
+    config, _touched = _start_until_the_host(monkeypatch, tmp_path)
+    _ownership_probe_with(monkeypatch, [("mine-a", _other_copy(str(other)))])
+
+    with pytest.raises(ForeignCheckoutError) as excinfo:
+        container_lifecycle._start_stack(config, ["docker-compose.yml"], tmp_path, detached=True)
+
+    assert excinfo.value.remedy == (
+        f"stop that deployment where it lives: `osprey down --repo {other}`"
+    )
+    assert "project_name: mine-scratch" in excinfo.value.extra_remedy
+
+
+def test_up_proceeds_over_its_own_containers(monkeypatch, tmp_path):
+    from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
+
+    config, touched = _start_until_the_host(monkeypatch, tmp_path)
+    own = {"com.docker.compose.project": "mine", REPO_ID_LABEL: repo_identity(tmp_path)}
+    _ownership_probe_with(monkeypatch, [("mine-dispatcher", own)])
+
+    with pytest.raises(_Stop):
+        container_lifecycle._start_stack(config, ["docker-compose.yml"], tmp_path, detached=True)
+
+    assert touched == ["reconcile", "ports"]
+
+
+def test_up_proceeds_over_an_unlabelled_container_of_its_project(monkeypatch, tmp_path):
+    config, touched = _start_until_the_host(monkeypatch, tmp_path)
+    unlabelled = {"com.docker.compose.project": "mine"}
+    _ownership_probe_with(monkeypatch, [("mine-dispatcher", unlabelled)])
+
+    with pytest.raises(_Stop):
+        container_lifecycle._start_stack(config, ["docker-compose.yml"], tmp_path, detached=True)
+
+    assert touched == ["reconcile", "ports"]
+
+
+def test_up_proceeds_when_the_runtime_cannot_be_asked(monkeypatch, tmp_path):
+    """No answer is not a refusal: the start's own runtime errors still report it."""
+    config, touched = _start_until_the_host(monkeypatch, tmp_path, web_terminals=False)
+    _ownership_probe_with(monkeypatch, fails=True)
+
+    with pytest.raises(_Stop):
+        container_lifecycle._start_stack(config, ["docker-compose.yml"], tmp_path, detached=True)
+
+    assert touched == ["ports"]
+
+
+def test_restart_refuses_another_copys_containers_before_its_down(monkeypatch, tmp_path):
+    from osprey.deployment.container_ownership import ForeignCheckoutError
+
+    config = {"project_name": "mine", "project_root": str(tmp_path), "deployed_services": []}
+    steps: list[str] = []
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_resolve_as_built_inputs",
+        lambda repo_root, dev_mode=False: (config, ["docker-compose.yml"], False),
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_preflight_stale_store_volumes",
+        lambda *a, **k: steps.append("stale-store"),
+    )
+    monkeypatch.setattr(
+        container_lifecycle, "down_deployment", lambda repo_root: steps.append("down")
+    )
+    monkeypatch.setattr(container_lifecycle, "_start_as_built", lambda *a, **k: steps.append("up"))
+    _ownership_probe_with(monkeypatch, [("mine-dispatcher", _other_copy())])
+
+    with pytest.raises(ForeignCheckoutError):
+        container_lifecycle.restart_deployment(tmp_path)
+
+    assert steps == []

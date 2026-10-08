@@ -3,21 +3,21 @@
 Reset is the only OSPREY verb that removes data, so these tests are written
 around the two ways it can be wrong rather than around its features.
 
-**It can destroy the wrong deployment.** A compose project name is the repo's
-directory NAME, so two clones or worktrees of one deployment on a host share a
-project name and a volume namespace. Everything under "the scoping rule" below
-exists to pin the two-condition gate — project name AND this checkout's
-``com.osprey.repo-id`` — and, above all, the refusal: a same-named resource
+**It can destroy the wrong deployment.** Two clones or worktrees of one
+deployment on a host can declare one project name and so share a volume
+namespace. Everything under "the scoping rule" below exists to pin the
+two-condition gate on containers — project name AND this checkout's
+``com.osprey.repo-id`` — and, above all, the refusal: a same-named container
 carrying a different identity stops the whole reset and removes nothing.
+Volumes carry no checkout label and belong to the project by name.
 
 The refusal's *wording* is tested as carefully as its behaviour, because it has
 two branches that know different amounts and neither may borrow the other's
-confidence. A container carries compose's ``working_dir`` label, so the other
-repo's path can be named; a volume carries no path label at all, and since the
-identity is a one-way hash of that path there is nothing to name. Branch B must
-say so rather than guess, and must not send an operator to a repo it cannot
-identify. Both are tested apart, each asserting what its branch says AND what it
-must not.
+confidence. A container usually carries compose's ``working_dir`` label, so the
+other repo's path can be named; without a path label, since the identity is a
+one-way hash of that path, there is nothing to name. Branch B must say so rather
+than guess, and must not send an operator to a repo it cannot identify. Both are
+tested apart, each asserting what its branch says AND what it must not.
 
 **It can promise something other than what it does.** For a destructive verb a
 plan that overstates is a lie an operator acts on, and a plan that understates
@@ -272,8 +272,8 @@ def _flowed(message: str) -> str:
     return " ".join(message.split())
 
 
-def test_a_same_named_resource_from_another_checkout_refuses(repo):
-    fake = FakeRuntime(volumes={"als-exemplar_dispatch_workspace": theirs()})
+def test_a_same_named_container_from_another_checkout_refuses(repo):
+    fake = FakeRuntime(containers={"als-exemplar-dispatch": theirs()})
 
     with pytest.raises(ForeignCheckoutError) as excinfo:
         plan_reset(repo, probe=make_probe(fake))
@@ -285,8 +285,8 @@ def test_a_same_named_resource_from_another_checkout_refuses(repo):
 def test_the_foreign_refusal_removes_nothing(repo, no_down):
     """The whole point of refusing: it is a true no-op, not a partial reset."""
     fake = FakeRuntime(
-        containers={"als-exemplar-dispatch": ours(repo)},
-        volumes={"als-exemplar_dispatch_workspace": theirs()},
+        containers={"als-exemplar-dispatch": ours(repo), "als-exemplar-archive": theirs()},
+        volumes={"als-exemplar_dispatch_workspace": ours(repo)},
     )
 
     with pytest.raises(ForeignCheckoutError):
@@ -301,13 +301,13 @@ def test_the_foreign_refusal_removes_nothing(repo, no_down):
 
 # -- the two refusal branches, named and tested apart --------------------------
 #
-# The refusal has exactly two things it can know about where a foreign resource
-# came from, and its wording has to claim the right one. Branch A: a container
-# carries compose's own working_dir label, so the path can be named. Branch B: a
-# volume carries no path label at all — the identity is a one-way hash, so there
-# is nothing to name and the message has to say that instead of guessing. They
-# are tested separately, and each asserts both what its branch DOES say and what
-# it must NOT.
+# The refusal has exactly two things it can know about where a foreign container
+# came from, and its wording has to claim the right one. Branch A: the container
+# carries compose's own working_dir label, so the path can be named. Branch B: it
+# carries no path label at all — the identity is a one-way hash, so there is
+# nothing to name and the message has to say that instead of guessing. They are
+# tested separately, and each asserts both what its branch DOES say and what it
+# must NOT.
 
 
 def test_refusal_branch_a_a_container_lets_the_other_repo_path_be_named(repo):
@@ -336,17 +336,16 @@ def test_refusal_branch_a_reads_ospreys_own_label_when_compose_left_none(repo):
     assert "recorded at /opt/deployments/als-exemplar" in str(excinfo.value)
 
 
-def test_refusal_branch_b_a_volume_only_refusal_names_the_hash_and_admits_no_path(repo):
-    """The real shape of a foreign volume: project + identity labels, no path label.
+def test_refusal_branch_b_a_pathless_refusal_names_the_hash_and_admits_no_path(repo):
+    """A foreign container with project + identity labels and no path label.
 
     Spelled out as a literal label map rather than derived from ``theirs()``,
-    because this IS the branch — a volume is labelled by the compose template
-    (``com.osprey.repo-id``) plus compose's own project label, and compose does
-    not put ``working_dir`` on volumes the way it does on containers.
+    because this IS the branch: neither compose's ``working_dir`` nor OSPREY's
+    root label survived, so the identity is all there is.
     """
     fake = FakeRuntime(
-        volumes={
-            "als-exemplar_dispatch_workspace": {
+        containers={
+            "als-exemplar-dispatch": {
                 reset_mod.COMPOSE_PROJECT_LABEL: PROJECT,
                 REPO_ID_LABEL: OTHER_IDENTITY,
             }
@@ -371,7 +370,7 @@ def test_refusal_branch_b_a_volume_only_refusal_names_the_hash_and_admits_no_pat
 def test_refusal_branch_b_does_not_send_the_operator_to_a_repo_it_cannot_name(repo):
     """With no path recorded anywhere, "go run it over there" is advice to nowhere."""
     fake = FakeRuntime(
-        volumes={"vol": {reset_mod.COMPOSE_PROJECT_LABEL: PROJECT, REPO_ID_LABEL: OTHER_IDENTITY}}
+        containers={"c": {reset_mod.COMPOSE_PROJECT_LABEL: PROJECT, REPO_ID_LABEL: OTHER_IDENTITY}}
     )
 
     with pytest.raises(ForeignCheckoutError) as excinfo:
@@ -379,7 +378,7 @@ def test_refusal_branch_b_does_not_send_the_operator_to_a_repo_it_cannot_name(re
 
     message = str(excinfo.value)
     assert "cannot point you at the repo they came from" in message
-    assert "remove them by hand" in message
+    assert "remove them by hand: `docker rm -f c`" in message
 
 
 def test_the_refusal_says_a_recorded_path_is_gone_when_it_is_gone(repo):
@@ -440,17 +439,18 @@ def test_the_refusal_does_not_claim_a_different_checkout_only_a_different_path(r
 
 
 def test_the_refusal_is_precise_about_what_it_scanned(repo):
-    """It scanned containers and volumes. Images are not discovered before the refusal."""
+    """It counts what it found. Images are not discovered before the refusal."""
     fake = FakeRuntime(containers={"c": theirs()})
 
     with pytest.raises(ForeignCheckoutError) as excinfo:
         plan_reset(repo, probe=make_probe(fake))
 
-    assert "container(s) and volume(s) are named" in str(excinfo.value)
+    assert f"1 container is named {PROJECT!r}" in str(excinfo.value)
     assert not [argv for argv in fake.calls if argv[1:3] == ["image", "inspect"]]
 
 
-def test_containers_and_volumes_are_both_reported_in_one_refusal(repo):
+def test_only_the_containers_are_refused_on_never_the_volumes(repo):
+    """Volumes belong to the project by name; a label on one is not evidence."""
     fake = FakeRuntime(
         containers={"als-exemplar-dispatch": theirs()},
         volumes={"als-exemplar_dispatch_workspace": theirs()},
@@ -459,51 +459,47 @@ def test_containers_and_volumes_are_both_reported_in_one_refusal(repo):
     with pytest.raises(ForeignCheckoutError) as excinfo:
         plan_reset(repo, probe=make_probe(fake))
 
-    assert len(excinfo.value.resources) == 2
+    assert [r.name for r in excinfo.value.resources] == ["als-exemplar-dispatch"]
     assert "container als-exemplar-dispatch" in str(excinfo.value)
-    assert "volume als-exemplar_dispatch_workspace" in str(excinfo.value)
+    assert "volume als-exemplar_dispatch_workspace" not in str(excinfo.value)
 
 
 @pytest.mark.usefixtures("no_down")
-def test_an_unlabelled_resource_is_never_removed(repo):
-    """The gate is AND. A project-name match alone proves nothing and removes nothing."""
+def test_a_volume_with_an_old_repo_id_label_is_the_projects_and_is_removed(repo):
+    """A label an older OSPREY stamped on a volume neither refuses nor protects it."""
+    fake = FakeRuntime(
+        containers={"als-exemplar-dispatch": ours(repo)},
+        volumes={"als-exemplar_dispatch_workspace": theirs()},
+    )
+    run_reset(repo, fake)
+
+    assert fake.removed_names() == ["als-exemplar-dispatch", "als-exemplar_dispatch_workspace"]
+
+
+@pytest.mark.usefixtures("no_down")
+def test_an_unlabelled_container_is_never_removed_but_the_projects_volume_is(repo):
+    """Containers need the identity AND the name; a volume needs only the name."""
     fake = FakeRuntime(
         containers={"als-exemplar-dispatch": unlabelled()},
         volumes={"als-exemplar_dispatch_workspace": unlabelled()},
     )
     run_reset(repo, fake)
 
-    assert fake.removed_names() == []
-    assert "als-exemplar_dispatch_workspace" in fake.volumes
+    assert fake.removed_names() == ["als-exemplar_dispatch_workspace"]
+    assert "als-exemplar-dispatch" in fake.containers
 
 
-def test_the_plan_lists_unlabelled_resources_rather_than_passing_over_them(repo):
-    fake = FakeRuntime(volumes={"als-exemplar_dispatch_workspace": unlabelled()})
+def test_the_plan_lists_unlabelled_containers_rather_than_passing_over_them(repo):
+    fake = FakeRuntime(containers={"als-exemplar-dispatch": unlabelled()})
     plan = plan_reset(repo, probe=make_probe(fake))
     rendered = "\n".join(plan.render())
 
     assert "NOT REMOVED" in rendered
-    assert "als-exemplar_dispatch_workspace" in rendered
+    assert "als-exemplar-dispatch" in _unidentified_section(plan)
     assert REPO_ID_LABEL in rendered
 
 
-def test_the_unlabelled_volume_remedy_does_not_promise_a_relabel(repo):
-    """A named volume is never relabelled by a later deploy. The text must not say it is.
-
-    The container remedy ("`osprey up` recreates it with the label") is true and
-    is offered; extending it to volumes would send an operator to run a deploy
-    that cannot possibly make their volume provable.
-    """
-    fake = FakeRuntime(volumes={"als-exemplar_dispatch_workspace": unlabelled()})
-    plan = plan_reset(repo, probe=make_probe(fake))
-    volume_section = _unidentified_section(plan)
-
-    assert "never relabelled by a later" in volume_section
-    assert "remove it by hand" in volume_section
-    assert "osprey up" not in volume_section
-
-
-def test_the_container_remedy_is_offered_only_for_containers(repo):
+def test_the_unlabelled_container_remedy_is_the_recreate(repo):
     fake = FakeRuntime(containers={"als-exemplar-dispatch": unlabelled()})
     plan = plan_reset(repo, probe=make_probe(fake))
     section = _unidentified_section(plan)
@@ -571,10 +567,10 @@ def test_everything_the_plan_lists_gets_a_removal_argv(repo):
 
 @pytest.mark.usefixtures("no_down")
 def test_no_removal_argv_names_anything_the_plan_did_not_list(repo):
-    """Including the resources reset deliberately left alone."""
+    """Including the containers reset deliberately left alone."""
     fake = FakeRuntime(
         containers={"mine": ours(repo), "unprovable": unlabelled()},
-        volumes={"mine-vol": ours(repo), "unprovable-vol": unlabelled()},
+        volumes={"mine-vol": ours(repo)},
     )
     plan = plan_reset(repo, probe=make_probe(fake))
     listed = {r.name for r in (*plan.containers, *plan.volumes, *plan.images)}
@@ -583,7 +579,6 @@ def test_no_removal_argv_names_anything_the_plan_did_not_list(repo):
 
     assert set(fake.removed_names()) <= listed
     assert "unprovable" not in fake.removed_names()
-    assert "unprovable-vol" not in fake.removed_names()
 
 
 @pytest.mark.usefixtures("no_down")
@@ -778,7 +773,7 @@ def test_dry_run_prints_the_plan_and_touches_nothing(repo, no_down):
 
 def test_dry_run_still_refuses_on_a_foreign_checkout(repo):
     """A dry run answers "what would happen", and what would happen is a refusal."""
-    fake = FakeRuntime(volumes={"theirs-vol": theirs()})
+    fake = FakeRuntime(containers={"theirs": theirs()})
 
     with pytest.raises(ForeignCheckoutError):
         reset_deployment(repo, probe=make_probe(fake), dry_run=True, emit=lambda _: None)
@@ -1396,6 +1391,36 @@ def test_without_a_build_the_name_is_derived_and_the_plan_says_it_is_a_derivatio
     assert "derived from this directory's name" in "\n".join(plan.render())
 
 
+def test_without_a_build_the_profiles_project_name_wins_over_the_folder(repo):
+    """The name the next build would render, not the directory it happens to sit in."""
+    (repo / "build" / "config.yml").unlink()
+    (repo / "profile.yml").write_text(
+        "preset: control-assistant\nproject_name: uitf_assistant\n", encoding="utf-8"
+    )
+
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+
+    assert plan.project == "uitf_assistant"
+    assert plan.project_name_source == "from profile.yml"
+
+
+def test_without_a_build_the_hosts_overlay_outranks_profile_yml(repo):
+    (repo / "build" / "config.yml").unlink()
+    (repo / "profile.yml").write_text(
+        "preset: control-assistant\nproject_name: uitf_assistant\n", encoding="utf-8"
+    )
+    (repo / "profiles").mkdir()
+    (repo / "profiles" / "scratch.yml").write_text(
+        "project_name: uitf_assistant-scratch\n", encoding="utf-8"
+    )
+    (repo / ".env.variant").write_text("OSPREY_PROFILE_VARIANT=scratch\n", encoding="utf-8")
+
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+
+    assert plan.project == "uitf_assistant-scratch"
+    assert plan.project_name_source == "from profiles/scratch.yml"
+
+
 # ---------------------------------------------------------------------------
 # Images: verified by project label, because there is no per-checkout image
 # ---------------------------------------------------------------------------
@@ -1502,18 +1527,18 @@ def test_no_image_is_removed_when_any_foreign_resource_exists(repo):
 
     Images are the one class with no per-checkout identity to gate on, so the
     case for removing them at all rests on an ORDERING claim: reset reaches image
-    removal only after the container/volume scan came back with nothing foreign.
+    removal only after the container scan came back with nothing foreign.
     If that ordering ever inverted — images discovered or removed before the
     refusal — a shared ``<project>:local`` tag could be pulled out from under a
     live sibling deployment while reset was in the act of refusing to touch its
-    volumes.
+    containers.
 
     So this sets up an image that WOULD qualify on its own (its
-    ``com.osprey.project`` matches) beside a single foreign volume, and asserts
-    the image is neither inspected nor removed.
+    ``com.osprey.project`` matches) beside a single foreign container, and
+    asserts the image is neither inspected nor removed.
     """
     fake = FakeRuntime(
-        volumes={"als-exemplar_dispatch_workspace": theirs()},
+        containers={"als-exemplar-dispatch": theirs()},
         images={f"{PROJECT}:local": {reset_mod.OSPREY_PROJECT_LABEL: PROJECT}},
     )
 
@@ -1742,7 +1767,7 @@ def test_cli_dry_run_prints_the_plan_and_exits_zero(repo, monkeypatch):
 
 
 def test_cli_refuses_and_names_the_other_checkout(repo, monkeypatch):
-    fake = FakeRuntime(volumes={"mine-vol": theirs()})
+    fake = FakeRuntime(containers={"mine": theirs()})
     monkeypatch.setattr(reset_mod, "_default_probe", lambda root: make_probe(fake))
 
     result = CliRunner().invoke(reset_command, ["--repo", str(repo)])
