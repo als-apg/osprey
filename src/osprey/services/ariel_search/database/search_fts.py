@@ -7,6 +7,9 @@ than letting migrations and search code drift independently.
 
 from __future__ import annotations
 
+import string
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from osprey.services.ariel_search.vocabulary.model import normalize
@@ -77,6 +80,134 @@ def keyword_fts_expression(config: ARIELConfig, *, v2: bool) -> str:
     """Return the FTS predicate expression of :func:`keyword_search_expressions`."""
     expression, _document = keyword_search_expressions(config, v2=v2)
     return expression
+
+
+#: Share of a query's words a text must hold to count as matching it when no
+#: text holds them all: a caption in hybrid search, an entry in keyword search.
+MIN_TERM_COVERAGE = 0.5
+
+
+#: Name of the common table expression :func:`term_coverage` binds the terms to.
+_TERMS_CTE = "coverage_terms"
+
+
+@dataclass(frozen=True)
+class TermCoverage:
+    """SQL measuring how many of a query's words a document holds.
+
+    A word holds when the document matches ``plainto_tsquery`` of the word or
+    of any of its alternatives. Only words whose own forms are not all stop
+    words count toward the total. One statement prefixes `with_clause`, which
+    parses every word once and reads the counted words once per statement.
+
+    Attributes:
+        with_clause: The ``WITH`` body binding the terms; the caller writes
+            ``WITH {with_clause}`` ahead of its statement.
+        total: The number of counted words.
+        counted: The counted words as a ``text[]``.
+        fraction: The required share, as given.
+    """
+
+    with_clause: str
+    total: str
+    counted: str
+    fraction: str
+
+    def matched(self, tsvector: str) -> str:
+        """SQL for the ``text[]`` of words the document `tsvector` holds."""
+        return (
+            f"ARRAY(SELECT DISTINCT ct.word FROM {_TERMS_CTE} ct "
+            f"WHERE numnode(ct.tq) > 0 AND {tsvector} @@ ct.tq)"
+        )
+
+    def admits(self, matched: str) -> str:
+        """SQL true when the ``text[]`` `matched` holds the required share."""
+        return (
+            f"({self.total} > 0 AND cardinality({matched}) >= ceil({self.fraction} * {self.total}))"
+        )
+
+
+def term_coverage(*, words: str, queries: str, fraction: str) -> TermCoverage:
+    """Build the term-coverage SQL shared by caption and keyword matching.
+
+    The terms arrive as two parallel ``text[]`` parameters from
+    :func:`term_arrays`: each word once per form it can take (itself, then
+    its vocabulary alternatives).
+
+    Args:
+        words: SQL producing the word of each form.
+        queries: SQL producing each form's text.
+        fraction: SQL producing the required share in ``(0, 1]``.
+
+    Returns:
+        The coverage SQL; it embeds the arguments verbatim, so their
+        placeholders must be named ones.
+    """
+    with_clause = (
+        f"{_TERMS_CTE} AS MATERIALIZED ("
+        f"SELECT t.word, plainto_tsquery({FTS_CONFIG}, t.q) AS tq "
+        f"FROM unnest({words}::text[], {queries}::text[]) AS t(word, q))"
+    )
+    counted_words = f"FROM {_TERMS_CTE} WHERE numnode(tq) > 0"
+    return TermCoverage(
+        with_clause=with_clause,
+        total=f"(SELECT count(DISTINCT word) {counted_words})",
+        counted=f"(SELECT COALESCE(array_agg(DISTINCT word), '{{}}') {counted_words})",
+        fraction=fraction,
+    )
+
+
+def term_arrays(terms: Sequence[tuple[str, Sequence[str]]]) -> tuple[list[str], list[str]]:
+    """Flatten :func:`coverage_terms` output into the arrays :func:`term_coverage` reads.
+
+    Args:
+        terms: ``(word, (word, *alternatives))`` per word.
+
+    Returns:
+        ``(words, queries)``, one element per form of each word.
+    """
+    words = [word for word, forms in terms for _form in forms]
+    queries = [form for _word, forms in terms for form in forms]
+    return words, queries
+
+
+def coverage_terms(
+    search_text: str, expansion: QueryExpansion | None = None
+) -> list[tuple[str, tuple[str, ...]]]:
+    """Split plain query text into the words a partial match reports on.
+
+    Each word is normalized like vocabulary matching normalizes it and has
+    surrounding punctuation dropped. A word inside a span the vocabulary
+    expanded also carries that span's alternatives, so it counts as present
+    when any of them is.
+
+    Args:
+        search_text: The plain (operator-free, phrase-free) query text.
+        expansion: The resolved vocabulary expansion, or None.
+
+    Returns:
+        ``(word, (word, *alternatives))`` per distinct word, in query order.
+    """
+    tokens = normalize(search_text).split()
+    span_alternatives: dict[int, tuple[str, ...]] = {}
+    cursor = 0
+    for group in expansion.groups if expansion is not None else ():
+        span_tokens = group.original.split()
+        position = _locate_span(tokens, span_tokens, cursor)
+        if position is None:
+            continue
+        for index in range(position, position + len(span_tokens)):
+            span_alternatives[index] = group.alternatives
+        cursor = position + len(span_tokens)
+
+    terms: dict[str, list[str]] = {}
+    for index, token in enumerate(tokens):
+        word = token.strip(string.punctuation)
+        if not word:
+            continue
+        queries = terms.setdefault(word, [word])
+        queries.extend(alt for alt in span_alternatives.get(index, ()) if alt not in queries)
+    return [(word, tuple(queries)) for word, queries in terms.items()]
 
 
 PLAIN_TSQUERY_LEG = f"plainto_tsquery({FTS_CONFIG}, %s)"

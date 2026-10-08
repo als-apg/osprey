@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import signal
 from collections.abc import Mapping
 from typing import Any
 
@@ -88,20 +89,32 @@ async def spawn_host(python: str, env: Mapping[str, str]) -> Any:
 
 
 async def terminate_host(process: Any, grace_s: float) -> None:
-    """``SIGTERM``, then ``SIGKILL`` after the grace period. Never raises."""
+    """``SIGTERM``, then ``SIGKILL`` after the grace period. Never raises.
+
+    The signals go to the pid directly rather than through
+    ``process.terminate()``/``kill()``: those poll the child first, and a poll
+    that finds it already exited reaps it behind the event loop's back, which
+    then records exit code 255 in place of the child's own. Only the loop's
+    child watcher reaps the child, so an exited child keeps its pid as a
+    zombie until the watcher reports it, and a signal sent meanwhile reaches
+    nothing else.
+    """
     if process.returncode is not None:
         return
-    with contextlib.suppress(OSError):
-        process.terminate()
+    _signal(process, signal.SIGTERM)
     try:
         await asyncio.wait_for(process.wait(), grace_s)
         return
     except TimeoutError:
         pass
-    with contextlib.suppress(OSError):
-        process.kill()
+    _signal(process, signal.SIGKILL)
     with contextlib.suppress(Exception):
         await asyncio.wait_for(process.wait(), grace_s)
+
+
+def _signal(process: Any, sig: signal.Signals) -> None:
+    with contextlib.suppress(OSError):
+        os.kill(process.pid, sig)
 
 
 class AttributedReader:
