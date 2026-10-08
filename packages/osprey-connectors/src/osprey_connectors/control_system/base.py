@@ -1109,9 +1109,8 @@ class ControlSystemConnector(ABC):
         """Whether a write to this channel must be confirmed by re-reading it.
 
         The limits database is the single home of write policy: the channel's
-        own ``confirm`` → the ``defaults`` block's ``confirm`` → ``True``. A
-        connector with no validator has limits checking disabled and no policy
-        to read, so it takes the fleet default and confirms.
+        own ``confirm`` → ``True``. A connector with no validator has limits
+        checking disabled and no policy to read, so it takes the fleet default and confirms.
         """
         if self._limits_validator is None:
             return True
@@ -1208,8 +1207,8 @@ class ControlSystemConnector(ABC):
             with no opinion leaves the keyword off entirely; the connector then
             resolves the policy for this specific channel through
             :meth:`_resolve_confirm`: the channel's own ``confirm`` entry in the
-            limits database, then the ``defaults`` block, then ``True``. The
-            limits database is the single home of write policy.
+            limits database, else ``True``. The limits database is the single
+            home of write policy.
 
             An explicit ``confirm=False`` is an answer and must travel as one, so
             every guard on the omission is ``if confirm is not None`` and never

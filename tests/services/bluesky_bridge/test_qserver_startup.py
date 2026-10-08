@@ -471,7 +471,9 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """
     database = tmp_path / "limits.json"
     database.write_text(
-        json.dumps({"SR:MAG:HCM:01:CUR:SP": {"min_value": -1.0, "max_value": 1.0}}),
+        json.dumps(
+            {"SR:MAG:HCM:01:CUR:SP": {"writable": True, "min_value": -1.0, "max_value": 1.0}}
+        ),
         encoding="utf-8",
     )
     section: dict[str, Any] = {

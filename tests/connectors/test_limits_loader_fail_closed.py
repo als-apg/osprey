@@ -80,12 +80,6 @@ class TestRetiredVerificationBlock:
         assert "confirm" in reason
         assert "verification" in reason
 
-    def test_verification_in_defaults_fails_the_load(self, tmp_path):
-        db_file = _write_db(tmp_path, {"defaults": {"verification": {"level": "callback"}}})
-
-        with pytest.raises(ValueError, match="confirm"):
-            LimitsValidator._load_limits_database(str(db_file))
-
 
 class TestUnknownFields:
     def test_typo_fails_the_load_and_is_named(self, tmp_path):
@@ -114,7 +108,7 @@ class TestUnknownFields:
             tmp_path,
             {
                 "_comment": "top-level metadata",
-                "FOO": {"max_value": 10.0, "_units": "mA", "_owner": "APG"},
+                "FOO": {"writable": True, "max_value": 10.0, "_units": "mA", "_owner": "APG"},
             },
         )
 
@@ -131,13 +125,13 @@ class TestUnknownFields:
 
 class TestMalformedEntries:
     def test_non_bool_confirm_fails_the_load(self, tmp_path):
-        db_file = _write_db(tmp_path, {"FOO": {"confirm": "yes"}})
+        db_file = _write_db(tmp_path, {"FOO": {"writable": True, "confirm": "yes"}})
 
         with pytest.raises(ValueError, match="must be boolean"):
             LimitsValidator._load_limits_database(str(db_file))
 
     def test_non_dict_channel_entry_fails_the_load(self, tmp_path):
-        db_file = _write_db(tmp_path, {"BADCHAN": 42, "FOO": {"max_value": 10.0}})
+        db_file = _write_db(tmp_path, {"BADCHAN": 42, "FOO": {"writable": True, "max_value": 10.0}})
 
         with pytest.raises(ValueError, match="BADCHAN"):
             LimitsValidator._load_limits_database(str(db_file))
@@ -145,13 +139,21 @@ class TestMalformedEntries:
     def test_one_bad_entry_takes_down_the_whole_load(self, tmp_path):
         # The neighbouring good channel must not load either — a partially
         # loaded database is exactly the fail-open state being removed.
-        db_file = _write_db(tmp_path, {"GOOD": {"max_value": 10.0}, "BAD": {"min_value": "x"}})
+        db_file = _write_db(
+            tmp_path,
+            {
+                "GOOD": {"writable": True, "max_value": 10.0},
+                "BAD": {"writable": True, "min_value": "x"},
+            },
+        )
 
         with pytest.raises(ValueError, match="BAD"):
             LimitsValidator._load_limits_database(str(db_file))
 
     def test_bool_confirm_loads(self, tmp_path):
-        db_file = _write_db(tmp_path, {"FOO": {"max_value": 10.0, "confirm": False}})
+        db_file = _write_db(
+            tmp_path, {"FOO": {"writable": True, "max_value": 10.0, "confirm": False}}
+        )
 
         limits_db, raw_db = LimitsValidator._load_limits_database(str(db_file))
 

@@ -141,7 +141,9 @@ def _write_deployment(root: Path) -> Path:
     """
     limits_path = root / "limits.json"
     limits_path.write_text(
-        json.dumps({"SANDBOX:LISTED:CHANNEL": {"min_value": 0.0, "max_value": 10.0}}),
+        json.dumps(
+            {"SANDBOX:LISTED:CHANNEL": {"writable": True, "min_value": 0.0, "max_value": 10.0}}
+        ),
         encoding="utf-8",
     )
 

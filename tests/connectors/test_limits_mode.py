@@ -38,7 +38,7 @@ LOCKED = "DEMO:VAC:PUMP:01:VOLTAGE:SP"
 UNLISTED = "DEMO:RF:CAVITY:01:FREQUENCY:SP"
 
 LIMITS_FILE = {
-    BOUNDED: {"min_value": -12.0, "max_value": 12.0},
+    BOUNDED: {"writable": True, "min_value": -12.0, "max_value": 12.0},
     LOCKED: {"writable": False},
 }
 

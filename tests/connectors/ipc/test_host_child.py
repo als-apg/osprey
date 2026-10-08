@@ -1167,7 +1167,9 @@ def limits_deployment(tmp_path):
     fail-safe validator and the test would pass without reading a block.
     """
     database = tmp_path / "limits.json"
-    database.write_text(json.dumps({"SR:CORR:1:SP": {"min_value": -1.0, "max_value": 1.0}}))
+    database.write_text(
+        json.dumps({"SR:CORR:1:SP": {"writable": True, "min_value": -1.0, "max_value": 1.0}})
+    )
     section = _limits_control_system(database, served_tree(tmp_path / "served", SETPOINTS))
     config_file = tmp_path / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": section}))

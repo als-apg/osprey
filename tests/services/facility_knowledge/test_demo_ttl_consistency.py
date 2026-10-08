@@ -249,8 +249,7 @@ def test_demo_ttl_generator_refuses_a_mixed_direction_group(tmp_path: Path) -> N
     limits_path.write_text(
         json.dumps(
             {
-                "defaults": {"writable": True},
-                **{address: {} for address in addresses[:-1]},
+                **{address: {"writable": True} for address in addresses[:-1]},
                 dissenter: {"writable": False},
             }
         ),
