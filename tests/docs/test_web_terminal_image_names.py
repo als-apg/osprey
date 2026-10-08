@@ -60,12 +60,17 @@ def test_the_name_patterns_are_what_resolve_personas_spells():
         },
     }
     registry_cfg = {"url": "<registry.url>"}
-    resolved = {e["name"]: e["image"] for e in resolve_personas(wt, registry_cfg, "demo")}
+    resolved = {
+        e["name"]: e["image"]
+        for e in resolve_personas(wt, registry_cfg, "demo", project_name="demo")
+    }
     for image in resolved.values():
         assert f"``{image}``" in section
 
     no_catalog = {"image_tag": "<tag>", "users": [{"name": "c", "index": 0}]}
-    (only,) = {e["image"] for e in resolve_personas(no_catalog, registry_cfg, "demo")}
+    (only,) = {
+        e["image"] for e in resolve_personas(no_catalog, registry_cfg, "demo", project_name="demo")
+    }
     assert only == resolved["b"]
 
 
@@ -77,7 +82,10 @@ def test_the_worked_example_resolves_to_the_images_the_page_lists():
     cfg = yaml.safe_load(yaml_body)
     wt = cfg["modules"]["web_terminals"]
     assert effective_image_source(wt) == "registry"
-    resolved = {e["name"]: e["image"] for e in resolve_personas(wt, cfg["registry"], "demo")}
+    resolved = {
+        e["name"]: e["image"]
+        for e in resolve_personas(wt, cfg["registry"], "demo", project_name="demo")
+    }
     listed = dict(line.split() for line in text_body.splitlines() if line.strip())
     assert resolved == listed
 

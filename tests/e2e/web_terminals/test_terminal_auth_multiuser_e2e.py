@@ -112,7 +112,7 @@ a source checkout does not publish to PyPI. ``--dev`` sets ``OSPREY_DEV=1``
 the image then overlays, so the terminal that runs here is this branch's code.
 
 CONTAINER-OPS SAFETY: every runtime-mutating call below names an EXACT resource
-this test created — the ``<prefix>-nginx`` / ``<prefix>-web-<user>`` containers,
+this test created — the ``<project>-nginx`` / ``<project>-web-<user>`` containers,
 each lane's own volumes, and the shared ``:local`` image tag — or is the
 project-scoped ``compose down`` the deploy lifecycle itself uses. Nothing here
 ever runs a prune, an ``-a``/``--all`` sweep, or a wildcard removal.
@@ -180,8 +180,9 @@ class Lane:
 
     Everything that must differ between two stacks standing up at the same time
     is here rather than in module constants, so a helper cannot silently act on
-    the wrong deployment: the facility prefix decides every container name, the
-    project name decides the compose project and its volumes, and the port band
+    the wrong deployment: the project name decides the compose project, every
+    container name and its volumes, the facility prefix the in-container
+    directory, and the port band
     decides what nginx and each terminal bind.
 
     ``users`` holds roster entries as they are authored in the profile. The
@@ -227,11 +228,11 @@ class Lane:
         )
 
     def container(self, user: str) -> str:
-        return f"{self.prefix}-web-{user}"
+        return f"{self.project_name}-web-{user}"
 
     @property
     def nginx_container(self) -> str:
-        return f"{self.prefix}-nginx"
+        return f"{self.project_name}-nginx"
 
 
 # Ports well clear of every other stack a developer may have up (the tutorial

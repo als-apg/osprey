@@ -71,7 +71,7 @@ import pytest
 import yaml
 from packaging.requirements import Requirement
 
-from osprey.deployment.compose_generator import compose_base_cmd
+from osprey.deployment.compose_generator import compose_base_cmd, resolve_project_name
 from osprey.deployment.container_lifecycle import (
     _QSERVER_ZMQ_PRIVATE_KEY_SUFFIX,
     _QSERVER_ZMQ_PUBLIC_KEY_SUFFIX,
@@ -360,6 +360,7 @@ def _entitlements(repo: Path, host_config: dict) -> dict[str, bool]:
         host_config["modules"]["web_terminals"],
         host_config.get("registry") or {},
         (host_config.get("facility") or {}).get("prefix") or "",
+        project_name=resolve_project_name(host_config),
         strict=True,
     )
     return {

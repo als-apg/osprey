@@ -28,7 +28,10 @@ from typing import Any, Literal, cast
 import yaml
 
 from osprey.config_guards import is_positive_int
-from osprey.deployment.compose_generator import DISPATCH_WORKER_SERVICE_PREFIX
+from osprey.deployment.compose_generator import (
+    DISPATCH_WORKER_SERVICE_PREFIX,
+    resolve_project_name,
+)
 from osprey.deployment.web_terminals.persona_images import (
     PREDATES_DELTA_REMEDY,
     persona_build_profile_shape_problem,
@@ -1674,7 +1677,15 @@ def _check_privileged_persona_exposure(
     facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
     resolved = (
-        list(resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False))
+        list(
+            resolve_personas(
+                web_terminals,
+                registry_cfg,
+                facility_prefix,
+                project_name=resolve_project_name(root),
+                strict=False,
+            )
+        )
         if users
         else []
     )
@@ -1969,7 +1980,13 @@ def _check_live_writer_without_control_identity(
     facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
     findings: list[Finding] = []
-    for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False):
+    for entry in resolve_personas(
+        web_terminals,
+        registry_cfg,
+        facility_prefix,
+        project_name=resolve_project_name(root),
+        strict=False,
+    ):
         persona = entry.get("persona")
         if not isinstance(persona, str) or persona not in live_writers:
             continue
@@ -2016,7 +2033,13 @@ def _check_unknown_persona_reference(
     personas_catalog = _persona_catalog(web_terminals)
     facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
-    resolved = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
+    resolved = resolve_personas(
+        web_terminals,
+        registry_cfg,
+        facility_prefix,
+        project_name=resolve_project_name(root),
+        strict=False,
+    )
 
     findings: list[Finding] = []
     for entry in resolved:
@@ -2037,12 +2060,15 @@ def _check_unknown_persona_reference(
 
 
 def _check_empty_facility_prefix(root: dict[str, Any], users: list[Any]) -> list[Finding]:
-    """Every web container name is derived from ``facility.prefix``:
-    ``<prefix>-nginx`` and ``<prefix>-web-<user>`` (see the compose template /
-    :mod:`osprey.deployment.web_terminals.seeding`). An empty prefix renders
-    leading-dash names like ``-nginx``, which Docker rejects — and only at
-    ``osprey up``, which never runs this lint pass. This check pulls that
-    failure forward to lint/build time.
+    """A roster entry with no persona render of its own runs in
+    ``/app/<prefix>-assistant`` (see :func:`personas.resolve_personas`), and the
+    facility graph is keyed by the same ``facility.prefix``. An empty prefix
+    renders that directory as ``/app/-assistant`` — a path no OSPREY image
+    build creates, so the user's agent data and seeded context land somewhere the agent never
+    reads — and only at ``osprey up``, which never runs this lint pass. This
+    check pulls that failure forward to lint/build time. Container names are
+    not involved: they are spelled on the compose project
+    (:mod:`osprey.deployment.web_terminals.naming`).
 
     The effective prefix is derived exactly as ``render.py`` derives it
     (``facility.get("prefix") or ""``). Scoped to a configured roster — an
@@ -2060,8 +2086,9 @@ def _check_empty_facility_prefix(root: dict[str, Any], users: list[Any]) -> list
             code="web_terminals.empty_facility_prefix",
             message=(
                 "modules.web_terminals has users configured but the effective "
-                "facility.prefix is empty; web container names render as "
-                "'-nginx'/'-web-<user>', which Docker rejects at `osprey up`"
+                "facility.prefix is empty; a terminal with no persona render of "
+                "its own then runs in '/app/-assistant', a directory no OSPREY "
+                "image build creates, and the facility graph has no key"
             ),
         )
     ]
@@ -2440,8 +2467,6 @@ def _check_persona_project_collisions(
 
     deployment_project = root.get("project_name")
     if isinstance(deployment_project, str) and deployment_project:
-        from osprey.deployment.compose_generator import resolve_project_name
-
         deployment_project = resolve_project_name(root)
 
     findings: list[Finding] = []

@@ -146,8 +146,8 @@ budget than either sibling) rather than the numbers. The stack is
 built ONCE for the module and every assertion below runs against it.
 
 CONTAINER-OPS SAFETY: every runtime-mutating call below names an EXACT resource
-this test created — the ``<prefix>-nginx`` / ``<prefix>-auth`` / ``<prefix>-web-
-<user>`` containers, this project's volumes, and the ``:local`` image tags — or
+this test created — the ``<project>-nginx`` / ``<project>-auth`` /
+``<project>-web-<user>`` containers, this project's volumes, and the ``:local`` image tags — or
 is the project-scoped ``compose down`` the deploy lifecycle itself uses. Nothing
 here ever runs a prune, an ``-a``/``--all`` sweep, or a wildcard removal.
 """
@@ -275,14 +275,14 @@ PORT_BASE = 23000
 #: the render places them off the same base.
 HOST_PORTS = {slot: default_port(slot, base=PORT_BASE) for slot in ("nginx", "auth")}
 
-AUTH_IMAGE_TAG = f"{PREFIX}-assistant-auth:local"
+AUTH_IMAGE_TAG = f"{PROJECT_NAME}-auth:local"
 # `<catalog project>:local`, exactly as resolve_personas derives a local-mode
 # persona tag for a catalog entry that names its own project.
 TERMINAL_IMAGE_TAG = f"{TERMINAL_PROJECT}:local"
 PROBE_IMAGE_TAG = f"{PROBE_PROJECT}:local"
 
-NGINX_C = f"{PREFIX}-nginx"
-AUTH_C = f"{PREFIX}-auth"
+NGINX_C = f"{PROJECT_NAME}-nginx"
+AUTH_C = f"{PROJECT_NAME}-auth"
 
 # Two real framework installs; give them room. The step budget in CI is 55
 # minutes (see the module docstring); this is the in-test ceiling below it.
@@ -378,7 +378,7 @@ CONTAINER_AUDIT_DIR = f"/app/{TERMINAL_PROJECT}/var/audit"
 
 
 def _web_container(user: str) -> str:
-    return f"{PREFIX}-web-{user}"
+    return f"{PROJECT_NAME}-web-{user}"
 
 
 def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
@@ -446,7 +446,7 @@ def _logs(name: str) -> str:
 def _exec(container: str, *argv: str, timeout: int = 30) -> subprocess.CompletedProcess:
     """Run one read-only command INSIDE an exact container this test created.
 
-    Names a ``<prefix>-web-<user>`` container built by this deployment, never a
+    Names a ``<project>-web-<user>`` container built by this deployment, never a
     pattern — see CONTAINER-OPS SAFETY in the module docstring.
     """
     return _runtime_cli("exec", container, *argv, timeout=timeout)

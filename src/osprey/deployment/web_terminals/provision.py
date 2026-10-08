@@ -156,7 +156,13 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     if effective_image_source(web_terminals) == "local":
         facility_prefix = (config.get("facility") or {}).get("prefix") or ""
         registry_cfg = config.get("registry") or {}
-        resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
+        resolved_users = resolve_personas(
+            web_terminals,
+            registry_cfg,
+            facility_prefix,
+            project_name=resolve_project_name(config),
+            strict=True,
+        )
         verify_persona_renders(config, resolved_users, repo_root=root)
     # BEFORE ensure_env_production, for the same reason auth provisioning runs
     # last: a persona that would hold BLUESKY_LAUNCH_TOKEN while its shipped
@@ -245,7 +251,13 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
     facility_prefix = (config.get("facility") or {}).get("prefix") or ""
     registry_cfg = config.get("registry") or {}
     try:
-        resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
+        resolved_users = resolve_personas(
+            web_terminals,
+            registry_cfg,
+            facility_prefix,
+            project_name=resolve_project_name(config),
+            strict=True,
+        )
         verify_persona_renders(config, resolved_users, repo_root=Path(repo_root))
     except ValueError as exc:
         return str(exc)
@@ -800,12 +812,13 @@ def auth_sidecar_local_tag(config: dict) -> str:
     """The image tag a local-mode deploy builds for the sidecar.
 
     Must equal what ``docker-compose.web.yml.j2`` renders when ``auth.image``
-    is unset (``{{ auth_image | default(facility_prefix ~ "-assistant-auth:local",
-    true) }}``) — a mismatch would leave compose referencing a tag nothing
-    built, failing at ``up`` with an opaque "no such image".
+    is unset (``{{ auth_image | default(project_name ~ "-auth:local", true) }}``)
+    — a mismatch would leave compose referencing a tag nothing built, failing
+    at ``up`` with an opaque "no such image". Keyed on the deployment's compose
+    project (:func:`resolve_project_name` of the facility config), like every
+    other host-visible name the deployment owns.
     """
-    facility_prefix = (config.get("facility") or {}).get("prefix") or ""
-    return f"{facility_prefix}-assistant-auth:local"
+    return f"{resolve_project_name(config)}-auth:local"
 
 
 def _require_auth_sidecar_image(web_terminals: dict) -> None:
@@ -883,7 +896,7 @@ def build_auth_sidecar_image(
     *,
     repo_root: Path | str | None = None,
 ) -> None:
-    """Build the sidecar's ``<facility_prefix>-assistant-auth:local`` image.
+    """Build the sidecar's ``<project_name>-auth:local`` image.
 
     The local-mode counterpart of :func:`_require_auth_sidecar_image`, and the
     only producer of that tag: the web compose overlay declares the sidecar with
@@ -1030,7 +1043,13 @@ def _roster_identities(config: dict) -> list[str]:
     registry_cfg = config.get("registry") or {}
     return [
         entry["name"]
-        for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
+        for entry in resolve_personas(
+            web_terminals,
+            registry_cfg,
+            facility_prefix,
+            project_name=resolve_project_name(config),
+            strict=False,
+        )
     ]
 
 
@@ -1618,7 +1637,13 @@ def deploy_up_web_terminals(
         # preflight standing between a broken persona catalog and that opaque failure.
         facility_prefix = (config.get("facility") or {}).get("prefix") or ""
         registry_cfg = config.get("registry") or {}
-        resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
+        resolved_users = resolve_personas(
+            web_terminals,
+            registry_cfg,
+            facility_prefix,
+            project_name=resolve_project_name(config),
+            strict=True,
+        )
         # Every referenced persona must already have the project `osprey build`
         # rendered for it, so the image build below always finds a complete
         # context. This renders nothing: a gap is a stale or partial build, and
@@ -1913,10 +1938,9 @@ def deploy_down_web_terminals(
     in its ``-f`` list (the two stacks stay separate invocations — see the WHY
     TWO INVOCATIONS note on :func:`deploy_up_web_terminals`), so the web stack
     needs this dedicated ``down``. Without it the web containers outlive every
-    ``osprey down`` — and because their ``container_name``s are fixed
-    host-global identifiers (``<prefix>-web-<user>``, ``<prefix>-nginx``),
-    the NEXT web-terminals deploy on the host, from any project, dies at
-    ``up`` with a container-name Conflict instead of reconciling.
+    ``osprey down`` and keep serving beside a stopped services stack, holding
+    their host-global ``container_name``s (``<project>-web-<user>``,
+    ``<project>-nginx``) and their host ports.
 
     A no-op when the repo has no rendered ``build/docker-compose.web.yml``
     (nothing was ever deployed from here, or ``build/`` was wiped).

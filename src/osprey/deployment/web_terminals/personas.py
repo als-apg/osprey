@@ -2722,6 +2722,7 @@ def resolve_personas(
     registry_cfg: dict[str, Any],
     facility_prefix: str,
     *,
+    project_name: str,
     strict: bool = True,
 ) -> list[dict[str, Any]]:
     """Resolve each roster entry's persona reference into its image/project identity.
@@ -2749,9 +2750,12 @@ def resolve_personas(
       ``image`` is ``<registry_url>/web-terminal:<tag>`` (unsuffixed, the same
       string the compose template names directly whenever ``<tag>`` is its
       ``latest`` default),
-      ``project`` and ``container_project_dir`` are ``<facility_prefix>-assistant``
-      / ``/app/<facility_prefix>-assistant``. This is the zero-migration path: a
-      config with no ``personas`` catalog at all resolves every entry here.
+      ``project`` is ``<project_name>-assistant`` and ``container_project_dir``
+      is ``/app/<facility_prefix>-assistant``. This is the zero-migration path: a
+      config with no ``personas`` catalog at all resolves every entry here. The
+      directory keeps the facility prefix because the persisted Claude Code
+      state in each user's config volume is keyed by the working directory, so
+      moving it would hide every existing session.
     * **Default persona** (resolved ``persona`` equals ``default_persona``, and
       a catalog entry exists for it): registry mode keeps the same un-suffixed
       ``<registry_url>/web-terminal:<tag>`` image (so the default persona's
@@ -2761,7 +2765,7 @@ def resolve_personas(
       exactly as for any other persona: the image is built FROM that project, so
       pinning the directory to the facility default would name a path that
       image does not have. A catalog that gives the default persona a project
-      other than ``<facility_prefix>-assistant`` therefore moves where its
+      of its own therefore moves where its
       users' agent-data volume mounts — the volume itself is unchanged and
       keeps its contents, but they are no longer at the path the container
       reads.
@@ -2771,9 +2775,10 @@ def resolve_personas(
       persona image is tagged by its render alone, since the persona name
       contributes nothing to the image beyond the tag; a catalog entry with
       no ``project`` of its own falls back to the legacy
-      ``<facility_prefix>-assistant-<persona>:local``, whose suffix keeps it
-      clear of the dispatch worker's ``<project>:local`` tag;
-      ``container_project_dir`` is derived from the persona's own
+      ``<project_name>-assistant-<persona>:local``, whose suffix keeps it
+      clear of the dispatch worker's ``<project_name>:local`` tag, and to the
+      zero-migration ``container_project_dir``;
+      otherwise ``container_project_dir`` is derived from the persona's own
       ``/app/<project>``.
 
     The resolution stays total: an empty ``registry_url`` still yields a
@@ -2785,8 +2790,12 @@ def resolve_personas(
             (``users``, ``personas``, ``default_persona``, ``image_source``).
         registry_cfg: The already-dict-coerced top-level ``registry`` section
             (only ``url`` is read).
-        facility_prefix: ``facility.prefix``, used for the zero-migration /
-            default-persona project dir and image (``<prefix>-assistant``).
+        facility_prefix: ``facility.prefix``, used only for the zero-migration
+            in-container project dir (``/app/<prefix>-assistant``).
+        project_name: The deployment's compose project
+            (:func:`~osprey.deployment.compose_generator.resolve_project_name`
+            of the facility config), which names the zero-migration project and
+            every image tag derived from it (``<project_name>-assistant``).
         strict: When ``True`` (render/build/seed callers), an unresolvable
             persona reference — an explicit or inherited ``persona:`` naming a
             catalog entry that doesn't exist, or ``image_source: local`` with no
@@ -2873,7 +2882,7 @@ def resolve_personas(
             "configured"
         )
 
-    default_project = f"{facility_prefix}-assistant"
+    default_project = f"{project_name}-assistant"
     default_container_dir = f"/app/{facility_prefix}-assistant"
     default_image = f"{registry_url}/web-terminal:{image_tag}"
 
@@ -3005,7 +3014,7 @@ def resolve_personas(
         else:
             image = f"{registry_url}/web-terminal-{persona_ref}:{image_tag}"
 
-        container_project_dir = f"/app/{project}"
+        container_project_dir = f"/app/{project}" if has_own_project else default_container_dir
 
         entry_resolved = _with_optional_fields(
             {

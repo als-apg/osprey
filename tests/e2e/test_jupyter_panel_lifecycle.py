@@ -63,7 +63,7 @@ running — is not reachable from here without racing the switch against a cell,
 so it stays pinned in ``tests/runtime/test_jupyter_kernel.py``.
 
 CONTAINER-OPS SAFETY: every runtime-mutating call below names an EXACT resource
-this test created — the ``<prefix>-*`` containers, this project's volumes and
+this test created — the ``<project>-*`` containers, this project's volumes and
 the ``:local`` image tags — or is the project-scoped ``compose down`` the deploy
 lifecycle itself uses. Nothing here ever runs a prune, an ``-a``/``--all``
 sweep, or a wildcard removal. Set ``E2E_REUSE_IMAGES`` to keep the built images
@@ -229,7 +229,7 @@ def _run_osprey(
 
 
 def _web_container() -> str:
-    return f"{PREFIX}-web-{USER}"
+    return f"{PROJECT_NAME}-web-{USER}"
 
 
 def _logs(name: str) -> str:
@@ -458,7 +458,7 @@ def _compose_project() -> str | None:
 def _teardown(project: str | None) -> None:
     """Exact-named sweep; failures swallowed (a safety net, never an assertion)."""
     _runtime_cli("rm", "-f", _web_container())
-    _runtime_cli("rm", "-f", f"{PREFIX}-nginx")
+    _runtime_cli("rm", "-f", f"{PROJECT_NAME}-nginx")
     for project_name in {project, PROJECT_NAME} - {None}:
         _runtime_cli("compose", "-p", str(project_name), "down", timeout=120)
         remove_project_volumes(str(project_name), runtime=RUNTIME)
