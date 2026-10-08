@@ -80,14 +80,15 @@ what refuses this server's writes and its session's launches until it lands
 somewhere; a server that silently stayed where it was would go on serving a
 target the deployment has moved off.
 
-Why the launch handshake bypasses the proxy
--------------------------------------------
-``init`` and ``spawn_probe`` are *supervisor* methods, not connector methods,
-and :class:`~osprey_connectors.ipc.proxy.ConnectorHostProxy` deliberately
-exposes only the connector surface. The handshake is spoken here on the child's
-raw pipes with the public frame codec, and the proxy is constructed only once
-the child has proven itself — so a child that fails to launch never becomes a
-connector anything can call, and no half-initialized proxy has to be unwound.
+The launch handshake
+--------------------
+``init`` and ``spawn_probe`` are *supervisor* methods, not connector methods.
+They travel over
+:meth:`~osprey_connectors.ipc.proxy.ConnectorHostProxy.supervisor_request`, the
+same supervisor surface :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`
+launches its children through. A child that fails to launch is torn down with
+:func:`~osprey_connectors.ipc.launch.kill_host`, and its proxy never reaches a
+:class:`_Child`, so nothing can call it.
 
 Attributing a killed child's outstanding requests
 -------------------------------------------------
@@ -125,15 +126,19 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors.control_system.base import is_readonly_run
-from osprey_connectors.ipc import frames
 from osprey_connectors.ipc.launch import (
     CHILD_MODULE,
     AttributedReader,
     host_env,
+    kill_host,
     spawn_host,
 )
 from osprey_connectors.ipc.pool import DEFAULT_CALL_DEADLINE_S
-from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from osprey_connectors.ipc.proxy import (
+    ChildUnresponsiveError,
+    ConnectorHostProxy,
+    raised_by_child,
+)
 from osprey_connectors.ipc.verification import (
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
@@ -144,7 +149,7 @@ from osprey_connectors.ipc.verification import (
     derive_endpoints,
     verify_host_report,
 )
-from osprey_connectors.process import REAP_WINDOW_S, reap_exit_code, terminate
+from osprey_connectors.process import reap_exit_code, terminate
 from osprey_connectors.types import (
     _SIMULATED_TYPES,
     TARGET_LIVE,
@@ -207,8 +212,6 @@ TERMINATE_GRACE_S = 2.0
 #: How long the parent waits, after killing a child, for the proxy's reader to
 #: turn the dead pipe into failures on the requests that were in flight.
 SETTLE_TIMEOUT_S = 2.0
-
-_READ_CHUNK = 65536
 
 # -- switch stages and machine-readable reasons -----------------------------
 
@@ -318,80 +321,48 @@ class NoConnectorHostError(ConnectionError):
         }
 
 
-class _LaunchChannel:
-    """The launch handshake, spoken on a child's raw pipes.
+async def _launch_request(
+    target: str,
+    process: Any,
+    proxy: ConnectorHostProxy,
+    method: str,
+    kwargs: dict[str, Any],
+    timeout: float,
+    stage: str,
+    grace_s: float,
+) -> Any:
+    """One launch-handshake request to a starting child, its failures as :class:`SwitchError`.
 
-    One request at a time, one reply expected, matched by request id. The child
-    sends nothing unsolicited, so a reply that leaves bytes behind in the frame
-    reader means the stream is not what it claims to be — and those bytes would
-    be lost when the pipes are handed to the proxy, so the handshake refuses
-    rather than hand over a stream it has already truncated.
+    The request travels over the proxy's supervisor surface, which adds its own
+    grace to *timeout*. A closed pipe means the child is exiting: its status is
+    reaped, for up to *grace_s*, before anything signals it, so the refusal
+    names the exit code the child chose. Anything the child did not raise and
+    the pipe did not end propagates unchanged.
     """
+    reason = REASON_PROBE_FAILED if stage == STAGE_PROBE else REASON_SPAWN_FAILED
 
-    def __init__(self, target: str, process: Any) -> None:
-        self._target = target
-        self._process = process
-        self._frames = frames.FrameReader()
-
-    async def request(self, method: str, kwargs: dict[str, Any], timeout: float, stage: str) -> Any:
-        request_id = frames.new_request_id()
-        try:
-            self._process.stdin.write(frames.encode_request(request_id, method, kwargs))
-            await self._process.stdin.drain()
-        except (OSError, RuntimeError, ConnectionError, AttributeError) as exc:
-            raise self._failure(stage, f"could not send its {method!r} request: {exc}") from exc
-
-        frame = await self._reply(request_id, method, timeout, stage)
-        if isinstance(frame, frames.ErrorFrame):
-            raise self._failure(stage, f"failed {method!r}: {frame.message}")
-        return frame.value
-
-    async def _reply(self, request_id: str, method: str, timeout: float, stage: str) -> Any:
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + max(timeout, 0.0)
-        while True:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                raise self._failure(stage, f"did not answer {method!r} within {timeout}s")
-            try:
-                chunk = await asyncio.wait_for(self._process.stdout.read(_READ_CHUNK), remaining)
-            except TimeoutError:
-                raise self._failure(stage, f"did not answer {method!r} within {timeout}s") from None
-            if not chunk:
-                returncode = await reap_exit_code(self._process, REAP_WINDOW_S)
-                raise self._failure(
-                    stage,
-                    f"closed its output stream while answering {method!r} (exit code {returncode})",
-                )
-            decoded = self._frames.feed(chunk)
-            if not decoded:
-                continue
-            # One request, one reply: a chunk carrying more than one whole frame
-            # means the child said something nobody asked for, and the extra
-            # frame would be silently dropped here rather than reaching anyone.
-            if len(decoded) > 1 or getattr(decoded[0], "request_id", None) != request_id:
-                raise self._failure(stage, f"answered a request nobody made during {method!r}")
-            return decoded[0]
-
-    def assert_stream_is_clean(self) -> None:
-        """Refuse to hand the proxy a stream with an unread tail in it.
-
-        Bytes left in the reader are a partial frame the proxy will never see
-        the front of; whole unsolicited frames are caught in :meth:`_reply`,
-        which is the only place they can arrive.
-        """
-        if len(self._frames):
-            raise self._failure(
-                STAGE_SPAWN, f"left {len(self._frames)} unsolicited bytes on its output stream"
-            )
-
-    def _failure(self, stage: str, what: str) -> SwitchError:
+    def failure(what: str) -> SwitchError:
         return SwitchError(
-            self._target,
+            target,
             stage,
-            REASON_PROBE_FAILED if stage == STAGE_PROBE else REASON_SPAWN_FAILED,
-            f"The connector-host child for target {self._target!r} {what}.",
+            reason,
+            f"The connector-host child for target {target!r} {what}.",
         )
+
+    try:
+        return await proxy.supervisor_request(method, kwargs, timeout)
+    except ChildUnresponsiveError as exc:
+        raise failure(f"did not answer {method!r} within {timeout}s") from exc
+    except Exception as exc:
+        if isinstance(exc, ConnectionError) and not raised_by_child(exc):
+            returncode = await reap_exit_code(process, grace_s)
+            raise failure(
+                f"closed its output stream while answering {method!r} "
+                f"(exit code {returncode}): {exc}"
+            ) from exc
+        if raised_by_child(exc):
+            raise failure(f"failed {method!r}: {exc}") from exc
+        raise
 
 
 @dataclass(frozen=True)
@@ -1758,9 +1729,18 @@ class ConnectorHostManager:
         """
         derivation = derived.derivation
         process = await self._spawn(target)
-        channel = _LaunchChannel(target, process)
+        # One reader object, held by both the proxy and this record: retiring it
+        # is how the parent names the reason the proxy's stream ended.
+        reader = AttributedReader(process.stdout)
+        # A call that names no timeout of its own still ends: a child silent
+        # past this deadline raises ChildUnresponsiveError, which the error
+        # handler answers by pinging the child and replacing it if it is wedged.
+        proxy = ConnectorHostProxy(reader, process.stdin, deadline_s=DEFAULT_CALL_DEADLINE_S)
         try:
-            report = await channel.request(
+            report = await _launch_request(
+                target,
+                process,
+                proxy,
                 "init",
                 self._init_kwargs(
                     target,
@@ -1769,6 +1749,7 @@ class ConnectorHostManager:
                 ),
                 self._spawn_timeout_s,
                 STAGE_SPAWN,
+                self._terminate_grace_s,
             )
             if not isinstance(report, dict):
                 raise SwitchError(
@@ -1795,11 +1776,15 @@ class ConnectorHostManager:
             if probe_channel:
                 probe_timeout = self._probe_timeout()
                 try:
-                    await channel.request(
+                    await _launch_request(
+                        target,
+                        process,
+                        proxy,
                         "spawn_probe",
                         {"channel": probe_channel, "timeout": probe_timeout},
-                        probe_timeout + 1.0,
+                        probe_timeout,
                         STAGE_PROBE,
+                        self._terminate_grace_s,
                     )
                 except SwitchError as exc:
                     # The probe channel alone does not say which endpoint would
@@ -1828,29 +1813,25 @@ class ConnectorHostManager:
                         "protect",
                         target,
                     )
-            channel.assert_stream_is_clean()
         except BaseException:
             # Nothing survives a failed launch: the previous child is still the
             # active one, and a spare process on the destination's gateway is
             # exactly the thing this design exists to prevent.
-            with contextlib.suppress(Exception):
-                process.stdin.close()
-            await self._kill_process(process)
+            await kill_host(
+                process,
+                proxy,
+                reader,
+                reason=f"The connector-host child for target {target!r} failed to start.",
+                grace_s=self._terminate_grace_s,
+            )
             raise
 
-        # One reader object, held by both the proxy and this record: retiring it
-        # is how the parent names the reason the proxy's stream ended.
-        reader = AttributedReader(process.stdout)
         return _Child(
             target=target,
             connector_type=derivation.connector_type,
             probe_channel=probe_channel,
             process=process,
-            # A call that names no timeout of its own still ends: a child silent
-            # past this deadline raises ChildUnresponsiveError, which the
-            # error handler answers by pinging the child and replacing it if it
-            # is wedged.
-            proxy=ConnectorHostProxy(reader, process.stdin, deadline_s=DEFAULT_CALL_DEADLINE_S),
+            proxy=proxy,
             reader=reader,
             report=report,
         )
