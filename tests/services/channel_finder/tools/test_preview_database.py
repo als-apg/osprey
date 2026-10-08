@@ -424,11 +424,10 @@ class TestPreviewInContext:
 # ---------------------------------------------------------------------------
 
 
-#: The demo machine's own middle-layer database, as it ships in the source tree.
+#: The demo machine's middle-layer database, frozen as the build first wrote it.
 SHIPPED_MIDDLE_LAYER = (
     Path(__file__).resolve().parents[4]
-    / "src/osprey/templates/apps/control_assistant/data"
-    / "channel_databases/tiers/tier3/middle_layer.json"
+    / "tests/facility/golden/cf_index_pre_line/middle_layer.json"
 )
 
 #: Its in-context sibling, which must not be mistaken for one.

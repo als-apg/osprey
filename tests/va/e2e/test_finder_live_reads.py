@@ -1,10 +1,10 @@
-"""SC6 acceptance: every address a channel-finder pipeline surfaces is live over CA.
+"""Every address a channel-finder pipeline surfaces is live over CA.
 
-The Control Assistant preset ships the SAME channel namespace -- a few
+The frozen channel-finder indexes hold the SAME channel namespace -- a few
 thousand addresses -- in three interchangeable channel-finder paradigms, and
 the facility the demo container serves names every one of them. This suite
 proves that holds against a *live* container by expanding each paradigm's
-tier-3 database through the channel finder's own database class (the code
+index through the channel finder's own database class (the code
 that loads these files at runtime, so this exercises the real per-pipeline
 expansion path rather than re-deriving addresses from one shared source) and
 reading a representative slice of finder-surfaced addresses -- orbit,
@@ -24,10 +24,8 @@ import pytest
 
 from tests.va.e2e.conftest import REPO_ROOT, sweep_check
 
-#: The preset's tier-3 channel databases, one file per paradigm.
-TIER3_DIR = (
-    REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3"
-)
+#: The frozen channel-finder indexes of the demo facility, one file per paradigm.
+INDEX_DIR = REPO_ROOT / "tests/facility/golden/cf_index_pre_line"
 
 # Representative finder-query categories, keyed by the address-string tokens
 # that identify them in the preset's ``AREA:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD``
@@ -68,15 +66,15 @@ def _hierarchical_addresses() -> set[str]:
         HierarchicalChannelDatabase,
     )
 
-    db = HierarchicalChannelDatabase(str(TIER3_DIR / "hierarchical.json"))
+    db = HierarchicalChannelDatabase(str(INDEX_DIR / "hierarchical.json"))
     db.load_database()
     return {channel["address"] for channel in db.get_all_channels()}
 
 
 def _in_context_addresses() -> set[str]:
-    from osprey.services.channel_finder.databases.template import ChannelDatabase
+    from osprey.services.channel_finder.databases.flat import ChannelDatabase
 
-    db = ChannelDatabase(str(TIER3_DIR / "in_context.json"))
+    db = ChannelDatabase(str(INDEX_DIR / "in_context.json"))
     db.load_database()
     return {channel["address"] for channel in db.get_all_channels()}
 
@@ -84,7 +82,7 @@ def _in_context_addresses() -> set[str]:
 def _middle_layer_addresses() -> set[str]:
     from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 
-    db = MiddleLayerDatabase(str(TIER3_DIR / "middle_layer.json"))
+    db = MiddleLayerDatabase(str(INDEX_DIR / "middle_layer.json"))
     db.load_database()
     return {channel["address"] for channel in db.get_all_channels()}
 
