@@ -14,8 +14,9 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop
+from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml, read_exports
+from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop, draft_mapping
+from osprey.facility.validate import run_stages
 
 SYNTHETIC = Path(__file__).resolve().parents[1] / "fixtures" / "mml" / "synthetic"
 AO = "quokka.sr.ao.json"
@@ -103,3 +104,57 @@ def test_a_shared_address_no_wiring_record_states_is_not_refused(tmp_path: Path)
         "SR/BPM_1_1",
         "SR/qk_septum_1",
     ]
+
+
+def _rows(facility: Path, name: str) -> list[dict[str, Any]]:
+    return yaml.safe_load((facility / LAYER_DIR / name).read_text(encoding="utf-8"))
+
+
+def _one_identity(tmp_path: Path) -> Path:
+    """The shared export imported with BPMx by coordinates and BPM as its subset."""
+    ao, facility = _shared(tmp_path)
+    document = _mapping(facility)
+    document["families"]["BPMx"]["devices"] = {"coordinates": "BPM"}
+    document["families"]["BPM"]["devices"] = {"same_as": "BPMx"}
+    _write(facility, document)
+    import_mml([ao], facility)
+    return facility
+
+
+def _refused(facility: Path) -> list[str]:
+    report = run_stages(facility, project_name="demo")
+    assert report.failed is None, [error.format_message() for error in report.errors]
+    return [error.format_message() for error in report.errors if error.kind == "pair-invalid"]
+
+
+def test_coordinates_and_a_subset_same_as_import_to_one_device_each(tmp_path: Path) -> None:
+    facility = _one_identity(tmp_path)
+    devices = [row["id"] for row in _rows(facility, "devices.yaml")]
+    monitors = [device for device in devices if device.startswith("SR/BPM_")]
+    assert monitors == ["SR/BPM_1_1", "SR/BPM_2_1", "SR/BPM_3_1", "SR/BPM_4_1"]
+    channels = {row["id"]: row for row in _rows(facility, "channels.yaml")}
+    assert channels["QK:BPMx:1:CUR:RB"]["on"] == {"device": "SR/BPM_1_1"}
+    assert "endpoint_of" not in channels["QK:BPMx:1:CUR:RB"]
+
+
+def test_the_import_validates_clean(tmp_path: Path) -> None:
+    assert _refused(_one_identity(tmp_path)) == []
+
+
+def test_the_draft_of_the_shared_export_imports_and_validates(tmp_path: Path) -> None:
+    ao, facility = _shared(tmp_path)
+    body = json.loads(ao.read_text(encoding="utf-8"))
+    del body["BPMx"]["CommonNames"]
+    ao.write_text(json.dumps(body), encoding="utf-8")
+    exports = read_exports([ao])
+    drafted = draft_mapping(exports.ao, exports.ad or None, exports.va or None)["families"]
+    assert drafted["BPMx"]["devices"] == {"coordinates": "BPM"}
+    assert drafted["BPM"]["devices"] == "names"
+
+    document = _mapping(facility)
+    for raw, family in document["families"].items():
+        if "devices" in drafted[raw]:
+            family["devices"] = drafted[raw]["devices"]
+    _write(facility, document)
+    import_mml([ao], facility)
+    assert _refused(facility) == []
