@@ -7,6 +7,7 @@ import os
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Any
 
@@ -258,7 +259,7 @@ class ChannelLimitsConfig:
     min_value: float | None = None
     max_value: float | None = None
     max_step: float | None = None  # Optional: requires channel read (I/O overhead)
-    writable: bool = True
+    writable: bool = dataclass_field(kw_only=True)
 
 
 class LimitsValidator:

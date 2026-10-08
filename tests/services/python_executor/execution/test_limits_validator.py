@@ -31,10 +31,13 @@ class TestChannelLimitsConfig:
         config = ChannelLimitsConfig(channel_address="TEST:PV", max_step=5.0, writable=True)
         assert config.max_step == 5.0
 
-    def test_default_writable_value(self):
-        """Test default writable value is True."""
-        config = ChannelLimitsConfig(channel_address="TEST:PV")
-        assert config.writable is True
+    def test_writable_has_no_default(self):
+        """A record states its own writability; none is assumed for it."""
+        with pytest.raises(TypeError, match="writable"):
+            ChannelLimitsConfig(channel_address="TEST:PV")
+
+        config = ChannelLimitsConfig(channel_address="TEST:PV", writable=False)
+        assert config.writable is False
 
 
 class TestLimitsValidator:

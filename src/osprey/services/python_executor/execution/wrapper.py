@@ -513,7 +513,7 @@ if not _execution_dir.exists():
                         min_value=config_dict.get('min_value'),
                         max_value=config_dict.get('max_value'),
                         max_step=config_dict.get('max_step'),  # Include max_step from serialized config
-                        writable=config_dict.get('writable', True)
+                        writable=config_dict['writable']
                     )
 
                 # Create validator with embedded config
