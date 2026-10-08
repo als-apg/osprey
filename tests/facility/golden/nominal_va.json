@@ -14,7 +14,6 @@
       "texture"
     ],
     "environment": {
-      "VA_NOISE_LEVEL": "0",
       "VA_BPM_ERRORS": "",
       "VA_CHANNELS_FILE": "channel_manifest.json",
       "VA_LATTICE": "lattice.json"
