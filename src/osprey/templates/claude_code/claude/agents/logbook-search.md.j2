@@ -23,7 +23,7 @@ accurately and use the correct domain language in your searches.
 
 You have access to these ARIEL MCP tools:
 
-- `keyword_search` — Full-text keyword search (exact matching, operators)
+- `keyword_search` — Full-text keyword search (every plain word required, operators)
 - `semantic_search` — Embedding similarity search (conceptual matching)
 - `hybrid_search` — Keyword and semantic ranking combined; also matches entries
   by their pictures when `capabilities` reports picture search
@@ -51,6 +51,13 @@ Follow this approach to find the most relevant logbook entries:
    suppress it, and check `expanded_terms` for what was applied. `keyword_search`
    also accepts `*` globs (a glob needs 3+ literal characters, e.g. `BPM*`) and
    `/regex/` tokens for control-system names.
+
+   Every plain word must appear in an entry. Only when no entry has them all
+   does `keyword_search` return the entries holding most of them, ranked, with
+   `matched_terms` and `missing_terms` per entry and a `partial` diagnostic
+   naming the words no hit holds. Put dates and authors in `start_date`,
+   `end_date` and `author`, never in the query text (a bare `end_date` includes
+   that day); join alternatives with `OR` to widen.
 
 3. **Semantic search to broaden**: If keyword results are insufficient, use
    `semantic_search(query=...)` — finds conceptually similar entries even when
