@@ -77,6 +77,12 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from osprey.runtime.guarded_run import (
+    GUARDED_RUN_DIR,
+    JOURNAL_FILE_NAME,
+    LOCK_FILE_NAME,
+    guarded_run_dir,
+)
 from osprey.utils.logger import get_logger
 from osprey_connectors.control_system.base import values_match
 
@@ -103,6 +109,10 @@ __all__ = [
     "cleanup_runtime",
     "ControlTargetChangedError",
     "SwitchInProgressError",
+    "GUARDED_RUN_DIR",
+    "JOURNAL_FILE_NAME",
+    "LOCK_FILE_NAME",
+    "guarded_run_dir",
 ]
 
 #: The target stamp this process was launched with. The same two literals are
