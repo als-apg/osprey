@@ -1109,8 +1109,9 @@ class ControlSystemConnector(ABC):
         """Whether a write to this channel must be confirmed by re-reading it.
 
         The limits database is the single home of write policy: the channel's
-        own ``confirm`` → ``True``. A connector with no validator has limits
-        checking disabled and no policy to read, so it takes the fleet default and confirms.
+        own ``confirm``, else ``True``. A connector with no validator has limits
+        checking disabled and no policy to read, so it takes the fleet default
+        and confirms.
         """
         if self._limits_validator is None:
             return True

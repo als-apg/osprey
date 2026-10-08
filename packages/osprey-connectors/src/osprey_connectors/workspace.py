@@ -183,10 +183,9 @@ def resolve_simulation_state_dir(config: Mapping[str, Any] | None, project_root:
 
     The state file is the one piece of simulation state that changes after a
     build, so it lives under the agent-data root rather than in ``data/``:
-    everything in a project's ``data/`` tree is build-owned
-    and checksummed (see
-    :func:`osprey.cli.templates.manifest.calculate_file_checksums`), and a
-    scenario switch is not project drift.
+    everything in a project's ``data/`` tree is build-owned and checksummed
+    (see :func:`osprey.cli.templates.manifest.calculate_file_checksums`), and
+    a scenario switch is not project drift.
 
     The one spelling serves config, the compose generator that renders the
     container's bind-mount source, and the build injector that pre-creates it,

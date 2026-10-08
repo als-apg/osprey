@@ -631,9 +631,8 @@ class LimitsValidator:
         """Whether a write to this channel must be confirmed by re-reading it.
 
         Resolution: the channel's own ``confirm``, else ``True``. Read off the
-        raw database, which is where
-        ``confirm`` lives: it is write policy, not a limit, so it never enters
-        :class:`ChannelLimitsConfig`.
+        raw database, which is where ``confirm`` lives: it is write policy, not
+        a limit, so it never enters :class:`ChannelLimitsConfig`.
 
         Args:
             channel_address: Channel address being written
