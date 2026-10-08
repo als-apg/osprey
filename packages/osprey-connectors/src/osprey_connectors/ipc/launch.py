@@ -3,9 +3,11 @@
 Every supervisor of :mod:`osprey_connectors.ipc.host` children needs the same
 four things — how the child is launched, what environment it is handed, how it
 is put down, and how the requests still in flight on a child that was put down
-learn why — and this module is where they are spelled once. The controls MCP
-server's single-child manager and the library's multi-target
-:class:`~osprey_connectors.ipc.pool.ConnectorHostPool` both use them.
+learn why — and this module is where they are spelled once, except how a child
+is put down, which :mod:`osprey_connectors.process` spells for every child a
+supervisor owns. The controls MCP server's single-child manager and the
+library's multi-target :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`
+both use them.
 
 Nothing here imports a control-system client library, and nothing here sets an
 ``EPICS_*`` variable: a supervisor is by definition a process that talks to the
@@ -15,7 +17,6 @@ control system only through its children.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import os
 from collections.abc import Mapping
 from typing import Any
@@ -25,28 +26,15 @@ from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES
 
 __all__ = [
     "CHILD_MODULE",
-    "DEFAULT_TERMINATE_GRACE_S",
-    "REAP_WINDOW_S",
     "AttributedReader",
     "host_env",
-    "reap_exit_code",
     "spawn_host",
-    "terminate_host",
 ]
 
 #: The child is always this module, run with ``-m``. No arguments: everything
 #: the child needs arrives on the wire, so nothing about a deployment shows up
 #: in ``ps``.
 CHILD_MODULE = "osprey_connectors.ipc.host"
-
-#: How long a child gets between ``SIGTERM`` and ``SIGKILL``.
-DEFAULT_TERMINATE_GRACE_S = 2.0
-
-#: Longest a supervisor waits for the event loop to collect a child that may
-#: already have exited, before it treats the child as running. Collection
-#: follows the exit within milliseconds; the window only bounds the cost to a
-#: child that is in fact still running.
-REAP_WINDOW_S = 0.5
 
 
 def host_env() -> dict[str, str]:
@@ -93,44 +81,6 @@ async def spawn_host(python: str, env: Mapping[str, str]) -> Any:
         stdout=asyncio.subprocess.PIPE,
         env=dict(env),
     )
-
-
-async def reap_exit_code(process: Any, window_s: float) -> int | None:
-    """Wait up to *window_s* for the event loop to collect *process*'s exit.
-
-    Returns the exit code, or ``None`` if the child is still running when the
-    window closes. Never signals the child and never raises.
-    """
-    if process.returncode is None:
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(process.wait(), window_s)
-    returncode: int | None = process.returncode
-    return returncode
-
-
-async def terminate_host(process: Any, grace_s: float) -> None:
-    """``SIGTERM``, then ``SIGKILL`` after the grace period. Never raises.
-
-    A child that already exited is collected by the event loop before anything
-    signals it: a signal sent to an exited, uncollected child reaps it out from
-    under the loop's watcher, which then loses the child's own exit code and
-    reports 255. The wait for that collection is bounded by
-    ``min(grace_s, REAP_WINDOW_S)``, so it only delays putting down a child
-    that is in fact still running.
-    """
-    if await reap_exit_code(process, min(grace_s, REAP_WINDOW_S)) is not None:
-        return
-    with contextlib.suppress(OSError):
-        process.terminate()
-    try:
-        await asyncio.wait_for(process.wait(), grace_s)
-        return
-    except TimeoutError:
-        pass
-    with contextlib.suppress(OSError):
-        process.kill()
-    with contextlib.suppress(Exception):
-        await asyncio.wait_for(process.wait(), grace_s)
 
 
 class AttributedReader:

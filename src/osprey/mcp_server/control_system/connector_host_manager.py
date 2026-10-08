@@ -128,13 +128,10 @@ from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.ipc import frames
 from osprey_connectors.ipc.launch import (
     CHILD_MODULE,
-    REAP_WINDOW_S,
     AttributedReader,
     host_env,
-    reap_exit_code,
     spawn_host,
 )
-from osprey_connectors.ipc.launch import terminate_host as _terminate_host
 from osprey_connectors.ipc.pool import DEFAULT_CALL_DEADLINE_S
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.ipc.verification import (
@@ -147,6 +144,7 @@ from osprey_connectors.ipc.verification import (
     derive_endpoints,
     verify_host_report,
 )
+from osprey_connectors.process import REAP_WINDOW_S, reap_exit_code, terminate
 from osprey_connectors.types import (
     _SIMULATED_TYPES,
     TARGET_LIVE,
@@ -1953,7 +1951,7 @@ class ConnectorHostManager:
 
     async def _kill_process(self, process: Any) -> None:
         """``SIGTERM``, then ``SIGKILL`` after the grace period."""
-        await _terminate_host(process, self._terminate_grace_s)
+        await terminate(process, self._terminate_grace_s)
 
     # -- config ------------------------------------------------------------
 
