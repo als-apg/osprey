@@ -8,8 +8,9 @@ container repo root of every container that runs the agent.
 
 from __future__ import annotations
 
+import copy
 import stat
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -19,7 +20,18 @@ from osprey.deployment.compose_generator import (
     _ensure_agent_data_structure,
     _inject_project_metadata,
     ensure_guarded_run_dirs,
+    guarded_run_relpath,
 )
+from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.utils.workspace import AUDIT_DIR_RELPATH
+from tests.templates.test_render_defaults_golden import (
+    TEMPLATES,
+    _default_context,
+    _probe_repo,
+    _render_templates,
+)
+
+from .web_terminals.test_golden_render import EXAMPLE_CONFIG
 
 _TEMPLATES_ROOT = Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates"
 
@@ -94,3 +106,66 @@ def test_every_dispatch_worker_mounts_it(tmp_path: Path) -> None:
         assert _guarded_run_mounts(services[name]) == [
             "./var/guarded_run:/app/proj/var/guarded_run"
         ]
+
+
+def _environment(service: dict[str, Any]) -> dict[str, str]:
+    environment = service.get("environment") or {}
+    if isinstance(environment, dict):
+        return {str(key): str(value) for key, value in environment.items()}
+    return dict(str(entry).split("=", 1) for entry in environment)
+
+
+def _rendered_services() -> dict[str, dict[str, Any]]:
+    """Every service the bundled templates render, keyed ``<file>:<service>``.
+
+    Each bundled service template at its defaults, plus the web-terminal
+    overlay for a deployment with two users, so a template added later is
+    enumerated here without anyone listing it.
+    """
+    with _probe_repo() as repo_root:
+        renders = _render_templates(_default_context(repo_root), TEMPLATES)
+    renders["docker-compose.web.yml"] = render_web_terminals(copy.deepcopy(EXAMPLE_CONFIG))[
+        "docker-compose.web.yml"
+    ]
+    services: dict[str, dict[str, Any]] = {}
+    for file_name, text in sorted(renders.items()):
+        document = yaml.safe_load(text) or {}
+        for name, service in sorted((document.get("services") or {}).items()):
+            services[f"{file_name}:{name}"] = service
+    return services
+
+
+def _container_repo_root(service: dict[str, Any]) -> PurePosixPath | None:
+    """The container repo root of a service that runs the python MCP server.
+
+    The framework MCP servers record every tool call through the audit
+    middleware, so a service that launches them is told where its records go
+    (``OSPREY_AUDIT_DIR``, ``<container repo root>/var/audit/<identity>``). A
+    service that names no such directory runs no framework MCP server.
+    """
+    audit_dir = _environment(service).get("OSPREY_AUDIT_DIR")
+    if not audit_dir:
+        return None
+    path = PurePosixPath(audit_dir)
+    depth = len(PurePosixPath(AUDIT_DIR_RELPATH).parts) + 1
+    return PurePosixPath(*path.parts[:-depth])
+
+
+def test_every_service_running_the_python_mcp_server_mounts_one_host_dir() -> None:
+    services = _rendered_services()
+    carriers = {
+        key: root
+        for key, service in services.items()
+        if (root := _container_repo_root(service)) is not None
+    }
+
+    assert len({key.split(":", 1)[0] for key in carriers}) >= 2, carriers
+    sources = set()
+    for key, root in carriers.items():
+        mounts = _guarded_run_mounts(services[key])
+        assert mounts == [f"{SOURCE}:{root / guarded_run_relpath()}"], key
+        assert _environment(services[key]).get("OSPREY_GUARDED_RUN_DIR") == str(
+            root / guarded_run_relpath()
+        ), key
+        sources.add(mounts[0].split(":", 1)[0])
+    assert sources == {SOURCE}

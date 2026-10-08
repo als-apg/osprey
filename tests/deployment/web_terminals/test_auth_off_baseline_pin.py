@@ -81,6 +81,10 @@ exceptions:
      the ``./var/simulator`` bind on every per-user container whenever a
      simulated target is configured. The composite running in the terminal
      appends its model logs there; nothing about it depends on a login.
+  8. **the guarded-run emitter and bind** — ``OSPREY_GUARDED_RUN_DIR`` and
+     the ``./var/guarded_run`` bind on every per-user container. A guarded run keeps its per-target lock and journal
+     there, shared with every other container that runs the agent; nothing
+     about it depends on a login.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -460,6 +464,13 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # no account, role or claim. Count 2 = alice + bob.
         "      - OSPREY_SIMULATOR_LOG_DIR=/app/dls-assistant/var/simulator": 2,
         "      - ./var/simulator:/app/dls-assistant/var/simulator": 2,
+        # The guarded-run directory — the EIGHTH exception to SC6. Every
+        # terminal runs the agent, and a guarded run started in any of them
+        # takes the one per-target lock and journal the deployment shares, so
+        # the bind is unconditional. It carries no account, role or claim.
+        # Count 2 = alice + bob.
+        "      - OSPREY_GUARDED_RUN_DIR=/app/dls-assistant/var/guarded_run": 2,
+        "      - ./var/guarded_run:/app/dls-assistant/var/guarded_run": 2,
     }
 )
 

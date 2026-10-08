@@ -1753,9 +1753,9 @@ def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_an
 
 def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     """A persona's `extra_mounts` render as additional `volumes:` entries on every
-    user of that persona, after the four framework mounts (claude-config,
-    agent-data, this user's audit subdirectory and its control-context record
-    directory)."""
+    user of that persona, after the framework mounts (claude-config, agent-data,
+    this user's audit subdirectory, its control-context record directory, the
+    simulator logs and the guarded-run directory)."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
@@ -1782,7 +1782,7 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — bob (gui) carries the five default mounts plus the persona's two
+    # Assert — bob (gui) carries the six default mounts plus the persona's two
     bob_volumes = compose["services"]["web-bob"]["volumes"]
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
@@ -1790,11 +1790,12 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         "./var/audit/bob:/app/dls-gui/var/audit/bob",
         "./var/agent_data/control_target/bob:/app/dls-gui/var/agent_data/control_target/bob",
         "./var/simulator:/app/dls-gui/var/simulator",
+        "./var/guarded_run:/app/dls-gui/var/guarded_run",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
     # alice (default persona, no extra_mounts) keeps exactly the framework's own
-    # five mounts — the persona's list adds to them, never reorders them.
+    # six mounts — the persona's list adds to them, never reorders them.
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
         "alice-agent-data:/app/dls-assistant/var/agent_data",
@@ -1804,14 +1805,16 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
             ":/app/dls-assistant/var/agent_data/control_target/alice"
         ),
         "./var/simulator:/app/dls-assistant/var/simulator",
+        "./var/guarded_run:/app/dls-assistant/var/guarded_run",
     ]
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A no-personas config (the no-persona default) emits exactly the five
+    """A no-personas config (the no-persona default) emits exactly the six
     framework per-user volume lines — claude-config, agent-data, this user's own
-    audit subdirectory, its own control-context record directory and the
-    simulator logs of its mock target — and the extra_mounts loop adds nothing."""
+    audit subdirectory, its own control-context record directory, the simulator
+    logs of its mock target and the guarded-run directory — and the extra_mounts
+    loop adds nothing."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
 
@@ -1830,6 +1833,7 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
                 f":/app/dls-assistant/var/agent_data/control_target/{user}"
             ),
             "./var/simulator:/app/dls-assistant/var/simulator",
+            "./var/guarded_run:/app/dls-assistant/var/guarded_run",
         ]
 
 

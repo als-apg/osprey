@@ -141,6 +141,13 @@
       `var/simulator`, the target's spelling under each service's
       `container_project_dir`, handed down from the workspace constant.
 
+    guarded_run_source: str, required
+      The deployment's guarded-run directory on the HOST (`var/guarded_run`),
+      spelled as a compose bind source, and paired with each service's
+      `<container_project_dir>/var/guarded_run` target, where a guarded run
+      keeps its per-target lock and journal. Always set: every terminal runs
+      the agent.
+
     ariel_mirror_gid: str, required (may be "")
       Group id of that host directory, for the same `group_add:` reason as
       `facility_bundle_gid` below. Like the bundle, the mirror is ALSO named
@@ -1047,6 +1054,9 @@ services:
          appending to it runs as the DROPPED user. #}
       - OSPREY_SIMULATOR_LOG_DIR={{ svc.container_project_dir }}/{{ simulator_log_relpath }}
 {%- endif %}
+      {#- The guarded-run mount's target, for the same contract: the lock and
+         journal under it are written by the DROPPED user. #}
+      - OSPREY_GUARDED_RUN_DIR={{ svc.container_project_dir }}/var/guarded_run
       - OSPREY_TERMINAL_LANDING_URL={{ landing_url }}
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
@@ -1551,6 +1561,13 @@ services:
       # entrypoint joins its group (OSPREY_SIMULATOR_LOG_DIR above).
       - {{ simulator_log_source }}:{{ svc.container_project_dir }}/{{ simulator_log_relpath }}
 {%- endif %}
+      # The DEPLOYMENT's guarded-run directory, read-write: one lock and one
+      # journal per control target, shared with every other container that
+      # runs the agent, so a run started here contends for the same lock and
+      # restores the same journal. The deploy provisions it setgid +
+      # group-writable, and the entrypoint joins its group
+      # (OSPREY_GUARDED_RUN_DIR above).
+      - {{ guarded_run_source }}:{{ svc.container_project_dir }}/var/guarded_run
 {%- for mount in svc.extra_mounts %}
       - {{ mount }}
 {%- endfor %}
