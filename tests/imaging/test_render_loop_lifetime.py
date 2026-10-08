@@ -15,6 +15,7 @@ import io
 import logging
 import sys
 import textwrap
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -205,3 +206,59 @@ def test_a_second_loop_finds_no_worker_of_the_first():
         render._forget_worker()
         gc.collect()
     assert unraisable == []
+
+
+def test_a_guard_on_a_loop_in_another_thread_is_cancelled_through_that_loop():
+    other = asyncio.new_event_loop()
+    thread = threading.Thread(target=other.run_forever, daemon=True)
+    thread.start()
+    try:
+
+        async def make_client() -> render._Client:
+            return render._client()
+
+        client = asyncio.run_coroutine_threadsafe(make_client(), other).result(5)
+        scheduled = []
+        real = other.call_soon_threadsafe
+
+        def spy(callback, *args, **kwargs):
+            scheduled.append(callback)
+            return real(callback, *args, **kwargs)
+
+        other.call_soon_threadsafe = spy  # type: ignore[method-assign]
+
+        async def take_over() -> None:
+            render._client()
+
+        asyncio.run(take_over())
+
+        assert client._guard.cancel in scheduled
+        deadline = time.monotonic() + 5
+        while not client._guard.done() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert client._guard.cancelled()
+    finally:
+        other.call_soon_threadsafe(other.stop)
+        thread.join(5)
+        other.close()
+
+
+def test_a_guard_on_a_closed_loop_is_left_alone():
+    loop = asyncio.new_event_loop()
+
+    async def make_client() -> render._Client:
+        return render._client()
+
+    client = loop.run_until_complete(make_client())
+    loop.run_until_complete(asyncio.sleep(0))
+    guard = client._guard
+    # Closed by hand, without cancelling its tasks: the guard is still pending.
+    loop.close()
+
+    async def take_over() -> None:
+        render._client()
+
+    asyncio.run(take_over())
+    render._forget_worker()
+
+    assert not guard.done()

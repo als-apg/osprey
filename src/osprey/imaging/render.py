@@ -302,8 +302,22 @@ class _Client:
             raise
 
     def stop_guard(self) -> None:
-        with contextlib.suppress(RuntimeError):
+        """Cancel the guard task, through its own loop when called from another.
+
+        A task may be cancelled only from its loop's thread; a guard whose loop
+        is closed is left as it is.
+        """
+        if self._guard.done() or self.loop.is_closed():
+            return
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is self.loop:
             self._guard.cancel()
+            return
+        with contextlib.suppress(RuntimeError):  # closed meanwhile
+            self.loop.call_soon_threadsafe(self._guard.cancel)
 
     # idle timer
 
