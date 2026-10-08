@@ -7,14 +7,15 @@ Startup does two things beyond registering tools, both of them about the target
 this deployment is pointed at:
 
 * :func:`create_server` **starts this server from the deployment's record**: it
-  publishes this process's report, kills the connector-host children a dead
-  predecessor left behind, and claims the control-context record when nothing
-  alive owns it. It is synchronous and runs before the event loop exists, which
-  is exactly right: an orphaned child holding a gateway must not outlive the
-  server that spawned it, and the target the deployment is pointed at has to be
-  known before anything can be served on it. What this step no longer does is
-  publish a baseline — the target belongs to the deployment and survives every
-  process that reads it, so a fresh server adopts it rather than resetting it.
+  publishes this process's report and claims the control-context record when
+  nothing alive owns it. It is synchronous and runs before the event loop
+  exists, which is exactly right: the target the deployment is pointed at has
+  to be known before anything can be served on it. A connector-host child
+  outlives a dead server only until its stdin closes or its parent changes, so
+  start has no children of a predecessor to clear. What this step no longer
+  does is publish a baseline — the target belongs to the deployment and
+  survives every process that reads it, so a fresh server adopts it rather
+  than resetting it.
 * the server **lifespan** runs two background tasks, because a task needs a
   running loop and ``create_server()`` is called before ``run()`` starts one:
   the endpoint prober, which produces the roster's reachability rows, and the
@@ -181,7 +182,7 @@ mcp = FastMCP(
 
 
 def _start_from_record() -> None:
-    """Publish this server's report, reap inherited children, claim the record.
+    """Publish this server's report and claim the record.
 
     Guarded in two halves that fail apart, because they cost different things.
     A report that cannot be written costs the roster this server's row and the
@@ -195,16 +196,13 @@ def _start_from_record() -> None:
     try:
         from osprey.mcp_server.control_system.server_context import get_server_context
 
-        orphans = get_server_context().connector_hosts.reset_state()
+        get_server_context().connector_hosts.reset_state()
     except Exception:
         logger.warning(
             "Could not write this server's control-target report; the roster and the prompt "
             "hook will not see this server",
             exc_info=True,
         )
-    else:
-        if orphans:
-            logger.warning("Killed %d orphaned connector-host child process(es)", len(orphans))
 
     try:
         from osprey.mcp_server.control_system.server_context import (
@@ -243,8 +241,7 @@ def create_server() -> FastMCP:
     initialize_workspace_singletons()
 
     # A fresh server adopts the target the deployment is already pointed at
-    # rather than resetting it, publishes its own report, and kills any
-    # connector host a dead predecessor left running before it can spawn one.
+    # rather than resetting it, and publishes its own report.
     with startup_timer("target_state"):
         _start_from_record()
 

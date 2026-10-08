@@ -120,9 +120,7 @@ posture, and a session can narrow itself after start, so :func:`publish_targets`
 lets the same single writer re-render the block and republish it. That is still
 one opinion — the writer's, restated — and readers keep rendering verbatim.
 
-``children`` records the connector-host children a server owns so that
-:func:`sweep_stale` can hand a starting server the orphan PIDs left behind by a
-dead predecessor.
+``children`` records the connector-host children a server owns, for display.
 
 ``last_switch``, ``reachability`` and ``last_posture_realign`` are the three
 publication blocks the header chip reads. They are empty on a fresh report —
@@ -488,7 +486,7 @@ def write_server_record(
     server_pid: int | None = None,
     session: str | None = None,
     children: list[int] | None = None,
-) -> list[int]:
+) -> None:
     """Write this server's report at start and sweep the dead ones.
 
     Called once, at server start, before anything can switch. It is a RESET and
@@ -514,12 +512,9 @@ def write_server_record(
             same way every other one does — the field says whose launches a
             failure of this server's own would refuse, not whether it counts.
         children: Connector-host child PIDs already known at start.
-
-    Returns:
-        Orphan child PIDs recorded by dead predecessors, for the caller to kill.
     """
     pid = os.getpid() if server_pid is None else int(server_pid)
-    orphans = sweep_stale(server_pid=pid)
+    sweep_stale(server_pid=pid)
     # A request in this PID's slot can only be a dead predecessor's residue —
     # this process has asked for nothing yet — and leaving it would let an owner
     # move the deployment on a gesture nobody made in this session.
@@ -544,7 +539,6 @@ def write_server_record(
     }
     _atomic_write_json(report_file_path(pid), report)
     logger.debug("Server report initialized for pid %s (session %r)", pid, report["session"])
-    return orphans
 
 
 def _update(server_pid: int | None, changes: dict[str, Any]) -> bool:
@@ -858,7 +852,7 @@ def record_child_pids(children: list[int] | None, *, server_pid: int | None = No
     """Record the connector-host child PIDs this server owns.
 
     Pass an empty list (or ``None``) to clear them — after the children have
-    been reaped, so a later sweep does not report already-dead PIDs as orphans.
+    been reaped, so the report does not list already-dead PIDs.
     """
     return _update(server_pid, {"children": _normalize_children(children)})
 
@@ -1162,52 +1156,31 @@ def in_flight_executions() -> list[dict[str, Any]]:
 # -- sweeping --------------------------------------------------------------
 
 
-def sweep_stale(*, server_pid: int | None = None) -> list[int]:
-    """Delete every report whose server is dead; return its orphans.
-
-    Switch requests left by a dead requester are swept in the same pass; they
-    are not reports, so they are never counted as orphans and never
-    contribute child PIDs.
+def sweep_stale(*, server_pid: int | None = None) -> None:
+    """Delete every report whose server is dead, and every orphaned request.
 
     A server exits without running :func:`delete_on_shutdown` whenever it is
-    killed rather than asked to stop, and its connector-host children can
-    outlive it. The next server to start therefore inherits two jobs: clear the
-    dead file so readers stop seeing a target nobody is on, and collect the
-    child PIDs it recorded so the caller can kill them.
+    killed rather than asked to stop. The next server to start clears the dead
+    file so readers stop seeing a target nobody is on. Switch requests left by
+    a dead requester are swept in the same pass.
 
     The file this process owns is left alone even though the process is
     obviously alive — checking one's own liveness is a way to get it wrong.
 
     The reaping rule — a file is judged by the PID in its name, and a name that
     encodes none has no owner either — lives in
-    :func:`osprey_connectors.control_context.sweep_dead`. What a swept file
-    *meant* is this module's business, so the child PIDs a dead server left
-    running are read here, through the ``salvage`` hook, before the file goes.
+    :func:`osprey_connectors.control_context.sweep_dead`.
 
     Args:
         server_pid: PID whose file to preserve; defaults to this process.
-
-    Returns:
-        Orphan child PIDs, in discovery order, without duplicates.
     """
     own = report_file_path(server_pid)
     directory = state_dir()
-    orphans: list[int] = []
-
-    def collect_orphans(entry: Path) -> None:
-        record = read_file(entry)
-        if record is None:
-            return
-        for child in _normalize_children(record.get("children")):
-            if child not in orphans:
-                orphans.append(child)
-
     control_context.sweep_dead(
         directory,
         prefix=REPORT_FILE_PREFIX,
         suffix=REPORT_FILE_SUFFIX,
         keep=own.name,
-        salvage=collect_orphans,
         is_alive=is_process_alive,
     )
     # A request is desired state, and the process that asked is the one waiting
@@ -1221,4 +1194,3 @@ def sweep_stale(*, server_pid: int | None = None) -> list[int]:
         suffix=REQUEST_FILE_SUFFIX,
         is_alive=is_process_alive,
     )
-    return orphans

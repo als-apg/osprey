@@ -18,7 +18,6 @@ import os
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 
 import pytest
@@ -32,8 +31,6 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     NoConnectorHostError,
     SwitchError,
     baseline_target,
-    kill_orphans,
-    looks_like_a_connector_host,
     switch_capable,
     target_display_metadata,
 )
@@ -1458,42 +1455,20 @@ class TestStartupSweep:
         finished.wait(timeout=SETTLE_TIMEOUT_S)
         return finished.pid
 
-    @staticmethod
-    def _orphan_host(root=None):
-        """A real connector-host child with nobody talking to it.
-
-        The agent-data root is STAMPED into its environment, not left to the
-        child. ``state_root`` redirects the root by patching
-        ``target_state.resolve_shared_data_root``, and a patch does not cross a
-        process boundary: this child would resolve it for itself, from a cwd
-        that is the repository, and create ``<repo>/var/agent_data``. It is a
-        detached process, so it does that on its own schedule — which is why
-        the leak showed up only under ``-n 8`` and never in a single-file run.
-
-        ``root`` is optional because two cases here only ever ask whether the
-        process *looks like* a connector host and never let it touch a state
-        directory; they still get a tmp root rather than none, so a future
-        change to the child cannot quietly reach the repository.
-        """
-        env = dict(os.environ)
-        env["OSPREY_AGENT_DATA_ROOT"] = str(root) if root is not None else tempfile.mkdtemp()
-        return subprocess.Popen(
-            [sys.executable, "-m", "osprey_connectors.ipc.host"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=env,
-        )
-
-    async def test_orphans_from_a_dead_server_are_killed_and_its_file_swept(
+    async def test_a_dead_servers_report_is_swept_and_its_recorded_children_are_not_signalled(
         self, make_manager, state_root
     ):
-        orphan = self._orphan_host(state_root)
+        """Start clears a dead server's report and leaves the PIDs it recorded alone.
+
+        A connector-host child exits once its supervisor is gone, so a PID a
+        dead server recorded is nobody's child to clear; whatever holds that
+        number now is a bystander.
+        """
+        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
         dead_server = self._dead_pid()
         # The sweep lists ``target_state.state_dir()``, which carries the
         # acting identity's own hop below ``control_target/``. A report one
-        # level up is one the sweep never reads, so the dead server's orphan
-        # is never collected and never killed.
+        # level up is one the sweep never reads.
         stale = state_dir_under(state_root)
         stale.mkdir(parents=True, exist_ok=True)
         stale_file = stale / f"{target_state.REPORT_FILE_PREFIX}{dead_server}.json"
@@ -1505,7 +1480,7 @@ class TestStartupSweep:
                     "applied_target": "va",
                     "applied_generation": 4,
                     "targets": {},
-                    "children": [orphan.pid],
+                    "children": [bystander.pid],
                 }
             ),
             encoding="utf-8",
@@ -1514,8 +1489,8 @@ class TestStartupSweep:
         try:
             manager = make_manager()  # reset_state() runs in the factory
 
-            assert orphan.wait(timeout=SETTLE_TIMEOUT_S) is not None
             assert not stale_file.exists()
+            assert bystander.poll() is None
             record = target_state.read()
             # The report this server writes at start publishes no target at
             # all: the deployment's is the control-context record's to state,
@@ -1526,36 +1501,8 @@ class TestStartupSweep:
             assert record["applied_generation"] is None
             assert record["children"] == []
         finally:
-            if orphan.poll() is None:  # pragma: no cover - teardown safety net
-                orphan.kill()
-                orphan.wait(timeout=SETTLE_TIMEOUT_S)
-
-    def test_a_pid_that_is_already_gone_is_not_reported_as_killed(self):
-        assert kill_orphans([self._dead_pid()], grace_s=0.5) == []
-
-    def test_a_reused_pid_belonging_to_something_else_is_left_alone(self):
-        """A recorded PID the OS has since handed to another process.
-
-        Killing whatever now holds that number would be a far worse failure
-        than leaving one orphan behind, so the sweep checks the command line
-        before it signals anything.
-        """
-        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
-        try:
-            assert looks_like_a_connector_host(bystander.pid) is False
-            assert kill_orphans([bystander.pid], grace_s=0.5) == []
-            assert bystander.poll() is None
-        finally:
             bystander.kill()
             bystander.wait(timeout=SETTLE_TIMEOUT_S)
-
-    def test_a_live_connector_host_is_recognised_as_one(self):
-        orphan = self._orphan_host()
-        try:
-            assert looks_like_a_connector_host(orphan.pid) is True
-        finally:
-            orphan.kill()
-            orphan.wait(timeout=SETTLE_TIMEOUT_S)
 
 
 # --------------------------------------------------------- the no-child state

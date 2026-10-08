@@ -106,11 +106,7 @@ import asyncio
 import contextlib
 import copy
 import logging
-import os
-import signal
-import subprocess
 import sys
-import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -127,7 +123,6 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.ipc.launch import (
-    CHILD_MODULE,
     AttributedReader,
     host_env,
     kill_host,
@@ -173,8 +168,6 @@ __all__ = [
     "NoConnectorHostError",
     "SwitchError",
     "baseline_target",
-    "kill_orphans",
-    "looks_like_a_connector_host",
     "reset_target_state",
     "switch_capable",
     "target_display_metadata",
@@ -676,107 +669,30 @@ def _display_name(
 
 
 # ---------------------------------------------------------------------------
-# Startup sweep
+# Start-up report
 # ---------------------------------------------------------------------------
-
-
-def looks_like_a_connector_host(pid: int) -> bool:
-    """Whether *pid*'s command line still names the connector-host module.
-
-    A PID recorded by a server that has since died may have been reused by the
-    operating system for something else entirely, and killing whatever now
-    holds that number would be far worse than leaving one orphan behind. This
-    is a best-effort identity check through ``ps``: an answer that cannot be
-    obtained at all — no ``ps``, a platform that spells it differently, a
-    process owned by another user — is treated as "yes", because the recorded
-    PID is still the only evidence there is and the sweep is what the design
-    relies on to clear a dead server's children.
-    """
-    try:
-        completed = subprocess.run(
-            ["ps", "-o", "command=", "-p", str(pid)],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:  # pragma: no cover - platform oddity
-        logger.debug("Could not read the command line of pid %s: %s", pid, exc)
-        return True
-    command = completed.stdout.strip()
-    if completed.returncode != 0 or not command:
-        # ps found nothing: the process is gone, and the kill below will say so.
-        return True
-    return CHILD_MODULE in command
-
-
-def kill_orphans(pids: list[int], *, grace_s: float = DEFAULT_TERMINATE_GRACE_S) -> list[int]:
-    """Kill connector-host children left behind by a dead predecessor.
-
-    ``SIGTERM`` first, ``SIGKILL`` after *grace_s*. A PID that is already gone
-    is success: the point is that nothing is left holding a Channel Access
-    context this server did not spawn. A PID that is alive but does not look
-    like a connector host is skipped — see :func:`looks_like_a_connector_host`.
-
-    Returns:
-        The PIDs that were signalled, in the order they were given.
-    """
-    signalled: list[int] = []
-    for pid in pids:
-        if not looks_like_a_connector_host(pid):
-            logger.warning(
-                "Stale state file records connector-host child %s, but that pid now belongs "
-                "to something else; leaving it alone",
-                pid,
-            )
-            continue
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            continue
-        except (PermissionError, OSError) as exc:
-            logger.warning("Could not signal orphaned connector host %s: %s", pid, exc)
-            continue
-        signalled.append(pid)
-        deadline = time.monotonic() + max(grace_s, 0.0)
-        while time.monotonic() < deadline:
-            if not target_state.is_process_alive(pid):
-                break
-            time.sleep(0.05)
-        else:
-            with contextlib.suppress(OSError):
-                os.kill(pid, signal.SIGKILL)
-        logger.warning("Killed orphaned connector-host child %s from a stale state file", pid)
-    return signalled
 
 
 def reset_target_state(
     config: Any,
     *,
     targets_meta: dict[str, Any] | None = None,
-    grace_s: float = DEFAULT_TERMINATE_GRACE_S,
-) -> list[int]:
-    """Write this server's report at start and kill any inherited orphans.
+) -> None:
+    """Write this server's report at start.
 
     Called once at server start, before anything can switch: this server's
-    report is written fresh (nothing a predecessor at this PID published
-    describes this process) and the child PIDs recorded by dead predecessors
-    are killed, because a connector host outliving its server holds a gateway
-    nobody is talking to.
+    report is written fresh, because nothing a predecessor at this PID
+    published describes this process.
 
     **No target is published here.** What the deployment is on lives in the
     control-context record, and a baseline written as this server's
     ``applied_target`` would tell every reader a child had already landed on a
     target this process has not launched one for. The report's binding stays
     null until :meth:`ConnectorHostManager._publish` says a child answered.
-
-    Returns:
-        The orphan PIDs that were signalled.
     """
-    orphans = target_state.write_server_record(
+    target_state.write_server_record(
         target_display_metadata(config) if targets_meta is None else targets_meta,
     )
-    return kill_orphans(orphans, grace_s=grace_s)
 
 
 # ---------------------------------------------------------------------------
@@ -1020,8 +936,8 @@ class ConnectorHostManager:
 
     # -- lifecycle ---------------------------------------------------------
 
-    def reset_state(self, *, grace_s: float | None = None) -> list[int]:
-        """Write this server's report at start and kill inherited orphans.
+    def reset_state(self) -> None:
+        """Write this server's report at start.
 
         Synchronous on purpose: it runs during server start, before the event
         loop that will own the children exists.
@@ -1032,11 +948,7 @@ class ConnectorHostManager:
         it twice — once for the file, once on the first refusal — is how the
         two would drift apart.
         """
-        return reset_target_state(
-            self._config.raw,
-            targets_meta=self.display_metadata(),
-            grace_s=self._terminate_grace_s if grace_s is None else grace_s,
-        )
+        reset_target_state(self._config.raw, targets_meta=self.display_metadata())
 
     async def start(self, target: str | None = None) -> dict[str, Any]:
         """Bring up the first connector host, on *target* or on the baseline."""

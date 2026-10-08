@@ -1421,15 +1421,15 @@ class RecordingProber:
 
 
 class TestServerStartup:
-    async def test_create_server_adopts_the_record_and_sweeps_orphans(
+    async def test_create_server_adopts_the_record_and_sweeps_the_dead_report(
         self, tmp_path, monkeypatch, record_root
     ):
         """Start adopts; it does not reset.
 
         Three things happen, and each is the wiring a refactor of
         ``create_server`` can silently drop: this server writes its own report,
-        the children a dead predecessor left behind are killed, and the record
-        is claimed — at the baseline, because there was no record to adopt.
+        a dead predecessor's report is swept, and the record is claimed — at
+        the baseline, because there was no record to adopt.
 
         The report publishes no target at all. Identity lives in the record
         now, and a start-time guess published as ``applied_target`` would let a
@@ -1439,15 +1439,10 @@ class TestServerStartup:
         readers are hooks that render an identity line and must never have to
         branch on a missing key.
         """
-        from osprey.mcp_server.control_system import connector_host_manager
         from osprey.mcp_server.control_system import server as server_mod
 
         gone = dead_pid()
         write_server_report(record_root, gone, children=[4242])
-        swept: list[list[int]] = []
-        monkeypatch.setattr(
-            connector_host_manager, "kill_orphans", lambda pids, **kw: swept.append(list(pids))
-        )
 
         config_file = tmp_path / "config.yml"
         config_file.write_text(
@@ -1473,7 +1468,7 @@ class TestServerStartup:
         standin_slot = report["targets"]["standin"]
         assert standin_slot["endpoint"] == ""
         assert "probe_channel" not in standin_slot
-        assert swept == [[4242]], "the orphan recorded by the dead server was not swept"
+        assert target_state.read(gone) is None, "the dead server's report was not swept"
 
         record = control_context.read_record()
         assert record is not None, "create_server must claim the control context"
