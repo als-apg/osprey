@@ -53,7 +53,7 @@ Every ``null`` must be replaced: the import stops with
 ``import mml: mapping-undecided`` while one remains.
 
 ``families.<raw>.devices`` says which device each slot of a family is. It takes
-one of four forms:
+one of five forms:
 
 .. list-table::
    :header-rows: 1
@@ -68,8 +68,13 @@ one of four forms:
      - The device segment of each slot's address.
    * - a list of local names
      - One name per device, in the family's order.
+   * - ``{coordinates: <stem>}``
+     - One device per ``DeviceList`` row, ``<stem>_<sector>_<device>``.
+       Families that list the same devices use the same stem.
    * - ``{same_as: <family>}``
-     - The same devices as the named family, slot by slot.
+     - The named family's devices: matched by ``[sector, device]`` where both
+       families state a DeviceList, so the named family may carry more; slot by
+       slot otherwise.
 
 .. code-block:: yaml
 
@@ -79,13 +84,26 @@ one of four forms:
      VCM:
        devices: {same_as: HCM}
      BPMx:
+       devices: {coordinates: BPM}
+     BPMy:
+       devices: {same_as: BPMx}
+     IonGauge:
        devices: address
      RF:
        devices: [cavity1, cavity2]
 
 The import stops with ``import mml: mapping-invalid`` for a list of the wrong
-length, for ``names`` on a family the export leaves nameless, and for a
-``same_as`` target that does not itself resolve to names or a list.
+length, for ``names`` on a family the export leaves nameless, for
+``coordinates`` on a family with no DeviceList, for a ``same_as`` target that is
+itself a ``same_as``, and for a ``[sector, device]`` the ``same_as`` target
+lacks.
+
+**Families that share addresses.** One physical device listed under several
+families must resolve to one id. The draft proposes this, giving the largest
+family ``{coordinates: <stem>}`` and the others ``{same_as: <it>}``, and says
+so in a comment under each answer. An import under which a wired channel would
+be two devices stops with ``import mml: mapping-invalid``, naming the channel,
+both families, both ids and the fix.
 
 ``models.<name>.wiring`` lists the families the model drives or reads, each
 with the field, engine attribute and calibration that bind it to the deck.
