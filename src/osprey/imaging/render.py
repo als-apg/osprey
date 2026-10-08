@@ -23,7 +23,10 @@ once in a freshly spawned worker. The outcomes are:
   an infrastructure failure for which no skip reason is recorded.
 
 The cached worker, its lock and its idle timer belong to one event loop; a call
-from another loop kills that worker and starts afresh.
+from another loop kills that worker and starts afresh. A worker is always reaped
+inside its loop: a render cancelled mid-task kills and awaits its worker, and a
+guard task closes the cached worker when the loop shuts down (``asyncio.run``
+cancels every pending task before it closes the loop).
 
 The module attributes :data:`WORKER_ARGV`, :data:`RENDER_TASK_TIMEOUT_S`,
 :data:`RENDER_WORKER_IDLE_S`, :data:`RENDER_READY_TIMEOUT_S` and
@@ -188,13 +191,6 @@ class _Worker:
         with contextlib.suppress(ProcessLookupError, OSError):
             os.kill(self.process.pid, signal.SIGKILL)
 
-    def drop(self) -> None:
-        """Kill the worker and close its stdin without awaiting (cancellation path)."""
-        self.kill()
-        if self.process.stdin is not None:
-            with contextlib.suppress(OSError, RuntimeError):
-                self.process.stdin.close()
-
     async def close(self, *, kill: bool) -> int | None:
         """End the worker -- killed, or by end of input with a grace period -- and reap it."""
         if kill:
@@ -213,6 +209,18 @@ class _Worker:
         # Let the pipe transports run their close callbacks.
         await asyncio.sleep(0)
         return self.process.returncode
+
+    async def reap(self) -> None:
+        """Kill and reap the worker, finishing even when cancelled again meanwhile.
+
+        Used on cancellation paths: the caller re-raises its own cancellation
+        afterwards, so a further cancel delivered during the close is absorbed
+        rather than leaving the process to outlive its loop.
+        """
+        closing = asyncio.ensure_future(self.close(kill=True))
+        while not closing.done():
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(closing)
 
 
 async def _spawn() -> _Worker:
@@ -247,7 +255,7 @@ async def _spawn() -> _Worker:
         problem = "wrote an invalid ready line"
     except BaseException:
         # Cancelled while waiting: the fresh worker is owned by nobody, so end it.
-        worker.drop()
+        await worker.reap()
         raise
     exit_code = await worker.close(kill=True if problem.startswith("wrote") else False)
     raise RenderUnavailable(f"render worker {problem} (exit code {exit_code})", exit_code)
@@ -267,6 +275,22 @@ class _Client:
         self.generation = 0
         self._idle_handle: asyncio.TimerHandle | None = None
         self._closers: set[asyncio.Task[None]] = set()
+        # The loop's shutdown cancels every pending task and awaits it, so this
+        # task ends the worker while the loop can still reap it.
+        self._guard = loop.create_task(self._close_with_loop())
+
+    async def _close_with_loop(self) -> None:
+        try:
+            await self.loop.create_future()
+        except asyncio.CancelledError:
+            async with self.lock:
+                self.cancel_idle()
+                await self._discard(kill=False)
+            raise
+
+    def stop_guard(self) -> None:
+        with contextlib.suppress(RuntimeError):
+            self._guard.cancel()
 
     # idle timer
 
@@ -314,6 +338,7 @@ class _Client:
 
     def abandon(self) -> None:
         """Drop the worker without the (possibly closed) loop: kill it by pid."""
+        self.stop_guard()
         self.cancel_idle()
         if self.worker is not None:
             self.worker.kill()
@@ -330,7 +355,7 @@ class _Client:
                 # later call must never read this picture's reply as its own.
                 # A cancel is not a failure of the picture.
                 self.worker = None
-                worker.drop()
+                await worker.reap()
                 raise
             except (TimeoutError, _WorkerFailure, OSError, EOFError, ValueError):
                 exit_code = await self._discard(kill=True)
@@ -389,6 +414,7 @@ async def close_render_worker() -> None:
     if client.loop is not running:
         client.abandon()
         return
+    client.stop_guard()
     async with client.lock:
         client.cancel_idle()
         await client._discard(kill=False)
