@@ -1060,7 +1060,6 @@ def sweep_dead(
     prefix: str,
     suffix: str,
     keep: str | None = None,
-    salvage: Callable[[Path], None] | None = None,
     is_alive: Callable[[object], bool] = is_process_alive,
 ) -> list[Path]:
     """Unlink every ``prefix<pid>suffix`` file in *directory* whose PID is gone.
@@ -1077,9 +1076,6 @@ def sweep_dead(
         keep: A filename to leave alone without probing it. This is how a
             process spares its own file: asking whether oneself is alive is a
             way to get it wrong.
-        salvage: Called with each doomed file before it is unlinked, for a
-            caller that needs what it said — the child PIDs a dead server left
-            running are read here and nowhere else.
         is_alive: The liveness predicate.
 
     Returns:
@@ -1097,8 +1093,6 @@ def sweep_dead(
         pid = _pid_from_filename(entry.name, prefix, suffix)
         if pid is not None and is_alive(pid):
             continue
-        if salvage is not None:
-            salvage(entry)
         try:
             entry.unlink(missing_ok=True)
         except OSError as exc:  # pragma: no cover - unwritable state dir

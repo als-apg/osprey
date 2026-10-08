@@ -784,19 +784,6 @@ def test_a_filename_that_encodes_no_pid_is_swept():
     assert not junk.exists()
 
 
-def test_salvage_sees_the_file_before_it_goes(data_root, monkeypatch):
-    _write_report(data_root, 4321, _report_payload(4321))
-    monkeypatch.setattr(os, "kill", _kill_with_dead({4321}))
-    seen = []
-
-    _sweep(
-        control_context.state_dir(),
-        salvage=lambda path: seen.append(control_context.read_report(path)),
-    )
-
-    assert [r.server_pid for r in seen] == [4321]
-
-
 @pytest.mark.usefixtures("data_root")
 def test_a_missing_directory_sweeps_to_empty():
     assert not control_context.state_dir().exists()

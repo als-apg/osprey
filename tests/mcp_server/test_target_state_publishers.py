@@ -381,15 +381,6 @@ class TestRequestSweep:
 
         assert not junk.exists()
 
-    def test_a_swept_request_contributes_no_orphans(self, monkeypatch):
-        """Requests are not reports: they own no connector-host children."""
-        target_state.write_request(
-            {"request_id": "r", "target": "va", "requested_by_pid": 4321, "children": [777]}
-        )
-        _dead_pid(monkeypatch, {4321})
-
-        assert target_state.sweep_stale(server_pid=os.getpid()) == []
-
     def test_sweep_does_not_touch_execution_markers(self, state_root, monkeypatch):
         directory = state_dir_under(state_root)
         directory.mkdir(parents=True, exist_ok=True)
@@ -1022,12 +1013,12 @@ class TestTheLibraryReadsWhatThisWrites:
 
         assert [report.server_pid for report in reports] == [started]
 
-    def test_a_dead_servers_report_is_swept_and_its_children_salvaged(self, monkeypatch):
+    def test_a_dead_servers_report_is_swept(self, monkeypatch):
         target_state.write_server_record(TARGETS_META, server_pid=4321, session="gone")
         target_state.publish_switch("live", 2, children=[777], server_pid=4321)
         _dead_pid(monkeypatch, {4321})
 
-        assert target_state.sweep_stale(server_pid=os.getpid()) == [777]
+        target_state.sweep_stale(server_pid=os.getpid())
         assert target_state.read(4321) is None
 
 
