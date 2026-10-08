@@ -736,6 +736,13 @@ def build_manifest(paths: ManifestPaths = PACKAGE_PATHS) -> dict:
     )
 
 
+def _scenario_seed(paths: ManifestPaths) -> dict[str, dict]:
+    """The tree's ``machine.json`` channels by address; none when it carries no file."""
+    if not paths.machine_json.is_file():
+        return {}
+    return loaders.load_machine_json_channels(paths=paths)
+
+
 def _finish_manifest(
     entries: list[ManifestEntry],
     paths: ManifestPaths,
@@ -790,9 +797,7 @@ def _finish_manifest(
     entries = list(entries)
     addresses = {entry.address for entry in entries}
 
-    machine_json_channels = (
-        loaders.load_machine_json_channels(paths=paths) if paths.machine_json.is_file() else {}
-    )
+    machine_json_channels = _scenario_seed(paths)
     # machine.json is expected to be a scenario-seed subset of the DB
     # namespace. A novel address here would be additive data, not an error --
     # but it's the one place a new channel could sneak in without ever
@@ -1170,8 +1175,7 @@ def _staged_expansion_is_empty(paths: ManifestPaths, expansion: ParadigmExpansio
         return False
     try:
         addresses = set().union(*expansion.addresses.values())
-        if paths.machine_json.is_file():
-            addresses |= set(loaders.load_machine_json_channels(paths=paths))
+        addresses |= set(_scenario_seed(paths))
     except (json.JSONDecodeError, KeyError, OSError):
         return False
     return not addresses
