@@ -20,9 +20,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.imaging.formats import ROWS
+from osprey.imaging.formats import RENDITION_MAX_BYTES, RENDITION_MAX_SIDE, ROWS
 from osprey.models.providers.llama_cpp import LLAMA_CPP_DEFAULT_MODEL
-from osprey.services.ariel_search.cli_operations import FORCE_REFUSAL
+from osprey.services.ariel_search.attachments.copy import BYTE_BUDGET_FILES, COPY_MAX_PER_ENTRY
+from osprey.services.ariel_search.cli_operations import FORCE_REFUSAL, _held_lock_line
+from osprey.services.ariel_search.enhancement.image_caption.module import (
+    DEFAULT_MAX_IMAGES_PER_ENTRY,
+    DEFAULT_TIMEOUT_SECONDS,
+    VISIBLE_TEXT_MARKER,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DOCS = _REPO_ROOT / "docs" / "source"
@@ -114,6 +120,27 @@ def test_guide_cites_handle_media_without_condition() -> None:
     assert "``b11277`` has no switch to disable remote image-URL fetch" in flat
     assert "``tools/server/server-common.cpp:1088-1102``" in flat
     assert "User-Agent: llama-cpp/b1-eae11d2" in flat
+
+
+def test_build_is_static_and_carries_no_retired_flags() -> None:
+    builds = [b for b in _code_blocks(_text(_GUIDE)) if "cmake -B build" in b]
+    assert len(builds) == 1
+    assert "-DBUILD_SHARED_LIBS=OFF" in builds[0]
+    assert "LLAMA_CURL" not in builds[0]
+    assert "GGML_METAL" not in builds[0]
+
+
+def test_keeping_it_running_names_the_protected_folders() -> None:
+    section = _flat(_text(_GUIDE).split("Keeping it running\n", 1)[1].split("\n---", 1)[0])
+    assert "Run the server from an installed copy, not from the build tree." in section
+    for folder in ("``~/Desktop``", "``~/Documents``", "``~/Downloads``"):
+        assert folder in section, folder
+
+
+def test_the_grounding_warning_is_explained_and_not_acted_on() -> None:
+    flat = _flat(_text(_GUIDE))
+    assert "Qwen-VL models require at minimum 1024 image tokens" in flat
+    assert "do not add ``--image-min-tokens``" in flat
 
 
 def test_guide_pins_build_and_weights() -> None:
@@ -316,3 +343,56 @@ def test_ingestion_states_the_health_result_contract() -> None:
     assert "``HealthResult(reachable, message, reason)``" in flat
     assert "A plain ``(bool, str)`` pair is still accepted" in flat
     assert "makes one billed health completion" in flat
+
+
+# -- watcher, limits and the agent's show rule -----------------------------------
+
+
+def test_guide_quotes_the_held_lock_line() -> None:
+    assert f"``{_held_lock_line('image_caption')}``" in _flat(_text(_GUIDE))
+
+
+def test_limits_state_the_code_defaults_and_fixed_values() -> None:
+    limits = _flat(_section(_text(_GUIDE), "Limits"))
+    assert (
+        f"``ariel.enhancement_modules.image_caption.max_images_per_entry`` (default {DEFAULT_MAX_IMAGES_PER_ENTRY})"
+        in limits
+    )
+    assert (
+        f"``ariel.enhancement_modules.image_caption.timeout_seconds`` (default {DEFAULT_TIMEOUT_SECONDS})"
+        in limits
+    )
+    assert f"At most {COPY_MAX_PER_ENTRY} files are copied per entry" in limits
+    assert f"at most {BYTE_BUDGET_FILES} x ``max_file_mb`` bytes" in limits
+    assert f"at most {RENDITION_MAX_SIDE} px on its longest side" in limits
+    assert f"{RENDITION_MAX_BYTES / (1024 * 1024):g} MiB" in limits
+    assert "Open original" in limits
+
+
+def test_limits_name_the_retry_and_the_refresh() -> None:
+    limits = _flat(_section(_text(_GUIDE), "Limits"))
+    assert "osprey ariel enhance --module image_caption --retry-failed" in limits
+    assert "osprey ariel enhance --module image_caption --refresh-stale" in limits
+    assert "Lowering it keeps the captions already made." in limits
+    assert "a new prompt captions nothing again by itself" in limits
+
+
+def test_guide_states_the_entry_open_picture_rule() -> None:
+    assert (
+        "When the conversation is about one of the entry's pictures, the agent passes that "
+        'picture\'s ``attachment_id`` too, even when the operator asks only for "the entry".'
+    ) in _flat(_text(_GUIDE))
+
+
+def test_ingestion_caption_prompt_example_keeps_what_the_module_needs() -> None:
+    blocks = [
+        yaml.safe_load(b)
+        for b in _code_blocks(_text(_INGESTION))
+        if "image_caption:" in b and "prompt_template" in b
+    ]
+    assert len(blocks) == 1
+    prompt = blocks[0]["ariel"]["enhancement_modules"]["image_caption"]["prompt_template"]
+    assert "{text}" in prompt
+    assert f'"{VISIBLE_TEXT_MARKER}"' in prompt
+    assert "Copy only what you can read, never complete a name from this list." in prompt
+    assert "(example list)" in prompt
