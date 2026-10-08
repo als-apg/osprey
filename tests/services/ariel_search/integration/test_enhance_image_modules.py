@@ -550,3 +550,28 @@ class TestRefreshStaleCaptions:
         assert stored["caption"] == "Klystron arc trace on the scope."
         assert stored["refresh"] is True
         assert CAPTION not in _status(scratch_database, "stale-2")
+
+    async def test_a_refresh_the_model_refuses_keeps_the_caption_in_search(
+        self, repo, scratch_database, monkeypatch
+    ):
+        cfg = _config_dict(scratch_database, caption=True)
+        await _seed(repo, cfg, "stale-3", ["a.png"])
+        monkeypatch.setattr(caption_mod, "_chat_completion", _Vision(fail=0))
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100)
+        cfg["enhancement_modules"][CAPTION]["prompt_template"] = "Broken.\n{text}\nVisible text:"
+        # The new prompt is refused on every call: a deterministic failure.
+        monkeypatch.setattr(caption_mod, "_chat_completion", _Vision(fail=100))
+        availability.note_success(CAPTION, CAPTION_MODEL)
+
+        await ops.run_enhance(cfg, module=CAPTION, force=False, limit=100, refresh_stale=True)
+
+        aid = _id("stale-3", "a.png")
+        stored = _captions(scratch_database, "stale-3")[aid][CAPTION_MODEL]
+        assert stored["caption"] == "Klystron arc trace on the scope."
+        assert stored["refresh_error"] == "EmptyReplyError: the model answered nothing"
+        assert "refresh" not in stored
+        with psycopg.connect(scratch_database) as conn:
+            row = conn.execute(
+                "SELECT attachment_text FROM enhanced_entries WHERE entry_id = %s", ("stale-3",)
+            ).fetchone()
+        assert row is not None and "Klystron arc trace on the scope." in row[0]

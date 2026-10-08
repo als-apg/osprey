@@ -929,6 +929,58 @@ class TestPromptFingerprint:
             }
 
 
+@pytest.mark.usefixtures("provider_configs")
+class TestFailedRefresh:
+    async def test_a_refresh_that_fails_keeps_the_old_caption_searchable(
+        self, provider_configs, monkeypatch
+    ):
+        repo = FakeRepo()
+        ids = repo.add_entry("e1", 1)
+        old = {
+            "caption": "Old orbit plot.",
+            "visible_text": "QX-1",
+            "prompt_sha256": "0" * 64,
+            "refresh": True,
+        }
+        repo.entries["e1"]["attachment_captions"] = {ids[0]: {MODEL: dict(old)}}
+        model = FakeModel(EmptyReplyError("the model answered nothing"))
+        module = _module(provider_configs, monkeypatch, model)
+
+        outcome = await module.run_entry(repo.entries["e1"], repo, gate=FakeGate())
+
+        assert outcome.kind == "done"
+        assert repo.captions("e1")[ids[0]][MODEL] == {
+            "caption": "Old orbit plot.",
+            "visible_text": "QX-1",
+            "prompt_sha256": "0" * 64,
+            "refresh_error": "EmptyReplyError: the model answered nothing",
+        }
+        text = repo.entries["e1"]["attachment_text"]
+        assert "Old orbit plot." in text and "QX-1" in text
+
+    async def test_a_failed_refresh_is_not_owed_again_by_itself(
+        self, provider_configs, monkeypatch
+    ):
+        repo = FakeRepo()
+        ids = repo.add_entry("e1", 1)
+        repo.entries["e1"]["attachment_captions"] = {
+            ids[0]: {
+                MODEL: {
+                    "caption": "Old.",
+                    "visible_text": "",
+                    "prompt_sha256": "0" * 64,
+                    "refresh_error": "EmptyReplyError: nothing",
+                }
+            }
+        }
+        model = FakeModel()
+        module = _module(provider_configs, monkeypatch, model)
+
+        await module.run_entry(repo.entries["e1"], repo, gate=FakeGate())
+
+        assert model.calls == []
+
+
 # ---------------------------------------------------------------------------
 # Through the driver: breakers and cancellation
 # ---------------------------------------------------------------------------

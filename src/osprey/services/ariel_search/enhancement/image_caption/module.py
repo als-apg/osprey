@@ -18,7 +18,8 @@ picture owed again. Each caption also records the sha256 of the prompt template
 it was made with (``prompt_sha256``); a changed prompt makes no picture owed by
 itself. ``osprey ariel enhance --module image_caption --refresh-stale`` marks the
 captions made with another prompt ``refresh``, which makes them owed while the
-old caption stays in place until the new one replaces it.
+old caption stays in place until the new one replaces it. A refresh whose call
+fails for good keeps the old caption and records ``refresh_error`` beside it.
 """
 
 from __future__ import annotations
@@ -70,6 +71,9 @@ OVER_IMAGE_CAP = "over_image_cap"
 
 #: The key of a stored caption asking for it to be made again.
 REFRESH_KEY = "refresh"
+
+#: The key a caption keeps, beside its old text, when making it again failed.
+REFRESH_ERROR_KEY = "refresh_error"
 
 #: Seconds one vision call may take: ten times what one picture takes for a
 #: local vision model on CPU, rounded up to ten seconds.
@@ -143,6 +147,23 @@ def _is_over_cap(value: Any) -> bool:
 def _wants_refresh(value: Any) -> bool:
     """Whether a stored caption value is marked to be made again."""
     return isinstance(value, Mapping) and value.get(REFRESH_KEY) is True
+
+
+def _failed_result(
+    entry: Mapping[str, Any], attachment_id: str, model_id: str, exc: Exception
+) -> dict[str, Any]:
+    """The value stored for a picture whose vision call failed for good.
+
+    A caption that was being made again keeps its text, so the picture stays
+    searchable, with the error beside it; any other picture records the error.
+    """
+    captions = entry.get("attachment_captions")
+    per_item = captions.get(attachment_id) if isinstance(captions, Mapping) else None
+    previous = per_item.get(model_id) if isinstance(per_item, Mapping) else None
+    if isinstance(previous, Mapping) and _wants_refresh(previous):
+        kept = {k: v for k, v in previous.items() if k != REFRESH_KEY}
+        return {**kept, REFRESH_ERROR_KEY: short_error(exc)}
+    return {"error": short_error(exc)}
 
 
 def _reply_text(reply: Any) -> str:
@@ -489,7 +510,12 @@ class ImageCaptionModule(BaseEnhancementModule):
                 outcome = failed_call_outcome(exc, gate)
                 if outcome is not None:
                     return outcome
-                await self._store(repository, entry, attachment_id, {"error": short_error(exc)})
+                await self._store(
+                    repository,
+                    entry,
+                    attachment_id,
+                    _failed_result(entry, attachment_id, model_id, exc),
+                )
                 continue
             stored = await self._store(
                 repository,
@@ -572,7 +598,7 @@ class ImageCaptionModule(BaseEnhancementModule):
         repository: ARIELRepository,
         entry: EnhancedLogbookEntry,
         attachment_id: str,
-        value: dict[str, str],
+        value: dict[str, Any],
     ) -> bool:
         """Merge one picture's result into the entry, only while the picture is still copied.
 
