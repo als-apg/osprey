@@ -209,6 +209,37 @@ def test_search_endpoint_with_time_range(client, mock_ariel_service):
     assert call_kwargs["time_range"] is not None
 
 
+@pytest.mark.parametrize("where", ["top_level", "advanced_params"])
+def test_search_bare_end_date_runs_through_that_day(client, mock_ariel_service, where):
+    """A bare end date keeps the entries written on that day."""
+    dates = {"start_date": "2024-12-31", "end_date": "2024-12-31"}
+    body: dict = {"query": "test", "mode": "keyword"}
+    if where == "top_level":
+        body.update(dates)
+    else:
+        body["advanced_params"] = dates
+
+    response = client.post("/api/search", json=body)
+
+    assert response.status_code == 200
+    start, end = mock_ariel_service.search.call_args.kwargs["time_range"]
+    assert (start.hour, start.minute) == (0, 0)
+    assert (end.date().isoformat(), end.hour, end.minute, end.second) == (
+        "2024-12-31",
+        23,
+        59,
+        59,
+    )
+
+
+def test_search_rejects_a_non_iso_end_date(client, mock_ariel_service):
+    """A malformed bound is a 422, not a failed search."""
+    response = client.post("/api/search", json={"query": "test", "end_date": "yesterday"})
+
+    assert response.status_code == 422
+    mock_ariel_service.search.assert_not_called()
+
+
 def test_list_entries_endpoint(client, mock_ariel_service):
     """Test list entries endpoint."""
     # Mock repository methods
@@ -225,6 +256,18 @@ def test_list_entries_endpoint(client, mock_ariel_service):
     assert "page" in data
     assert "page_size" in data
     assert "total_pages" in data
+
+
+def test_list_entries_bare_end_date_runs_through_that_day(client, mock_ariel_service):
+    """The entries listing reads a bare end date as the whole day too."""
+    mock_ariel_service.repository.count_entries = AsyncMock(return_value=0)
+    mock_ariel_service.repository.search_by_time_range = AsyncMock(return_value=[])
+
+    response = client.get("/api/entries?end_date=2024-12-31")
+
+    assert response.status_code == 200
+    end = mock_ariel_service.repository.count_entries.call_args.kwargs["end"]
+    assert (end.hour, end.minute, end.second) == (23, 59, 59)
 
 
 def test_list_entries_passes_pagination_and_filters(client, mock_ariel_service):

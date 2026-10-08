@@ -125,7 +125,9 @@ def parse_date_filters(
 ) -> tuple[datetime | None, datetime | None]:
     """Parse optional ISO-8601 date strings into datetime objects.
 
-    Naive datetime inputs are assumed to be in the facility timezone.
+    Naive inputs are read in the facility timezone, and a bare end date runs
+    through the end of that day (see
+    :func:`~osprey.services.ariel_search.models.parse_time_bound`).
 
     Args:
         start_date: ISO-8601 date string or None.
@@ -134,11 +136,11 @@ def parse_date_filters(
     Returns:
         Tuple of (parsed_start, parsed_end), either may be None.
     """
-    from osprey.utils.config import localize_facility
+    from osprey.services.ariel_search.models import parse_time_bound
 
     return (
-        localize_facility(datetime.fromisoformat(start_date) if start_date else None),
-        localize_facility(datetime.fromisoformat(end_date) if end_date else None),
+        parse_time_bound(start_date, end=False) if start_date else None,
+        parse_time_bound(end_date, end=True) if end_date else None,
     )
 
 

@@ -11,7 +11,7 @@ This module defines the core data models for ARIEL search service:
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, time
 from enum import Enum
 from typing import Any, NotRequired
 
@@ -439,3 +439,32 @@ def resolve_time_range(
     if fallback_range:
         return fallback_range
     return (None, None)
+
+
+def parse_time_bound(value: str, *, end: bool) -> datetime:
+    """Parse one ISO-8601 bound of a search window, facility-local when naive.
+
+    A bare calendar date names the whole day. As a start it is that day's first
+    instant; as an end it is that day's last instant, so a window ending on a
+    date keeps the entries written during it. A value naming a time of day is
+    taken exactly as written.
+
+    Args:
+        value: An ISO-8601 date (``2025-10-06``) or date-time.
+        end: Whether the value closes the window.
+
+    Returns:
+        The bound, timezone-aware.
+
+    Raises:
+        ValueError: If `value` is not ISO-8601.
+    """
+    from osprey.utils.config import localize_facility
+
+    try:
+        day = date.fromisoformat(value) if len(value) == 10 else None
+    except ValueError:
+        day = None
+    if day is not None:
+        return localize_facility(datetime.combine(day, time.max if end else time.min))
+    return localize_facility(datetime.fromisoformat(value))

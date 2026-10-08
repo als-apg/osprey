@@ -59,17 +59,6 @@ def _parse_metadata_form(raw: str | None) -> dict[str, Any]:
         return {}
 
 
-def _localize_facility(dt: datetime | None) -> datetime | None:
-    """Attach the facility timezone to a naive operator-provided datetime.
-
-    Naive dates are facility-local wall-clock (never box-local / UTC) before
-    they drive a ``TIMESTAMPTZ`` query.
-    """
-    from osprey.utils.config import localize_facility
-
-    return localize_facility(dt)
-
-
 def _require_service(request: Request) -> ARIELSearchService:
     """Get the ARIEL service or raise 503 if the database is unavailable.
 
@@ -702,6 +691,7 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
     """
     from osprey.services.ariel_search.database.repository import schema_behind_diagnostics
     from osprey.services.ariel_search.exceptions import PatternError, VocabularyError
+    from osprey.services.ariel_search.models import parse_time_bound
 
     service = _require_service(request)
     start_time = time.time()
@@ -720,9 +710,9 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         source_system = adv.pop("source_system", None) or search_req.source_system
 
         if isinstance(start_date, str) and start_date:
-            start_date = _localize_facility(datetime.fromisoformat(start_date))
+            start_date = parse_time_bound(start_date, end=False)
         if isinstance(end_date, str) and end_date:
-            end_date = _localize_facility(datetime.fromisoformat(end_date))
+            end_date = parse_time_bound(end_date, end=True)
 
         time_range = None
         if start_date or end_date:
@@ -802,20 +792,27 @@ async def list_entries(
     request: Request,
     page: int = 1,
     page_size: int = 20,
-    start_date: datetime | None = None,
-    end_date: datetime | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     author: str | None = None,
     source_system: str | None = None,
 ) -> EntriesListResponse:
-    """List entries with pagination and filtering, newest first."""
+    """List entries with pagination and filtering, newest first.
+
+    The date bounds are ISO-8601, facility-local when naive; a bare end date
+    includes that whole day.
+    """
+    from osprey.services.ariel_search.models import parse_time_bound
+
     service = _require_service(request)
 
     try:
-        # Operator-supplied query params are parsed naive by FastAPI; interpret
-        # them as facility-local before they hit the TIMESTAMPTZ column.
-        local_start = _localize_facility(start_date)
-        local_end = _localize_facility(end_date)
+        local_start = parse_time_bound(start_date, end=False) if start_date else None
+        local_end = parse_time_bound(end_date, end=True) if end_date else None
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
+    try:
         # Count with the same filters so total_pages reflects the filtered set,
         # not the whole table.
         total = await service.repository.count_entries(
