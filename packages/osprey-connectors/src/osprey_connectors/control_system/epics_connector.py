@@ -684,6 +684,8 @@ class EPICSConnector(ControlSystemConnector):
                 f"Failed to connect to PV '{pv_address}' (timeout after {timeout}s)"
             )
 
+        self._settle_request_type(pv)
+
         # Use pv.get() with explicit timeout instead of pv.value.
         # pv.value uses a 1s default timeout for ca.get() which is too short
         # when running in asyncio.to_thread() worker threads where the CA
@@ -718,6 +720,31 @@ class EPICSConnector(ControlSystemConnector):
         )
 
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
+
+    def _settle_request_type(self, pv: Any) -> None:
+        """Make a connected PV request the type its channel actually serves.
+
+        pyepics fixes a PV's request type twice: its constructor derives it
+        from the channel's field type, and its connection callback derives it
+        again once the channel is up. With preemptive callbacks the callback
+        runs on a Channel Access thread, and it can finish between the
+        constructor reading the field type -- still unconnected, ``-1`` -- and
+        storing what it promoted that to. The constructor's store lands last,
+        and the PV keeps a request type no server answers. Every get it makes
+        before its first monitor update then fails at once, and the same read
+        succeeds moments later from the monitor's copy. Batch reads build
+        their PVs concurrently in worker threads, which is what exposes the
+        window.
+
+        The connected channel's promoted field type is the truth. A PV that
+        disagrees has its connection handler re-run, which recomputes the
+        request type and the type name reported beside it (the name an enum
+        read branches on) from the connected channel.
+        """
+        ca = self._epics.ca
+        served = ca.promote_type(pv.chid, use_time=pv.form == "time", use_ctrl=pv.form == "ctrl")
+        if pv.ftype != served:
+            pv.force_connect()
 
     # ------------------------------------------------------------------
     # PVAccess read path
