@@ -40,11 +40,6 @@ file a logbook entry's ``attachments`` names, relative to the facility's
 ``scenarios/<name>/``, is copied to the same path under the view's
 ``scenarios/<name>/``, so the entries read back against the view's copy.
 
-When the render configures the archive recorder, every channel address must
-be one the archive can hold as a field name; the first one, in address order,
-that it cannot stops the build with ``view-unsupported`` before the view is
-written.
-
 ``simulator_wiring`` gives one model's wiring entries: each wired address with
 its element (or slices), engine block and calibration, plus the channel facts
 the build filled in (direction, unit, default, value_range) and, for a
@@ -217,39 +212,6 @@ def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
     return posture.mode == LIMITS_MODE_OPTIONAL
 
 
-def _check_recorder_storable(inputs: ViewInputs) -> None:
-    """Stop on the first channel address the configured archive recorder cannot store.
-
-    Args:
-        inputs: The render's view inputs.
-
-    Raises:
-        FacilityBuildError: ``view-unsupported`` naming the channel, when the
-            render configures the recorder and the archive cannot hold the
-            address as a field name.
-    """
-    from osprey_connectors.standin import archive_recorder_configured
-
-    if not archive_recorder_configured(inputs.rendered_config):
-        return
-
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.validate import stating_files
-    from osprey.services.archiver_recorder.field_names import _unstorable_field_name
-
-    for record in sorted(inputs.doc.get("channels", []), key=lambda channel: str(channel["id"])):
-        refusal = _unstorable_field_name(str(record["id"]))
-        if refusal is not None:
-            raise FacilityBuildError(
-                "view-unsupported",
-                str(record["id"]),
-                stating_files(record, None),
-                "rename the channel, or remove the profile's `va_archiver:` block",
-                record_kind="channel",
-                detail=f"the archive recorder cannot store the address: it {refusal}",
-            )
-
-
 def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     from osprey.facility.views.limits import limits_document
 
@@ -369,12 +331,7 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
 
     Returns:
         The files written, sorted.
-
-    Raises:
-        FacilityBuildError: ``view-unsupported`` when the render configures
-            the archive recorder and a channel address cannot be stored.
     """
-    _check_recorder_storable(inputs)
     doc = inputs.doc
     code = str(doc["identity"]["code"])
     physics = [name for name in inputs.served if name != TEXTURE]

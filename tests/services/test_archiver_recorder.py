@@ -304,38 +304,12 @@ def test_an_unreadable_view_is_fatal(tmp_path: Path, document: str) -> None:
         resolve_channel_addresses(tmp_path)
 
 
-@pytest.mark.parametrize(
-    ("address", "cause"),
-    [
-        ("SR:BPM1.VAL", "path separator"),
-        ("$SR:BPM1:VAL", "operator"),
-    ],
-)
-def test_an_address_the_archive_cannot_store_is_refused_by_name(
-    tmp_path: Path, address: str, cause: str
-) -> None:
-    """Refused at startup, not warned about once a tick with nothing archived.
+def test_any_channel_address_is_recorded(tmp_path: Path) -> None:
+    """Every address is recorded verbatim; the store encodes its field name."""
+    addresses = ["SR:BPM1.VAL", "$SR:BPM1:VAL", "ZZEXP_MAG_Q1_CURRENT_SP", "ZZEXP-VAC-V1"]
+    _addresses(tmp_path, addresses)
 
-    A tick is one flat document keyed by channel address. An address the store
-    cannot hold as a field name is not archivable, and a recorder that started
-    anyway would leave an archive that quietly does not hold that channel."""
-    _addresses(tmp_path, [address])
-
-    with pytest.raises(RecorderConfigError) as excinfo:
-        resolve_channel_addresses(tmp_path)
-    assert address in str(excinfo.value)
-    assert cause in str(excinfo.value)
-
-
-def test_a_storable_address_is_not_refused(tmp_path: Path) -> None:
-    """The guard is about field names, not about an address grammar: a
-    facility that separates its levels with ``_`` or ``-`` records fine."""
-    _addresses(tmp_path, ["ZZEXP_MAG_Q1_CURRENT_SP", "ZZEXP-VAC-V1"])
-
-    assert resolve_channel_addresses(tmp_path) == [
-        "ZZEXP_MAG_Q1_CURRENT_SP",
-        "ZZEXP-VAC-V1",
-    ]
+    assert resolve_channel_addresses(tmp_path) == addresses
 
 
 # ---------------------------------------------------------------------------
