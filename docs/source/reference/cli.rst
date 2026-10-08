@@ -903,15 +903,16 @@ up`` seeds the store from that view. See
    Check every document in a bundle against the OKF format, including each
    ``index.md`` against its directory.
 
-``osprey knowledge seed-from-ttl TTL BUNDLE [--force]``
+``osprey knowledge seed-from-ttl BUNDLE [--ttl PATH] [--force] [--repo DIRECTORY]``
    Write stub concept documents into a bundle from the build's graph view,
-   ``data/graph/facility.ttl`` under the render, one per device, for a person to
-   fill in. Each stub's ``device_id`` is the facility file's device id, so the
-   build links the page to its device.
+   one per device, for a person to fill in. The view read is
+   ``build/data/graph/facility.ttl`` in the deployment repo you stand in or
+   ``--repo`` names; ``--ttl`` names another Turtle file. Each stub's ``device_id`` is the facility file's device
+   id, so the build links the page to its device.
 
 .. code-block:: bash
 
-   osprey knowledge seed-from-ttl build/data/graph/facility.ttl data/facility/knowledge
+   osprey knowledge seed-from-ttl data/facility/knowledge
    osprey knowledge validate
 
 .. _cli-osprey-facility:

@@ -5,9 +5,10 @@ Covers:
 - ``knowledge regen-index <bundle>`` writes index files and is idempotent.
 - ``knowledge validate <bundle>`` exits 0 on a clean bundle; exits 1 and
   collects ALL failures (broken concept doc + broken index.md in one run).
-- ``knowledge seed-from-ttl <ttl> <bundle>`` writes stubs on first run,
+- ``knowledge seed-from-ttl <bundle> [--ttl <ttl>]`` writes stubs on first run,
   is idempotent on re-run, skips diffs without --force, overwrites with
-  --force, and exits cleanly when rdflib is absent.
+  --force, and exits cleanly when rdflib is absent. Without --ttl it reads
+  the build's graph view of the deployment repo it is run in.
 - Importing the command group pulls in neither rdflib nor neo4j: a verb that
   needs either imports it inside the command body.
 """
@@ -416,7 +417,9 @@ def test_seed_from_ttl_no_rdflib_clean_error(mini_ttl: Path, seed_bundle: Path) 
     # Make rdflib un-importable for this test only.
     with mock.patch.dict(sys.modules, {"rdflib": None}):
         runner = CliRunner()
-        result = runner.invoke(knowledge, ["seed-from-ttl", str(mini_ttl), str(seed_bundle)])
+        result = runner.invoke(
+            knowledge, ["seed-from-ttl", str(seed_bundle), "--ttl", str(mini_ttl)]
+        )
 
     # Exit code must be non-zero; the message must name rdflib.
     assert result.exit_code != 0
@@ -432,7 +435,7 @@ def test_seed_from_ttl_no_rdflib_clean_error(mini_ttl: Path, seed_bundle: Path) 
 def test_seed_from_ttl_writes_stubs(mini_ttl: Path, seed_bundle: Path) -> None:
     """Fresh seed writes one stub per device node and exits 0."""
     runner = CliRunner()
-    result = runner.invoke(knowledge, ["seed-from-ttl", str(mini_ttl), str(seed_bundle)])
+    result = runner.invoke(knowledge, ["seed-from-ttl", str(seed_bundle), "--ttl", str(mini_ttl)])
     assert result.exit_code == 0, result.output
     stubs = list(seed_bundle.glob("*.md"))
     assert len(stubs) == 2  # two device nodes in _MINI_TTL
@@ -446,12 +449,12 @@ def test_seed_from_ttl_writes_stubs(mini_ttl: Path, seed_bundle: Path) -> None:
 def test_seed_from_ttl_idempotent(mini_ttl: Path, seed_bundle: Path) -> None:
     """Re-running seed-from-ttl on an unchanged TTL produces no new writes."""
     runner = CliRunner()
-    runner.invoke(knowledge, ["seed-from-ttl", str(mini_ttl), str(seed_bundle)])
+    runner.invoke(knowledge, ["seed-from-ttl", str(seed_bundle), "--ttl", str(mini_ttl)])
 
     # Capture file contents after first run.
     before = {p.name: p.read_text(encoding="utf-8") for p in seed_bundle.glob("*.md")}
 
-    result = runner.invoke(knowledge, ["seed-from-ttl", str(mini_ttl), str(seed_bundle)])
+    result = runner.invoke(knowledge, ["seed-from-ttl", str(seed_bundle), "--ttl", str(mini_ttl)])
     assert result.exit_code == 0, result.output
 
     after = {p.name: p.read_text(encoding="utf-8") for p in seed_bundle.glob("*.md")}
@@ -466,7 +469,7 @@ def test_seed_from_ttl_idempotent(mini_ttl: Path, seed_bundle: Path) -> None:
 def test_seed_from_ttl_skips_diff_without_force(mini_ttl: Path, seed_bundle: Path) -> None:
     """Existing stub with different body is NOT overwritten without --force."""
     runner = CliRunner()
-    runner.invoke(knowledge, ["seed-from-ttl", str(mini_ttl), str(seed_bundle)])
+    runner.invoke(knowledge, ["seed-from-ttl", str(seed_bundle), "--ttl", str(mini_ttl)])
 
     # Hand-edit one stub to simulate a human-modified file.
     stub_files = sorted(seed_bundle.glob("*.md"))
@@ -475,7 +478,7 @@ def test_seed_from_ttl_skips_diff_without_force(mini_ttl: Path, seed_bundle: Pat
     edited.write_text(original + "\n# Hand-edited section\n", encoding="utf-8")
     modified_content = edited.read_text(encoding="utf-8")
 
-    result = runner.invoke(knowledge, ["seed-from-ttl", str(mini_ttl), str(seed_bundle)])
+    result = runner.invoke(knowledge, ["seed-from-ttl", str(seed_bundle), "--ttl", str(mini_ttl)])
     assert result.exit_code == 0, result.output  # no failure — just a skip
 
     # File must NOT have been overwritten.
@@ -490,19 +493,115 @@ def test_seed_from_ttl_skips_diff_without_force(mini_ttl: Path, seed_bundle: Pat
 def test_seed_from_ttl_force_overwrites(mini_ttl: Path, seed_bundle: Path) -> None:
     """--force causes an existing stub with a different body to be overwritten."""
     runner = CliRunner()
-    runner.invoke(knowledge, ["seed-from-ttl", str(mini_ttl), str(seed_bundle)])
+    runner.invoke(knowledge, ["seed-from-ttl", str(seed_bundle), "--ttl", str(mini_ttl)])
 
     stub_files = sorted(seed_bundle.glob("*.md"))
     edited = stub_files[0]
     original = edited.read_text(encoding="utf-8")
     edited.write_text(original + "\n# Hand-edited section\n", encoding="utf-8")
 
-    result = runner.invoke(knowledge, ["seed-from-ttl", "--force", str(mini_ttl), str(seed_bundle)])
+    result = runner.invoke(
+        knowledge, ["seed-from-ttl", "--force", str(seed_bundle), "--ttl", str(mini_ttl)]
+    )
     assert result.exit_code == 0, result.output
 
     # File must have been restored to the generated content.
     assert edited.read_text(encoding="utf-8") == original
     assert "overwritten" in result.output
+
+
+def _deployment_repo(root: Path) -> Path:
+    """A deployment repo: the marker file at its root."""
+    root.mkdir()
+    (root / "profile.yml").write_text("name: test\n", encoding="utf-8")
+    return root
+
+
+@pytest.mark.skipif(
+    __import__("importlib").util.find_spec("rdflib") is None,
+    reason="rdflib not importable (core dependency; broken environment)",
+)
+def test_seed_from_ttl_reads_the_build_graph_view_by_default(
+    tmp_path: Path, seed_bundle: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without --ttl the verb reads build/data/graph/facility.ttl of the repo it runs in."""
+    repo = _deployment_repo(tmp_path / "repo")
+    graph_view = repo / "build" / "data" / "graph" / "facility.ttl"
+    graph_view.parent.mkdir(parents=True)
+    graph_view.write_text(_MINI_TTL, encoding="utf-8")
+    nested = repo / "data"
+    nested.mkdir()
+    monkeypatch.chdir(nested)
+
+    result = CliRunner().invoke(knowledge, ["seed-from-ttl", str(seed_bundle)])
+
+    assert result.exit_code == 0, result.output
+    assert len(list(seed_bundle.glob("*.md"))) == 2
+
+
+def test_seed_from_ttl_without_a_build_names_the_build(
+    tmp_path: Path, seed_bundle: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo with no graph view yet stops with one line naming ``osprey build``."""
+    repo = _deployment_repo(tmp_path / "repo")
+    monkeypatch.chdir(repo)
+
+    result = CliRunner().invoke(knowledge, ["seed-from-ttl", str(seed_bundle)])
+
+    assert result.exit_code != 0
+    assert "osprey build" in result.output
+    assert "Traceback" not in result.output
+    assert list(seed_bundle.iterdir()) == []
+
+
+def test_seed_from_ttl_outside_a_repo_asks_for_ttl(
+    tmp_path: Path, seed_bundle: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Outside any deployment repo there is no default to read, so --ttl is named."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+
+    result = CliRunner().invoke(knowledge, ["seed-from-ttl", str(seed_bundle)])
+
+    assert result.exit_code != 0
+    assert "--ttl" in result.output
+    assert "Traceback" not in result.output
+
+
+@pytest.mark.skipif(
+    __import__("importlib").util.find_spec("rdflib") is None,
+    reason="rdflib not importable (core dependency; broken environment)",
+)
+def test_seed_from_ttl_reads_the_graph_view_of_the_repo_named_by_repo(
+    tmp_path: Path, seed_bundle: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--repo names the deployment repo whose graph view the verb reads."""
+    repo = _deployment_repo(tmp_path / "repo")
+    graph_view = repo / "build" / "data" / "graph" / "facility.ttl"
+    graph_view.parent.mkdir(parents=True)
+    graph_view.write_text(_MINI_TTL, encoding="utf-8")
+    nested = repo / "data"
+    nested.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+
+    result = CliRunner().invoke(
+        knowledge, ["seed-from-ttl", str(seed_bundle), "--repo", str(nested)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(list(seed_bundle.glob("*.md"))) == 2
+
+
+def test_seed_from_ttl_takes_the_bundle_as_its_one_argument() -> None:
+    """The help shows BUNDLE as the positional and the graph view as --ttl."""
+    result = CliRunner().invoke(knowledge, ["seed-from-ttl", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "seed-from-ttl [OPTIONS] BUNDLE" in result.output
+    assert "--ttl" in result.output
 
 
 # ---------------------------------------------------------------------------
