@@ -1,8 +1,5 @@
 {
   "_reproduce": "Frozen: no command rewrites this golden; its addresses are the set the channel-finder-standalone preset served.",
-  "_sources": [
-    "src/osprey/templates/apps/channel_finder_standalone/data/channel_databases/hierarchical.json"
-  ],
   "count": 1228,
   "addresses": [
     "BR:DIAG:BPM:01:POSITION:X",
