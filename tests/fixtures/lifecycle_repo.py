@@ -419,7 +419,7 @@ config:
   # this key.
   # control_system.connector.virtual_accelerator.writes_enabled: true
   # Channel the target switch reads to prove this target is reachable before
-  # making it active. Served by the simulation machine model.
+  # making it active. The simulator serves it from the built facility.
   control_system.connector.virtual_accelerator.probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
   # Gateways in CA name-server (TCP) mode against localhost, the one
   # host-to-container configuration that works across container runtimes. No
