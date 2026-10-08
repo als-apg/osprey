@@ -141,8 +141,6 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/services/virtual_accelerator/model/catalog.py": "delete:7e",
     "src/osprey/services/virtual_accelerator/model/pyat.py": "delete:7e",
     "src/osprey/services/virtual_accelerator/model/variables.py": "delete:7e",
-    "src/osprey/simulation/channel_schema.py": "delete:7d2",
-    "src/osprey/simulation/facility_spec.py": "delete:7d2",
     "src/osprey/templates/claude_code/CLAUDE.channel-finder.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/_terminology/graph.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/_terminology/in_context.md.j2": "rename:12",

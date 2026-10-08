@@ -65,13 +65,6 @@ def test_archiver_metadata_identifies_a_channel():
     assert "pv_name" not in fields
 
 
-def test_the_channel_taxonomy_speaks_channels():
-    """The taxonomy is wrapped by channel-named callers one line deep."""
-    from osprey.connectors.channel_taxonomy import classify_channel
-
-    assert list(inspect.signature(classify_channel).parameters) == ["channel"]
-
-
 def test_write_failure_reasons_are_protocol_neutral():
     """A DOOCS write failure must not be reported as a Channel Access failure."""
     assert ChannelWriteFailedError._VALID_REASONS == ("FAILED", "MISMATCH", "UNCONFIRMED")

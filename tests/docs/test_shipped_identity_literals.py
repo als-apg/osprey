@@ -212,17 +212,13 @@ DENIED: tuple[Denied, ...] = (
         ),
         sample="# \u2500\u2500 The ALS-U Accumulator Ring instance \u2500\u2500",
         roots=REPO_ROOTS,
-        # The demo ring ships as the simulation and virtual-accelerator
-        # packages' own subject.
+        # The demo ring ships as the virtual-accelerator package's own subject.
         allow=frozenset(
             {
                 "src/osprey/services/virtual_accelerator/model/bindings.py",
-                "src/osprey/simulation/channel_schema.py",
-                "src/osprey/simulation/facility_spec.py",
-                # The suites that exercise those packages: the ring is what they
-                # are a test of.
+                # The suite that exercises that package: the ring is what it is
+                # a test of.
                 "tests/simulation/matlab_reference.py",
-                "tests/simulation/test_facility_spec.py",
             }
         ),
     ),
@@ -238,14 +234,11 @@ DENIED: tuple[Denied, ...] = (
         ),
         sample="#   facility_name: ALS",
         roots=REPO_ROOTS,
-        # The bundled demo ring, whose own name this is, in the simulation and
-        # virtual-accelerator packages plus the two files that name the lattice
-        # they load.
+        # The bundled demo ring, whose own name this is, in the
+        # virtual-accelerator package.
         allow=frozenset(
             {
                 "src/osprey/services/virtual_accelerator/model/bindings.py",
-                "src/osprey/simulation/channel_schema.py",
-                "src/osprey/simulation/facility_spec.py",
                 # The shipped reference ingestion format, and the places that
                 # quote the ``source_system`` values its adapter returns —
                 # rewriting those would name a value no adapter produces.
@@ -262,10 +255,9 @@ DENIED: tuple[Denied, ...] = (
                 # The shipped plugin manifest, whose author field is the project's
                 # own packaging metadata.
                 "plugins/osprey/.claude-plugin/plugin.json",
-                # The suites that exercise the bundled demo ring, whose name carries
+                # The suite that exercises the bundled demo ring, whose name carries
                 # the abbreviation.
                 "tests/simulation/matlab_reference.py",
-                "tests/simulation/test_facility_spec.py",
                 # The suites for the shipped reference ingestion adapter, which
                 # returns "ALS eLog": an expectation spelled any other way would
                 # assert a value no adapter produces.
