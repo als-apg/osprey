@@ -40,10 +40,25 @@ export function safeHref(u) {
 }
 
 /**
+ * The URL of the stored original behind a rendition `display_url`
+ * (`/attachments/<id>/rendition` -> `/attachments/<id>`), made safe as by
+ * `safeHref`, else null.
+ * @param {unknown} displayUrl - The attachment's `display_url`
+ * @returns {string|null} The original's URL, or null when there is none
+ */
+function originalHref(displayUrl) {
+  const suffix = '/rendition';
+  if (typeof displayUrl !== 'string' || !ATTACHMENT_ROUTE.test(displayUrl)) return null;
+  if (!displayUrl.endsWith(suffix)) return null;
+  return safeHref(displayUrl.slice(0, -suffix.length));
+}
+
+/**
  * Render one attachment as a thumbnail card or a file card. A thumbnail is
  * drawn only when the server marks the attachment `viewable: true` and its
  * `display_url` is safe; everything else is a file card, linked to the
- * download when `display_url` is safe and link-less otherwise.
+ * download when `display_url` is safe and link-less otherwise. A file card
+ * whose attachment carries a skip reason shows the reason's text.
  * @param {any} att - Attachment from the entry response
  * @returns {string} HTML string
  */
@@ -63,11 +78,17 @@ function renderAttachmentCard(att) {
       </div>
     </div>`;
   }
+  const reason = typeof att.skip_reason_text === 'string' && att.skip_reason_text
+    ? `
+      <div class="text-xs text-muted" data-skip-reason style="margin-top: 4px; text-align: left; overflow-wrap: anywhere;">${
+        escapeHtml(`${att.copy_status === 'skipped' ? 'Not copied' : 'Not shown'}: ${att.skip_reason_text}`)
+      }</div>`
+    : '';
   const body = `
     <div class="card-body" style="padding: 12px; text-align: center;">
       <div style="font-size: var(--text-4xl); margin-bottom: 8px;">\u{1F4CE}</div>
       <div class="truncate text-sm">${escapedName}</div>
-      <div class="text-xs text-muted">${escapeHtml(att.mime_type || 'file')}</div>
+      <div class="text-xs text-muted">${escapeHtml(att.mime_type || 'file')}</div>${reason}
     </div>`;
   if (!href) {
     return `
@@ -97,9 +118,10 @@ export function initEntryDetail() {
   modalBody?.addEventListener('click', (e) => {
     const thumb = /** @type {HTMLElement} */ (e.target).closest('[data-lightbox-url]');
     if (!thumb) return;
-    const url = safeHref(/** @type {HTMLElement} */ (thumb).dataset.lightboxUrl);
+    const raw = /** @type {HTMLElement} */ (thumb).dataset.lightboxUrl;
+    const url = safeHref(raw);
     const name = /** @type {HTMLElement} */ (thumb).dataset.lightboxName;
-    if (url) showImageLightbox(url, name || '');
+    if (url) showImageLightbox(url, name || '', originalHref(raw));
   });
 }
 
@@ -147,7 +169,7 @@ export async function openEntry(entryId, attachmentId = null) {
   );
   const href = att && att.viewable === true ? safeHref(att.display_url) : null;
   if (!href) return false;
-  showImageLightbox(href, att.filename || 'attachment');
+  showImageLightbox(href, att.filename || 'attachment', originalHref(att.display_url));
   return true;
 }
 
@@ -298,8 +320,10 @@ export function closeEntryModal() {
  * Show a lightbox overlay for an image attachment.
  * @param {string} url - Image URL
  * @param {string} filename - Display filename
+ * @param {string|null} [originalUrl] - The full-resolution original, linked
+ *   beside the picture when given
  */
-export function showImageLightbox(url, filename) {
+export function showImageLightbox(url, filename, originalUrl = null) {
   // Remove existing lightbox if any
   const existing = document.getElementById('image-lightbox');
   if (existing) existing.remove();
@@ -322,10 +346,15 @@ export function showImageLightbox(url, filename) {
       <span style="color: silver; font-size: var(--text-xl);">${escapeHtml(filename)}</span>
       <a href="${escapeHtml(url)}" target="_blank" rel="noopener"
          style="color: var(--color-accent-secondary); font-size: var(--text-xl); text-decoration: none;">Open in new tab &#x2197;</a>
+      ${originalUrl ? `
+      <a href="${escapeHtml(originalUrl)}" target="_blank" rel="noopener" data-original
+         title="The picture as stored, at full resolution"
+         style="color: var(--color-accent-secondary); font-size: var(--text-xl); text-decoration: none;">Open original &#x2197;</a>
+      ` : ''}
     </div>
   `;
 
-  // Clicking the image or the "open in new tab" link must not bubble to the
+  // Clicking the image or one of its links must not bubble to the
   // overlay's own click handler (which dismisses the lightbox), and a broken
   // image needs its fallback markup — all bound directly here (no
   // delegation) rather than as inline attributes, since these elements are
@@ -338,7 +367,7 @@ export function showImageLightbox(url, filename) {
       lightboxImg.outerHTML = '<div style="color:white;font-size:var(--text-3xl);">Failed to load image</div>';
     }, { once: true });
   }
-  overlay.querySelector('a')?.addEventListener('click', (e) => e.stopPropagation());
+  overlay.querySelectorAll('a').forEach((a) => a.addEventListener('click', (e) => e.stopPropagation()));
 
   overlay.addEventListener('click', () => overlay.remove());
   document.addEventListener('keydown', function onKey(e) {
