@@ -127,6 +127,11 @@ services:
       # before dropping privileges, so the worker can append to a log another
       # container created.
       OSPREY_SIMULATOR_LOG_DIR: /app/golden-project/var/simulator
+      # WHERE this worker keeps guarded runs' locks and journals, mounted below.
+      # Named for the entrypoint, whose root phase joins the directory's group
+      # before dropping privileges, so the worker can take a lock another
+      # container created.
+      OSPREY_GUARDED_RUN_DIR: /app/golden-project/var/guarded_run
       # The worker process reads OSPREY config directly (e.g. get_facility_timezone
       # while building the agent's system prompt), and spawns a CLI subprocess with
       # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
@@ -238,6 +243,13 @@ services:
       # simulated machine writes. Provisioned setgid and group-writable on the
       # host before compose runs (compose_generator.ensure_simulator_log_dirs).
       - ./var/simulator:/app/golden-project/var/simulator
+
+      # Guarded runs' locks and journals, read-write: one directory per control
+      # target, shared with every other container that runs the agent, so a run
+      # started here contends for the same lock and restores the same journal.
+      # Provisioned setgid and group-writable on the host before compose runs
+      # (compose_generator.ensure_guarded_run_dirs).
+      - ./var/guarded_run:/app/golden-project/var/guarded_run
 
       # The control-identity module, staged into this build context by
       # compose_generator byte for byte from the packaged source. Read-only:

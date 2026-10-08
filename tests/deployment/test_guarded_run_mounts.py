@@ -12,10 +12,18 @@ import stat
 from pathlib import Path
 from typing import Any
 
+import yaml
+from jinja2 import Environment, FileSystemLoader
+
 from osprey.deployment.compose_generator import (
     _ensure_agent_data_structure,
+    _inject_project_metadata,
     ensure_guarded_run_dirs,
 )
+
+_TEMPLATES_ROOT = Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates"
+
+SOURCE = "./var/guarded_run"
 
 #: A deployment on a real control system with the Virtual Accelerator beside it.
 LIVE_AND_VA = {
@@ -54,3 +62,35 @@ def test_the_build_path_provisions_it(tmp_path: Path) -> None:
     _ensure_agent_data_structure(config)
 
     _assert_shared(tmp_path / "var" / "guarded_run" / "live")
+
+
+def _guarded_run_mounts(service: dict[str, Any]) -> list[str]:
+    return [
+        volume
+        for volume in service.get("volumes", [])
+        if isinstance(volume, str) and volume.split(":", 1)[0] == SOURCE
+    ]
+
+
+def test_every_dispatch_worker_mounts_it(tmp_path: Path) -> None:
+    context = _inject_project_metadata(
+        {
+            "project_name": "proj",
+            "project_root": str(tmp_path),
+            "deployment": {},
+            "system": {"timezone": "UTC"},
+            "services": {"dispatch_worker": {"worker_count": 2}},
+            "deployed_services": [],
+            "control_system": {"type": "epics", "connector": {"epics": {"gateways": {}}}},
+        }
+    )
+    environment = Environment(loader=FileSystemLoader(str(_TEMPLATES_ROOT)), autoescape=False)
+    rendered = environment.get_template("services/dispatch_worker/docker-compose.yml.j2")
+    services = yaml.safe_load(rendered.render(**context))["services"]
+
+    workers = [name for name in services if name.startswith("dispatch-worker-")]
+    assert len(workers) == 2
+    for name in workers:
+        assert _guarded_run_mounts(services[name]) == [
+            "./var/guarded_run:/app/proj/var/guarded_run"
+        ]
