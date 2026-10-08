@@ -68,7 +68,9 @@ Control Target:
 
 import asyncio
 import atexit
+import dataclasses
 import json
+import math
 import os
 import threading
 import uuid
@@ -76,12 +78,17 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from osprey.utils.logger import get_logger
+from osprey_connectors.control_system.base import values_match
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
-    from osprey.connectors.control_system.limits_validator import LimitsValidator
+    from osprey.connectors.control_system.base import ControlSystemConnector
+    from osprey.connectors.control_system.limits_validator import (
+        ChannelLimitsConfig,
+        LimitsValidator,
+    )
     from osprey_connectors.control_context import ControlContext
 
 logger = get_logger("runtime")
@@ -89,7 +96,10 @@ logger = get_logger("runtime")
 __all__ = [
     "write_channel",
     "read_channel",
+    "read_channels",
     "write_channels",
+    "channel_limits",
+    "values_match",
     "cleanup_runtime",
     "ControlTargetChangedError",
     "SwitchInProgressError",
@@ -100,6 +110,12 @@ __all__ = [
 #: only writer; ``tests/runtime/test_executor_target_stamp.py`` pins them equal.
 ENV_CONTROL_TARGET = "OSPREY_CONTROL_TARGET"
 ENV_CONTROL_TARGET_GENERATION = "OSPREY_CONTROL_TARGET_GENERATION"
+
+#: The absolute Unix time, in seconds, at which the executor kills this
+#: process. Written by :mod:`osprey.mcp_server.python_executor.executor`, its
+#: only writer, and re-spelled here because the sandbox must not import the
+#: host executor; ``tests/runtime/test_executor_target_stamp.py`` pins it equal.
+ENV_EXECUTION_DEADLINE = "OSPREY_EXECUTION_DEADLINE"
 
 #: Why this process may reach no control system at all, and whether a notebook
 #: cell is open. Both are written by :mod:`osprey.jupyter_kernel`, their only
@@ -117,6 +133,23 @@ INFLIGHT_SURFACE = "notebook_kernel"
 #: How a kernel spells itself as an audit session; a marker's ``kernel_id`` is
 #: what follows the prefix.
 KERNEL_SESSION_PREFIX = "kernel:"
+
+
+def execution_deadline() -> float | None:
+    """The executor's kill time in Unix seconds, from :data:`ENV_EXECUTION_DEADLINE`.
+
+    Returns:
+        The deadline, or ``None`` when the variable is unset, does not parse as
+        a number, or is not finite.
+    """
+    raw = os.environ.get(ENV_EXECUTION_DEADLINE)
+    if raw is None:
+        return None
+    try:
+        deadline = float(raw)
+    except ValueError:
+        return None
+    return deadline if math.isfinite(deadline) else None
 
 
 class ControlTargetChangedError(RuntimeError):
@@ -690,6 +723,53 @@ async def _read_channel_async(channel_address: str, **kwargs) -> Any:
     return channel_value.value
 
 
+async def _read_channels_async(addresses: "Sequence[str]", timeout: float | None) -> list[Any]:
+    """Internal async implementation for reading several channels in one call."""
+    from osprey.errors import ChannelReadFailedError
+
+    # Each distinct address is asked for once; a repeated one is answered from
+    # the same reading.
+    distinct = list(dict.fromkeys(addresses))
+    if not distinct:
+        return []
+
+    connector = await _get_connector()
+    result = await connector.read_multiple_channels(distinct, timeout=timeout)
+
+    # A connector drops a channel whose read raised, and the EPICS family
+    # reports a read timeout as a present ``None`` — both are a failed read.
+    failed = [
+        address for address in distinct if address not in result or result[address].value is None
+    ]
+    if failed:
+        causes = await _read_failure_causes(connector, failed, timeout)
+        first_cause = next((causes[address] for address in failed if address in causes), None)
+        raise ChannelReadFailedError(failed, causes=causes) from first_cause
+    return [result[address].value for address in addresses]
+
+
+async def _read_failure_causes(
+    connector: "ControlSystemConnector", failed: list[str], timeout: float | None
+) -> dict[str, BaseException]:
+    """Re-read each failed channel on its own and collect the exception it raises.
+
+    A batch read keeps only which channels failed, not why. The single read
+    raises the connector's own exception, which is what a caller branches on.
+    The re-read only explains the failure: a channel that answers this time is
+    still reported as failed, since the batch it belongs to did not read it.
+    """
+    kwargs = {} if timeout is None else {"timeout": timeout}
+    results = await asyncio.gather(
+        *(connector.read_channel(address, **kwargs) for address in failed),
+        return_exceptions=True,
+    )
+    return {
+        address: outcome
+        for address, outcome in zip(failed, results, strict=True)
+        if isinstance(outcome, BaseException)
+    }
+
+
 async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> None:
     """Internal async implementation for writing multiple channels."""
     if len(channel_values) == 1:
@@ -844,9 +924,16 @@ def read_channel(channel_address: str, **kwargs) -> Any:
         metadata as ``enum_label`` / ``enum_labels``, which the channel_read
         tool reports and which this value-only helper does not return.
 
+        ``None`` when the connector reports the reading without a value. The
+        EPICS-family connectors answer a read timeout that way instead of
+        raising, so on those connectors ``None`` here means the channel did
+        not answer. :func:`read_channels` treats the same ``None`` as a failed
+        read and raises ``ChannelReadFailedError``.
+
     Raises:
         RuntimeError: If read operation fails
-        TimeoutError: If operation times out
+        TimeoutError: If operation times out on a connector that raises for
+            a timeout
 
     Examples:
         >>> from osprey.runtime import read_channel
@@ -854,6 +941,67 @@ def read_channel(channel_address: str, **kwargs) -> Any:
         >>> print(f"Current: {current}")
     """
     return _run_async(_read_channel_async(channel_address, **kwargs))
+
+
+def read_channels(addresses: "Sequence[str]", *, timeout: float | None = None) -> list[Any]:
+    """Read several channels in one connector call.
+
+    Synchronous function - no 'await' needed. The whole batch goes to the
+    connector's ``read_multiple_channels`` at once, over the same connector
+    ``read_channel`` uses.
+
+    Args:
+        addresses: Channel addresses to read, in the grammar the deployment's
+            control system uses. A repeated address is read once and its value
+            returned at every position it was asked for.
+        timeout: Operation timeout in seconds, passed to the connector
+
+    Returns:
+        One value per address, in the order the addresses were given.
+
+    Raises:
+        TypeError: If ``addresses`` is a single string rather than a sequence
+            of addresses
+        ChannelReadFailedError: If any channel could not be read — the
+            connector left it out of its result, or reported its value as
+            ``None``. ``addresses`` on the error names every failed channel;
+            no values are returned for the rest.
+
+    Examples:
+        >>> from osprey.runtime import read_channels
+        >>> h01, h02 = read_channels(["MAGNET:H01", "MAGNET:H02"])
+    """
+    if isinstance(addresses, str):
+        raise TypeError("read_channels takes a sequence of addresses, not a single string")
+    values: list[Any] = _run_async(_read_channels_async(list(addresses), timeout))
+    return values
+
+
+def channel_limits(address: str) -> "ChannelLimitsConfig | None":
+    """Return the configured limits for one channel, or ``None``.
+
+    Reads the limits database of the validator the executor sandbox's prelude
+    injected as ``_limits_validator``. That prelude is its only writer, so an
+    in-process caller that ran no prelude — a notebook kernel, a test, a
+    library imported outside the sandbox — always gets ``None`` here, even
+    though its connector may still enforce limits of its own.
+
+    Args:
+        address: Channel address, spelled as it appears in the limits database.
+
+    Returns:
+        A copy of the channel's ``ChannelLimitsConfig`` (``min_value``,
+        ``max_value``, ``max_step``, ``writable``) when a validator is injected
+        and lists the address; ``None`` when no validator is injected or the
+        address has no entry. Editing the copy leaves the limits the runtime
+        enforces unchanged.
+    """
+    if _limits_validator is None:
+        return None
+    config: ChannelLimitsConfig | None = _limits_validator.limits.get(address)
+    if config is None:
+        return None
+    return dataclasses.replace(config)
 
 
 def write_channels(channel_values: dict[str, Any], **kwargs) -> None:
