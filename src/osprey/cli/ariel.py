@@ -145,6 +145,18 @@ def _report_captions(captions: dict | None) -> None:
             f"have no caption. To caption them, raise the key, then run "
             f"{_CAPTION_ENHANCE} --retry-failed."
         )
+    older = captions.get("older_prompt") or 0
+    if older:
+        output.report(
+            f"image_caption: {older} captions made with an older prompt. To caption them "
+            f"again with {_CAPTION_KEY}.prompt_template, run {_CAPTION_ENHANCE} --refresh-stale."
+        )
+    unrecorded = captions.get("unrecorded_prompt") or 0
+    if unrecorded:
+        output.note(
+            f"image_caption: {unrecorded} captions record no prompt; --refresh-stale "
+            "leaves them as they are."
+        )
 
 
 #: How each local server is started, for the ``unreachable`` line of status.
@@ -836,13 +848,21 @@ def watch_command(
     is_flag=True,
     help="With --module, retry the entries (and pictures) that module gave up on",
 )
-def enhance_command(module: str | None, force: bool, limit: int, retry_failed: bool) -> None:
+@click.option(
+    "--refresh-stale",
+    is_flag=True,
+    help="With --module image_caption, caption again the pictures captioned with an older prompt",
+)
+def enhance_command(
+    module: str | None, force: bool, limit: int, retry_failed: bool, refresh_stale: bool
+) -> None:
     """Run enhancement modules on entries.
 
     Processes entries that haven't been enhanced yet, or re-processes the
     newest entries with the text modules if --force is specified. Picture
     modules keep their results per picture and model, so --force never
-    re-runs them; --retry-failed gives a module's failures a new try.
+    re-runs them; --retry-failed gives a module's failures a new try, and
+    --refresh-stale captions again what an older caption prompt produced.
     """
     from osprey.services.ariel_search.cli_operations import (
         FORCE_REFUSAL,
@@ -856,11 +876,20 @@ def enhance_command(module: str | None, force: bool, limit: int, retry_failed: b
     if retry_failed and not module:
         output.fail("--retry-failed needs --module: name the module whose failures to retry")
         raise SystemExit(1)
+    if refresh_stale and module != "image_caption":
+        output.fail("--refresh-stale needs --module image_caption")
+        raise SystemExit(1)
 
     config_dict = _load_ariel_config()
     asyncio.run(
         run_enhance(
-            config_dict, module, force, limit, progress=output.report, retry_failed=retry_failed
+            config_dict,
+            module,
+            force,
+            limit,
+            progress=output.report,
+            retry_failed=retry_failed,
+            refresh_stale=refresh_stale,
         )
     )
 

@@ -1337,7 +1337,29 @@ class TestStatusCaptionLines:
         ) in text
         assert "osprey ariel enhance --module image_caption --retry-failed" in text
 
-    @pytest.mark.parametrize("captions", [None, {"over_cap": 0}])
+    def test_older_prompt_captions_name_the_refresh(self, runner, monkeypatch):
+        self._status(monkeypatch, {"over_cap": 0, "older_prompt": 3, "unrecorded_prompt": 0})
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        text = _flat(result.stdout)
+        assert "image_caption: 3 captions made with an older prompt." in text
+        assert "osprey ariel enhance --module image_caption --refresh-stale" in text
+
+    def test_captions_without_a_prompt_record_are_noted_as_left_alone(self, runner, monkeypatch):
+        self._status(monkeypatch, {"over_cap": 0, "older_prompt": 0, "unrecorded_prompt": 7})
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert "image_caption: 7 captions record no prompt; --refresh-stale leaves them" in _flat(
+            result.stdout
+        )
+
+    @pytest.mark.parametrize(
+        "captions", [None, {"over_cap": 0, "older_prompt": 0, "unrecorded_prompt": 0}]
+    )
     def test_nothing_to_act_on_prints_no_caption_line(self, runner, monkeypatch, captions):
         self._status(monkeypatch, captions)
 
@@ -1345,3 +1367,42 @@ class TestStatusCaptionLines:
 
         assert result.exit_code == 0
         assert "image_caption:" not in result.stdout
+
+
+class TestEnhanceRefreshStale:
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    @pytest.mark.parametrize("args", [[], ["--module", "text_embedding"]])
+    def test_refresh_stale_needs_the_caption_module(self, runner, monkeypatch, args):
+        called = []
+        monkeypatch.setattr(
+            "osprey.services.ariel_search.cli_operations.run_enhance",
+            lambda *a, **k: called.append(k),
+        )
+
+        result = runner.invoke(ariel_group, ["enhance", "--refresh-stale", *args])
+
+        assert result.exit_code == 1
+        assert "--refresh-stale needs --module image_caption" in _flat(result.output)
+        assert called == []
+
+    def test_refresh_stale_reaches_run_enhance(self, runner, monkeypatch):
+        seen: dict = {}
+
+        async def fake_run_enhance(config_dict, module, force, limit, **kwargs):  # noqa: ARG001 - the run_enhance signature
+            seen.update(kwargs, module=module)
+
+        monkeypatch.setattr(
+            "osprey.services.ariel_search.cli_operations.run_enhance", fake_run_enhance
+        )
+        monkeypatch.setattr("osprey.cli.ariel._load_ariel_config", lambda: {"database": {}})
+
+        result = runner.invoke(
+            ariel_group, ["enhance", "--module", "image_caption", "--refresh-stale"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert seen["module"] == "image_caption"
+        assert seen["refresh_stale"] is True

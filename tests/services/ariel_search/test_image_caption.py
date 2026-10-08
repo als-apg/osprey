@@ -10,6 +10,7 @@ HTTP server on 127.0.0.1.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -53,6 +54,7 @@ from osprey.services.ariel_search.exceptions import ModuleConfigError
 
 MODEL = "qwen3-vl:4b"
 _DB = {"uri": "postgresql://localhost:5432/test"}
+PROMPT_SHA = hashlib.sha256(DEFAULT_CAPTION_PROMPT.encode()).hexdigest()
 
 
 @pytest.fixture(autouse=True)
@@ -575,7 +577,11 @@ class TestRunEntry:
         assert len(model.calls) == 2
         assert gate.successes == 2
         captions = repo.captions("e1")
-        assert captions[ids[0]][MODEL] == {"caption": "A plot.", "visible_text": "QX-77"}
+        assert captions[ids[0]][MODEL] == {
+            "caption": "A plot.",
+            "visible_text": "QX-77",
+            "prompt_sha256": PROMPT_SHA,
+        }
         entry = repo.entries["e1"]
         assert f"[picture p0.png - machine caption by {MODEL}] A plot." in entry["attachment_text"]
         assert "text_embedding" not in entry["enhancement_status"]
@@ -634,6 +640,7 @@ class TestRunEntry:
         assert repo.captions("e1")[ids[0]][MODEL] == {
             "caption": "A horizontal orbit plot with a kick near BPM 7.",
             "visible_text": "SR:C07 BPM; Horizontal orbit, fill 2026-09-12 14:03; x [mm]",
+            "prompt_sha256": PROMPT_SHA,
         }
         text = repo.entries["e1"]["attachment_text"]
         assert "A horizontal orbit plot with a kick near BPM 7." in text
@@ -651,6 +658,7 @@ class TestRunEntry:
         assert repo.captions("e1")[ids[0]][MODEL] == {
             "caption": "A photo of a rack.",
             "visible_text": "R12",
+            "prompt_sha256": PROMPT_SHA,
         }
 
     async def test_reply_without_marker_is_stored_as_caption(self, provider_configs, monkeypatch):
@@ -664,6 +672,7 @@ class TestRunEntry:
         assert repo.captions("e1")[ids[0]][MODEL] == {
             "caption": "Just a photo of a rack.",
             "visible_text": "",
+            "prompt_sha256": PROMPT_SHA,
         }
 
     async def test_cap_plus_two_pictures_complete_after_cap_calls(
@@ -854,6 +863,70 @@ class TestRunEntry:
         assert outcome.kind == "done"
         assert len(model.calls) == 1
         assert repo.captions("e1")[ids[0]][MODEL]["caption"] == "old"
+
+
+@pytest.mark.usefixtures("provider_configs")
+class TestPromptFingerprint:
+    async def test_a_caption_records_the_prompt_it_was_made_with(
+        self, provider_configs, monkeypatch
+    ):
+        repo = FakeRepo()
+        ids = repo.add_entry("e1", 1)
+        template = "Describe this.\n{text}\nVisible text:"
+        module = _module(provider_configs, monkeypatch, FakeModel(), prompt_template=template)
+
+        await module.run_entry(repo.entries["e1"], repo, gate=FakeGate())
+
+        stored = repo.captions("e1")[ids[0]][MODEL]
+        assert stored["prompt_sha256"] == hashlib.sha256(template.encode()).hexdigest()
+        assert stored["prompt_sha256"] == caption_mod.caption_prompt_sha256(
+            {"prompt_template": template}
+        )
+
+    def test_the_default_prompt_has_its_own_fingerprint(self):
+        assert caption_mod.caption_prompt_sha256({}) == PROMPT_SHA
+        assert caption_mod.caption_prompt_sha256({"prompt_template": None}) == PROMPT_SHA
+
+    async def test_a_changed_prompt_captions_nothing_again_by_itself(
+        self, provider_configs, monkeypatch
+    ):
+        repo = FakeRepo()
+        ids = repo.add_entry("e1", 1)
+        repo.entries["e1"]["attachment_captions"] = {
+            ids[0]: {MODEL: {"caption": "old", "visible_text": "", "prompt_sha256": "0" * 64}}
+        }
+        model = FakeModel()
+        module = _module(provider_configs, monkeypatch, model)
+
+        outcome = await module.run_entry(repo.entries["e1"], repo, gate=FakeGate())
+
+        assert outcome.kind == "done"
+        assert model.calls == []
+        assert repo.captions("e1")[ids[0]][MODEL]["caption"] == "old"
+
+    async def test_a_caption_marked_for_refresh_is_made_again_even_past_the_cap(
+        self, provider_configs, monkeypatch
+    ):
+        repo = FakeRepo()
+        ids = repo.add_entry("e1", 2)
+        old = {"caption": "old", "visible_text": "", "prompt_sha256": "0" * 64, "refresh": True}
+        repo.entries["e1"]["attachment_captions"] = {
+            ids[0]: {MODEL: dict(old)},
+            ids[1]: {MODEL: dict(old)},
+        }
+        model = FakeModel()
+        module = _module(provider_configs, monkeypatch, model, max_images_per_entry=1)
+
+        outcome = await module.run_entry(repo.entries["e1"], repo, gate=FakeGate())
+
+        assert outcome.kind == "done"
+        assert len(model.calls) == 2
+        for attachment_id in ids:
+            assert repo.captions("e1")[attachment_id][MODEL] == {
+                "caption": "A plot.",
+                "visible_text": "QX-77",
+                "prompt_sha256": PROMPT_SHA,
+            }
 
 
 # ---------------------------------------------------------------------------
@@ -1128,6 +1201,7 @@ class TestOllama:
         assert repo.captions("e1")[ids[0]][MODEL] == {
             "caption": "A BPM plot.",
             "visible_text": "QX-77",
+            "prompt_sha256": PROMPT_SHA,
         }
 
     async def test_server_gone_after_picture_one_ends_the_pass_uncharged(

@@ -581,8 +581,9 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         is the object :func:`_attachments_status` builds, its
         ``picture_search_unavailable`` taken from the ``image_embedding``
         health verdict (:func:`_picture_search_unavailable`). ``captions`` is
-        the caption counts under the configured caption model
-        (``over_cap``), or None when no caption model is configured.
+        the caption counts under the configured caption model and prompt
+        (``over_cap``, ``older_prompt``, ``unrecorded_prompt``), or None when
+        no caption model is configured.
         ``image_embedding_tables`` lists the picture tables
         (``table``, ``pictures``, ``dimension``, ``active``) apart from the
         text tables of ``embedding_tables``.
@@ -619,11 +620,18 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
             image_tables = await service.repository.get_image_embedding_tables()
             last_ingestion = await service.repository.get_last_ingestion()
             attachments = await _attachments_status(config, service.repository)
-            captions = (
-                await service.repository.get_caption_counts(caption_marker)
-                if caption_marker is not None
-                else None
-            )
+            captions = None
+            if caption_marker is not None:
+                from osprey.services.ariel_search.enhancement.image_caption.module import (
+                    caption_prompt_sha256,
+                )
+
+                captions = await service.repository.get_caption_counts(
+                    caption_marker,
+                    caption_prompt_sha256(
+                        config.get_enhancement_module_config("image_caption") or {}
+                    ),
+                )
             health = await _modules_health(config, registered, service.repository)
             if image_config_bad:
                 health["image_embedding"] = _health_entry(False, "config")
@@ -1670,6 +1678,7 @@ async def run_enhance(
     *,
     stop_event: asyncio.Event | None = None,
     retry_failed: bool = False,
+    refresh_stale: bool = False,
 ) -> EnhanceResult:
     """Run enhancement modules on entries.
 
@@ -1693,6 +1702,9 @@ async def run_enhance(
             are left for a later pass.
         retry_failed: With ``module``, give its failed entries a new set of
             attempts first (see :func:`retry_failed_entries`).
+        refresh_stale: With ``module`` ``image_caption``, first mark the
+            captions made with another prompt to be made again (see
+            :func:`refresh_stale_captions`).
 
     Raises:
         ValueError: With :data:`FORCE_REFUSAL` when ``force`` names a picture module.
@@ -1706,6 +1718,8 @@ async def run_enhance(
             return EnhanceResult(entries_processed=0, module_names=[])
         if retry_failed:
             await retry_failed_entries(config, module, progress)
+        if refresh_stale and module == "image_caption":
+            await refresh_stale_captions(config, progress)
         walked = await _drive_image_modules(
             config, modules, budget=None, stop_event=stop_event, progress=progress, limit=limit
         )
@@ -1922,7 +1936,7 @@ async def _drive_image_modules(
                 share = left / (len(modules) - index)
             async with _module_lock(repository.pool, module.name) as held:
                 if not held:
-                    _say(progress, logger, f"{module.name}: running in another process")
+                    _say(progress, logger, _held_lock_line(module.name))
                     continue
                 try:
                     outcome = await drive_image_module(
@@ -1952,6 +1966,11 @@ def _module_lock(pool: Any, module: str) -> AbstractAsyncContextManager[bool]:
 
     # The pool is always built from a DSN string.
     return connection_mod.try_advisory_lock(cast(str, pool.conninfo), f"ariel_enhance:{module}")
+
+
+def _held_lock_line(module: str) -> str:
+    """The line a pass prints when another process holds ``module``'s advisory lock."""
+    return f"{module}: running in another process"
 
 
 def _say(progress: _ProgressCb, logger: Any, message: str) -> None:
@@ -2055,7 +2074,7 @@ async def retry_failed_entries(config: ARIELConfig, module: str, progress: _Prog
         pool = service.repository.pool
         async with _module_lock(pool, module) as held:
             if not held:
-                _say(progress, logger, f"{module}: running in another process")
+                _say(progress, logger, _held_lock_line(module))
                 return 0
             async with pool.connection() as conn:
                 cursor = await conn.execute(
@@ -2147,6 +2166,109 @@ async def _forget_caption_failures(
             )
             forgotten.add(entry_id)
     return forgotten
+
+
+#: Entries holding a caption under ``%(model)s`` that records another prompt's digest.
+_STALE_CAPTION_ENTRIES_SQL = """
+SELECT e.entry_id FROM enhanced_entries e
+WHERE jsonb_typeof(e.attachment_captions) = 'object'
+AND EXISTS (
+    SELECT 1 FROM jsonb_each(e.attachment_captions) AS c(attachment_id, per_model)
+    WHERE jsonb_typeof(c.per_model) = 'object'
+    AND jsonb_typeof(c.per_model->%(model)s) = 'object'
+    AND c.per_model->%(model)s ? 'caption'
+    AND c.per_model->%(model)s ? 'prompt_sha256'
+    AND c.per_model->%(model)s->>'prompt_sha256' IS DISTINCT FROM %(prompt)s
+)
+ORDER BY e.entry_id
+"""
+
+
+async def refresh_stale_captions(config: ARIELConfig, progress: _ProgressCb) -> int:
+    """Mark the captions made with another prompt to be made again.
+
+    A caption under the current model whose ``prompt_sha256`` differs from the
+    current prompt template's gets ``refresh: true``, one transaction per
+    entry, the entry row locked first, and the entry's ``image_caption`` key is
+    cleared so the next pass walks it. The old caption stays in place, and
+    searchable, until the new one replaces it. Captions that record no prompt
+    digest are left alone. Runs under the module's advisory lock; when another
+    process holds it, nothing is changed.
+
+    Returns:
+        The captions marked.
+    """
+    from psycopg.types.json import Jsonb
+
+    from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.attachments.compose import caption_model_id
+    from osprey.services.ariel_search.enhancement.image_caption.module import (
+        REFRESH_KEY,
+        caption_prompt_sha256,
+    )
+    from osprey.utils.logger import get_logger
+
+    logger = get_logger("ariel")
+    module = "image_caption"
+    model_id = caption_model_id(config)
+    if not model_id:
+        return 0
+    prompt = caption_prompt_sha256(config.get_enhancement_module_config(module) or {})
+    marked = 0
+    service = await create_ariel_service(config)
+    async with service:
+        pool = service.repository.pool
+        async with _module_lock(pool, module) as held:
+            if not held:
+                _say(progress, logger, _held_lock_line(module))
+                return 0
+            async with pool.connection() as conn:
+                cursor = await conn.execute(
+                    _STALE_CAPTION_ENTRIES_SQL, {"model": model_id, "prompt": prompt}
+                )
+                entry_ids = [row[0] for row in await cursor.fetchall()]
+            for entry_id in entry_ids:
+                async with pool.connection() as conn, conn.transaction():
+                    cursor = await conn.execute(
+                        "SELECT attachment_captions FROM enhanced_entries"
+                        " WHERE entry_id = %(entry_id)s FOR UPDATE",
+                        {"entry_id": entry_id},
+                    )
+                    row = await cursor.fetchone()
+                    if row is None or not isinstance(row[0], Mapping):
+                        continue
+                    captions: dict[str, Any] = dict(row[0])
+                    count = 0
+                    for attachment_id, per_model in list(captions.items()):
+                        if not isinstance(per_model, Mapping):
+                            continue
+                        value = per_model.get(model_id)
+                        if (
+                            not isinstance(value, Mapping)
+                            or "caption" not in value
+                            or "prompt_sha256" not in value
+                            or value["prompt_sha256"] == prompt
+                        ):
+                            continue
+                        captions[attachment_id] = {
+                            **per_model,
+                            model_id: {**value, REFRESH_KEY: True},
+                        }
+                        count += 1
+                    if not count:
+                        continue
+                    await conn.execute(
+                        "UPDATE enhanced_entries SET attachment_captions = %(captions)s::jsonb"
+                        " WHERE entry_id = %(entry_id)s",
+                        {"entry_id": entry_id, "captions": Jsonb(captions)},
+                    )
+                    await conn.execute(
+                        _CLEAR_MODULE_KEY_SQL, {"entry_id": entry_id, "module": module}
+                    )
+                    marked += count
+    if progress:
+        progress(f"{module}: {marked} captions made with an older prompt will be made again")
+    return marked
 
 
 def image_embedding_current_table(config: ARIELConfig) -> str:

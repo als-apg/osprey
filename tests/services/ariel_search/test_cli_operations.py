@@ -32,6 +32,7 @@ import pytest
 
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.database.repository import SchemaFacts
+from osprey.services.ariel_search.enhancement.image_caption.module import caption_prompt_sha256
 from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
 # A minimal config dict accepted by ARIELConfig.from_dict.
@@ -159,7 +160,9 @@ def _status_repo(
     else:
         repo.get_attachment_bytes = AsyncMock(return_value=attachment_bytes)
     repo.get_attachment_copy_counts = AsyncMock(return_value=copy_counts)
-    repo.get_caption_counts = AsyncMock(return_value={"over_cap": 0})
+    repo.get_caption_counts = AsyncMock(
+        return_value={"over_cap": 0, "older_prompt": 0, "unrecorded_prompt": 0}
+    )
     return repo
 
 
@@ -385,17 +388,18 @@ class TestGetStatus:
 
     async def test_caption_counts_are_read_under_the_caption_model(self, monkeypatch):
         repo = _status_repo()
-        repo.get_caption_counts = AsyncMock(return_value={"over_cap": 4})
+        counts = {"over_cap": 4, "older_prompt": 2, "unrecorded_prompt": 1}
+        repo.get_caption_counts = AsyncMock(return_value=counts)
         _patch_service(monkeypatch, _StubService(repository=repo))
-        config = {
-            **_DB,
-            "enhancement_modules": {"image_caption": {"model": {"model_id": "vis-a"}}},
-        }
+        block = {"model": {"model_id": "vis-a"}, "prompt_template": "P {text} Visible text:"}
+        config = {**_DB, "enhancement_modules": {"image_caption": block}}
 
         out = await ops.get_status(config)
 
-        repo.get_caption_counts.assert_awaited_once_with("vis-a")
-        assert out["captions"] == {"over_cap": 4}
+        repo.get_caption_counts.assert_awaited_once_with(
+            "vis-a", caption_prompt_sha256({"prompt_template": "P {text} Visible text:"})
+        )
+        assert out["captions"] == counts
 
     async def test_no_caption_model_reports_no_caption_counts(self, monkeypatch):
         repo = _status_repo()

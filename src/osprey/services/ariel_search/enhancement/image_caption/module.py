@@ -14,12 +14,17 @@ through :meth:`ImageCaptionModule.run_entry`. Each entry is a three-phase write:
 
 Captions are keyed by :func:`~osprey.services.ariel_search.attachments.compose.caption_model_id`,
 which is also the completion marker, so another caption model makes every
-picture owed again.
+picture owed again. Each caption also records the sha256 of the prompt template
+it was made with (``prompt_sha256``); a changed prompt makes no picture owed by
+itself. ``osprey ariel enhance --module image_caption --refresh-stale`` marks the
+captions made with another prompt ``refresh``, which makes them owed while the
+old caption stays in place until the new one replaces it.
 """
 
 from __future__ import annotations
 
 import base64
+import hashlib
 import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
@@ -62,6 +67,9 @@ DEFAULT_MAX_IMAGES_PER_ENTRY = 8
 
 #: The caption error recorded for a picture past ``max_images_per_entry``.
 OVER_IMAGE_CAP = "over_image_cap"
+
+#: The key of a stored caption asking for it to be made again.
+REFRESH_KEY = "refresh"
 
 #: Seconds one vision call may take: ten times what one picture takes for a
 #: local vision model on CPU, rounded up to ten seconds.
@@ -132,6 +140,11 @@ def _is_over_cap(value: Any) -> bool:
     return isinstance(value, Mapping) and value.get("error") == OVER_IMAGE_CAP
 
 
+def _wants_refresh(value: Any) -> bool:
+    """Whether a stored caption value is marked to be made again."""
+    return isinstance(value, Mapping) and value.get(REFRESH_KEY) is True
+
+
 def _reply_text(reply: Any) -> str:
     """The text of a completion result (a string or a list of content blocks)."""
     if isinstance(reply, str):
@@ -178,6 +191,20 @@ def _positive_number(config: Mapping[str, Any], key: str, default: float, *, int
     return value
 
 
+def caption_prompt_sha256(config: Mapping[str, Any]) -> str:
+    """The sha256 (hex) of the prompt template the module's config block selects.
+
+    Args:
+        config: The ``image_caption`` config block.
+
+    Returns:
+        The digest of ``prompt_template``, or of :data:`DEFAULT_CAPTION_PROMPT`
+        when none is set.
+    """
+    prompt = config.get("prompt_template") or DEFAULT_CAPTION_PROMPT
+    return hashlib.sha256(str(prompt).encode("utf-8")).hexdigest()
+
+
 def max_images_per_entry(config: Mapping[str, Any]) -> int:
     """``max_images_per_entry`` of the module's config block, validated.
 
@@ -204,6 +231,7 @@ class ImageCaptionModule(BaseEnhancementModule):
         self._max_images: int = DEFAULT_MAX_IMAGES_PER_ENTRY
         self._timeout: float = DEFAULT_TIMEOUT_SECONDS
         self._prompt: str = DEFAULT_CAPTION_PROMPT
+        self._prompt_sha256: str = caption_prompt_sha256({})
         self._supports_images: bool | None = None
 
     @property
@@ -298,6 +326,7 @@ class ImageCaptionModule(BaseEnhancementModule):
         self._max_images = max_images
         self._timeout = float(timeout)
         self._prompt = prompt
+        self._prompt_sha256 = caption_prompt_sha256({"prompt_template": prompt})
 
     @staticmethod
     def _resolve_supports_images(
@@ -463,7 +492,10 @@ class ImageCaptionModule(BaseEnhancementModule):
                 await self._store(repository, entry, attachment_id, {"error": short_error(exc)})
                 continue
             stored = await self._store(
-                repository, entry, attachment_id, {"caption": caption, "visible_text": visible}
+                repository,
+                entry,
+                attachment_id,
+                {"caption": caption, "visible_text": visible, "prompt_sha256": self._prompt_sha256},
             )
             if stored:
                 gate.succeeded()
@@ -480,8 +512,9 @@ class ImageCaptionModule(BaseEnhancementModule):
         Read with no lock. A viewable picture beyond ``max_images_per_entry``
         (counting every viewable picture, captioned or not) is over the cap. A
         picture recorded as over the cap is owed again once a raised cap takes
-        it in; a caption past a lowered cap is kept. Returns None when the store
-        has no copy state.
+        it in; a caption past a lowered cap is kept. A caption marked
+        :data:`REFRESH_KEY` is owed wherever it sits. Returns None when the
+        store has no copy state.
         """
         viewable = await viewable_in_list_order(entry, repository)
         if viewable is None:
@@ -494,7 +527,11 @@ class ImageCaptionModule(BaseEnhancementModule):
             over_cap = index >= self._max_images
             per_item = captions.get(attachment_id)
             if isinstance(per_item, Mapping) and model_id in per_item:
-                if over_cap or not _is_over_cap(per_item[model_id]):
+                value = per_item[model_id]
+                if _wants_refresh(value):
+                    work.append((attachment_id, False))
+                    continue
+                if over_cap or not _is_over_cap(value):
                     continue
             work.append((attachment_id, over_cap))
         return work

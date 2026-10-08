@@ -2268,7 +2268,10 @@ keys:
     note: >-
       Replaces the caption prompt; `{text}` is replaced by the entry text. A
       replacement must keep asking for the `Visible text:` list the reply is
-      split at. Commented in the presets.
+      split at. Changing it re-captions nothing by itself: `osprey ariel status`
+      counts the captions made with an older prompt and `osprey ariel enhance
+      --module image_caption --refresh-stale` makes them again. Commented in
+      the presets.
     default: derived
     default_note: the module's own DEFAULT_CAPTION_PROMPT
   ariel.enhancement_modules.image_caption.timeout_seconds:
