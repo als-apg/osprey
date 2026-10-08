@@ -6216,6 +6216,60 @@ def test_no_live_va_suite_is_named_by_two_lanes__mutation_names_a_suite_in_both_
         test_every_live_va_suite_is_named_by_one_lane(mutated)
 
 
+# The chain's boot half runs in the lane whose job builds the image it boots.
+# The partition above is satisfied by any one lane naming the module, so the
+# lane is pinned here by name, with the collection floor the run step's
+# comment promises of every module it names.
+CHAIN_BOOT_MODULE = f"{VA_LIVE_SUITE_DIR}/test_chain_boot.py"
+_CHAIN_BOOT_FLOOR_RE = re.compile(r"^MIN_COLLECTED_TESTS = (\d+)$", re.MULTILINE)
+_CHAIN_BOOT_FLOOR_GUARD = "len(collected) >= MIN_COLLECTED_TESTS"
+
+
+def test_chain_boot_suite_runs_in_the_va_live_run_step(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    """The VA live job's run step names the chain's boot module by path."""
+    wf = workflow if workflow is not None else _load_workflow()
+    assert (REPO_ROOT / CHAIN_BOOT_MODULE).is_file()
+    named = _va_live_lane_named_files(wf, VA_LIVE_JOB)
+    assert CHAIN_BOOT_MODULE in named, f"'{VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB]}' runs {named}"
+
+
+def test_chain_boot_suite_runs_in_the_va_live_run_step__mutation_moves_it_to_another_lane() -> None:
+    """The partition still holds on this mutation, so only the pin sees it."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    step["run"] = step["run"].replace(f"{CHAIN_BOOT_MODULE} ", "")
+    other = _find_named_step(mutated, TARGET_SWITCH_JOB, VA_LIVE_LANE_RUN_STEPS[TARGET_SWITCH_JOB])
+    other["run"] = f"{other['run']} {CHAIN_BOOT_MODULE}\n"
+    test_every_live_va_suite_is_named_by_one_lane(mutated)
+    test_no_live_va_suite_is_named_by_two_lanes(mutated)
+    with pytest.raises(AssertionError):
+        test_chain_boot_suite_runs_in_the_va_live_run_step(mutated)
+
+
+def _chain_boot_floor_errors(source: str) -> list[str]:
+    """What the chain boot module's collection floor is missing, read from its text."""
+    errors: list[str] = []
+    match = _CHAIN_BOOT_FLOOR_RE.search(source)
+    if match is None or int(match.group(1)) < 1:
+        errors.append("declares no positive MIN_COLLECTED_TESTS")
+    if _CHAIN_BOOT_FLOOR_GUARD not in source:
+        errors.append("never asserts its collection against MIN_COLLECTED_TESTS")
+    return errors
+
+
+def test_chain_boot_module_carries_its_collection_floor() -> None:
+    source = (REPO_ROOT / CHAIN_BOOT_MODULE).read_text(encoding="utf-8")
+    assert _chain_boot_floor_errors(source) == []
+
+
+def test_chain_boot_module_carries_its_collection_floor__mutation_drops_the_floor() -> None:
+    source = (REPO_ROOT / CHAIN_BOOT_MODULE).read_text(encoding="utf-8")
+    assert _chain_boot_floor_errors(_CHAIN_BOOT_FLOOR_RE.sub("", source))
+    assert _chain_boot_floor_errors(source.replace(_CHAIN_BOOT_FLOOR_GUARD, "collected"))
+
+
 @pytest.mark.parametrize("job_name", sorted(VA_LIVE_LANE_RUN_STEPS))
 def test_live_va_lane_enables_the_directory_flag(
     job_name: str, workflow: dict[str, Any] | None = None
