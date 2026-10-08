@@ -174,7 +174,9 @@ from osprey_connectors.control_system.base import (
 from osprey_connectors.ipc.launch import (
     AttributedReader,
     host_env,
+    kill_host,
     spawn_host,
+    stop_host,
 )
 from osprey_connectors.ipc.proxy import (
     ChildUnresponsiveError,
@@ -217,10 +219,6 @@ DEFAULT_CALL_DEADLINE_S = 60.0
 #: How long a child that missed a call's deadline gets to answer a ping before
 #: it is judged wedged and killed.
 DEFAULT_PING_TIMEOUT_S = 2.0
-
-#: How long, after a child is killed, the proxy's reader gets to turn the dead
-#: pipe into failures on the calls that were in flight.
-_SETTLE_TIMEOUT_S = 2.0
 
 #: Stages of :class:`ConnectorHostStartError`.
 STAGE_CONFIG = "config"
@@ -918,13 +916,16 @@ class ConnectorHostPool:
         return task
 
     async def _kill(self, child: _PoolChild) -> None:
-        await terminate(child.process, self._terminate_grace_s)
-        await child.proxy.drain(_SETTLE_TIMEOUT_S)
-        await child.proxy.disconnect(ack_timeout=0.0)
+        await kill_host(
+            child.process,
+            child.proxy,
+            child.reader,
+            reason=None,
+            grace_s=self._terminate_grace_s,
+        )
 
     async def _orderly_stop(self, child: _PoolChild) -> None:
-        await child.proxy.disconnect()
-        await terminate(child.process, self._terminate_grace_s)
+        await stop_host(child.process, child.proxy, grace_s=self._terminate_grace_s)
 
 
 # ---------------------------------------------------------------------------
