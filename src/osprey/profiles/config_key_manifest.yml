@@ -976,28 +976,11 @@ keys:
   control_system.connector: {covered-by: control_system, default: n/a}
   control_system.connector.mock: {covered-by: control_system.connector, default: n/a}
   control_system.connector.mock.simulation_file: {evidence: 'simulation_file', default: null}
-  # The mock connector's two tuning knobs. `rendered: false` since the app
+  # The mock connector's one tuning knob. `rendered: false` since the app
   # templates went: the presets ship the mock connector at the connector's own
-  # defaults and state neither knob, so a deployment that wants a slower or
-  # noisier machine authors them itself.
+  # default and do not state it, so a deployment that wants a slower machine
+  # authors it itself.
   control_system.connector.mock.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
-  control_system.connector.mock.noise_level: {rendered: false, evidence: 'noise_level', default: 0.01}
-  control_system.connector.virtual_accelerator.noise_level:
-    rendered: false
-    evidence: 'va_block\.get\("noise_level", mock_block\.get\("noise_level"\)\)'
-    note: >-
-      Fractional noise on the readings the simulator synthesises — the one knob
-      deciding whether a reading looks alive or flat, so it is a config key and
-      not only a container variable. The build renders it as the default of the
-      compose file's `VA_NOISE_LEVEL` interpolation, which is why the evidence
-      anchors on the resolver in `deployment/compose_generator.py` rather than
-      on the entrypoint that consumes the variable: an exported VA_NOISE_LEVEL
-      still outranks it, so the variable is the carrier and this key is the
-      surface. Commented in `control-assistant`, so nothing renders it.
-    default: derived
-    default_note: >-
-      falls through to control_system.connector.mock.noise_level, and then to the
-      entrypoint's own 0.01
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
   control_system.connector.epics.timeout_s: {covered-by: control_system.connector.epics, default: 5.0}
   control_system.connector.epics.step_read_timeout_s:
@@ -3218,6 +3201,10 @@ deleted:
   # Container names and persona projects come from the project name; the
   # knowledge graph's identifiers come from the facility file's identity code.
 - facility.prefix
+  # The noise a simulated reading carries belongs to the simulator view the
+  # build writes; neither connector nor the simulator's container takes a level.
+- control_system.connector.mock.noise_level
+- control_system.connector.virtual_accelerator.noise_level
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the keys above whose COMMENTED example in a
@@ -3478,6 +3465,33 @@ orphan_sites:
     why: >-
       the retired channel-namer key: the namer's read of it, a preset comment
       or a reference row still spelling it.
+
+  control_system.connector.mock.noise_level:
+  - root:
+    - src/osprey/connectors/control_system
+    - packages/osprey-connectors/src/osprey_connectors/control_system
+    regex: 'noise_level'
+    back_test: {base_matches: 5, branch_matches: 0}
+    why: >-
+      the mock connector's read of the knob, its docstring and its example.
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'noise_level'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      a template or preset line stating or advertising the knob.
+  control_system.connector.virtual_accelerator.noise_level:
+  - root:
+    - src/osprey/templates
+    - src/osprey/deployment
+    regex: 'noise_level|VA_NOISE_LEVEL'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the generator's resolver of the key, the context key it filled and the VA
+      compose variable it rendered. The key postdates the back-test baseline,
+      so the baseline matches are the templates' noise_level mentions, which
+      the same regex keeps out of every template.
 
 # ---------------------------------------------------------------------------
 # render_contexts — the matrix the guard renders every template under, then
