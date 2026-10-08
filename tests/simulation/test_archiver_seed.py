@@ -33,6 +33,7 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
+from osprey_connectors.archiver.field_names import field_name
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
@@ -358,6 +359,20 @@ class TestSynthesizeDocuments:
 
     def test_an_empty_window_produces_no_documents(self, archive):
         assert synthesize_documents(archive, np.empty(0)) == []
+
+    def test_a_dotted_channel_is_seeded_under_its_field_name(self, tmp_path):
+        """A field-name address is stored under ``field_name``; every other
+        address is its own field name."""
+        dotted = "SR:MOT:REC.RBV"
+        view = write_texture_view(tmp_path, {**CHANNELS, dotted: {"nominal": 3.0}})
+        times, _ = seed_grid(SMALL, T0)
+
+        documents = synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times[:4])
+
+        for document in documents:
+            assert set(document) == {DATE_FIELD, *ADDRESSES, field_name(dotted)}
+            assert "SR:MOT:REC" not in document
+        assert all(field_name(address) == address for address in ADDRESSES)
 
 
 # ---------------------------------------------------------------------------
