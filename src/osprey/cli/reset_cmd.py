@@ -43,8 +43,8 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
     """Wipe this deployment back to a fresh state.
 
     Run with no arguments, anywhere inside a deployment repo. It stops the
-    stack, removes the containers and volumes carrying this checkout's identity
-    along with the images this deployment built, destroys the agent's memory
+    stack, removes this deployment's containers and volumes along with the
+    images it built, destroys the agent's memory
     under var/agent_data/, strips the tokens `osprey up` minted out of .env, and
     deletes build/.
 
@@ -60,13 +60,15 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
     and .git are exactly what they were. After a reset, `osprey build && osprey
     up -d` gives you the same deployment with no state.
 
-    A compose project name comes from this directory's NAME, so two clones or
-    worktrees of one deployment share it. Reset removes a container or volume
-    only when it also carries this repo's identity label — a hash of its path —
-    and refuses outright, removing nothing, when it finds same-named resources
-    created from a different path. Renaming or moving this directory changes
-    that hash, so its own older resources read as foreign too; the refusal says
-    so and still will not remove them.
+    The compose project name is profile.yml's project_name, not this
+    directory's name, so two clones or worktrees of one deployment share it
+    unless one sets its own in a variant overlay. Each container records the
+    checkout that created it; reset refuses outright, removing nothing, when
+    containers under this project name came from a different checkout, and
+    names it. A container with no such record counts as this deployment's.
+    Volumes belong to the project by name, so every volume under this project
+    name is removed. Moving this directory makes its own older containers read
+    as foreign; the refusal says so and still will not remove them.
 
     Exit status, so `osprey reset && ...` means what it looks like:
 
