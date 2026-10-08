@@ -45,6 +45,7 @@ from osprey.simulation.apply import (
     persisted_scenario_anchor,
     preflight_archive_rewrite,
 )
+from osprey_connectors.archiver.field_names import field_name
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
@@ -196,14 +197,21 @@ UNREACHABLE_STORE = {
 }
 
 
-def _write_model(root: Path, machine: dict) -> None:
+def _write_model(root: Path, machine: dict, channels: dict = CHANNELS) -> None:
     """Write the simulator view: the channels and the machine's scenarios."""
-    write_texture_view(root, CHANNELS, machine["scenarios"])
+    write_texture_view(root, channels, machine["scenarios"])
 
 
-def _write_project(root: Path, store: dict | None, *, password: str | None) -> Path:
+def _write_project(
+    root: Path,
+    store: dict | None,
+    *,
+    password: str | None,
+    channels: dict = CHANNELS,
+    machine: dict | None = None,
+) -> Path:
     """Lay out a built project on disk: model, simulator view, config, and its ``.env``."""
-    _write_model(root, _machine())
+    _write_model(root, machine if machine is not None else _machine(), channels)
 
     config: dict = {
         "project_name": "rewrite-project",
@@ -245,9 +253,46 @@ def project(tmp_path, mongo_store):
     The process never chdirs into it: every path the code under test resolves
     has to come from ``project_dir``, not from where the caller happens to be.
     """
-    from pymongo import MongoClient
-
     root = _write_project(tmp_path / "proj", mongo_store, password=mongo_store["password"])
+    yield from _seeded(root, mongo_store)
+
+
+#: A channel whose address carries a field name, and a scenario moving it.
+DOTTED = "SR:VAC:IP07.RBV"
+DOTTED_CHANNELS = {**CHANNELS, DOTTED: {"nominal": 1e-9}}
+
+
+def _dotted_machine() -> dict:
+    machine = _machine()
+    machine["channels"][DOTTED] = {
+        "value": 1e-9,
+        "units": "Torr",
+        "noise": 0.0,
+        "description": "Ion pump pressure readback field",
+    }
+    machine["scenarios"]["dotted-burst"] = {
+        "description": "A vacuum burst on a field-name channel two hours ago.",
+        "archiver": [{"channel": DOTTED, "events": [_spike(SPIKE_OFFSET_S)]}],
+    }
+    return machine
+
+
+@pytest.fixture
+def dotted_project(tmp_path, mongo_store):
+    """A seeded project whose channel set holds one address carrying a field name."""
+    root = _write_project(
+        tmp_path / "proj",
+        mongo_store,
+        password=mongo_store["password"],
+        channels=DOTTED_CHANNELS,
+        machine=_dotted_machine(),
+    )
+    yield from _seeded(root, mongo_store)
+
+
+def _seeded(root: Path, mongo_store: dict):
+    """Seed a fresh archive for the project at ``root``; yield ``(root, collection)``."""
+    from pymongo import MongoClient
 
     client = MongoClient(
         host=mongo_store["host"],
@@ -1164,6 +1209,29 @@ class TestRecurringEvents:
         # cadence: a small, countable number. Densifying the whole span its
         # values reach over would multiply the store several times instead.
         assert 0 < result.archiver.inserted < base / 4
+
+
+class TestDottedChannel:
+    def test_a_dotted_channel_window_is_rewritten(self, dotted_project):
+        """A field-name address is rewritten under its own field, never as a path."""
+        root, collection = dotted_project
+        field = field_name(DOTTED)
+        before = _snapshot(collection)
+
+        result = _apply(root, ["dotted-burst"])
+
+        assert DOTTED in result.archiver.channels
+        assert result.archiver.updated > 0
+        low, high = _window(SPIKE_OFFSET_S, shrink=SPIKE_REACH_S - SPIKE_WIDTH_S)
+        inside = list(collection.find({DATE_FIELD: {"$gte": low, "$lte": high}}))
+        assert inside
+        assert any(
+            document[field] != before[document[DATE_FIELD]][field]
+            for document in inside
+            if document[DATE_FIELD] in before
+        )
+        assert all(field in document for document in inside)
+        assert all("SR:VAC:IP07" not in document for document in inside)
 
 
 class TestStoredTypes:

@@ -29,6 +29,7 @@ from osprey.port_layout import default_port, resolve_port_base
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
+from osprey_connectors.archiver.field_names import field_name
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     DEFAULT_SCENARIO,
@@ -1252,7 +1253,11 @@ def _union_spans(
 
 def _region_documents(collection, channels: Sequence[str], start: float, end: float) -> list[dict]:
     """Existing documents in a span, projected to ``date`` and these channels."""
-    projection = {"date": 1, EXPIRE_FIELD_NAME: 1, **dict.fromkeys(channels, 1)}
+    projection = {
+        "date": 1,
+        EXPIRE_FIELD_NAME: 1,
+        **dict.fromkeys((field_name(pv) for pv in channels), 1),
+    }
     cursor = collection.find(
         {
             "date": {
@@ -1347,12 +1352,13 @@ def _rewrite_documents(
         protected = False
         changed: dict[str, Any] = {}
         for pv in channels:
+            field = field_name(pv)
             column = values.get(pv)
-            if column is None or index not in column or pv not in document:
+            if column is None or index not in column or field not in document:
                 continue
-            value = _match_stored_type(document[pv], column[index])
-            if document[pv] != value:
-                changed[pv] = value
+            value = _match_stored_type(document[field], column[index])
+            if document[field] != value:
+                changed[field] = value
             # Per channel *and* per timestamp — do not simplify to a test against
             # the merged live windows of every channel. The two are behaviourally
             # identical on this schema, because a base-seeded document carries
@@ -1553,7 +1559,7 @@ def _dense_documents(
         for pv in wanted[moment]:
             # Same coercion the updates use: a flag channel seeded as a boolean
             # must not acquire a float beside it half way through its history.
-            document[pv] = _match_stored_type(types.get(pv), columns[pv][index])
+            document[field_name(pv)] = _match_stored_type(types.get(pv), columns[pv][index])
         documents.append(document)
     return documents
 
@@ -1567,9 +1573,10 @@ def _stored_types(collection, channels: Sequence[str]) -> dict[str, Any]:
     """
     samples: dict[str, Any] = {}
     for pv in channels:
-        document = collection.find_one({pv: {"$exists": True}}, {pv: 1})
+        field = field_name(pv)
+        document = collection.find_one({field: {"$exists": True}}, {field: 1})
         if document is not None:
-            samples[pv] = document.get(pv)
+            samples[pv] = document.get(field)
     return samples
 
 

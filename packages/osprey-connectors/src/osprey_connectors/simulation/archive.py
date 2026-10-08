@@ -67,6 +67,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from osprey_connectors.archiver.field_names import field_name
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values as channel_values
 from osprey_connectors.simulation.series import (
@@ -664,7 +665,7 @@ def synthesize_documents(archive: ArchiveComposite, epoch_s: np.ndarray) -> list
         epoch_s: Absolute epoch seconds, one per document.
 
     Returns:
-        A list of ``{date: datetime, <address>: value}`` documents, ascending in
+        A list of ``{date: datetime, <field_name(address)>: value}`` documents, ascending in
         time. No ``expireAt`` — stamping is the caller's, because the tier a
         timestamp belongs to is a property of the grid, not of the values.
     """
@@ -682,8 +683,9 @@ def synthesize_documents(archive: ArchiveComposite, epoch_s: np.ndarray) -> list
 
     addresses = archive.addresses
     for address, values in archive.samples(addresses, reader_epoch_s).items():
+        field = field_name(address)
         for document, value in zip(documents, values, strict=True):
-            document[address] = value
+            document[field] = value
 
     return documents
 
