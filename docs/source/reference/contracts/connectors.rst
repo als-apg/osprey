@@ -114,23 +114,21 @@ Switching confirmation off
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``confirm`` is a per-channel boolean in the limits database, sitting beside
-``writable``:
+``writable``, which every entry states:
 
 .. code-block:: json
 
    {
-     "defaults": {
-       "writable": true,
-       "confirm": true
-     },
      "SHUTTER:OPEN_CMD": {
        "writable": true,
        "confirm": false
      }
    }
 
-A channel's own entry wins; failing that the ``defaults`` block applies; failing
-that, confirmation is on. Switch it off for the channels a re-read cannot answer
+A channel's own entry decides; an entry that does not state ``confirm``, or a
+channel with no entry, has confirmation on. The database holds no ``defaults``
+block: a top-level ``defaults`` key, or an entry without ``writable``, fails the
+load. Switch it off for the channels a re-read cannot answer
 for -- a command channel that resets itself, a register that cannot be read back
 -- so those writes report ``unrequested`` rather than ``unconfirmed``. A call
 site may pass ``confirm=True`` or ``confirm=False`` to decide for one call;

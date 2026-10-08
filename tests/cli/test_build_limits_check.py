@@ -18,14 +18,24 @@ import yaml
 from osprey.cli.build_limits_check import limits_database_errors
 
 VALID_DB = {
-    "defaults": {"min_value": -10.0, "max_value": 10.0, "max_step": 1.0, "confirm": False},
-    "SR:C01:MAG:SP": {"writable": True},
+    "SR:C01:MAG:SP": {
+        "writable": True,
+        "min_value": -10.0,
+        "max_value": 10.0,
+        "max_step": 1.0,
+        "confirm": False,
+    },
 }
 
-#: The shape that motivated the check: a ``defaults`` block written against the
-#: schema that ``confirm:`` replaced.
+#: The shape that motivated the check: an entry written against the schema that
+#: ``confirm:`` replaced.
 STALE_DB = {
-    "defaults": {"verification": {"required": True}, "min_value": -1.0, "max_value": 1.0},
+    "SR:C01:MAG:SP": {
+        "writable": True,
+        "verification": {"required": True},
+        "min_value": -1.0,
+        "max_value": 1.0,
+    },
 }
 
 

@@ -26,9 +26,6 @@ logger = get_logger("limits_validator")
 # These are for documentation only and don't affect validation
 METADATA_FIELDS = {"_comment", "_version", "_last_updated", "_description"}
 
-# Special functional field (not metadata)
-DEFAULTS_FIELD = "defaults"
-
 #: The one config key naming the channel-limits database. One value, one file,
 #: everywhere it is spoken about: the connector's own lookup, the compose bind
 #: mount, the build's parse, the bridge's startup gate, the roster's direction
@@ -428,15 +425,13 @@ class LimitsValidator:
 
     @staticmethod
     def writable_addresses(db_path: str | Path) -> frozenset[str]:
-        """The addresses a limits database declares writable, defaults-merged.
+        """The addresses a limits database declares writable.
 
         Read through :meth:`_load_limits_database` rather than from the raw
-        JSON, so the ``defaults`` block, the metadata keys and the per-entry
-        validation are applied by the same code the write path applies them
-        with. That matters: the demo file grants writability by *omitting*
-        ``writable`` so entries inherit ``defaults.writable: true``, and a
-        reader that looked only for an explicit ``writable: true`` would find
-        none at all.
+        JSON, so the metadata keys and the per-entry validation are applied by
+        the same code the write path applies them with: ``writable`` is read
+        from each entry, an entry that does not state it fails the load, and a
+        top-level ``defaults`` key fails the load.
 
         Args:
             db_path: Path to a ``channel_limits.json``-shaped file.
@@ -634,8 +629,8 @@ class LimitsValidator:
     def resolve_confirm(self, channel_address: str) -> bool:
         """Whether a write to this channel must be confirmed by re-reading it.
 
-        Resolution: the channel's own ``confirm`` → the ``defaults`` block's
-        ``confirm`` → ``True``. Read off the raw database, which is where
+        Resolution: the channel's own ``confirm``, else ``True``. Read off the
+        raw database, which is where
         ``confirm`` lives: it is write policy, not a limit, so it never enters
         :class:`ChannelLimitsConfig`.
 
@@ -652,10 +647,6 @@ class LimitsValidator:
         channel_config = raw_db.get(channel_address)
         if isinstance(channel_config, dict) and "confirm" in channel_config:
             return bool(channel_config["confirm"])
-
-        defaults_config = raw_db.get(DEFAULTS_FIELD)
-        if isinstance(defaults_config, dict) and "confirm" in defaults_config:
-            return bool(defaults_config["confirm"])
 
         return True
 
@@ -711,11 +702,14 @@ class LimitsValidator:
     def _load_limits_database(db_path: str) -> tuple[dict[str, ChannelLimitsConfig], dict]:
         """Load and validate limits database from JSON file.
 
-        The database supports:
-        - Channel-specific configurations
-        - 'defaults' field for common settings (functional, not metadata)
+        The database holds:
+        - One entry per channel, each stating its own ``writable``; an entry
+          without it fails the load
         - Metadata fields with underscore prefix (_comment, _version, etc.)
         - Per-channel confirm policy (stored in raw DB)
+
+        Every other top-level key is a channel address, except ``defaults``,
+        which fails the load: no block of shared values applies to an entry.
 
         Args:
             db_path: Path to JSON database file
@@ -742,20 +736,13 @@ class LimitsValidator:
                     f"Limits database must be a JSON object/dict, got {type(raw_db).__name__}"
                 )
 
-            # Validate 'defaults' field if present
-            defaults_config: dict = {}
-            if DEFAULTS_FIELD in raw_db:
-                defaults_config = raw_db[DEFAULTS_FIELD]
-                if not isinstance(defaults_config, dict):
-                    raise ValueError(
-                        f"'{DEFAULTS_FIELD}' field must be a dictionary, "
-                        f"got {type(defaults_config).__name__}"
-                    )
-                try:
-                    LimitsValidator._validate_channel_config(DEFAULTS_FIELD, defaults_config)
-                    logger.debug(f"Loaded defaults configuration: {list(defaults_config.keys())}")
-                except ValueError as e:
-                    raise ValueError(f"Invalid '{DEFAULTS_FIELD}' configuration: {e}") from e
+            # Every entry states its own write policy; a shared block would
+            # hand writability to entries that never asked for it.
+            if "defaults" in raw_db:
+                raise ValueError(
+                    "Top-level key 'defaults' is not allowed: each channel entry "
+                    "states its own 'writable' and 'confirm'"
+                )
 
             # Load channel configurations
             limits_db = {}
@@ -763,10 +750,6 @@ class LimitsValidator:
                 # Skip metadata fields (underscore prefix)
                 if channel_name in METADATA_FIELDS or channel_name.startswith("_"):
                     logger.debug(f"Skipping metadata field: {channel_name}")
-                    continue
-
-                # Skip the defaults field (handled separately, not a channel)
-                if channel_name == DEFAULTS_FIELD:
                     continue
 
                 # Validate it's a dict
@@ -780,19 +763,17 @@ class LimitsValidator:
                     # Validate configuration structure
                     LimitsValidator._validate_channel_config(channel_name, config_dict)
 
-                    # Merge the 'defaults' block under the channel's own config so
-                    # the channel inherits any default field it does not override.
-                    # Shallow merge: the channel's own keys take precedence, and a
-                    # channel that declares 'confirm' overrides the default.
-                    merged = {**defaults_config, **config_dict}
+                    # Writability is never assumed: an entry that does not
+                    # state it fails the load.
+                    if "writable" not in config_dict:
+                        raise ValueError(f"Channel '{channel_name}' does not state 'writable'")
 
-                    # Create validated config object
                     config = ChannelLimitsConfig(
                         channel_address=channel_name,
-                        min_value=merged.get("min_value"),
-                        max_value=merged.get("max_value"),
-                        max_step=merged.get("max_step"),
-                        writable=merged.get("writable", True),
+                        min_value=config_dict.get("min_value"),
+                        max_value=config_dict.get("max_value"),
+                        max_step=config_dict.get("max_step"),
+                        writable=config_dict["writable"],
                     )
 
                     # Log performance warning for max_step

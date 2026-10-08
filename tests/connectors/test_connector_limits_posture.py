@@ -39,7 +39,7 @@ def _type_mode_key(connector_type: str) -> str:
 def _limits_db(tmp_path: Path) -> Path:
     """A one-channel limits database, so a validator loads rather than failsafes."""
     db_file = tmp_path / "limits.json"
-    db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+    db_file.write_text(json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}}))
     return db_file
 
 

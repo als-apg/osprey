@@ -42,13 +42,9 @@ _TIER3_HIERARCHICAL = _CONTROL_ASSISTANT_DATA / "channel_databases/tiers/tier3/h
 # ---------------------------------------------------------------------------
 
 
-def _write_limits(path: Path, entries: dict[str, dict], defaults: dict | None = None) -> Path:
+def _write_limits(path: Path, entries: dict[str, dict]) -> Path:
     """Write a synthetic channel_limits.json-shaped file."""
-    payload: dict[str, object] = {
-        "_comment": "synthetic fixture",
-        "_version": "4.0",
-        "defaults": {"writable": True} if defaults is None else defaults,
-    }
+    payload: dict[str, object] = {"_comment": "synthetic fixture", "_version": "4.0"}
     payload.update(entries)
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
@@ -237,7 +233,7 @@ class TestAssignDirections:
         limits = _write_limits(
             tmp_path / "limits.json",
             {
-                "SR:MAG:DIPOLE:01:CURRENT:SP": {},
+                "SR:MAG:DIPOLE:01:CURRENT:SP": {"writable": True},
                 "SR:MAG:DIPOLE:01:CURRENT:RB": {"writable": False},
             },
         )
@@ -255,7 +251,9 @@ class TestAssignDirections:
     def test_limits_source_honors_a_non_setpoint_write(self, tmp_path):
         """The limits file, not the grammar, decides — even when they would differ."""
         addresses = ["SR:VAC:VALVE:01:CONTROL:OPEN"]
-        limits = _write_limits(tmp_path / "limits.json", {"SR:VAC:VALVE:01:CONTROL:OPEN": {}})
+        limits = _write_limits(
+            tmp_path / "limits.json", {"SR:VAC:VALVE:01:CONTROL:OPEN": {"writable": True}}
+        )
 
         annotated, report = assign_directions(_model(addresses), limits)
 
@@ -316,7 +314,7 @@ class TestAssignDirections:
         limits = _write_limits(
             tmp_path / "limits.json",
             {
-                "SR:MAG:DIPOLE:01:CURRENT:SP": {},
+                "SR:MAG:DIPOLE:01:CURRENT:SP": {"writable": True},
                 "SR:MAG:DIPOLE:01:CURRENT:RB": {"writable": False},
             },
         )
@@ -331,7 +329,7 @@ class TestAssignDirections:
         limits = _write_limits(
             tmp_path / "limits.json",
             {
-                "SR:MAG:DIPOLE:01:CURRENT:SP": {},
+                "SR:MAG:DIPOLE:01:CURRENT:SP": {"writable": True},
                 "SR:MAG:DIPOLE:02:CURRENT:SP": {"writable": False},
             },
         )
@@ -352,7 +350,10 @@ class TestAssignDirections:
         blocked = [f"SR:MAG:DIPOLE:{index:02d}:CURRENT:SP" for index in range(21, 33)]
         limits = _write_limits(
             tmp_path / "limits.json",
-            {**{address: {} for address in writable}, **{a: {"writable": False} for a in blocked}},
+            {
+                **{a: {"writable": True} for a in writable},
+                **{a: {"writable": False} for a in blocked},
+            },
         )
 
         with pytest.raises(DirectionConflictError) as excinfo:
@@ -366,7 +367,9 @@ class TestAssignDirections:
     def test_the_receiver_model_is_not_mutated(self, tmp_path):
         """with_directions is non-mutating and this pass must stay that way."""
         model = _model(["SR:MAG:DIPOLE:01:CURRENT:SP"])
-        limits = _write_limits(tmp_path / "limits.json", {"SR:MAG:DIPOLE:01:CURRENT:SP": {}})
+        limits = _write_limits(
+            tmp_path / "limits.json", {"SR:MAG:DIPOLE:01:CURRENT:SP": {"writable": True}}
+        )
 
         annotated, _report = assign_directions(model, limits)
 
@@ -385,7 +388,9 @@ class TestResolveAndAssign:
     @pytest.mark.usefixtures("no_ambient_config")
     def test_chains_resolution_into_assignment(self, tmp_path):
         """A configured, existing limits file produces a limits-sourced report."""
-        limits = _write_limits(tmp_path / "limits.json", {"SR:MAG:DIPOLE:01:CURRENT:SP": {}})
+        limits = _write_limits(
+            tmp_path / "limits.json", {"SR:MAG:DIPOLE:01:CURRENT:SP": {"writable": True}}
+        )
 
         annotated, report = resolve_and_assign(
             _model(["SR:MAG:DIPOLE:01:CURRENT:SP"]),

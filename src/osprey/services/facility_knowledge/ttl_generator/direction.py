@@ -10,9 +10,9 @@ quantity.
 There are two sources, in priority order:
 
 1. **The channel limits file** — the preset's enforced writability ground
-   truth.  A channel is writable when the defaults-merged entry in
-   ``channel_limits.json`` says so, which is the same rule the runtime write
-   path applies (see
+   truth.  A channel is writable when its own entry in
+   ``channel_limits.json`` states ``writable: true``, which is the same
+   per-entry rule the runtime write path applies (see
    :meth:`osprey_connectors.control_system.limits_validator.LimitsValidator._load_limits_database`).
    This is authoritative: the demo machine marks the twelve gate valves'
    ``CONTROL:OPEN`` / ``CONTROL:CLOSE`` channels ``writable: false`` even though

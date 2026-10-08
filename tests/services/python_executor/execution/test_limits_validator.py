@@ -261,7 +261,7 @@ class TestLimitsValidator:
         db_content = {
             "_comment": "This is a comment",
             "_note": "Another comment",
-            "TEST:PV": {"min_value": 0.0, "max_value": 100.0},
+            "TEST:PV": {"writable": True, "min_value": 0.0, "max_value": 100.0},
         }
         db_file.write_text(json.dumps(db_content))
 
@@ -314,8 +314,8 @@ class TestLimitsValidator:
         """
         db_file = tmp_path / "test_boundaries.json"
         db_content = {
-            "VALID:PV": {"min_value": 0.0, "max_value": 100.0},
-            "INVALID:PV1": {"min_value": "not_a_number"},  # Invalid type
+            "VALID:PV": {"writable": True, "min_value": 0.0, "max_value": 100.0},
+            "INVALID:PV1": {"writable": True, "min_value": "not_a_number"},  # Invalid type
             "VALID:PV2": {"writable": False},
         }
         db_file.write_text(json.dumps(db_content))
@@ -481,7 +481,9 @@ class TestLimitsValidator:
         container_dir.mkdir()
         db_file = container_dir / "data" / "channel_limits.json"
         db_file.parent.mkdir()
-        db_file.write_text(json.dumps({"TEST:PV": {"min_value": 0.0, "max_value": 100.0}}))
+        db_file.write_text(
+            json.dumps({"TEST:PV": {"writable": True, "min_value": 0.0, "max_value": 100.0}})
+        )
         monkeypatch.setenv("CONFIG_FILE", str(container_dir / "config.yml"))
 
         # project_root: a HOST path that does NOT exist in this environment
@@ -526,7 +528,9 @@ class TestLimitsValidator:
         project_root.mkdir()
         db_file = project_root / "data" / "channel_limits.json"
         db_file.parent.mkdir()
-        db_file.write_text(json.dumps({"TEST:PV": {"min_value": 0.0, "max_value": 100.0}}))
+        db_file.write_text(
+            json.dumps({"TEST:PV": {"writable": True, "min_value": 0.0, "max_value": 100.0}})
+        )
 
         def config_side_effect(key, default):
             if key == "control_system":
