@@ -1,0 +1,100 @@
+{#
+  _store_dial.j2 — where a container running the PROJECT image reaches the
+  stores this deployment runs.
+
+  The `services.<store>` blocks in config.yml are written for the HOST side: a
+  published port on the host's interface. From inside a container on the
+  compose bridge, the host's loopback is the container's own, where nothing
+  listens. So every template that runs the project image (the ARIEL sync
+  daemon, the dispatch workers) hands its container the address that is right
+  from where it actually runs, through these macros, so the consumers state
+  one address the same way and none of them spells a store's name or port.
+
+  Each address is a LITERAL that resolves only on a network where THIS
+  deployment runs the store, so each is gated on `deployed_services`
+  membership: a store someone else runs is named by its own config block,
+  which is already correct from anywhere.
+
+  ----------------------------------------------------------------------------
+  IMPORTING AND WHITESPACE
+  ----------------------------------------------------------------------------
+
+  A plain (context-free) import, as for `_env_axis.j2` beside it:
+
+      {% import "services/_store_dial.j2" as dial %}
+
+  Each macro emits a LEADING newline and no trailing one, and is called alone
+  on its own line inside an `environment:` block with a left-trim marker:
+
+      {{- dial.qmd_sidecars(osprey_qmd, deployed_services, on_host) }}
+
+  With nothing to emit the line disappears.
+
+  ----------------------------------------------------------------------------
+  WHAT AN EDIT HERE REDDENS
+  ----------------------------------------------------------------------------
+
+  The renders of every importer are pinned byte for byte. Regenerate in the
+  same change:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+#}
+
+{#- One `OSPREY_QMD_<CORPUS>_URL` per qmd sidecar, naming it by its compose
+    service and the port it listens on inside the network.
+    `resolve_qmd_corpus_config` dials that URL in place of the published one.
+
+    The names and URLs are the render context's (`osprey_qmd.network_env`,
+    derived in compose_generator from qmd_service), never spelled here.
+
+    Bridge only. Under `network: host` the container's loopback is the host's,
+    and the published address the config block names is already right. A
+    sidecar moved onto the host network while this consumer stays on the bridge
+    leaves these URLs naming a service that has no DNS name there, which the
+    build's cross-network check refuses. -#}
+{%- macro qmd_sidecars(osprey_qmd, deployed_services, on_host, indent=6) -%}
+{%- set urls = ((osprey_qmd or {}).network_env or {}) if 'qmd' in (deployed_services or []) and not on_host else {} -%}
+{%- if urls %}
+{{ ' ' * indent }}# Each qmd sidecar by its in-network service name, which is where a
+{{ ' ' * indent }}# bridge container reaches it; the config block names the host publish.
+{%- for name, url in urls | dictsort %}
+{{ ' ' * indent }}{{ name }}: {{ url }}
+{%- endfor %}
+{%- endif -%}
+{%- endmacro %}
+
+{#- `ARIEL_DATABASE_HOST`/`PORT`: the ARIEL store's address from where this
+    container runs. `resolve_ariel_dsn` applies the two in its DERIVED rung
+    only, so they are inert under an authored `ariel.database.uri` (or the
+    legacy alias) — an external store named by URI is never redirected here.
+
+    Which is also what a deployment running a consumer against an EXTERNAL
+    store has to rely on: that store must be NAMED, by `ariel.database.uri`,
+    because it is the authored URI — not this file — that is correct from
+    anywhere. Nothing enforces the pairing. With no co-deployed `postgresql`
+    and no authored URI, resolve_ariel_dsn falls to its derived rung, whose
+    default host is `localhost`: the container's own loopback on the bridge,
+    where no store listens, and the failure surfaces at the first query as a
+    refused connection. -#}
+{%- macro ariel_store(services, osprey_ports, deployed_services, on_host) -%}
+{%- if 'postgresql' in (deployed_services or []) %}
+{%- if on_host %}
+      # On the host namespace this container's loopback IS the host's, so the
+      # store is reached where it PUBLISHES. `port_host` is spelled with the
+      # same defaulting chain every other reader of this store uses: a config
+      # that names the block but omits the key falls back to the layout value
+      # for the deployment's own `deployment.port_base`, and `default({}, true)`
+      # rescues an absent block, which a bare `| default(...)` on the attribute
+      # could not.
+      ARIEL_DATABASE_HOST: localhost
+      ARIEL_DATABASE_PORT: "{{ (services.postgresql | default({}, true)).port_host | default(osprey_ports.postgres, true) }}"
+{%- else %}
+      # `ariel-postgres` is the store's network alias, pinned in the postgresql
+      # template precisely so this name survives the per-project
+      # container_name; 5432 is its CONTAINER port, never the host publish.
+      ARIEL_DATABASE_HOST: ariel-postgres
+      ARIEL_DATABASE_PORT: "5432"
+{%- endif %}
+{%- endif -%}
+{%- endmacro %}

@@ -12,6 +12,9 @@
     every service template states the same topology the same way. -#}
 {%- import "services/_network_axis.j2" as net -%}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{#- The stores' addresses from inside this container, shared with the dispatch
+    worker, which runs the same image on the same network axis. -#}
+{%- import "services/_store_dial.j2" as dial -%}
 # The ariel-sync service keeps this deployment's ARIEL logbook mirror FRESH.
 # It runs `osprey ariel sync --watch`: a startup sync (schema migration,
 # incremental ingest, enhance cleanup) and then the ingestion loop, polling the
@@ -46,13 +49,13 @@
     every read goes through the `default({}, true)` spelling rather than a bare
     attribute lookup, which would raise on the missing parent. #}
 {%- set svc = services.ariel_sync | default({}, true) %}
-{#- The network axis, read here as well as by the macros: the store's address
-    below is a LITERAL, and which literal is right depends on which namespace
+{#- The network axis, read here as well as by the macros: the stores' addresses
+    below are LITERALS, and which literal is right depends on which namespace
     this container ends up in. #}
 {%- set on_host = (svc.network | default('bridge', true)) == 'host' %}
-{#- Whether THIS deployment runs the ARIEL store. Read twice below — startup
-    ordering and the store address — so the co-deployed and external cases
-    cannot drift apart in this file. #}
+{#- Whether THIS deployment runs the ARIEL store, for startup ordering. The
+    store-address macro applies the same `deployed_services` gate, so the
+    co-deployed and external cases cannot drift apart. #}
 {%- set postgres_deployed = 'postgresql' in (deployed_services | default([])) %}
 
 services:
@@ -134,51 +137,8 @@ services:
       CONFIG_FILE: /app/{{ osprey_labels.project_name }}/build/config.yml
       OSPREY_PROJECT_DIR: /app/{{ osprey_labels.project_name }}
       TZ: {{ system.timezone }}
-{%- if postgres_deployed %}
-{#- Address of the ARIEL store, by the same convention as the dispatch worker's
-    OSPREY_ARCHIVER_MONGODB_HOST/PORT: whichever address is right from where
-    this container actually runs. The `ariel.database` block in config.yml is
-    written for the HOST side (`localhost` and the published `port_host`), which
-    from inside a bridge-networked container names its own loopback.
-
-    Gated on `deployed_services` membership, and for a sharper reason than
-    symmetry: these two are a LITERAL address, not a fallback. `ariel-postgres`
-    is a name that resolves only on a network where THIS deployment runs the
-    store, so it is set only in that case — the one case where this file knows
-    the store's address better than the config does.
-
-    Inert under an authored `ariel.database.uri` either way: resolve_ariel_dsn
-    applies these two in its DERIVED rung only, so an explicit URI (or the
-    legacy alias) is returned verbatim and is never redirected here.
-
-    Which is also what a deployment running this service against an EXTERNAL
-    store has to rely on: that store must be NAMED, by `ariel.database.uri`
-    (or the legacy alias), because it is the authored URI — not this file — that
-    is correct from anywhere. Nothing enforces the pairing. Deploy this service
-    with no co-deployed `postgresql` and no authored URI and resolve_ariel_dsn
-    falls to its derived rung, whose default host is `localhost`: this
-    container's own loopback on the bridge, where no store listens. The build
-    advisory does not cover that shape either — it asks whether a remote
-    logbook has an ingester, not whether an ingester has a store — so the
-    failure surfaces at the first sync as a refused connection. #}
-{%- if on_host %}
-      # On the host namespace this container's loopback IS the host's, so the
-      # store is reached where it PUBLISHES. `port_host` is spelled with the
-      # same defaulting chain every other reader of this store uses: a config
-      # that names the block but omits the key falls back to the layout value
-      # for the deployment's own `deployment.port_base`, and `default({}, true)`
-      # rescues an absent block, which a bare `| default(...)` on the attribute
-      # could not.
-      ARIEL_DATABASE_HOST: localhost
-      ARIEL_DATABASE_PORT: "{{ (services.postgresql | default({}, true)).port_host | default(osprey_ports.postgres, true) }}"
-{%- else %}
-      # `ariel-postgres` is the store's network alias, pinned in the postgresql
-      # template precisely so this name survives the per-project
-      # container_name; 5432 is its CONTAINER port, never the host publish.
-      ARIEL_DATABASE_HOST: ariel-postgres
-      ARIEL_DATABASE_PORT: "5432"
-{%- endif %}
-{%- endif %}
+{{- dial.ariel_store(services, osprey_ports, deployed_services | default([]), on_host) }}
+{{- dial.qmd_sidecars(osprey_qmd, deployed_services | default([]), on_host) }}
 {%- if osprey_ariel_mirror_source %}
       # The mirror mount's target, named to the image entrypoint: its root phase
       # is to join the group of each directory the render names here before
