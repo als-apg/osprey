@@ -220,17 +220,6 @@ services:
       # `simulation.tick_s`, rendered here by compose_generator. Not a host
       # passthrough, so the tick is the one the config states.
       VA_POLL_INTERVAL_S: "{{ va_tick_s }}"
-      # How much noise the synthesised channels carry. Empty means the
-      # entrypoint's own default (0.01); a value out of range is refused at boot
-      # rather than clamped, so a typo shows up in `docker logs`.
-      #
-      # The noise level's surface is the config key
-      # `control_system.connector.virtual_accelerator.noise_level` (falling
-      # through to the mock connector's), rendered here as the interpolation's
-      # default by compose_generator's `_va_noise_level`; the variable is how
-      # that value reaches the container, and a deployment that exports it in
-      # its own .env still wins.
-      VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-{{ va_noise_level | default('') }}}"
       # Where the IOC polls active_scenarios — the second mount below, not the
       # build-owned data dir.
       VA_STATE_DIR: /state/simulation

@@ -254,7 +254,7 @@ environment setup is needed.
 What the IOC serves, and how often
 ==================================
 
-Three settings reach the container through its compose environment rather
+Two settings reach the container through its compose environment rather
 than being fixed in the image, because each is a property of the machine you
 are standing in for, or of who may alter it, rather than of OSPREY:
 
@@ -270,27 +270,15 @@ are standing in for, or of who may alter it, rather than of OSPREY:
        ``simulation.tick_s`` (default ``1.0``), which ``osprey build`` renders
        into the compose file; a project ``.env`` value is not read. Lower it
        for a demo that should look live; raise it on a very large namespace.
-   * - ``VA_NOISE_LEVEL``
-     - Fractional noise on the synthesised channel values, default ``0.01``.
-       ``0`` serves them flat, which is what a test that compares readings
-       wants. Write the value as
-       ``control_system.connector.virtual_accelerator.noise_level`` in your
-       configuration --- unset, it falls through to
-       ``control_system.connector.mock.noise_level``, so one simulated machine
-       is described once --- and ``osprey build`` renders it as this variable's
-       default.
    * - ``VA_MODEL_WRITE_TOKEN``
      - The credential a write to the model's own variables must present over
        the model RPC (see :doc:`/architecture/virtual-accelerator`). Unset, the
        container refuses every such write; reads need no token. There is no
        default to fall back on --- set it in the deployment's ``.env``.
 
-The two numbers are refused at boot if they are not a number, or out of range,
-rather than being clamped --- so a typo shows up in ``docker logs`` instead of
-quietly changing what the machine looks like. Leave ``VA_NOISE_LEVEL`` empty
-and its default applies. A ``VA_NOISE_LEVEL`` exported in the deployment's own
-``.env`` outranks the rendered default, so a single run can be made noisier or
-quieter without editing the configuration.
+The poll interval is refused at boot if it is not a number, or not greater
+than zero, rather than being clamped --- so a typo shows up in ``docker logs``
+instead of quietly changing what the machine looks like.
 
 .. _va-serving-your-own-model:
 
