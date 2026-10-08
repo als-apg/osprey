@@ -6277,6 +6277,106 @@ def test_live_va_lane_fails_on_any_skipped_test__mutation_drops_the_gate(job_nam
 
 
 # ---------------------------------------------------------------------------
+# The real-facility lane, on the committed NSLS-II stand-in
+# ---------------------------------------------------------------------------
+#
+# The real-facility lane installs an export that never enters the repository,
+# so in CI it runs over a committed stand-in tree: the same import, build and
+# boot, on the VA live job's image. It is a step of its own rather than a path
+# in the run step above, because that step's suites are the tests/va/e2e
+# partition and this module is not one of them. Without its variable the
+# module skips by design, so its report goes through the same zero-skip gate.
+
+ALS_LANE_STEP = "Run the real-facility lane on the NSLS-II stand-in"
+ALS_LANE_MODULE = "tests/cli/test_als_lane.py"
+ALS_STAND_IN_ENV = "OSPREY_ALS_LANE_STAND_IN"
+ALS_STAND_IN = "tests/fixtures/mml/nsls2"
+_MIN_COLLECTED_RE = re.compile(r"^MIN_COLLECTED_TESTS = (\d+)$", re.MULTILINE)
+
+
+def test_als_lane_runs_on_the_stand_in_in_the_va_live_job(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    """The step exists, runs the lane module alone, and names the committed stand-in."""
+    wf = workflow if workflow is not None else _load_workflow()
+    step = _find_named_step(wf, VA_LIVE_JOB, ALS_LANE_STEP)
+    named = [token for token in step["run"].split() if token.endswith(".py")]
+    assert named == [ALS_LANE_MODULE], f"'{ALS_LANE_STEP}' runs {named}"
+    assert "uv run pytest" in step["run"], step["run"]
+    value = step.get("env", {}).get(ALS_STAND_IN_ENV)
+    assert value == ALS_STAND_IN, f"'{ALS_LANE_STEP}' sets {ALS_STAND_IN_ENV} to {value!r}"
+    assert (REPO_ROOT / ALS_STAND_IN / "imported" / "mml" / "mapping.yaml").is_file()
+
+    names = _step_names(wf, VA_LIVE_JOB)
+    image = names.index(next(n for n in names if n.startswith("Build the virtual accelerator")))
+    assert names.index(ALS_LANE_STEP) > image, "the lane boots the image this job builds"
+
+
+def test_als_lane_runs_on_the_stand_in__mutation_drops_the_variable() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, VA_LIVE_JOB, ALS_LANE_STEP)["env"][ALS_STAND_IN_ENV]
+    with pytest.raises(AssertionError):
+        test_als_lane_runs_on_the_stand_in_in_the_va_live_job(mutated)
+
+
+def test_als_lane_runs_on_the_stand_in__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[VA_LIVE_JOB]
+    job["steps"] = [s for s in job["steps"] if s.get("name") != ALS_LANE_STEP]
+    with pytest.raises(AssertionError):
+        test_als_lane_runs_on_the_stand_in_in_the_va_live_job(mutated)
+
+
+def test_als_lane_report_goes_through_the_zero_skip_gate(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    """One report of its own, read by the gate beside the VA run step's."""
+    wf = workflow if workflow is not None else _load_workflow()
+    reports = _junit_reports_written_by([_find_named_step(wf, VA_LIVE_JOB, ALS_LANE_STEP)])
+    assert len(reports) == 1, f"'{ALS_LANE_STEP}' must write one --junitxml report; got {reports}"
+    run_step = _find_named_step(wf, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    assert reports[0] not in _junit_reports_written_by([run_step]), reports
+    gate = _find_named_step(wf, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)["run"]
+    assert reports[0] in gate, f"'{VA_LIVE_SKIP_GATE_STEP}' never reads {reports[0]}"
+
+
+def test_als_lane_report_goes_through_the_zero_skip_gate__mutation_drops_it() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    (report,) = _junit_reports_written_by([_find_named_step(mutated, VA_LIVE_JOB, ALS_LANE_STEP)])
+    gate = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)
+    gate["run"] = gate["run"].replace(report, "")
+    with pytest.raises(AssertionError):
+        test_als_lane_report_goes_through_the_zero_skip_gate(mutated)
+
+
+def _als_lane_floor_errors(source: str) -> list[str]:
+    """What the lane module's collection floor is missing, read from its text.
+
+    Read rather than imported: the module resolves its lane at import, and the
+    floor is a fact about its source.
+    """
+    errors: list[str] = []
+    match = _MIN_COLLECTED_RE.search(source)
+    if match is None or int(match.group(1)) < 1:
+        errors.append("declares no positive MIN_COLLECTED_TESTS")
+    if "len(collected) >= MIN_COLLECTED_TESTS" not in source:
+        errors.append("never asserts its collection against MIN_COLLECTED_TESTS")
+    return errors
+
+
+def test_als_lane_module_carries_its_collection_floor() -> None:
+    source = (REPO_ROOT / ALS_LANE_MODULE).read_text(encoding="utf-8")
+    assert _als_lane_floor_errors(source) == []
+
+
+def test_als_lane_module_carries_its_collection_floor__mutation_drops_the_floor() -> None:
+    source = (REPO_ROOT / ALS_LANE_MODULE).read_text(encoding="utf-8")
+    assert _als_lane_floor_errors(_MIN_COLLECTED_RE.sub("", source))
+    guard = "len(collected) >= MIN_COLLECTED_TESTS"
+    assert _als_lane_floor_errors(source.replace(guard, "collected"))
+
+
+# ---------------------------------------------------------------------------
 # The virtual accelerator image: one recipe, four lanes
 # ---------------------------------------------------------------------------
 #
