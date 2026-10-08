@@ -1,7 +1,9 @@
 """The mml layer's importer: MML exports written as record sources under ``imported/mml/``.
 
-:func:`import_mml` reads one or more exports, loads the layer's mapping (or
-writes a draft and stops, :func:`~osprey.facility.layers.mml.mapping.load_or_draft`)
+:func:`import_mml` reads one or more exports, holds each export's deck to the
+lattice fingerprint the export states (:func:`check_decks`; a deck of another
+lattice stops the import, an energy that differs alone is said), loads the
+layer's mapping (or writes a draft and stops, :func:`~osprey.facility.layers.mml.mapping.load_or_draft`)
 checks it against the exports
 (:func:`~osprey.facility.layers.mml.mapping.check_mapping`; a mapping with a
 problem stops the import before anything is written) and writes the layer's
@@ -109,6 +111,7 @@ __all__ = [
     "TRANSPORT",
     "Exports",
     "MappingProblems",
+    "check_decks",
     "import_mml",
     "read_exports",
     "write_records",
@@ -242,6 +245,67 @@ def read_exports(paths: Sequence[Path]) -> Exports:
     return exports
 
 
+#: What every line about a deck that disagrees with its export ends in.
+_PAIRING_REMEDY = "import the lattice the export was sampled from, or export again over this one"
+
+
+def check_decks(exports: Exports) -> list[str]:
+    """Hold each export's deck to the lattice fingerprint the export states.
+
+    A deck and the export sampled over it travel as separate files, and the
+    fingerprint in the export's ``lattice`` block is all that pairs them. Each
+    paired deck is read and its fingerprint recomputed. An export with no
+    sampled facts states none, and its deck is not judged.
+
+    Args:
+        exports: What :func:`read_exports` read.
+
+    Returns:
+        One line per thing to say about a deck the import still files: a deck
+        whose export states no usable fingerprint, and a deck whose energy
+        alone differs from the one its export states.
+
+    Raises:
+        ImportStop: ``export-invalid``, one line per deck that is another
+            lattice than its export states, naming the first fact the two
+            disagree on.
+    """
+    from osprey.facility.layers.mml.fingerprint import check_fingerprint, lattice_fingerprint
+    from osprey.facility.layers.mml.loaders.mat import load_lattice
+
+    refused: list[str] = []
+    lines: list[str] = []
+    for system in exports.systems:
+        deck = exports.decks.get(system)
+        facts = exports.va.get(system)
+        stated = facts.get("lattice") if isinstance(facts, dict) else None
+        if deck is None or stated is None:
+            continue
+        if not isinstance(stated, dict) or "refused" in stated:
+            reason = stated.get("refused") if isinstance(stated, dict) else stated
+            lines.append(
+                f"import mml: deck unchecked: {system}: the export states no lattice "
+                f"fingerprint ({reason}); the deck {deck.name} is filed unchecked"
+            )
+            continue
+        said = [
+            (
+                mismatch.refuses,
+                f"{system}: the deck {deck.name} holds {mismatch.field} {mismatch.actual!r} "
+                f"and the export states {mismatch.expected!r}; {_PAIRING_REMEDY}",
+            )
+            for mismatch in check_fingerprint(stated, lattice_fingerprint(load_lattice(deck)))
+        ]
+        refusing = [line for refuses, line in said if refuses]
+        if refusing:
+            refused.append(refusing[0])
+        else:
+            lines.extend(f"import mml: deck energy: {line}" for _, line in said)
+    if refused:
+        raise ImportStop("export-invalid", refused)
+    return lines
+
+
 class MappingProblems(click.ClickException):
     """The mapping fails its check: one line per problem, then how many there are.
 
@@ -285,17 +349,20 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
         authored file seeded because it did not exist.
 
     Raises:
-        ImportStop: ``mapping-draft`` when the mapping was absent and a draft
-            was written; ``mapping-undecided`` while a slot it needs is
-            undecided; ``mapping-invalid`` for a ``devices`` answer the
-            export cannot carry; ``export-invalid`` or ``reference-missing``
-            from the wiring pass.
+        ImportStop: ``export-invalid`` for a deck that is another lattice than
+            its export states; ``mapping-draft`` when the mapping was absent
+            and a draft was written; ``mapping-undecided`` while a slot it
+            needs is undecided; ``mapping-invalid`` for a ``devices`` answer
+            the export cannot carry; ``export-invalid`` or
+            ``reference-missing`` from the wiring pass.
         MappingProblems: The mapping fails its check; nothing is written.
         MappingError: The mapping has the wrong structure.
     """
     from osprey.facility.layers.mml.seed import seed_once
 
     exports = read_exports(paths)
+    for line in check_decks(exports):
+        click.echo(line)
     mapping = load_or_draft(facility_dir, exports.ao, exports.ad or None, exports.va or None)
     problems = check_mapping(mapping, exports.ao)
     if problems:

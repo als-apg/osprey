@@ -37,6 +37,13 @@ run the same command again.
 The import takes every export the mapping names: a run given a subset is
 refused by the mapping check, which names each system no given export carries.
 
+Each deck is held to the lattice its export was sampled over. A
+``<stem>.lattice.mat`` with another element count, other family names or other
+parameter elements than the export states stops the import with
+``import mml: export-invalid`` and names the fact that differs: import the
+lattice the export was sampled from, or export again over this one. An energy
+that differs alone is reported and the import goes on.
+
 Review the mapping
 ==================
 

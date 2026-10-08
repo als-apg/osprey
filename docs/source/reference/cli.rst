@@ -982,7 +982,16 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    Write MML exports as the mml layer's sources under
    ``data/facility/imported/mml/`` and seed each authored file that does not
    exist yet. ``EXPORT`` is an export's ``<stem>.ao.json``; give every export
-   the mapping names. The mapping is checked against the exports first: a
+   the mapping names. Each export's deck is held to the lattice fingerprint
+   the export states: a deck with another element count, family-name digest
+   or parameter-element indices prints
+   ``import mml: export-invalid: <system>: the deck <file> holds <fact>
+   <value> and the export states <value>; import the lattice the export was
+   sampled from, or export again over this one``, writes nothing and exits 1.
+   An energy that differs alone prints the same sentence after
+   ``import mml: deck energy:`` and the import goes on, and an export that
+   states no fingerprint prints one ``import mml: deck unchecked:`` line.
+   The mapping is then checked against the exports: a
    problem prints one ``<key>: <message>`` line per problem, then
    ``<n> problems in data/facility/imported/mml/mapping.yaml; fix each and
    check again.`` (``1 problem`` for one), writes nothing and exits 1. A system

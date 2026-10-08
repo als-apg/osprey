@@ -85,8 +85,9 @@ it sets nothing on the machine.
 `va.json` is the part the Middle Layer cannot state as stored data. It opens
 with a fingerprint of the ring the file belongs to — element count, a digest of
 the family names in ring order, the model energy, where any ring-parameter
-element sits — which the importer recomputes from the lattice file and refuses
-on disagreement. Then one block per family: the Setpoint's and the Monitor's own
+element sits — which the importer recomputes from the lattice file: a lattice
+that disagrees on the elements is refused, and an energy that differs alone is
+reported. Then one block per family: the Setpoint's and the Monitor's own
 hardware→physics calibrations, and the Monitor's physics→hardware inverse, each
 sampled through the facility's own conversion functions rather than read out of
 their stored parameters; whether the Setpoint's conversion carries the beam's rigidity; the
