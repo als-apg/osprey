@@ -625,6 +625,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "profile-invalid",
         "a per-type `limits_checking.database_path`",
     ),
+    (
+        "profile_invalid__served_probe_channel",
+        "profile-invalid",
+        "a served block's `probe_channel` the facility file does not hold",
+    ),
 )
 
 #: Each case: the tree that breaks the rule, and the one line it stops with.
@@ -2105,6 +2110,16 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "control_system.connector.epics.limits_checking.database_path from the profile"
         ),
     ),
+    "profile_invalid__served_probe_channel": (
+        _plain(),
+        (
+            "facility: profile-invalid: path "
+            "control_system.connector.virtual_accelerator.probe_channel — `NOPE:RB` is not a "
+            "channel of the facility file; fix: set "
+            "`control_system.connector.virtual_accelerator.probe_channel` to a readback the "
+            "facility file holds, such as `BPM1:X`"
+        ),
+    ),
 }
 
 #: The files a case puts in the profile's ``project/`` mirror, beside a clean tree.
@@ -2183,6 +2198,20 @@ def _start_in(value: Any) -> Callable[[Path], None]:
     return edit
 
 
+#: The simulator's probe key; every case's repo points it at ``BPM1:X``, a channel both trees hold.
+VA_PROBE_KEY = "control_system.connector.virtual_accelerator.probe_channel"
+
+
+def _probe(address: str) -> Callable[[Path], None]:
+    def edit(repo: Path) -> None:
+        profile = repo / "profile.yml"
+        data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+        data.setdefault("config", {})[VA_PROBE_KEY] = address
+        profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    return edit
+
+
 def _ship_limits(repo: Path) -> None:
     (repo / "data" / "channel_limits.json").write_text('{"_version": "4.0"}\n', encoding="utf-8")
 
@@ -2222,6 +2251,7 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "profile_invalid__per_type_limits_database_path": _state_limits_database(
         "control_system.connector.epics.limits_checking.database_path"
     ),
+    "profile_invalid__served_probe_channel": _probe("NOPE:RB"),
 }
 
 #: Cases only ``osprey build`` stops on: validate checks the main profile render, and
@@ -2259,8 +2289,10 @@ def _write(tmp_path: Path, case: str) -> Path:
 
 @pytest.fixture(scope="module")
 def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo named for the project, never edited."""
-    return init_project(tmp_path_factory.mktemp("ca"), "control-assistant", PROJECT)
+    """A control-assistant repo named for the project, probing a channel every tree holds."""
+    repo = init_project(tmp_path_factory.mktemp("ca"), "control-assistant", PROJECT)
+    _probe("BPM1:X")(repo)
+    return repo
 
 
 def _clear_facility_records(facility: Path) -> None:

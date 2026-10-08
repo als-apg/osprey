@@ -288,6 +288,20 @@ def import_facility(runner: CliRunner, repo: Path, exports: Sequence[str], mappi
     return invoke(runner, "facility", "import", "mml", *exports, "--repo", str(repo))
 
 
+def imported_probe(repo: Path) -> str:
+    """The first readback by address of the import's channels.
+
+    The rule the build's served-probe stop names its remedy by: a channel whose
+    role is ``readback`` or states none.
+    """
+    channels = yaml.safe_load(
+        (repo / FACILITY_DIR / "imported/mml/channels.yaml").read_text(encoding="utf-8")
+    )
+    return min(
+        str(channel["id"]) for channel in channels if channel.get("role", "readback") == "readback"
+    )
+
+
 def remove_stale_scenarios(repo: Path, imported: Result) -> tuple[str, ...]:
     """Remove exactly the scenario files a clean ``facility import mml`` listed.
 
@@ -641,6 +655,13 @@ def served_repo(
     invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
     cleared = clear_authored(runner, repo, exports)
     imported = import_facility(runner, repo, exports, facility_mapping(fixture))
+    invoke(
+        runner,
+        "set",
+        "--repo",
+        str(repo),
+        f"config.control_system.connector.virtual_accelerator.probe_channel={imported_probe(repo)}",
+    )
     scenario_stop = runner.invoke(
         cli,
         ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
