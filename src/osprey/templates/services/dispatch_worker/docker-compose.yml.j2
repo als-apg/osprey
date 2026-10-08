@@ -16,6 +16,11 @@
     declaration for both halves of the pair, written into this service block by
     `_inject_dispatch`. With nothing declared the macro emits nothing. -#}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{#- The ARIEL store and the qmd sidecars, at whichever address is right from
+    where this worker runs — shared with the ARIEL sync daemon, which runs the
+    same image on the same network axis. The agent's ARIEL and facility-
+    knowledge tools dial both. -#}
+{%- import "services/_store_dial.j2" as dial -%}
 # The dispatch-worker runs the full PROJECT image (<project>:local) that
 # `osprey up` builds from the project root — the same image the web
 # terminal runs, baking the facility overlays and data/ into /app/<project>.
@@ -43,6 +48,7 @@
 {%- set port_base = dw.worker_port_base | default(osprey_ports.worker, true) %}
 {%- set port_stride = dw.worker_port_stride | default(1) %}
 {%- set mongo_deployed = 'mongodb' in (deployed_services | default([])) %}
+{%- set postgres_deployed = 'postgresql' in (deployed_services | default([])) %}
 
 services:
 {% for i in range(1, wc + 1) %}
@@ -277,11 +283,13 @@ services:
       OSPREY_ARCHIVER_MONGODB_HOST: archiver-mongodb
       OSPREY_ARCHIVER_MONGODB_PORT: "27017"
 {% endif %}
+{{- dial.ariel_store(postgres_deployed, on_host, osprey_host_dial_address, services, osprey_ports) }}
+{{- dial.qmd_sidecars(osprey_qmd, deployed_services | default([]), on_host) }}
 {#- Last in the block, unlike the other service templates, where `TZ:` is the
     last line and the call sits under it: this one's `environment:` ends with
-    two mode-dependent blocks, and the axis is documented as the block's final
-    entries. This spelling leaves a deployment that declares nothing rendering
-    this file byte for byte as it did before the axis reached it. -#}
+    the mode-dependent store addresses, and the axis is documented as the
+    block's final entries. A deployment that declares nothing renders no
+    passthrough lines. -#}
 {{- hostenv.passthrough(services.dispatch_worker) }}
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT — hence the build/services/ prefix on

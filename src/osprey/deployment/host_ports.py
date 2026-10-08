@@ -62,7 +62,7 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.deployment.host_binding import host_binding_of
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
-from osprey.deployment.qmd_service import QMD_SERVICE_NAME, dial_host
+from osprey.deployment.qmd_service import QMD_SERVICE_NAME, QMD_SERVICE_PREFIX, dial_host
 from osprey.deployment.runtime_helper import get_ps_command, runtime_env
 from osprey.deployment.web_terminals.personas import normalize_users
 from osprey.deployment.web_terminals.ports import allocate_ports, base_ports_from_config
@@ -189,10 +189,6 @@ _SLOT_CONTAINER_PORTS = {
 
 # Compose service key of worker ``i``, and the prefix its remedy is keyed on.
 _WORKER_SERVICE_PREFIX = "dispatch-worker"
-
-# Compose service key of the qmd sidecar of corpus ``<name>`` is ``qmd-<name>``;
-# every sidecar is in the one qmd band, moved by the one key.
-_QMD_SERVICE_PREFIX = "qmd"
 
 # Label compose stamps with the project a container belongs to. Two checkouts of
 # one deployment share it, which is why :data:`REPO_ID_LABEL` is read as well.
@@ -346,7 +342,7 @@ def _generic_service(service):
         ``"dispatch-worker"`` for any indexed worker, ``"qmd"`` for any corpus
         sidecar, otherwise ``service``.
     """
-    for prefix in (_WORKER_SERVICE_PREFIX, _QMD_SERVICE_PREFIX):
+    for prefix in (_WORKER_SERVICE_PREFIX, QMD_SERVICE_PREFIX):
         if service.startswith(f"{prefix}-"):
             return prefix
     return service

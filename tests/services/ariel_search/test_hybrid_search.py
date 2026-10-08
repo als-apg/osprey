@@ -1978,6 +1978,29 @@ class TestPictureLaneFailure:
         assert diag.message.startswith("Text ranking unavailable — picture matches only")
         assert client.calls == []
 
+    @pytest.mark.parametrize(
+        ("configured", "named"),
+        [(True, "http://127.0.0.1:8180"), (False, "no qmd sidecar is configured")],
+    )
+    async def test_the_picture_only_diagnostic_names_the_dialled_sidecar(
+        self, fake_lane, configured, named
+    ):
+        # From inside a container the address dialled is not the one in the
+        # config block, so the diagnostic says which one did not answer.
+        fake_lane({"PIC": ImageHit("att-pic", 0.8)})
+
+        result = await hybrid_search(
+            "q",
+            LaneRepository([make_entry("PIC")]),
+            lane_config(),
+            client=StubClient(available=False, configured=configured),
+            include_images=True,
+        )
+
+        (diag,) = result.diagnostics
+        assert diag.message.startswith("Text ranking unavailable — picture matches only")
+        assert named in diag.message
+
     @pytest.mark.parametrize("lane_result", [{}, None])
     async def test_qmd_down_without_picture_hits_still_raises(self, fake_lane, lane_result):
         fake_lane(lane_result)

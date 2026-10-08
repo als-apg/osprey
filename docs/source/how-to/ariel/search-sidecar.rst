@@ -326,6 +326,23 @@ routable port.
    put an unauthenticated search endpoint on an interface the rest of the stack
    is not already on. Moving that one key off loopback moves this service too.
 
+How clients reach it
+~~~~~~~~~~~~~~~~~~~~
+
+A client on the host, such as a web terminal, dials the published port at the
+``deployment.bind_address``. A container on the compose network cannot: the
+host's loopback is its own. So the ARIEL sync daemon and the dispatch workers
+are each handed one ``OSPREY_QMD_<CORPUS>_URL`` per sidecar, naming it by its
+compose service name (``http://qmd-ariel:10061``), and dial that instead. Under
+``network: host`` those services dial the published port like any host client.
+
+``osprey health`` probes through the same rule, so run inside a container it
+reports on the address that container's clients use, and an ARIEL search that
+falls back to picture matches names the sidecar URL it could not reach.
+``osprey build`` refuses a sidecar moved to the host network while one of its
+consumers stays on the compose network, since the name it would dial does not
+exist there.
+
 .. seealso::
 
    :doc:`../deploy-project/index`
