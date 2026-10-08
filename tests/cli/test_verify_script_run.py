@@ -217,6 +217,58 @@ def test_a_pinned_compose_project_name_wins(tmp_path: Path, script: Path) -> Non
     assert "compose -p pinned ps -a --format json" in log
 
 
+def _built_config(script: Path, text: str) -> None:
+    """Write ``build/config.yml`` in the script's repo."""
+    config = script.parents[1] / "build" / "config.yml"
+    config.parent.mkdir()
+    config.write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "line", ["project_name: foo", 'project_name: "foo"', "project_name: 'foo'  # pinned"]
+)
+def test_the_built_config_names_the_project(tmp_path: Path, script: Path, line: str) -> None:
+    """``project_name`` in the built config wins over the repo directory's name."""
+    _built_config(script, f"{line}\ncontainer_runtime: docker\n")
+
+    _, log = _run(
+        script, "containers", stubs=_stubs(tmp_path), listing=_listing(tmp_path, _FOUR_ROWS)
+    )
+
+    assert "compose -p foo ps -a --format json" in log
+
+
+def test_a_pinned_compose_project_name_wins_over_the_built_config(
+    tmp_path: Path, script: Path
+) -> None:
+    """``COMPOSE_PROJECT_NAME`` still names the project over the built config."""
+    _built_config(script, "project_name: foo\n")
+
+    _, log = _run(
+        script,
+        "containers",
+        stubs=_stubs(tmp_path),
+        listing=_listing(tmp_path, _FOUR_ROWS),
+        COMPOSE_PROJECT_NAME="pinned",
+    )
+
+    assert "compose -p pinned ps -a --format json" in log
+
+
+def test_a_built_config_without_a_project_falls_back_to_the_folder(
+    tmp_path: Path, script: Path
+) -> None:
+    """With no ``project_name`` key the repo directory's name still answers."""
+    _built_config(script, "container_runtime: docker\n")
+
+    _, log = _run(
+        script, "containers", stubs=_stubs(tmp_path), listing=_listing(tmp_path, _FOUR_ROWS)
+    )
+
+    project = resolve_project_name({"project_name": "als-exemplar"})
+    assert f"compose -p {project} ps -a --format json" in log
+
+
 def test_podman_lists_by_the_compose_project_label(tmp_path: Path, script: Path) -> None:
     """podman lists by label, and its health comes from the status text."""
     rows = [{"Names": ["demo-graphdb-1"], "State": "running", "Status": "Up 3 minutes (unhealthy)"}]
