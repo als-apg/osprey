@@ -176,12 +176,6 @@ file reaches the graph with:
 
    $ osprey build && osprey up
 
-A facility that runs a MATLAB Middle Layer can take its corpus from ``osprey mml
-emit`` instead, which writes ``data/<facility token>.ttl`` beside the
-middle-layer channel database, from the same reviewed mapping. That route is the
-install flow in :doc:`/how-to/use-channel-finder`; point
-``services.graphdb.ttl_path`` at the file it names and ``osprey up`` seeds it.
-
 
 Authoring the Ontology
 ----------------------

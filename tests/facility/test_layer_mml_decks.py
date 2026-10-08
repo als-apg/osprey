@@ -45,7 +45,7 @@ STORAGE = (
 def _fixture(tree: str, stem: str, raw: str) -> tuple[Model, Any, dict, dict]:
     """One model, its saved deck, its export's Accelerator Objects and accelerator data."""
     from osprey.facility.layers.mml.importer import read_exports
-    from osprey.services.mml.loaders.mat import load_lattice
+    from osprey.facility.layers.mml.loaders.mat import load_lattice
 
     mapping = read_mapping(FIXTURES / tree / "imported" / "mml" / "mapping.yaml")
     deck = load_lattice(FIXTURES / tree / f"{stem}.lattice.mat")

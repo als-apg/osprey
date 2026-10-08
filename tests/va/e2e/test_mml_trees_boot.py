@@ -2,8 +2,8 @@
 
 The container half of success criterion 1: a facility export goes through the
 whole install -- ``init``, ``facility import mml`` under the tree's reviewed
-mapping, ``mml import``, the reviewed mapping, ``mml emit``, ``osprey set``,
-``validate``, ``osprey build`` -- and the simulator view the build rendered is
+mapping, ``osprey set``, ``validate``, ``osprey build`` -- and the simulator
+view the build rendered is
 handed to the virtual accelerator image, whose composite serves that
 facility's own channels with that facility's own lattice behind them. Every earlier task in this
 feature proves a step of that chain against files; this module is the only one
@@ -34,12 +34,13 @@ What each lane asserts, and why it is not vacuous:
   ``facility validate`` names, and the lane holds the first build to exactly
   that set.
 
-The trees. Naming a facility in ``CRITERION_TREES`` is the claim that its
-export reaches a served machine, so a tree named there that commits no 2.0
+The trees. ``CRITERION_TREES`` is read from the supported-tree registry
+(``tests/fixtures/mml/_trees.py``): a tree the registry claims boots is a tree
+whose export is claimed to reach a served machine, so one that commits no 2.0
 export fails rather than stands aside. Whether it carries one is still
 DISCOVERED -- a directory holding a ``*.va.json`` sibling is a 2.0 tree -- so
 the claim is checked against the tree on disk rather than restated here. The
-facilities are named in one tuple because what pytest parametrises over is read
+registry is a module of literals because what pytest parametrises over is read
 at collection time, and a directory scan there would fail this whole directory
 rather than one lane.
 
@@ -137,6 +138,7 @@ import yaml  # noqa: E402
 from click.testing import CliRunner  # noqa: E402
 
 from tests.e2e._orm_stack import physics_wiring  # noqa: E402
+from tests.fixtures.mml._trees import names  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
 pytestmark = [
@@ -170,12 +172,13 @@ BOOT_TIMEOUT_S = 240.0
 PROBE_TIMEOUT_S = 45.0
 
 #: The facilities success criterion 1 names, and the trees this module opens a
-#: lane for. A literal tuple, because parametrisation is read at COLLECTION: a
-#: directory scan here fails the whole ``tests/va/e2e`` directory rather than
-#: one lane. Every tree named here is CLAIMED to reach a served machine, and
-#: ``served`` fails one that commits no ``*.va.json``; a facility not named
-#: here joins by being added to this tuple.
-CRITERION_TREES = ("nsls2", "spear3", "synthetic")
+#: lane for: the supported trees the registry claims boot. Read from a module
+#: of literals, because parametrisation is read at COLLECTION: a directory
+#: scan here fails the whole ``tests/va/e2e`` directory rather than one lane.
+#: Every tree named there is CLAIMED to reach a served machine, and ``served``
+#: fails one that commits no ``*.va.json``; a facility joins by gaining a
+#: registry row.
+CRITERION_TREES = names("boots")
 
 
 def _recipes():
@@ -373,9 +376,9 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     printed, and the build is the ordinary one -- no flag here tells it to
     treat a served tree differently.
 
-    The exports enter the facility description before ``mml emit`` runs: the
-    stop ``facility import mml`` makes over the preset's authored sources is
-    obeyed line by line, the tree's reviewed ``imported/mml/mapping.yaml`` is
+    The exports enter the facility description through ``facility import
+    mml``: the stop it makes over the preset's authored sources is obeyed line
+    by line, the tree's reviewed ``imported/mml/mapping.yaml`` is
     installed, and every export goes in one call. The import lists the demo
     scenarios it leaves stale, and exactly those are removed. The first build
     then stops on a setpoint that starts outside its seeded band; ``facility
@@ -383,6 +386,8 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     are widened in the deployment, never in the fixture, and the set is held
     against the tree's own.
     """
+    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+
     recipes = _recipes()
     fixture = recipes.FIXTURES / name
     exports = sorted(str(path) for path in fixture.glob("*.ao.json"))
@@ -402,9 +407,6 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
         + recipes.imported_probe(repo),
     )
     recipes.remove_stale_scenarios(repo, imported)
-    recipes.invoke(runner, "mml", "import", *exports, "--repo", str(repo))
-    shutil.copy(fixture / "mapping.yaml", repo / "data" / "mml" / "mapping.yaml")
-    recipes.drive_emit(runner, repo)
     recipes.invoke(
         runner,
         "set",
@@ -428,30 +430,36 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
         name=name,
         repo=repo,
         view=view,
-        declared_kinds=_declared_kinds(repo / "data" / "mml" / "mapping.yaml"),
+        declared_kinds=_declared_kinds(repo / recipes.FACILITY_DIR / MAPPING_FILE),
         stopped=stopped.stderr,
         remedied=remedied,
     )
 
 
 def _declared_kinds(mapping: Path) -> frozenset[str]:
-    """The coupling kinds the reviewed mapping declares for the served system.
+    """The kinds the reviewed mapping wires, over every model it names.
 
     Read from the copy the install left in the deployment rather than from the
-    fixture beside the export, so this is the same document ``mml emit`` bound
-    from.
+    fixture beside the export, so this is the same document ``facility import
+    mml`` wired from.
 
-    Only a family whose verdict is ``couple`` contributes its ``kind``. A
-    latched family carries a ``slot.kind`` too, but that names the QUESTION
-    that was asked about the family -- an unknown ATType, an escape hatch --
-    and a question binds nothing.
+    A wired family states what it is to the engine in the engine's own words:
+    the attribute a setpoint drives, or the axis a monitor reads. The kind
+    follows from those words by the same table the served view is read
+    through, so the two are held against each other kind by kind. A family
+    whose engine block is ``null`` is a slot nobody has decided, and a slot
+    binds nothing.
     """
-    block = yaml.safe_load(mapping.read_text(encoding="utf-8"))["virtual_accelerator"]
-    return frozenset(
-        str(family["kind"])
-        for family in block["families"].values()
-        if isinstance(family, dict) and family.get("verdict") == "couple" and "kind" in family
-    )
+    document = yaml.safe_load(mapping.read_text(encoding="utf-8"))
+    kinds: set[str] = set()
+    for model in document["models"].values():
+        for family in (model.get("wiring") or {}).values():
+            engine = family.get("engine") or {}
+            if "attribute" in engine:
+                kinds.add(KIND_OF_ATTRIBUTE[str(engine["attribute"])])
+            elif "axis" in engine:
+                kinds.add(MONITOR)
+    return frozenset(kinds)
 
 
 # ===================================================================
@@ -618,18 +626,16 @@ def served(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFact
     ``xdist_group`` mark that keeps every lane on one of them, so no two boots
     of this module run at once.
 
-    Whether a tree carries a machine is read off the CLI recipe's own
-    discovery, so the boot lane and the recipe lane can never disagree about
-    it -- and a tree named here that carries none FAILS. Naming a facility in
-    ``CRITERION_TREES`` is the claim that its export reaches a served machine;
-    a tree that stops meeting that claim has lost something this suite exists
-    to notice.
+    Whether a tree carries a machine is read off the tree on disk -- and a
+    tree named here that carries none FAILS. A registry row that claims a boot
+    is the claim that the tree's export reaches a served machine; a tree that
+    stops meeting that claim has lost something this suite exists to notice.
     """
     name = str(request.param)
-    assert name in _recipes().TWO_ZERO_TREES, (
+    assert any((_recipes().FIXTURES / name).glob("*.va.json")), (
         f"{name} commits no 2.0 export (no *.va.json beside its Accelerator Objects), so it "
-        f"carries no machine to serve; re-export it with mml_export 2.0, or drop it from "
-        f"CRITERION_TREES if this facility is no longer claimed to boot"
+        f"carries no machine to serve; re-export it with mml_export 2.0, or drop its boot "
+        f"claim from the registry if this facility is no longer claimed to boot"
     )
     tree = harvest_and_build(name, tmp_path_factory.mktemp(f"mml-tree-{name}"))
     with _serving(tree) as running:

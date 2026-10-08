@@ -9,10 +9,6 @@ writes it as sources of your facility description, under
 ``data/facility/imported/mml/``. ``osprey build`` merges those sources with
 everything else under ``data/facility/``; the import itself builds nothing.
 
-The ``osprey mml`` verbs described in :doc:`/how-to/use-channel-finder` still
-work and still write ``data/mml/``. Run this import first wherever a recipe
-uses both.
-
 Export from MATLAB
 ==================
 

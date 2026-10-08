@@ -2,8 +2,8 @@
 
 A real Middle Layer (MML) export of SPEAR3, the 3 GeV light source of SSRL at SLAC
 National Accelerator Laboratory: the storage ring, as the six files the shipped
-`mml_export.m` writes for one sub-machine. `mapping.yaml` is the reviewed mapping;
-every slot is `stated`, so it passes `osprey mml map --check --no-derived`.
+`mml_export.m` writes for one sub-machine. `imported/mml/mapping.yaml` is the
+reviewed mapping `osprey facility import mml` reads; every slot is decided.
 
 | File | What it is |
 |------|------------|
@@ -13,16 +13,16 @@ every slot is `stated`, so it passes `osprey mml map --check --no-derived`.
 | `spear3.storagering.va.json` | Per family: the conversion between supply current and physics, the nominal each device sits at, the dipole ramp, and every refusal |
 | `spear3.storagering.response.json` | The stored orbit-response matrix, four blocks of BPM against corrector |
 | `spear3.storagering.model.json` | What the Middle Layer's own model answers, with the recipe for each: tunes, chromaticity, dispersion, closed orbit, and orbit, tune and chromaticity response in physics and hardware units |
-| `mapping.yaml` | Reviewed mapping; nine new classes are declared under packaged parents (`BendTrim`, `BeamlineMonitor`, `OrbitInterlock`, `CorrectorCurrentReference`, `InjectionKicker`, `InjectionSeptum`, `MachineStatus`, `QuadrupoleShunt`, `SkewQuadrupole`, `TuneMonitor`), and a `virtual_accelerator` block deciding all 43 families |
+| `imported/mml/mapping.yaml` | Reviewed mapping; the model's `wiring` block names the 21 families it drives or reads |
 
 Import it with:
 
 ```
-osprey mml import spear3.storagering.ao.json
+osprey facility import mml spear3.storagering.ao.json
 ```
 
-The four siblings are never named on the command line. `mml import` pairs each of
-them with the `ao.json` it sits beside.
+The siblings are never named on the command line. The import pairs each of them
+with the `ao.json` it sits beside.
 
 ## Shapes worth knowing
 
@@ -39,8 +39,8 @@ pair: its `at_index` row reads `[440, "NaN"]`. The Middle Layer pads a stale
 entry of the facility's physics-data file rather than failing, and the export
 carries the padding faithfully.
 
-The same device sits at −52.6 A against a stated `Range` of 0 to 98 A, so the
-band the emitted tree writes into was widened to hold it (−52.5739 to 98). That
+The same device sits at −52.6 A against a stated `Range` of 0 to 98 A, so a build
+of the imported tree stops until that limits record is widened to hold it. That
 is a fact about the facility's file, not about the exporter.
 
 ## What the virtual accelerator does with it
@@ -51,9 +51,9 @@ strengths. Fifteen supplies feed their magnets in series, the widest being `SD` 
 `SF` at 28 magnets each; every string is one knob; each magnet converts the supply's
 change through its own exported curve from its own nominal.
 
-Three families the type table does not know are answered `latch` in the mapping,
-with the reason written beside the answer: `KickerAmp`, `KickerDelay` and `Septum`
-are injection elements and are not in the stored-beam model.
+Three families the type table does not know are wired to nothing: `KickerAmp`,
+`KickerDelay` and `Septum` are injection elements and are not in the stored-beam
+model.
 
 ## How the export was made
 

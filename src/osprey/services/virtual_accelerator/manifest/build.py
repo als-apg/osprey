@@ -305,7 +305,7 @@ def _read_votes(channels: Collection[dict]) -> dict[str, str | None]:
 
     One vote per address, decided from the field it was read under by the same
     rule the MML mapping's own voter applies
-    (:func:`osprey.services.mml.directions.field_vote`): the field's
+    (:func:`osprey.facility.layers.mml.directions.field_vote`): the field's
     ``MemberOf`` tags first, then its name's suffix, then undecided. Reaching
     that function rather than restating the rule is the point -- a second copy
     of it here would let the manifest and the mapping disagree about which
@@ -318,7 +318,7 @@ def _read_votes(channels: Collection[dict]) -> dict[str, str | None]:
     if not channels:
         return {}
 
-    from osprey.services.mml.directions import field_vote
+    from osprey.facility.layers.mml.directions import field_vote
 
     votes: dict[str, str | None] = {}
     for channel in channels:

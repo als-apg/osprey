@@ -54,7 +54,7 @@ from osprey.facility.layers.mml.mapping import (
 )
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
-    from osprey.services.mml.family import FamilyView
+    from osprey.facility.layers.mml.family import FamilyView
 
 __all__ = ["axis_twins", "common_class", "device_ids", "endpoints", "stated_ids"]
 

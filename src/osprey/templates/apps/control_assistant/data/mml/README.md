@@ -3,7 +3,7 @@
 `mml_export.m` writes a facility's MATLAB Middle Layer (MML) — the Accelerator
 Objects from `getao`, the Accelerator Data from `getad`, the simulator's own
 model ring, and what the Middle Layer's conversions say that ring is set to —
-as files that `osprey mml import` reads with no flags. Nobody has to write
+as files that `osprey facility import mml` reads with no flags. Nobody has to write
 their own exporter.
 
 ## Get the script
@@ -55,10 +55,10 @@ rather than the columns it built.
 
 Import the `.ao.json` files; the four siblings beside each one are read
 automatically, and the sub-machine name recorded in the file becomes the system
-name, so no `--system` flag is needed:
+name:
 
 ```bash
-osprey mml import mymachine.storagering.ao.json mymachine.ltb.ao.json
+osprey facility import mml mymachine.storagering.ao.json mymachine.ltb.ao.json
 ```
 
 (Use your own file names — the ones the script printed.)
@@ -126,9 +126,8 @@ unattended, so the measurement is asked for directly instead. Each block's
 `origin` says whether the matrix was measured on the machine or computed from a
 model — which is not the same question as whether a file answered, since a
 facility may keep a computed matrix in a file like any other. A matrix computed
-from a model says nothing about the machine: `osprey mml verify` then compares a
-deck against a deck, and its report says so and names the file the matrix was
-read from.
+from a model says nothing about the machine: `osprey facility validate` then
+compares a deck against a deck.
 
 ## Requirements
 

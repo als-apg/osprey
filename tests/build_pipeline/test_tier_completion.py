@@ -35,7 +35,6 @@ SELF_EXEMPT: tuple[str, ...] = (
 
 #: Matching file -> the stage that removes its last match.
 ALLOWLIST: dict[str, str] = {
-    "src/osprey/cli/mml_cmd.py": "7e",
     "src/osprey/cli/templates/scaffolding.py": "7e",
     "src/osprey/services/channel_finder/__init__.py": "7e",
     "src/osprey/services/channel_finder/benchmarks/generator.py": "7e",
@@ -48,8 +47,6 @@ ALLOWLIST: dict[str, str] = {
     "tests/cli/test_build_cmd.py": "7e",
     "tests/cli/test_build_graph_index.py": "7e",
     "tests/cli/test_lifecycle_repo_fixture.py": "7e",
-    "tests/cli/test_mml_build_recipes.py": "7e",
-    "tests/cli/test_mml_emit.py": "7e",
     "tests/cli/test_profile_data_root.py": "7e",
     "tests/cli/test_scaffold_pull.py": "7e",
     "tests/facility/golden/cf_index_pre_line/MANIFEST.json": "7e",

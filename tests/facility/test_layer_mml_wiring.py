@@ -1,9 +1,7 @@
 """The mml layer's wiring pass: each imported model's deck and wiring records.
 
 Each case imports a fixture tree's exports into a fresh ``data/facility/``
-under the tree's layer mapping. The parity cases also run the ``osprey mml``
-chain (``import``, ``map`` and ``emit``) over the same exports and hold every
-imported wiring record to the binding that chain emits for its address.
+under the tree's layer mapping.
 """
 
 from __future__ import annotations
@@ -42,7 +40,7 @@ SYSTEMS: dict[str, str] = {
     "nsls2.ltb": "LTB",
 }
 
-#: The model the ``osprey mml`` chain emits bindings for, in both trees.
+#: The model both trees name their storage lattice.
 STORAGE = "StorageRing"
 
 Edit = Callable[[dict[str, Any]], None]
@@ -100,39 +98,6 @@ def imported(tree: str, tmp_path_factory: pytest.TempPathFactory) -> Path:
     return facility
 
 
-# --- parity with the ``osprey mml`` chain -------------------------------------------
-
-
-def _emitted_bindings(root: Path, tree: str) -> list[dict[str, Any]]:
-    """Run the ``osprey mml`` chain over a tree's exports and return the bindings it emits."""
-    pytest.importorskip("linkml_runtime")
-    from click.testing import CliRunner
-
-    from osprey.cli.main import cli
-
-    def run(*args: str) -> None:
-        result = CliRunner().invoke(cli, [*args, "--repo", str(root)], catch_exceptions=False)
-        assert result.exit_code == 0, f"osprey {' '.join(args)}:\n{result.output}"
-
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
-    run("mml", "import", *(str(FIXTURES / tree / f"{stem}.ao.json") for stem in TREES[tree]))
-    run("mml", "map", "--init")
-    shutil.copy(FIXTURES / tree / "mapping.yaml", root / "data" / "mml" / "mapping.yaml")
-    run("mml", "emit")
-    document = json.loads((root / "data" / "simulation" / "va_bindings.json").read_text())
-    assert document["system"] == STORAGE
-    return document["bindings"]
-
-
-def _curve(curve: dict[str, Any] | None) -> dict[str, Any] | None:
-    """A record's curve in the bindings document's spelling."""
-    if curve is None:
-        return None
-    ((kind, body),) = curve.items()
-    return {"kind": kind, **body}
-
-
 def _slices(record: dict[str, Any]) -> list[tuple[str, float]]:
     if "element" not in record and "slices" not in record:
         return []
@@ -142,53 +107,6 @@ def _slices(record: dict[str, Any]) -> list[tuple[str, float]]:
 
 def _names_element(record: dict[str, Any]) -> bool:
     return "element" in record or "slices" in record
-
-
-def test_every_wiring_record_equals_the_emitted_binding_for_its_address(
-    tree: str, imported: Path, tmp_path: Path
-) -> None:
-    bindings = _emitted_bindings(tmp_path / "mml", tree)
-    emitted: dict[str, dict[str, Any]] = {}
-    for binding in bindings:
-        if binding["element"] is None:
-            continue
-        for key in ("setpoint_address", "readback_address"):
-            if binding[key]:
-                emitted[binding[key]] = binding
-    wiring = {
-        record["address"]: record
-        for record in _models(imported)[STORAGE]["wiring"]
-        if _names_element(record)
-    }
-
-    assert set(emitted) <= set(wiring)
-    for extra in sorted(set(wiring) - set(emitted)):
-        body = {key: value for key, value in wiring[extra].items() if key != "address"}
-        assert any(
-            body == {key: value for key, value in wiring[address].items() if key != "address"}
-            for address in emitted
-        ), extra
-    for address, binding in emitted.items():
-        record = wiring[address]
-        engine, calibration = record["engine"], record["calibration"]
-        expected = [(piece["element"], piece["weight"]) for piece in binding["slices"]]
-        assert _slices(record)[0][0] == binding["element"], address
-        assert engine.get("attribute", engine.get("axis")) == binding["attribute"], address
-        assert engine.get("index") == binding["index"], address
-        assert calibration["energy_scaling"] == binding["energy_scaling"], address
-        assert [name for name, _ in _slices(record)] == [name for name, _ in expected], address
-        # A string whose devices convert through rows of their own states a slice
-        # curve; the chain serves every device of it through the first device's
-        # row scaled by a constant, so only its elements, engine words and
-        # energy scaling are the chain's.
-        if any("curve" in piece for piece in record.get("slices", ())):
-            continue
-        assert _curve(calibration["curve"]) == binding["calibration"], address
-        if binding["monitor_inverse"] is not None:
-            assert _curve(calibration["inverse"]) == binding["monitor_inverse"], address
-        assert [weight for _, weight in _slices(record)] == pytest.approx(
-            [weight for _, weight in expected], rel=1e-12
-        ), address
 
 
 # --- the entry and its deck ---------------------------------------------------------
@@ -209,7 +127,7 @@ def test_every_entry_names_its_deck_between_engine_and_settings(imported: Path) 
 
 def test_every_written_deck_is_the_served_deck_of_its_export(tree: str, imported: Path) -> None:
     from osprey.facility.layers.mml.importer import read_exports
-    from osprey.services.mml.loaders.mat import load_lattice
+    from osprey.facility.layers.mml.loaders.mat import load_lattice
 
     mapping = read_mapping(FIXTURES / tree / MAPPING_FILE)
     for stem in TREES[tree]:

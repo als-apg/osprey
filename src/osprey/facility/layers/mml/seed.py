@@ -65,8 +65,8 @@ from osprey.facility.layers.mml.mapping import (
 )
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
+    from osprey.facility.layers.mml.family import FamilyView, FieldView
     from osprey.facility.layers.mml.importer import Exports
-    from osprey.services.mml.family import FamilyView, FieldView
 
 __all__ = [
     "CLASSES_FILE",

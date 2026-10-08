@@ -3,8 +3,8 @@
 The tree cases import a fixture tree's exports into a fresh ``data/facility/``
 under the tree's mapping, widen the limits records the build names, and hold
 each model's kept ``imported/mml/<model>.response.json`` against the model.
-The figure cases build entries by hand, and the parity case pins the figures
-to ``osprey.services.mml.va.verify`` on spear3.
+The figure cases build entries by hand, and the spear3 case pins every
+block's figures.
 """
 
 from __future__ import annotations
@@ -224,76 +224,11 @@ def test_an_unreadable_export_exits_1_without_a_traceback(
     assert "Traceback" not in result.output
 
 
-# --- parity with the comparison it re-expresses -------------------------------------
+# --- the figures on a real export -------------------------------------------------
 
 
-def test_the_bands_are_the_ones_mml_verify_draws() -> None:
-    from osprey.services.mml.va import verify
-
-    assert response_check.TOLERANCE_FRACTION == verify.TOLERANCE_FRACTION == 0.05
-    assert response_check.FLOOR_FRACTION == verify.FLOOR_FRACTION == 0.1
-    assert response_check.POLARITY_SHARE == verify.POLARITY_SHARE == 0.5
-
-
-def test_the_figures_are_mml_verifys_on_spear3(spear3_blocks: tuple[Block, ...]) -> None:
-    """Each block's entries, banded and weighed by ``verify.py``, give the same figures."""
-    from dataclasses import asdict
-
-    from osprey.services.mml.va import verify
-
-    def theirs(entry: Entry) -> Any:
-        return verify.Entry(
-            monitor_address=entry.monitor_address,
-            actuator_address=entry.actuator_address,
-            monitor_device=entry.monitor_device,
-            actuator_device=entry.actuator_device,
-            file_value=entry.file_value,
-            model_value=entry.model_value,
-            tolerance=0.0,
-            floor=0.0,
-        )
-
-    floor = verify.FLOOR_FRACTION * verify._rms(
-        entry.file_value for block in spear3_blocks for entry in block.entries
-    )
-    assert len(spear3_blocks) == 4
-    for block in spear3_blocks:
-        draft = verify._Draft(
-            block={
-                "monitor": {"family": block.monitor_family},
-                "actuator": {"family": block.actuator_family},
-                "origin": block.origin,
-            },
-            entries=tuple(theirs(entry) for entry in block.entries),
-            dropped=(),
-            swept=(),
-            monitor_plane="",
-            actuator_plane="",
-            unjudged=None if block.judged else "cross-plane",
-        )
-        report = verify._banded(draft, floor)
-
-        assert block.entries, block.name
-        assert [asdict(entry) for entry in block.entries] == [
-            asdict(entry) for entry in report.entries
-        ], block.name
-        for mine, their in zip(block.entries, report.entries, strict=True):
-            assert (mine.passed, mine.above_floor, mine.sign_agrees) == (
-                their.passed,
-                their.above_floor,
-                their.sign_agrees,
-            )
-        assert block.reversed_columns == tuple(column.device for column in report.polarity)
-        for mine_figures, their_figures in (
-            (block.counts, report.counts),
-            (block.full, report.full),
-        ):
-            assert asdict(mine_figures) == pytest.approx(asdict(their_figures), nan_ok=True)
-            assert (mine_figures.agreed is None) == (not block.judged), block.name
-
-
-def test_spear3_holds_the_counts_mml_verify_reports(spear3_blocks: tuple[Block, ...]) -> None:
-    """The orbit-response table ``osprey mml verify`` writes for the same export.
+def test_spear3_holds_its_counts(spear3_blocks: tuple[Block, ...]) -> None:
+    """The orbit-response figures of the spear3 export, block by block.
 
     A cross-plane block's model entries are the deck's coupling at the noise
     level, so an unjudged block counts no sign agreement: its ``agreed`` is

@@ -16,6 +16,8 @@ from typing import Any
 
 import pytest
 
+from osprey.facility.layers.mml.family import family_views, system_bodies
+from osprey.facility.layers.mml.loaders.json_any import VA_SUFFIX, load_json, load_sibling
 from osprey.facility.layers.mml.mapping import (
     MAPPING_FILE,
     EngineBlock,
@@ -26,9 +28,7 @@ from osprey.facility.layers.mml.mapping import (
     read_mapping,
     require_decided,
 )
-from osprey.services.mml.family import family_views, system_bodies
-from osprey.services.mml.loaders.json_any import VA_SUFFIX, load_json, load_sibling
-from osprey.services.mml.systems import merge_inputs
+from osprey.facility.layers.mml.systems import merge_inputs
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 

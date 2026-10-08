@@ -105,13 +105,6 @@ takes a ``protocol`` argument to pick between them; without one it returns the
 ``ChannelNames`` list, and asking for a protocol the field does not carry is an
 error naming the keys it does.
 
-**Provenance.** A database written by ``osprey mml emit`` carries one top-level
-``_provenance`` string naming the exporter version and the checksums of the two
-files it was built from — the export and the reviewed mapping. It is a string,
-not a nested object, so the pipeline's system listing passes over it like any
-other underscore key. See :doc:`/how-to/use-channel-finder` for the install
-flow that writes it.
-
 .. _channel-finder-db-graph:
 
 Graph
