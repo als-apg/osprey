@@ -235,7 +235,10 @@ class TestEnhanceImageEmbedding:
             assert held
             await ops.run_enhance(cfg, module=EMBED, force=False, limit=100, progress=lines.append)
 
-        assert f"{EMBED}: running in another process" in lines
+        assert (
+            f"{EMBED}: skipped, another pass is running it (osprey ariel watch runs the picture modules on every poll)"
+            in lines
+        )
         assert _vectors(scratch_database) == {}
         assert stub.embeddings == []
 

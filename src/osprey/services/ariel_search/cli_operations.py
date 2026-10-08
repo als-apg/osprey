@@ -1970,7 +1970,10 @@ def _module_lock(pool: Any, module: str) -> AbstractAsyncContextManager[bool]:
 
 def _held_lock_line(module: str) -> str:
     """The line a pass prints when another process holds ``module``'s advisory lock."""
-    return f"{module}: running in another process"
+    return (
+        f"{module}: skipped, another pass is running it "
+        "(osprey ariel watch runs the picture modules on every poll)"
+    )
 
 
 def _say(progress: _ProgressCb, logger: Any, message: str) -> None:
