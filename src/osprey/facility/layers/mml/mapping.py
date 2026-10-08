@@ -79,7 +79,14 @@ export by :func:`draft_mapping` and stops the import
 than writing it from scratch. The draft proposes every family's ``devices``:
 ``names`` where the export names every device, ``same_as`` where exactly one
 such family binds the other axis of the same addresses, else ``address`` with
-the ids it yields in a comment beneath.
+the ids it yields in a comment beneath. Families of one system that share an
+address each binds at exactly one slot, at the same ``[sector, device]``, bind
+one device; where those answers give such an address two ids, and a family of
+the set is not answered ``names`` or the address is on a field the draft
+wires, the family with the most devices takes ``{coordinates: <stem>}`` and
+the others ``{same_as: <it>}`` (a named family whose ids already agree keeps
+``names``), each with a comment naming the families it shares its devices
+with. An address a family binds at several slots is a supply, not one device.
 
 The importer's stops are :class:`ImportStop`: one line each, prefixed
 ``import mml: <problem>:``, exit status 1.
@@ -1892,14 +1899,18 @@ def _draft_signal(views: list[Any], name: str, direction: str | None) -> str | N
 
 
 def _draft_devices(
-    views: dict[str, list[Any]], models: dict[str, str], imported: list[Any]
-) -> tuple[dict[str, Any], dict[str, list[str]]]:
+    views: dict[str, list[Any]],
+    models: dict[str, str],
+    imported: list[Any],
+    wired: Map[tuple[str, str], str] | None = None,
+) -> tuple[dict[str, Any], dict[str, list[str]], dict[str, list[str]]]:
     """Propose how the devices of every family that carries a channel are identified.
 
     ``names`` where the export names every device of the family in every
     system carrying it; ``{same_as: <family>}`` where exactly one such family
     binds, in each of those systems, the other axis of the same addresses;
-    else ``address``.
+    else ``address``. Families that bind one device then take one identity
+    where these answers give it two ids (:func:`_one_identity`).
 
     Args:
         views: Every family's views, one per system carrying it, in import
@@ -1907,10 +1918,13 @@ def _draft_devices(
         models: The model each system is drafted as, keyed by raw token, in
             import order.
         imported: Every view, in the order an import reads them.
+        wired: The field the draft wires each family through, keyed by
+            ``(raw system, raw family)``.
 
     Returns:
-        Each family's ``devices`` value as it is written, and the ids each
-        ``address`` answer yields, both keyed by raw family.
+        Each family's ``devices`` value as it is written, the ids each
+        ``address`` answer yields, and the families each family shares its
+        devices with, all keyed by raw family.
     """
     from osprey.facility.layers.mml.identity import axis_twins, device_ids, stated_ids
 
@@ -1940,15 +1954,178 @@ def _draft_devices(
         answers[raw] = SameAs(twins[0]) if len(twins) == 1 else "address"
 
     ordered = [view for view in imported if view.channel_count > 0]
+    shared = _one_identity(ordered, device_ids(ordered, models, answers), answers, wired or {})
     yielded: dict[str, list[str]] = {}
     for view, ids in zip(ordered, device_ids(ordered, models, answers), strict=True):
         if answers[view.raw_name] == "address":
             yielded.setdefault(view.raw_name, []).extend(ids)
-    written = {
-        raw: {"same_as": answer.family} if isinstance(answer, SameAs) else answer
-        for raw, answer in answers.items()
-    }
-    return written, yielded
+    written = {raw: _written(answer) for raw, answer in answers.items()}
+    return written, yielded, shared
+
+
+def _written(answer: DeviceIdentity) -> Any:
+    """A ``devices`` answer as the document writes it."""
+    if isinstance(answer, SameAs):
+        return {"same_as": answer.family}
+    if isinstance(answer, Coordinates):
+        return {"coordinates": answer.stem}
+    return answer
+
+
+def _device_sets(views: Sequence[Any]) -> list[tuple[list[str], list[tuple[Any, ...]]]]:
+    """Families of one system binding one device, and the addresses that show it.
+
+    Two families bind one device where they share an address each binds at
+    exactly one slot, at slots stating the same ``[sector, device]``; an
+    address bound at several slots of a family is a supply those devices
+    share, not evidence of one device. Pairs are joined into connected sets.
+
+    Returns:
+        Each set's raw families in import order, with its evidence as
+        ``(address, (view index, field, slot), (view index, field, slot))``.
+    """
+    from osprey.facility.layers.mml.identity import _coordinate
+
+    bound: dict[tuple[str, str], dict[int, list[tuple[str, int]]]] = {}
+    for at, view in enumerate(views):
+        for name, fld in view.fields.items():
+            for key in fld.keys:
+                for slot, value in enumerate(fld.slots(key)[: view.n_devices]):
+                    address = _text(value)
+                    if address is not None:
+                        found = bound.setdefault((view.system, address), {})
+                        found.setdefault(at, []).append((name, slot))
+    parent: dict[str, str] = {}
+
+    def root(raw: str) -> str:
+        while parent.setdefault(raw, raw) != raw:
+            raw = parent[raw]
+        return raw
+
+    evidence: list[tuple[Any, ...]] = []
+    for (_, address), binders in bound.items():
+        single = [
+            (at, slots[0])
+            for at, slots in binders.items()
+            if len(slots) == 1 and views[at].device_rows is not None
+        ]
+        for first, (at, (name, slot)) in enumerate(single):
+            row = _coordinate(views[at].device_rows[slot])
+            for other, (other_name, other_slot) in single[first + 1 :]:
+                if views[other].raw_name == views[at].raw_name or row is None:
+                    continue
+                if _coordinate(views[other].device_rows[other_slot]) != row:
+                    continue
+                evidence.append((address, (at, name, slot), (other, other_name, other_slot)))
+                parent[root(views[other].raw_name)] = root(views[at].raw_name)
+    order = list(dict.fromkeys(view.raw_name for view in views))
+    sets: dict[str, list[str]] = {}
+    for raw in order:
+        if raw in parent:
+            sets.setdefault(root(raw), []).append(raw)
+    return [
+        (members, [item for item in evidence if root(views[item[1][0]].raw_name) == key])
+        for key, members in sets.items()
+    ]
+
+
+def _reads(
+    ids: Sequence[Sequence[str]], rows: Map[int, Sequence[Any]], carried: Sequence[int], stem: str
+) -> bool:
+    """Whether every slot of the given views is named ``<stem>_<sector>_<device>``."""
+    return all(
+        ids[at][slot].split("/", 1)[1] == f"{stem}_{sector}_{device}"
+        for at in carried
+        for slot, (sector, device) in enumerate(rows[at])
+    )
+
+
+def _one_identity(
+    views: Sequence[Any],
+    ids: Sequence[Sequence[str]],
+    answers: dict[str, DeviceIdentity],
+    wired: Map[tuple[str, str], str],
+) -> dict[str, list[str]]:
+    """Give each set of families binding one device one identity, in ``answers``.
+
+    A set steps in where its answers give a shared address two ids and
+    either a family of the set is not answered ``names`` or the address is on
+    a field the draft wires. The family with the most devices, the first on
+    a tie, takes ``{coordinates: <stem>}``: the stem every ``names`` id of a
+    named family of the set reads as ``<stem>_<sector>_<device>``, else the
+    family's own token as one word. Every other family takes
+    ``{same_as: <it>}``, but a named family whose ids already are those ids
+    keeps ``names``; a family that answered ``{same_as: <member>}`` for a
+    member that takes ``same_as`` names the largest too, so no answer names a
+    ``same_as``. A set where a family states no DeviceList, states rows
+    the largest lacks, or the largest states one row twice keeps its answers.
+
+    Returns:
+        The other families of each set that stepped in, keyed by raw family.
+    """
+    from osprey.facility.layers.mml.identity import _coordinate, _word
+
+    shared: dict[str, list[str]] = {}
+    for members, evidence in _device_sets(views):
+        if not any(
+            ids[a][slot_a] != ids[b][slot_b]
+            and (
+                any(answers.get(raw) != "names" for raw in members)
+                or wired.get((views[a].system, views[a].raw_name)) == field_a
+                or wired.get((views[b].system, views[b].raw_name)) == field_b
+            )
+            for _, (a, field_a, slot_a), (b, field_b, slot_b) in evidence
+        ):
+            continue
+        carried = {
+            raw: [at for at, view in enumerate(views) if view.raw_name == raw] for raw in members
+        }
+        stated = {
+            at: [_coordinate(row) for row in views[at].device_rows or ()]
+            for found in carried.values()
+            for at in found
+        }
+        if any(views[at].device_rows is None or None in found for at, found in stated.items()):
+            continue
+        rows = {at: [row for row in found if row is not None] for at, found in stated.items()}
+        largest = max(members, key=lambda raw: sum(views[at].n_devices for at in carried[raw]))
+        by_system = {views[at].system: set(rows[at]) for at in carried[largest]}
+        if any(len(set(rows[at])) != len(rows[at]) for at in carried[largest]) or any(
+            views[at].system not in by_system or not set(rows[at]) <= by_system[views[at].system]
+            for raw in members
+            for at in carried[raw]
+        ):
+            continue
+
+        stem = _word(largest)
+        for raw in members:
+            if answers.get(raw) != "names" or not carried[raw]:
+                continue
+            first = carried[raw][0]
+            sector, device = rows[first][0]
+            local = ids[first][0].split("/", 1)[1]
+            lent = local.removesuffix(f"_{sector}_{device}")
+            if (
+                lent != local
+                and _LOCAL_NAME.fullmatch(lent)
+                and _reads(ids, rows, carried[raw], lent)
+            ):
+                stem = lent
+                break
+        if not stem:
+            continue
+        answers[largest] = Coordinates(stem)
+        for raw in members:
+            if raw != largest and not (
+                answers.get(raw) == "names" and _reads(ids, rows, carried[raw], stem)
+            ):
+                for other, answer in list(answers.items()):
+                    if answer == SameAs(raw):
+                        answers[other] = SameAs(largest)
+                answers[raw] = SameAs(largest)
+        for raw in members:
+            shared[raw] = [other for other in members if other != raw]
+    return shared
 
 
 def _draft_judgments(views: dict[str, list[Any]]) -> dict[str, dict[str, Any]]:
@@ -2133,8 +2310,8 @@ def draft_mapping(ao: dict, ad: dict | None = None, va: dict | None = None) -> d
 
 def _draft(
     ao: dict, ad: dict | None, va: dict | None
-) -> tuple[dict[str, Any], dict[str, list[str]]]:
-    """The draft document and the ids each of its ``address`` answers yields."""
+) -> tuple[dict[str, Any], dict[str, list[str]], dict[str, list[str]]]:
+    """The draft document, the ids each ``address`` answer yields, and each shared identity."""
     from osprey.facility import fold_code
     from osprey.facility.layers.mml.directions import vote_directions
     from osprey.facility.layers.mml.family import family_views
@@ -2160,7 +2337,12 @@ def _draft(
         models[raw] = model
 
     names = {raw: model["name"] for raw, model in models.items()}
-    devices, yielded = _draft_devices(views, names, imported)
+    wired = {
+        (raw, family): entry["element_field"]
+        for raw, model in models.items()
+        for family, entry in model.get("wiring", {}).items()
+    }
+    devices, yielded, shared = _draft_devices(views, names, imported, wired)
     families = {
         raw: _draft_family(raw, carried, devices.get(raw)) for raw, carried in views.items()
     }
@@ -2189,24 +2371,54 @@ def _draft(
     judgments = _draft_judgments(views)
     if judgments:
         document["judgments"] = judgments
-    return document, yielded
+    return document, yielded, shared
 
 
 #: The line of a family block that answers its devices by address.
 _ADDRESS_LINE = "    devices: address"
 
+#: The first line of a family block whose devices answer is an entry.
+_ENTRY_LINE = "    devices:"
+
 #: The page width the mapping is written to.
 _WIDTH = 100
 
 
-def _annotate(text: str, yielded: Map[str, Sequence[str]]) -> str:
-    """Write, under each family's ``devices: address`` line, the ids it yields."""
+def _comment(text: str) -> list[str]:
+    """One comment under a family's ``devices`` answer, wrapped at the page width."""
+    return textwrap.wrap(
+        text,
+        width=_WIDTH,
+        initial_indent="    # ",
+        subsequent_indent="    # ",
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+
+
+def _annotate(
+    text: str,
+    yielded: Map[str, Sequence[str]],
+    shared: Map[str, Sequence[str]] | None = None,
+) -> str:
+    """Comment each family's ``devices`` answer.
+
+    Under ``devices: address`` go the ids it yields; under the last line of
+    the answer of a family that shares its devices with others go those
+    families.
+    """
     import yaml
 
+    together = shared or {}
     lines: list[str] = []
     inside = False
     family: str | None = None
+    entry = False
     for line in text.splitlines():
+        if entry and not line.startswith("      "):
+            entry = False
+            if family is not None and together.get(family):
+                lines.extend(_identity_comment(together[family]))
         lines.append(line)
         if not line.startswith((" ", "-")):
             inside = line == "families:"
@@ -2215,18 +2427,22 @@ def _annotate(text: str, yielded: Map[str, Sequence[str]]) -> str:
         elif line.startswith("  ") and not line.startswith("   "):
             key = yaml.safe_load(line)
             family = str(next(iter(key))) if isinstance(key, dict) and len(key) == 1 else None
-        elif line == _ADDRESS_LINE and family is not None and yielded.get(family):
-            lines.extend(
-                textwrap.wrap(
-                    ", ".join(yielded[family]),
-                    width=_WIDTH,
-                    initial_indent="    # ",
-                    subsequent_indent="    # ",
-                    break_long_words=False,
-                    break_on_hyphens=False,
-                )
-            )
+        elif line == _ENTRY_LINE:
+            entry = True
+        elif line.startswith(f"{_ENTRY_LINE} ") and family is not None:
+            if line == _ADDRESS_LINE and yielded.get(family):
+                lines.extend(_comment(", ".join(yielded[family])))
+            if together.get(family):
+                lines.extend(_identity_comment(together[family]))
+    if entry and family is not None and together.get(family):
+        lines.extend(_identity_comment(together[family]))
     return "\n".join(lines) + "\n"
+
+
+def _identity_comment(others: Sequence[str]) -> list[str]:
+    return _comment(
+        f"one device per [sector, device] with {', '.join(others)}: they bind the same addresses"
+    )
 
 
 def draft_text(ao: dict, ad: dict | None = None, va: dict | None = None) -> str:
@@ -2239,10 +2455,12 @@ def draft_text(ao: dict, ad: dict | None = None, va: dict | None = None) -> str:
 
     Returns:
         :func:`draft_mapping`'s document as YAML, with a comment under every
-        ``devices: address`` listing the device ids the answer yields.
+        ``devices: address`` listing the device ids the answer yields, and
+        one under the answer of every family that shares its devices with
+        others, naming them.
     """
-    document, yielded = _draft(ao, ad, va)
-    return _annotate(dump_mapping(document), yielded)
+    document, yielded, shared = _draft(ao, ad, va)
+    return _annotate(dump_mapping(document), yielded, shared)
 
 
 def dump_mapping(document: dict[str, Any]) -> str:
