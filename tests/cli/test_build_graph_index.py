@@ -70,7 +70,6 @@ def _graph_repo(
     data = root / "data"
     (data / "simulation").mkdir(parents=True)
     (data / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
-    (data / "machine_state_channels.json").write_text(json.dumps({"_comment": "empty"}))
     (data / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     if corpus is not None:
         (data / "facility.ttl").write_text(corpus, encoding="utf-8")

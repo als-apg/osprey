@@ -3789,27 +3789,14 @@ absent_paths:
     `from osprey.services.machine_state` or the module path. A content regex
     for it therefore matches 0 both before and after the deletion — it cannot
     distinguish success from failure. Path absence is the only assertion that
-    actually tests this deletion. Note the deliberate asymmetry with
-    `keeps`: the same ledger item both DELETES this module and KEEPS the
-    control_assistant machine_state_channels.json asset, so the two
-    sections guard opposite halves of one change.
+    actually tests this deletion.
 
 # ---------------------------------------------------------------------------
 # keeps — ADDENDUM 3. Assets whose CONTINUED EXISTENCE is load-bearing but
 # which no grep gate protects, because the asset does not contain the string
 # that would be searched for.
 # ---------------------------------------------------------------------------
-keeps:
-- path: src/osprey/templates/apps/control_assistant/data/machine_state_channels.json
-  assert: exists
-  why: >-
-    Feeds VA manifest reconciliation via
-    services/virtual_accelerator/manifest/loaders.load_machine_state_candidate_addresses,
-    surfacing as _metadata.machine_state_reconciliation. The machine_state
-    DELETION's grep gate passes partly for the wrong reason: this file never
-    contains the string `machine_state` in its CONTENT, only in its filename,
-    so a content grep can never protect it. An explicit existence assertion
-    makes the dependency visible in the manifest.
+keeps: []
 
 # ---------------------------------------------------------------------------
 # notes — carried forward from tasks 3.2, 5.1 and 6.3. Not guard rules.

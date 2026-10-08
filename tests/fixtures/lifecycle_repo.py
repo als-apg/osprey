@@ -2877,110 +2877,101 @@ exit 0
 # volume. Each file below is valid content of its real kind.
 
 DATA_README_MD = """\
-# Data
+# Project Data Directory
 
 Everything the agent reads from disk lives here: channel databases, benchmark
-query sets, facility knowledge, and the simulation model. These are your files.
-They are tracked, and `osprey build` only ever reads them.
+query sets, and the facility's sources and scenarios. These are your files —
+edit them freely.
+
+## Directory Structure
+
+The channel-finder indexes are not here: each is a view the build writes from
+`facility/` into the render. As shipped by the preset:
 
 ```
 data/
 ├── channel_databases/
-│   ├── tiers/tier{1,3}/<paradigm>.json  # staged, one per paradigm
-│   └── TEMPLATE_EXAMPLE.json            # database format example
-├── benchmarks/cross_paradigm/queries/    # staged query sets, one per tier
-├── machine_state_channels.json           # address list reconciled against the VA manifest
-├── facility/                             # the facility's authored sources
-│   └── knowledge/                        # markdown knowledge bundle
-└── simulation/                           # mock-connector machine model
+│   └── examples/                         # Hierarchy-shape examples
+├── benchmarks/
+│   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
+├── ariel/
+│   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
+│   └── README.md                         # Vocabulary format walkthrough
+├── facility/                              # The facility's authored sources
+│   ├── knowledge/                         # Markdown knowledge bundle
+│   └── scenarios/                         # Simulation scenarios
 ```
 
-The build collapses the staged sets down to the ones `channel_finder_mode` and
-`tier` select, writing the result under `build/`. This directory is never
-rewritten by a build.
-"""
+`osprey build` copies the benchmark query file matching `channel_finder_mode`
+to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
+`tree_queries.json` for every other mode. Each channel-finder index is the view
+the build writes at its own path; nothing is flattened. The render drops the
+`benchmarks/cross_paradigm/` subtree.
 
-CHANNEL_DB_HIERARCHICAL_JSON = """\
-{
-  "_comment": "Hierarchical channel database. Unified 6-level naming: RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD.",
-  "hierarchy": {
-    "levels": [
-      { "name": "ring", "type": "tree" },
-      { "name": "system", "type": "tree" },
-      { "name": "family", "type": "tree" },
-      { "name": "device", "type": "instances" },
-      { "name": "field", "type": "tree" },
-      { "name": "subfield", "type": "tree" }
-    ],
-    "naming_pattern": "{ring}:{system}:{family}:{device}:{field}:{subfield}"
-  },
-  "tree": {
-    "SR": {
-      "DIAG": {
-        "BPM": {
-          "DEVICE": {
-            "_expansion": { "_type": "list", "_instances": ["01", "02"] },
-            "POSITION": {
-              "X": { "description": "Horizontal beam position", "units": "mm" },
-              "Y": { "description": "Vertical beam position", "units": "mm" }
-            }
-          }
-        },
-        "DCCT": {
-          "DEVICE": {
-            "_expansion": { "_type": "list", "_instances": ["01"] },
-            "CURRENT": {
-              "RB": { "description": "Total stored beam current", "units": "mA" }
-            }
-          }
-        }
-      },
-      "MAG": {
-        "HCM": {
-          "DEVICE": {
-            "_expansion": { "_type": "list", "_instances": ["01", "02"] },
-            "CURRENT": {
-              "RB": { "description": "Horizontal corrector current readback", "units": "A" },
-              "SP": { "description": "Horizontal corrector current setpoint", "units": "A" }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
+## Database Paradigms
 
-CHANNEL_DB_IN_CONTEXT_JSON = """\
-{
-  "_comment": "Flat in-context channel database. One entry per address.",
-  "channels": {
-    "SR:DIAG:DCCT:01:CURRENT:RB": {
-      "description": "Total stored beam current",
-      "units": "mA"
-    },
-    "SR:DIAG:BPM:01:POSITION:X": {
-      "description": "BPM 1 horizontal beam position",
-      "units": "mm"
-    },
-    "SR:MAG:HCM:01:CURRENT:SP": {
-      "description": "Horizontal corrector 1 current setpoint",
-      "units": "A"
-    }
-  }
-}
-"""
+`channel_finder_mode` in the build profile picks one of three ways to organize
+the same channel namespace as a file; all three are views of the same
+facility records. The mode's fourth value, `graph`, is not one of them: it
+answers from the facility knowledge graph rather than a channel database. Its
+corpus is `data/graph/facility.ttl`, the graph view the build writes from
+`facility/`, seeded into the `services.graphdb` store.
 
-CHANNEL_DB_TEMPLATE_EXAMPLE_JSON = """\
-{
-  "_comment": "Database format example. Copy this shape when hand-authoring a channel database.",
-  "channels": {
-    "FACILITY:SYSTEM:FAMILY:01:FIELD:RB": {
-      "description": "What this channel reports, in one sentence",
-      "units": "mm"
-    }
-  }
-}
+### `in_context` — flat structure
+
+Best for fewer than about 1,000 channels. The whole database fits in the
+agent's context, so lookup is direct semantic search over a flat list of
+channels.
+
+### `hierarchical` — nested structure
+
+Best for more than about 1,000 channels. The agent navigates the hierarchy
+level by level instead of loading everything at once: the facility's place
+words by depth, then class, device and leaf.
+
+### `middle_layer` — functional structure
+
+An MML-organized functional hierarchy: System / Family / Field / Subfield.
+Navigation mirrors the way operators reason about devices rather than the way
+the control system names them.
+
+## Database Tools
+
+Database tools are `osprey channel-finder` CLI subcommands. Each reads the
+active database from `config.yml` unless you pass `--database`.
+
+Validate database format and structure:
+
+```bash
+osprey channel-finder validate
+osprey channel-finder validate --database data/channel_finder/hierarchical.json
+```
+
+Preview database contents:
+
+```bash
+osprey channel-finder preview
+osprey channel-finder preview --database data/channel_finder/hierarchical.json
+```
+
+## Benchmarks
+
+Evaluate channel-finder accuracy against the query set in
+`data/benchmarks/queries.json`:
+
+```bash
+# Full query set
+osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
+
+# A slice of the query set
+osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --queries 0:10
+
+# Repeat each query to measure run-to-run variance
+osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --runs-per-query 3
+```
+
+Results are written to `data/benchmarks/results/` as JSON reports carrying
+per-query outcomes, accuracy, timing, and cost.
 """
 
 BENCHMARK_QUERIES_JSON = """\
@@ -2994,18 +2985,6 @@ BENCHMARK_QUERIES_JSON = """\
     "targeted_pv": ["SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:02:POSITION:X"]
   }
 ]
-"""
-
-MACHINE_STATE_CHANNELS_JSON = """\
-{
-  "_comment": "Machine-state addresses, reconciled against the VA manifest at build time; only the keys are read. One canonical list regardless of channel-finder mode.",
-  "_version": "2.0",
-
-  "SR:DIAG:DCCT:01:CURRENT:RB": { "label": "Beam current (DCCT)", "group": "beam" },
-  "SR:DIAG:BPM:01:POSITION:X": { "label": "BPM 1 horizontal position", "group": "orbit" },
-  "SR:DIAG:BPM:01:POSITION:Y": { "label": "BPM 1 vertical position", "group": "orbit" },
-  "SR:MAG:HCM:01:CURRENT:RB": { "label": "Corrector 1 current", "group": "magnets" }
-}
 """
 
 FK_INDEX_MD = """\
@@ -3139,11 +3118,7 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "web-terminal-context/bob/.gitkeep": "",
     "web-terminal-context/knowledge/.gitkeep": "",
     "data/README.md": DATA_README_MD,
-    "data/channel_databases/TEMPLATE_EXAMPLE.json": CHANNEL_DB_TEMPLATE_EXAMPLE_JSON,
-    "data/channel_databases/tiers/tier1/in_context.json": CHANNEL_DB_IN_CONTEXT_JSON,
-    "data/channel_databases/tiers/tier3/hierarchical.json": CHANNEL_DB_HIERARCHICAL_JSON,
     "data/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
-    "data/machine_state_channels.json": MACHINE_STATE_CHANNELS_JSON,
     "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
     "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
     "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,

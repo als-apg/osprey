@@ -4,10 +4,10 @@ Channel-finder indexes are views the build writes; nothing selects a tier any
 more. ``PATTERN`` matches what is left of the tier model: the staged
 ``tiers/`` tree and its readers, the tier selector in the manifest paths, and
 the template channel database those readers load. Every tracked file under
-``SCAN_PATHS`` other than the two guards that matches is in ``ALLOWLIST``,
-tagged with the stage that removes its last match. An entry whose stage is at
-or before ``CURRENT_BATCH`` must no longer match, and an entry that no longer
-matches must be dropped.
+``SCAN_PATHS`` other than the guards in ``SELF_EXEMPT`` that matches is in
+``ALLOWLIST``, tagged with the stage that removes its last match. An entry
+whose stage is at or before ``CURRENT_BATCH`` must no longer match, and an
+entry that no longer matches must be dropped.
 """
 
 from __future__ import annotations
@@ -30,38 +30,18 @@ SCAN_PATHS: tuple[str, ...] = ("src", "scripts", "packages", "tests")
 #: The guards that spell the pattern's tokens as data; the scan never reads them.
 SELF_EXEMPT: tuple[str, ...] = (
     "tests/build_pipeline/test_tier_completion.py",
+    "tests/facility/test_deleted_surfaces.py",
     "tests/facility/test_no_retired_shapes.py",
 )
 
 #: Matching file -> the stage that removes its last match.
 ALLOWLIST: dict[str, str] = {
     "src/osprey/cli/templates/scaffolding.py": "7e",
-    "src/osprey/services/channel_finder/__init__.py": "7e",
-    "src/osprey/services/channel_finder/benchmarks/generator.py": "7e",
-    "src/osprey/services/channel_finder/databases/__init__.py": "7e",
-    "src/osprey/services/virtual_accelerator/manifest/build.py": "7e",
-    "src/osprey/services/virtual_accelerator/manifest/loaders.py": "7e",
-    "src/osprey/services/virtual_accelerator/manifest/paths.py": "7e",
-    "src/osprey/templates/apps/control_assistant/data/README.md": "7e",
-    "tests/build_pipeline/test_modes.py": "7e",
-    "tests/cli/test_build_cmd.py": "7e",
     "tests/cli/test_build_graph_index.py": "7e",
-    "tests/cli/test_lifecycle_repo_fixture.py": "7e",
     "tests/cli/test_profile_data_root.py": "7e",
-    "tests/cli/test_scaffold_pull.py": "7e",
     "tests/facility/golden/cf_index_pre_line/MANIFEST.json": "7e",
     "tests/facility/golden/demo_fingerprint.json": "7e",
     "tests/facility/golden/in_context_size.json": "7e",
-    "tests/fixtures/lifecycle_repo.py": "7e",
-    "tests/services/channel_finder/benchmarks/test_benchmark_datasets.py": "7e",
-    "tests/services/channel_finder/benchmarks/test_generator.py": "7e",
-    "tests/services/channel_finder/databases/test_template_presentation.py": "7e",
-    "tests/services/channel_finder/databases/test_template_suffix_map.py": "7e",
-    "tests/services/facility_knowledge/test_demo_ttl_consistency.py": "7e",
-    "tests/services/facility_knowledge/test_ttl_generator_direction.py": "7e",
-    "tests/services/facility_knowledge/test_ttl_generator_emitter.py": "7e",
-    "tests/services/facility_knowledge/test_ttl_generator_model.py": "7e",
-    "tests/services/facility_knowledge/test_ttl_generator_ontology.py": "7e",
 }
 
 
