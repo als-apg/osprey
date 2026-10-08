@@ -19,7 +19,7 @@ function files = mml_export(outdir)
 %   Run it once per sub-machine, after the MML setpath for that sub-machine,
 %   then import the AO file with
 %
-%       osprey mml import <machine>.<submachine>.ao.json
+%       osprey facility import mml <machine>.<submachine>.ao.json
 %
 %   The importer reads the four siblings beside it on its own. The model file
 %   is not imported: it is what a check of OSPREY's own model against the

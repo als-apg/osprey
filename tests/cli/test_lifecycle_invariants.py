@@ -416,6 +416,7 @@ _RETIRED_SPELLINGS = {
     "the deleted `knowledge build-ttl` verb": re.compile(r"\bknowledge build-ttl\b"),
     "the deleted `knowledge seed-graph` verb": re.compile(r"\bknowledge seed-graph\b"),
     "the deleted `knowledge build-index` verb": re.compile(r"\bknowledge build-index\b"),
+    "the deleted `mml` group": re.compile(r"\bosprey mml\b"),
 }
 
 #: One line each pattern MUST match, so every pattern proves it still works.
@@ -449,6 +450,7 @@ _RETIRED_SPELLING_EXAMPLES = {
     "the deleted `knowledge build-ttl` verb": "osprey knowledge build-ttl data/demo.ttl",
     "the deleted `knowledge seed-graph` verb": "osprey knowledge seed-graph --force",
     "the deleted `knowledge build-index` verb": "osprey knowledge build-index --ttl data/demo.ttl",
+    "the deleted `mml` group": "osprey mml import mymachine.storagering.ao.json",
 }
 
 

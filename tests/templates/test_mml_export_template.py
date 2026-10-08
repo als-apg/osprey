@@ -32,10 +32,10 @@ from tests.templates.mml_export_contract import (
 )
 
 from osprey.cli.main import cli
-from osprey.services.mml.judgments import _VA_READOUT_ROW_KEYS
-from osprey.services.mml.loaders.json_any import load_json
-from osprey.services.mml.normalize import normalize_family
-from osprey.services.mml.systems import resolve_system
+from osprey.facility.layers.mml.judgments import _VA_READOUT_ROW_KEYS
+from osprey.facility.layers.mml.loaders.json_any import load_json
+from osprey.facility.layers.mml.normalize import normalize_family
+from osprey.facility.layers.mml.systems import resolve_system
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MML_DIR = REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data" / "mml"
@@ -192,7 +192,7 @@ def test_readme_states_the_one_command_usage_and_the_six_files() -> None:
         assert f"<machine>.<submachine>{suffix}" in text, suffix
     assert "six files" in text
     assert "five files" not in text
-    assert "osprey mml import" in text
+    assert "osprey facility import mml" in text
 
 
 def test_readme_states_what_the_export_needs_of_the_middle_layer() -> None:

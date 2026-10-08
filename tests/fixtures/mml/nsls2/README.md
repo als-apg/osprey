@@ -3,8 +3,8 @@
 A real Middle Layer (MML) export of NSLS-II, the 3 GeV light source at Brookhaven
 National Laboratory: the storage ring and the linac-to-booster transfer line (LTB),
 each as the six files the shipped `mml_export.m` writes for one sub-machine.
-`mapping.yaml` is the reviewed mapping; every slot is `stated`, so it passes
-`osprey mml map --check --no-derived`.
+`imported/mml/mapping.yaml` is the reviewed mapping `osprey facility import mml`
+reads; every slot is decided.
 
 | File | What it is |
 |------|------------|
@@ -15,16 +15,16 @@ each as the six files the shipped `mml_export.m` writes for one sub-machine.
 | `nsls2.storagering.response.json` | The stored orbit-response matrix, four blocks of 180 monitors against 180 correctors |
 | `nsls2.storagering.model.json` | What the Middle Layer's own model answers, with the recipe for each; the ring carries no cavity, so the recipes are the four-dimensional ones |
 | `nsls2.ltb.*` | The same six files for the transfer line; its model file answers the orbit response in physics units only, because the Middle Layer's transport-line calculator reports its monitors at the lattice's own points and refuses the hardware conversion for it: 7 families at 200 MeV, a 121-element deck, one family with no channels (`Screen`) |
-| `mapping.yaml` | Reviewed mapping for both systems; `SQ` and `TUNE` are new classes under `Quadrupole` and `Instrumentation`, and the `virtual_accelerator` block decides the 25 storage-ring families |
+| `imported/mml/mapping.yaml` | Reviewed mapping for both systems; each model's `wiring` block names the families it drives or reads |
 
 Import both systems at once:
 
 ```
-osprey mml import nsls2.storagering.ao.json nsls2.ltb.ao.json
+osprey facility import mml nsls2.storagering.ao.json nsls2.ltb.ao.json
 ```
 
-The eight siblings are never named on the command line. `mml import` pairs each of
-them with the `ao.json` it sits beside, and files them under their own sub-machine.
+The siblings are never named on the command line. The import pairs each of them
+with the `ao.json` it sits beside, and files them under their own sub-machine.
 
 ## Shapes worth knowing
 
@@ -36,14 +36,11 @@ the export's `mA`, because the unit sits on the whole `Monitor` field and the ex
 states no other for them, which is true of the total current and not of a lifetime.
 `TUNE` lists three devices and stages channels for two, and the third is dropped.
 
-The `virtual_accelerator` block names one sub-machine, and here that is
-`StorageRing`. The LTB's own `va.json` and deck are imported and kept, and a
-mapping naming `LTB` instead would serve the transfer line from them.
-
 ## What the virtual accelerator does with it
 
-17 storage-ring families are driven and 8 stand still. The export leaves the
-reviewer **one** question, which is the cavity voltage below.
+The mapping wires 17 storage-ring families and five of the transfer line's; the
+other storage-ring families stand still. The export leaves the reviewer **one**
+question, which is the cavity voltage below.
 
 Three families stand still for reasons worth knowing:
 
@@ -52,24 +49,23 @@ Three families stand still for reasons worth knowing:
   nominal for it at 3 GeV.
 - **`SM1`, `SH3`, `SH4`, `SL1`, `SL3`** — the facility's `k2amp` answers nothing
   usable for a negative sextupole strength, so these 150 devices carry no hardware
-  nominal and the model has nowhere to start them. `map --init` proposes them as
-  `latch` with that reason written beside the verdict; a reviewer may overrule it.
+  nominal and the model has nowhere to start them. The mapping wires none of them.
 
 ### The cavity is built, not exported
 
-This deck carries no cavity element at all, so `osprey mml emit` builds one: a
+This deck carries no cavity element at all, so the import builds one: a
 single zero-length cavity on harmonic 1320, which is the number the Accelerator
 Data states, at the deck's own revolution frequency. The `RF` family then couples
 to it the way it would on any ring, and the served model solves in six dimensions
 instead of four.
 
-Two frequencies appear in the emit line and they are not the same number. The
+Two frequencies are in play and they are not the same number. The
 export states 499 680 000 Hz, rounded to five figures, and the deck closes 1320
 waves at 499 680 595 Hz. The built cavity uses the deck's figure. A frequency
 rounded to five figures cannot set a ring's closed orbit: building at the stated
 one puts the beam at a momentum offset of about 3e-3 and rescales the whole orbit
 response by some three per cent. The exported figure is what triggers the build and
-what seeds the channel, and it is printed beside the built one so the gap is visible.
+what seeds the channel.
 
 The voltage is the reviewer's answer, not an export fact. The export states none,
 so the committed mapping answers 3 MV, which is what a storage ring of this size
@@ -82,7 +78,7 @@ from its own nominal.
 
 The deck marks each girder's start and end with a zero-length element the facility
 built with the beam-position-monitor type: 180 named `GE` and 180 named `GS`. No
-family reads them and the names repeat, so `osprey mml emit` serves all 360 as plain
+family reads them and the names repeat, so the served deck holds all 360 as plain
 markers, same name, same place, nothing to read off them. Bind a family to one of
 those names and they come back as monitors.
 

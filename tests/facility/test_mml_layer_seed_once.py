@@ -3,8 +3,7 @@
 Each case imports a fixture tree's exports into a fresh ``data/facility/``
 under the tree's layer mapping and reads the authored files the import
 seeded beside the layer's records. The build cases run the in-process build
-over the imported tree, and the writable case runs the ``osprey mml`` chain over
-the same exports.
+over the imported tree.
 """
 
 from __future__ import annotations
@@ -43,9 +42,6 @@ at = pytest.importorskip("at")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
-
-#: The spear3 energy knob's setpoint, which the ``osprey mml`` chain binds to no element.
-ENERGY_KNOB = "MS1-BD:CurrSetpt"
 
 #: The corrector setpoint the synthetic export starts outside its own ``Range``.
 OUTSIDE = "QK:HC:1:CUR:SP"
@@ -163,7 +159,7 @@ def test_a_file_a_person_wrote_is_never_overwritten(tmp_path: Path) -> None:
 def test_one_import_judges_each_export_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from osprey.services.mml import judgments
+    from osprey.facility.layers.mml import judgments
 
     judged: list[str] = []
     judge = judgments.judged_family_views
@@ -206,43 +202,6 @@ def test_every_wired_setpoint_is_writable_inside_its_band(imported: Path) -> Non
     assert writable == wired
     for address in wired:
         assert limits[address]["min_value"] <= limits[address]["max_value"], address
-
-
-def _emitted_setpoints(root: Path, tree: str) -> set[str]:
-    """Run the ``osprey mml`` chain over a tree's exports and return the setpoints it binds.
-
-    A monitor binding carries the address it serves under the same key, so the
-    setpoints are the bindings of every other kind.
-    """
-    pytest.importorskip("linkml_runtime")
-    from click.testing import CliRunner
-
-    from osprey.cli.main import cli
-
-    def run(*args: str) -> None:
-        result = CliRunner().invoke(cli, [*args, "--repo", str(root)], catch_exceptions=False)
-        assert result.exit_code == 0, f"osprey {' '.join(args)}:\n{result.output}"
-
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
-    run("mml", "import", *(str(source) for source in export_files(tree)))
-    run("mml", "map", "--init")
-    shutil.copy(FIXTURES / tree / "mapping.yaml", root / "data" / "mml" / "mapping.yaml")
-    run("mml", "emit")
-    document = json.loads((root / "data" / "simulation" / "va_bindings.json").read_text())
-    return {
-        binding["setpoint_address"]
-        for binding in document["bindings"]
-        if binding["element"] is not None and binding["kind"] != "monitor"
-    }
-
-
-def test_the_writable_set_is_the_setpoints_the_old_chain_binds(
-    spear3: Path, tmp_path: Path
-) -> None:
-    writable = {address for address, row in _limits(spear3).items() if row.get("writable") is True}
-    assert writable == _emitted_setpoints(tmp_path / "mml", "spear3") | {ENERGY_KNOB}
-    assert len(writable) == 300
 
 
 def test_a_setpoint_an_earlier_read_field_named_is_writable_inside_its_band(spear3: Path) -> None:

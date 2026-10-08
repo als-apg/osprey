@@ -1,13 +1,12 @@
-"""The three install recipes an MML harvest ends in, run end to end.
+"""The install recipes an MML import ends in, run end to end.
 
-A harvest is only finished when ``osprey build`` accepts what ``osprey mml
-emit`` wrote, so each recipe here is the literal sequence the install skill
-tells an operator to type -- ``init``, the chain, one ``osprey set`` line,
-``validate``, ``build`` -- and the assertions are the claims that sequence
-makes:
+An import is only finished when ``osprey build`` accepts the facility it
+wrote, so each recipe here is the literal sequence an operator types --
+``init``, ``facility import mml``, the ``osprey set`` lines, ``validate``,
+``build`` -- and the assertions are the claims that sequence makes:
 
 * **hello-world, middle layer.** The export enters the facility description
-  first, past the stop ``osprey facility import mml`` makes over the preset's
+  past the stop ``osprey facility import mml`` makes over the preset's
   authored record sources, so the build writes the middle-layer index and its
   DuckDB copy from the imported groups. The export reads one corrector
   readback for two setpoints, which the import pairs with neither, so the
@@ -15,33 +14,20 @@ makes:
   ``run_sql`` answers from the copy. The set line never spells
   ``channel_finder.pipelines.*``: those keys are build-derived and ``validate``
   refuses a profile that states them.
-* **hello-world, graph.** The same emit feeds the other paradigm through a
-  single ``services.graphdb.ttl_path`` key, with no channel-finder wiring.
-* **control-assistant.** The preset ships demo material emit would contradict,
-  so the first ``emit`` refuses with one ``rm`` line naming the pages and tier
-  databases, and this recipe removes exactly what that line names and nothing
-  else. Afterwards the flat database, the tier-3 copy and the built copy are
-  one file -- the assertion that goes red if the build's tier materializer
-  ever overwrites the emitted database with preset material -- and the demo
-  knowledge pages are gone from the bundle index rather than merely unlinked.
-* **control-assistant, from a 2.0 export.** The same recipe over an export that
-  carries a virtual accelerator, which is the only harvest that ends in a tree
-  the build can serve a model from. Its export enters the facility description
-  first: ``osprey facility import mml`` stops over the preset's authored record
-  sources and prints one ``rm`` line per file, the recipe removes exactly those,
-  installs the tree's reviewed ``imported/mml/mapping.yaml`` and imports. The
-  import then lists, as ``rm`` lines, the demo scenarios it leaves stale --
-  each names a channel or model the imported facility does not have -- and the
-  recipe removes exactly those, since the build stops while one is left. The
-  seeded ``limits.yaml`` holds each band as the export states it, so the build
-  then stops ``seed-invalid`` while a setpoint starts outside its band;
-  ``facility validate`` names each one, and the recipe widens exactly the
-  records those lines name before it builds.
-  Past that it runs one verb further and one refusal
-  further still -- the demo's machine-state list, which only a harvest
-  carrying a machine replaces -- and the claims it makes are about what ``osprey build`` then
-  published: the ring and the bindings reach the served directory byte for
-  byte, and the simulator view serves the harvest's channels and model.
+* **control-assistant, from a 2.0 export.** The recipe over an export that
+  carries a model, once per supported tree. ``osprey facility import mml``
+  stops over the preset's authored record sources and prints one ``rm`` line
+  per file, the recipe removes exactly those, installs the tree's reviewed
+  ``imported/mml/mapping.yaml`` and imports. The import then lists, as ``rm``
+  lines, the demo scenarios it leaves stale -- each names a channel or model
+  the imported facility does not have -- and the recipe removes exactly
+  those, since the build stops while one is left. The seeded ``limits.yaml``
+  holds each band as the export states it, so the build then stops
+  ``seed-invalid`` while a setpoint starts outside its band; ``facility
+  validate`` names each one, and the recipe widens exactly the records those
+  lines name before it builds. The claims are about what ``osprey build``
+  then published: the simulator view serves the import's channels and model,
+  and a second build changes no byte of it.
 
 Every number here is read off a real run of the real verbs. The chain is cheap
 enough (seconds) to drive once per recipe, so nothing about the rendered tree
@@ -50,7 +36,6 @@ is restated from a plan.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import re
@@ -65,15 +50,13 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
-
-pytest.importorskip("linkml_runtime")
+from tests.fixtures.mml._trees import names
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = _REPO_ROOT / "tests" / "fixtures" / "mml"
 PACKAGED_FACILITY = _REPO_ROOT / "src/osprey/templates/facilities/example"
-PACKAGED_KNOWLEDGE = PACKAGED_FACILITY / "knowledge"
 
-#: The export every recipe harvests: a paired ``ao``/``ad`` synthetic machine.
+#: The export the hello-world recipe imports: a paired ``ao``/``ad`` synthetic machine.
 SOURCE = FIXTURES / "paired"
 AO_INPUT = "quokka.ring.ao.json"
 AD_INPUT = "quokka.ring.ad.json"
@@ -83,66 +66,17 @@ AD_INPUT = "quokka.ring.ad.json"
 INDEX_PATH = "data/channel_finder/middle_layer.json"
 INDEX_DUCKDB_PATH = "data/channel_finder/middle_layer.duckdb"
 
-#: ``facility.token`` of that fixture's committed mapping, which names the
-#: corpus (``data/Quokka.ttl``) and the ontology schema.
-TOKEN = "Quokka"
-
-BUNDLE_PATH = "data/facility/knowledge"
-ONTOLOGY_PATH = "data/facility_ontology.json"
-DATABASE_PATH = "data/channel_databases/middle_layer.json"
-TIERED_DATABASE = "data/channel_databases/tiers/tier3/middle_layer.json"
-
-#: The tier databases the control-assistant preset ships that are not emit's
-#: own ``tier3/middle_layer.json``; each must be named by the refusal.
-DEMO_TIER_SIBLINGS = (
-    "data/channel_databases/tiers/tier1/in_context.json",
-    "data/channel_databases/tiers/tier3/hierarchical.json",
-    "data/channel_databases/tiers/tier3/in_context.json",
-)
-
-#: Read off the packaged bundle rather than listed here: a demo page directory
-#: added to the preset must show up in the refusal without editing this test.
-DEMO_KNOWLEDGE_DIRS = tuple(
-    f"{BUNDLE_PATH}/{path.name}" for path in sorted(PACKAGED_KNOWLEDGE.iterdir()) if path.is_dir()
-)
-
-#: The middle-layer paradigm card: the paradigm, the subagent and its server,
-#: and the three facility paths the emitted artifacts landed at. No
-#: ``channel_finder.pipelines.*`` key -- see this module's docstring.
+#: The middle-layer paradigm card: the paradigm, the subagent and its server.
+#: No ``channel_finder.pipelines.*`` key -- see this module's docstring.
 MIDDLE_LAYER_SETTINGS = (
     "channel_finder_mode=middle_layer",
     "agents=[channel-finder]",
     "config.claude_code.servers.channel-finder.enabled=true",
-    f"config.facility_knowledge.bundle_path={BUNDLE_PATH}",
-    f"config.facility.ontology={ONTOLOGY_PATH}",
 )
 
-#: The graph paradigm card: the corpus path replaces the whole channel-finder
-#: wiring, because a graph deployment serves its channels from the seeded
-#: store rather than a database file.
-GRAPH_SETTINGS = (
-    "channel_finder_mode=graph",
-    f"config.services.graphdb.ttl_path=./data/{TOKEN}.ttl",
-    f"config.facility_knowledge.bundle_path={BUNDLE_PATH}",
-    f"config.facility.ontology={ONTOLOGY_PATH}",
-)
+#: The supported trees ``osprey build`` is claimed to accept, from the registry.
+BUILT_TREES = names("builds")
 
-
-#: The fixture exports that carry a virtual accelerator, discovered rather than
-#: listed: a 2.0 export files its machine in a ``*.va.json`` sibling, so a
-#: directory holding one is a harvest that ends in a tree the build can serve a
-#: model from. A 2.0 re-export committed later joins the recipe below without a
-#: name being typed here.
-TWO_ZERO_TREES = tuple(
-    sorted(
-        directory.name
-        for directory in FIXTURES.iterdir()
-        if directory.is_dir() and any(directory.glob("*.va.json"))
-    )
-)
-
-LATTICE_FILE = "lattice.json"
-BINDINGS_FILE = "va_bindings.json"
 LIMITS_FILE = "channel_limits.json"
 
 #: The simulator view the build writes and the virtual accelerator serves,
@@ -175,9 +109,6 @@ def _resolving_scenarios() -> tuple[str, ...]:
 
 
 DEMO_RESOLVING_SCENARIOS = _resolving_scenarios()
-
-#: Where the build publishes the served tree, relative to the repo.
-SERVED = "build/data/simulation"
 
 #: The facility description of a deployment, and the limits file an import
 #: seeds into it, both relative to the repo.
@@ -230,17 +161,6 @@ def stage_export(tmp_path_factory: pytest.TempPathFactory) -> Path:
     for name in (AO_INPUT, AD_INPUT):
         shutil.copy(SOURCE / name, inputs / name)
     return inputs / AO_INPUT
-
-
-def harvest(runner: CliRunner, repo: Path, export: Path) -> None:
-    """Import the export into *repo* and give it the fixture's checked mapping.
-
-    Stands in for the reviewed ``osprey mml map --init`` pass: the mapping
-    committed beside the fixture is what an operator reaches after filling and
-    checking the skeleton, and it is what the recipes emit from.
-    """
-    invoke(runner, "mml", "import", str(export), "--repo", str(repo))
-    shutil.copy(SOURCE / "mapping.yaml", repo / "data" / "mml" / "mapping.yaml")
 
 
 def facility_mapping(fixture: Path) -> Path:
@@ -452,34 +372,6 @@ def build_past_the_seed_stops(
     return stopped, remedied, invoke(runner, *arguments)
 
 
-def emit(runner: CliRunner, repo: Path, *args: str) -> Result:
-    """Run ``osprey mml emit`` without judging its exit code."""
-    return runner.invoke(cli, ["mml", "emit", "--repo", str(repo), *args], catch_exceptions=False)
-
-
-def drive_emit(runner: CliRunner, repo: Path) -> tuple[Result, tuple[tuple[str, ...], ...]]:
-    """Run ``emit`` until it accepts the tree, obeying each refusal as written.
-
-    A preset that ships demo material is asked about it in stages -- the
-    knowledge and tier material one pre-flight refuses over, the
-    virtual-accelerator documents another -- so an operator following the
-    instructions runs the verb again after each ``rm`` line. Nothing here
-    decides what to delete: every path removed was named by the refusal that
-    printed it, which is what makes the rounds evidence about the refusals
-    rather than about this helper.
-
-    Returns:
-        The accepting run, and what each refusal named, in order.
-    """
-    rounds: list[tuple[str, ...]] = []
-    for _ in range(5):
-        result = emit(runner, repo)
-        if result.exit_code == 0:
-            return result, tuple(rounds)
-        rounds.append(tuple(remove_named(repo, rm_line(result.output))))
-    raise AssertionError(f"emit never accepted the tree; it refused over {rounds}")
-
-
 def simulator_view(repo: Path) -> dict[str, dict]:
     """The simulator view's addresses and served models, as the container reads them."""
     view = repo / SIMULATOR_VIEW
@@ -490,16 +382,13 @@ def simulator_view(repo: Path) -> dict[str, dict]:
 
 
 def published(repo: Path) -> dict[str, bytes]:
-    """Every file the build published into the served directory, by name."""
-    directory = repo / SERVED
-    return {path.name: path.read_bytes() for path in sorted(directory.iterdir()) if path.is_file()}
-
-
-def rm_line(output: str) -> str:
-    """The single ``rm`` line a refusal prints, as one line."""
-    lines = [line for line in output.splitlines() if line.startswith("rm ")]
-    assert len(lines) == 1, f"expected exactly one rm line:\n{output}"
-    return lines[0]
+    """Every file of the simulator view the build published, by its path under the view."""
+    view = repo / SIMULATOR_VIEW
+    return {
+        path.relative_to(view).as_posix(): path.read_bytes()
+        for path in sorted(view.rglob("*"))
+        if path.is_file()
+    }
 
 
 def remove_named(repo: Path, line: str) -> list[str]:
@@ -521,17 +410,8 @@ def remove_named(repo: Path, line: str) -> list[str]:
     return named
 
 
-def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def rendered_config(repo: Path) -> dict:
     return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
-
-
-def index_targets(index: Path) -> set[str]:
-    """Every link target the bundle index lists."""
-    return set(re.findall(r"\]\(([^)]+)\)", index.read_text(encoding="utf-8")))
 
 
 @pytest.fixture(scope="module")
@@ -551,9 +431,6 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
     exports = [str(export)]
     clear_authored(runner, repo, exports)
     import_facility(runner, repo, exports, facility_mapping(SOURCE))
-    harvest(runner, repo, export)
-    emitted = emit(runner, repo)
-    assert emitted.exit_code == 0, emitted.output
     invoke(runner, "set", "--repo", str(repo), *MIDDLE_LAYER_SETTINGS)
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
@@ -561,89 +438,26 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
 
     return {
         "repo": repo,
-        "emit": emitted.output,
         "validate": validate.output,
         "build": build.output,
     }
 
 
-@pytest.fixture(scope="module")
-def graph_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    """The hello-world graph recipe, driven once."""
-    runner = CliRunner()
-    export = stage_export(tmp_path_factory)
-    repo = tmp_path_factory.mktemp("recipe-graph") / "demo"
-
-    invoke(runner, "init", str(repo), "--preset", "hello-world", "--no-git")
-    harvest(runner, repo, export)
-    emitted = emit(runner, repo)
-    assert emitted.exit_code == 0, emitted.output
-    invoke(runner, "set", "--repo", str(repo), *GRAPH_SETTINGS)
-
-    validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
-    build = invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
-
-    return {
-        "repo": repo,
-        "validate": validate.output,
-        "build": build.output,
-    }
-
-
-@pytest.fixture(scope="module")
-def control_assistant_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    """The control-assistant recipe, including the refusal it must pass through."""
-    runner = CliRunner()
-    export = stage_export(tmp_path_factory)
-    repo = tmp_path_factory.mktemp("recipe-control-assistant") / "demo"
-
-    invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
-    harvest(runner, repo, export)
-
-    refused = emit(runner, repo)
-    removed = remove_named(repo, rm_line(refused.output))
-
-    # The first refusal is kept whole above, as the evidence the demo-material
-    # cases read; what the preset is asked about after it is driven the way an
-    # operator would, one refusal at a time.
-    emitted, rounds = drive_emit(runner, repo)
-    invoke(runner, "set", "--repo", str(repo), *MIDDLE_LAYER_SETTINGS)
-
-    validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
-    build = invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
-
-    return {
-        "repo": repo,
-        "refused": refused,
-        "removed": removed,
-        "rounds": rounds,
-        "emit": emitted.output,
-        "validate": validate.output,
-        "build": build.output,
-    }
-
-
-@pytest.fixture(scope="module", params=TWO_ZERO_TREES)
+@pytest.fixture(scope="module", params=BUILT_TREES)
 def served_repo(
     request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
 ) -> dict[str, Any]:
-    """The control-assistant recipe over a 2.0 export, driven once per fixture.
+    """The control-assistant recipe over a 2.0 export, driven once per supported tree.
 
-    The same verbs as the recipe above, over the one kind of export that ends
-    in a tree with a machine in it: ``import`` picks up the deck, the machine
-    and the response matrix beside the file it is handed, the reviewed mapping
-    committed with the fixture answers the block, and ``emit`` writes the ring
-    and the bindings the build then publishes.
-
-    Before any of that the same exports enter the facility description through
-    ``facility import mml``, past the stop it makes over the preset's authored
-    sources. The import lists the demo scenarios it leaves stale; one build
-    runs while they are still there, and the recipe then removes exactly those.
-    The first build after that runs into the ``seed-invalid`` stops the
-    imported tree carries; ``build_past_the_seed_stops`` applies their remedy.
+    The exports enter the facility description through ``facility import
+    mml``, past the stop it makes over the preset's authored sources. The
+    import lists the demo scenarios it leaves stale; one build runs while they
+    are still there, and the recipe then removes exactly those. The first
+    build after that runs into the ``seed-invalid`` stops the imported tree
+    carries; ``build_past_the_seed_stops`` applies their remedy.
 
     The build then runs twice. The second run is what says the published tree
-    is a function of the harvest and not of the run that wrote it.
+    is a function of the import and not of the run that wrote it.
     """
     fixture = FIXTURES / request.param
     exports = sorted(str(path) for path in fixture.glob("*.ao.json"))
@@ -668,10 +482,6 @@ def served_repo(
         catch_exceptions=False,
     )
     stale = remove_stale_scenarios(repo, imported)
-    invoke(runner, "mml", "import", *exports, "--repo", str(repo))
-    shutil.copy(fixture / "mapping.yaml", repo / "data" / "mml" / "mapping.yaml")
-
-    emitted, rounds = drive_emit(runner, repo)
     invoke(runner, "set", "--repo", str(repo), *MIDDLE_LAYER_SETTINGS)
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
@@ -690,8 +500,6 @@ def served_repo(
         "stale_scenarios": stale,
         "stopped": stopped,
         "remedied": remedied,
-        "rounds": rounds,
-        "emit": emitted.output,
         "validate": validate.output,
         "build": build.output,
         "first": first,
@@ -764,160 +572,34 @@ class TestHelloWorldMiddleLayer:
         )
 
 
-class TestHelloWorldGraph:
-    def test_validate_and_build_accept_the_recipe(self, graph_repo: dict) -> None:
-        assert "Profile is valid" in graph_repo["validate"]
-        assert (graph_repo["repo"] / "build" / "config.yml").is_file()
-
-    def test_the_build_binds_the_emitted_corpus(self, graph_repo: dict) -> None:
-        config = rendered_config(graph_repo["repo"])
-
-        assert config["services"]["graphdb"]["ttl_path"] == f"./data/{TOKEN}.ttl"
-        assert (graph_repo["repo"] / "build" / "data" / f"{TOKEN}.ttl").is_file()
-
-    def test_the_graph_paradigm_renders_no_middle_layer_pipeline(self, graph_repo: dict) -> None:
-        """One key chose the paradigm, so the file-database wiring must be absent."""
-        pipelines = (rendered_config(graph_repo["repo"]).get("channel_finder") or {}).get(
-            "pipelines"
-        ) or {}
-
-        assert "middle_layer" not in pipelines
-
-
-class TestControlAssistant:
-    def test_the_first_emit_refuses_naming_every_demo_artifact(
-        self, control_assistant_repo: dict
-    ) -> None:
-        refused = control_assistant_repo["refused"]
-
-        assert refused.exit_code != 0
-        assert "Traceback" not in refused.output
-        line = rm_line(refused.output)
-        for demo in (*DEMO_KNOWLEDGE_DIRS, *DEMO_TIER_SIBLINGS):
-            assert demo in line
-        assert TIERED_DATABASE not in line
-
-    def test_the_refusal_names_the_demo_page_directories_whole(
-        self, control_assistant_repo: dict
-    ) -> None:
-        """Whole directories, so no demo sub-index outlives the pages under it."""
-        named = control_assistant_repo["removed"]
-        under_bundle = {item for item in named if item.startswith(f"{BUNDLE_PATH}/")}
-
-        assert under_bundle == set(DEMO_KNOWLEDGE_DIRS)
-
-    def test_removing_exactly_those_lets_the_emit_through(
-        self, control_assistant_repo: dict
-    ) -> None:
-        repo = control_assistant_repo["repo"]
-
-        assert "Profile is valid" in control_assistant_repo["validate"]
-        assert (repo / DATABASE_PATH).is_file()
-        assert (repo / "data" / f"{TOKEN}.ttl").is_file()
-
-    def test_the_emitted_database_survives_the_build_unchanged(
-        self, control_assistant_repo: dict
-    ) -> None:
-        """Flat, tiered and built copy are one file.
-
-        Emit dual-writes the flat and the tiered database, and the build copies
-        the flat one into the render unchanged, so the three agree -- and this
-        goes red the moment the build puts other material where the harvest's
-        own database belongs.
-        """
-        repo = control_assistant_repo["repo"]
-        digests = {
-            relative: sha256(repo / relative)
-            for relative in (DATABASE_PATH, TIERED_DATABASE, f"build/{DATABASE_PATH}")
-        }
-
-        assert len(set(digests.values())) == 1, digests
-
-    def test_the_build_materializes_the_tier_three_benchmark_queries(
-        self, control_assistant_repo: dict
-    ) -> None:
-        assert (control_assistant_repo["repo"] / "build/data/benchmarks/queries.json").is_file()
-
-    def test_the_bundle_index_lists_only_what_the_harvest_wrote(
-        self, control_assistant_repo: dict
-    ) -> None:
-        """The demo pages are gone from the index, not merely unlinked from disk."""
-        index = control_assistant_repo["repo"] / BUNDLE_PATH / "index.md"
-
-        assert index_targets(index) == {"/facility.md", "/families/"}
-
-    def test_every_advertised_concept_resolves_to_a_page(
-        self, control_assistant_repo: dict
-    ) -> None:
-        from osprey.services.facility_knowledge.okf.bundle import OKFBundle
-
-        bundle = control_assistant_repo["repo"] / BUNDLE_PATH
-        concepts = OKFBundle(bundle).list_concepts()
-
-        assert concepts
-        for entry in concepts:
-            assert (bundle / f"{entry.concept_id}.md").is_file(), entry.concept_id
-
-
 class TestServedFromATwoZeroExport:
-    """What ``osprey build`` publishes when the harvest brought a machine.
+    """What ``osprey build`` publishes when the import brought a model.
 
-    The chain's last verb hands the build a tree carrying a ring, the bindings
-    that tie the harvested channels to it, and the bands those channels are
-    driven within. Everything asserted here is read back off that published
-    tree: the recipe's claim is that an operator who typed these lines gets a
-    container mounting their own machine, and the only evidence for it is the
-    files the build actually wrote.
+    Everything asserted here is read back off the published tree: the recipe's
+    claim is that an operator who typed these lines gets a container mounting
+    their own machine, and the only evidence for it is the files the build
+    actually wrote.
     """
 
-    def test_a_two_zero_export_is_committed(self) -> None:
-        # Every case below is parametrised over the discovery, so a fixture
-        # tree that stopped carrying a machine would empty them all silently
-        # rather than fail.
-        assert TWO_ZERO_TREES, "no fixture export carries a *.va.json sibling"
+    def test_a_supported_tree_is_claimed_to_build(self) -> None:
+        # Every case below is parametrised over the registry, so a registry
+        # that stopped claiming a build would empty them all silently rather
+        # than fail.
+        assert BUILT_TREES, "no supported tree is claimed to build"
 
-    def test_the_recipe_passes_through_two_refusals(self, served_repo: dict) -> None:
-        """The demo's machine-state list is refused on its own terms.
-
-        The pages and tier databases go in the first ``rm`` line. The demo's
-        machine-state list goes in the second, because it is found by a
-        different pre-flight -- the one that asks what the virtual-accelerator
-        lane can vouch for on this tree -- and what it asks of it is this
-        command's provenance stamp.
-        """
-        rounds = served_repo["rounds"]
-
-        assert len(rounds) == 2, rounds
-        assert set(rounds[1]) == {"data/machine_state_channels.json"}
-
-    def test_the_ring_and_the_bindings_reach_the_served_tree_byte_for_byte(
-        self, served_repo: dict
-    ) -> None:
-        """Re-serialising either would describe a ring the provenance disowns.
-
-        The bindings record the digest of the ring as emitted, so the copy the
-        container mounts has to be those bytes and not an equivalent document.
-        """
-        repo = served_repo["repo"]
-
-        for name in (LATTICE_FILE, BINDINGS_FILE):
-            assert (repo / SERVED / name).read_bytes() == (
-                repo / "data" / "simulation" / name
-            ).read_bytes(), name
-
-    def test_the_view_serves_the_harvests_channels_and_model(self, served_repo: dict) -> None:
-        """The container reads the harvest's addresses and serves a physics model."""
+    def test_the_view_serves_the_imports_channels_and_model(self, served_repo: dict) -> None:
+        """The container reads the import's addresses and serves a physics model."""
         view = served_repo["first_view"]
 
         assert view[ADDRESSES_FILE]["channels"]
         assert [name for name in view[SERVED_MODELS_FILE]["models"] if name != "texture"]
 
     def test_a_second_build_changes_no_published_byte(self, served_repo: dict) -> None:
-        """The served tree is a function of the harvest, not of the run.
+        """The served tree is a function of the import, not of the run.
 
         An operator rebuilding for an unrelated reason must not hand the IOC a
-        different machine, so every file under the mounted directory -- the
-        simulator view included -- is compared whole against the first build's.
+        different machine, so every file of the simulator view is compared
+        whole against the first build's.
         """
         repo = served_repo["repo"]
 
@@ -928,9 +610,7 @@ class TestServedFromATwoZeroExport:
 class TestTheFacilityImportOfATwoZeroExport:
     """What ``facility import mml`` asks of the preset, and what the build then stops on.
 
-    Read off the ``served_repo`` harvest above. The import comes before ``mml
-    emit`` in that recipe, so everything here is about a tree both verbs wrote
-    into.
+    Read off the ``served_repo`` recipe above.
     """
 
     def test_the_import_stops_over_every_authored_record_source_of_the_preset(
@@ -1064,7 +744,7 @@ class TestTheFacilityImportOfATwoZeroExport:
 
 
 class TestTheBandsOfAHarvestedTree:
-    """The bands ``osprey build`` publishes on the tree the MML chain leaves.
+    """The bands ``osprey build`` publishes on the tree the import leaves.
 
     They read the ``served_repo`` build above rather than driving the chain again.
     """

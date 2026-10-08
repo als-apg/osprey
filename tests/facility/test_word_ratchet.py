@@ -59,7 +59,6 @@ CLEAN_PATHS: tuple[str, ...] = (
 )
 
 ALLOWLIST: dict[str, str] = {
-    "src/osprey/cli/mml_cmd.py": "delete:7e",
     "src/osprey/interfaces/ariel/static/css/components.css": "rename:12",
     "src/osprey/interfaces/channel_finder/database_api.py": "rename:12",
     "src/osprey/interfaces/design_system/static/css/highlight.css": "rename:12",
@@ -111,18 +110,7 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/services/channel_finder/feedback/pending_store.py": "rename:12",
     "src/osprey/services/facility_knowledge/okf/document.py": "rename:12",
     "src/osprey/services/facility_knowledge/ttl_generator/emitter.py": "delete:7e",
-    "src/osprey/services/facility_knowledge/ttl_generator/mml_source.py": "delete:7e",
     "src/osprey/services/facility_knowledge/ttl_generator/model.py": "delete:7e",
-    "src/osprey/services/mml/census.py": "delete:7e",
-    "src/osprey/services/mml/emit/va.py": "delete:7e",
-    "src/osprey/services/mml/judgments.py": "delete:7e",
-    "src/osprey/services/mml/loaders/__init__.py": "delete:7e",
-    "src/osprey/services/mml/loaders/mat.py": "delete:7e",
-    "src/osprey/services/mml/mapping/skeleton.py": "delete:7e",
-    "src/osprey/services/mml/va/elements.py": "delete:7e",
-    "src/osprey/services/mml/va/fingerprint.py": "delete:7e",
-    "src/osprey/services/mml/va/verdicts.py": "delete:7e",
-    "src/osprey/services/mml/va/verify.py": "delete:7e",
     "src/osprey/services/virtual_accelerator/__init__.py": "rename:12",
     "src/osprey/services/virtual_accelerator/bindings.py": "delete:7e",
     "src/osprey/services/virtual_accelerator/lattice/__init__.py": "delete:7e",

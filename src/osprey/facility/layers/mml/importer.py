@@ -77,7 +77,7 @@ import shutil
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any
 
 import click
 
@@ -88,10 +88,8 @@ from osprey.facility.layers.mml.mapping import (
     MAPPING_FILE,
     READBACK_ROLE,
     SETPOINT_ROLE,
-    FieldAnswer,
     ImportStop,
     Mapping,
-    OwnerMap,
     Problem,
     TuneBlock,
     _text,
@@ -102,8 +100,7 @@ from osprey.facility.layers.mml.mapping import (
 from osprey.facility.response_check import RESPONSE_SUFFIX
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
-    from osprey.services.mml.family import FamilyView, FieldView
-    from osprey.services.mml.mapping.schema import Mapping as ExportAnswers
+    from osprey.facility.layers.mml.family import FamilyView, FieldView
 
 __all__ = [
     "ENGINE",
@@ -172,7 +169,7 @@ class Exports:
     @property
     def systems(self) -> list[str]:
         """The imported systems, in import order."""
-        from osprey.services.mml.systems import IMPORT_ORDER_KEY
+        from osprey.facility.layers.mml.systems import IMPORT_ORDER_KEY
 
         return list(self.ao[IMPORT_ORDER_KEY])
 
@@ -196,7 +193,7 @@ def read_exports(paths: Sequence[Path]) -> Exports:
     """
     import click
 
-    from osprey.services.mml.loaders.json_any import (
+    from osprey.facility.layers.mml.loaders.json_any import (
         AO_SUFFIX,
         LATTICE_SUFFIX,
         RESPONSE_SUFFIX,
@@ -205,12 +202,12 @@ def read_exports(paths: Sequence[Path]) -> Exports:
         load_sibling,
         paired_sibling,
     )
-    from osprey.services.mml.systems import input_systems, merge_inputs, resolve_system
+    from osprey.facility.layers.mml.systems import input_systems, merge_inputs, resolve_system
 
     pairs = []
     for path in paths:
         if path.suffix.lower() == ".mat":
-            from osprey.services.mml.loaders.mat import load_mat
+            from osprey.facility.layers.mml.loaders.mat import load_mat
 
             loaded = load_mat(path)
             if loaded.lattice is not None:
@@ -303,9 +300,8 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
     problems = check_mapping(mapping, exports.ao)
     if problems:
         raise MappingProblems(facility_dir / MAPPING_FILE, problems)
-    answers = _export_answers(mapping)
-    judged, views = _carried(exports, mapping, answers)
-    written = _write_records(exports, mapping, facility_dir, answers, judged, views)
+    judged, views = _carried(exports, mapping)
+    written = _write_records(exports, mapping, facility_dir, judged, views)
     seeded = seed_once(exports, mapping, facility_dir, views)
     for line in seeded.lines:
         click.echo(line)
@@ -341,14 +337,13 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
     unnamed = _unnamed(exports, mapping)
     if unnamed:
         raise MappingProblems(facility_dir / MAPPING_FILE, unnamed)
-    answers = _export_answers(mapping)
-    judged, views = _carried(exports, mapping, answers)
-    return _write_records(exports, mapping, facility_dir, answers, judged, views)
+    judged, views = _carried(exports, mapping)
+    return _write_records(exports, mapping, facility_dir, judged, views)
 
 
 def _unnamed(exports: Exports, mapping: Mapping) -> list[Problem]:
     """The exported systems and families the mapping leaves out, as its check words them."""
-    from osprey.services.mml.family import family_views
+    from osprey.facility.layers.mml.family import family_views
 
     problems = [
         Problem("models", f"leaves out the exported system {system}")
@@ -371,7 +366,6 @@ def _write_records(
     exports: Exports,
     mapping: Mapping,
     facility_dir: Path,
-    answers: ExportAnswers,
     judged: dict[str, dict[str, FamilyView]],
     views: list[FamilyView],
 ) -> list[Path]:
@@ -404,7 +398,7 @@ def _write_records(
     family_ids: dict[str, dict[str, list[str]]] = {system: {} for system in exports.systems}
     for view, slots in zip(views, ids, strict=True):
         family_ids[view.system][view.raw_name] = slots
-    served, lines = _wire(exports, mapping, models, judged, family_ids, owners, channels, answers)
+    served, lines = _wire(exports, mapping, models, judged, family_ids, owners, channels)
 
     layer = facility_dir / LAYER_DIR
     layer.mkdir(parents=True, exist_ok=True)
@@ -426,7 +420,7 @@ def _write_records(
 
 
 def _carried(
-    exports: Exports, mapping: Mapping, answers: ExportAnswers
+    exports: Exports, mapping: Mapping
 ) -> tuple[dict[str, dict[str, FamilyView]], list[FamilyView]]:
     """Every family as the reviewer judged it, and those that carry channel records.
 
@@ -434,13 +428,13 @@ def _carried(
         ``{system: {raw family: view}}`` of every judged family, and the views
         of the families the mapping gives channels, in import order.
     """
-    from osprey.services.mml.judgments import judged_family_views
+    from osprey.facility.layers.mml.judgments import judged_family_views
 
     judged: dict[str, dict[str, FamilyView]] = {}
     views: list[FamilyView] = []
     for system in exports.systems:
         judged[system] = {}
-        for view in judged_family_views(system, exports.ao[system], answers):
+        for view in judged_family_views(system, exports.ao[system], mapping):
             judged[system][view.raw_name] = view
             if view.channel_count == 0:
                 continue
@@ -687,7 +681,6 @@ def _wire(
     family_ids: dict[str, dict[str, list[str]]],
     owners: dict[str, list[str]],
     channels: dict[str, dict[str, Any]],
-    answers: ExportAnswers,
 ) -> tuple[list[tuple[str, Any]], list[str]]:
     """Wire every imported model and name its deck and wiring on its entry.
 
@@ -720,7 +713,7 @@ def _wire(
             family_ids[system],
             owners,
             channels,
-            answers,
+            mapping,
         )
         if wired is None:
             continue
@@ -747,7 +740,7 @@ def _twiss_in(deck: Path) -> dict[str, list[float]] | None:
     """pyAT's ``twiss_in`` from the first deck element carrying ``TwissData``."""
     import numpy as np
 
-    from osprey.services.mml.loaders.mat import load_lattice
+    from osprey.facility.layers.mml.loaders.mat import load_lattice
 
     for element in load_lattice(deck):
         data = getattr(element, "TwissData", None)
@@ -776,47 +769,6 @@ def _copy_responses(exports: Exports, mapping: Mapping, layer: Path) -> list[Pat
         if stale not in copied:
             stale.unlink()
     return copied
-
-
-# -- judgments ----------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class _Answers:
-    """The reviewer's judgment answers in the shape the export services read."""
-
-    judgments: dict[str, Any]
-
-
-def _export_answers(mapping: Mapping) -> ExportAnswers:
-    """The mapping's judgment answers, spelled in the export services' own types.
-
-    The services apply answers by type, so each ``{field: <name>}`` row answer
-    and each owner map is re-spelled in their classes; the literal answers
-    carry over as they are.
-    """
-    from osprey.services.mml.mapping import schema
-
-    def row(answer: Any) -> Any:
-        return schema.FieldAnswer(answer.name) if isinstance(answer, FieldAnswer) else answer
-
-    judgments = {
-        raw: schema.FamilyJudgments(
-            rows_beyond={
-                name: {signal: row(answer) for signal, answer in answers.items()}
-                for name, answers in found.rows_beyond.items()
-            },
-            unbound_devices=dict(found.unbound_devices),
-            shared_pvs=(
-                schema.OwnerMap(dict(found.shared_pvs.owners))
-                if isinstance(found.shared_pvs, OwnerMap)
-                else found.shared_pvs
-            ),
-            shared_pvs_present=found.shared_pvs_present,
-        )
-        for raw, found in mapping.judgments.items()
-    }
-    return cast("ExportAnswers", _Answers(judgments))
 
 
 # -- writing ------------------------------------------------------------------

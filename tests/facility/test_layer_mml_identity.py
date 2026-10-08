@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.facility.layers.mml.family import FamilyView
 from osprey.facility.layers.mml.identity import (
     axis_twins,
     common_class,
@@ -30,7 +31,6 @@ from osprey.facility.layers.mml.identity import (
 from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop, SameAs
 from osprey.facility.validate import run_stages
-from osprey.services.mml.family import FamilyView
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"

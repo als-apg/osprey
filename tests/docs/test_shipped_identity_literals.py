@@ -275,7 +275,7 @@ DENIED: tuple[Denied, ...] = (
                 # pattern.
                 "tests/dispatch/test_dashboard_config_injection.py",
                 "tests/registry/test_pyat_specialist_agent.py",
-                "tests/services/mml/test_fixtures_wellformed.py",
+                "tests/facility/test_mml_fixtures_wellformed.py",
                 # A byte-faithful copy of the shipped plugin manifest, whose author
                 # field is the project's own.
                 "tests/scripts/test_plugin_version.py",

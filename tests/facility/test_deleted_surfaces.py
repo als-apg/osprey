@@ -37,7 +37,14 @@ DELETED_PATHS: tuple[str, ...] = (
 
 #: Dotted module paths that no longer resolve.
 DELETED_MODULES: tuple[str, ...] = (
+    "osprey.cli.mml_cmd",
     "osprey.connectors.channel_taxonomy",
+    "osprey.services.facility_knowledge.ttl_generator.mml_source",
+    "osprey.services.mml",
+    "osprey.services.mml.emit",
+    "osprey.services.mml.loaders",
+    "osprey.services.mml.mapping",
+    "osprey.services.mml.va",
     "osprey.simulation.archiver_seed",
     "osprey.simulation.channel_schema",
     "osprey.simulation.engine",
@@ -119,9 +126,21 @@ def test_the_deleted_path_is_gone(path: str) -> None:
     assert not any(target.rglob("*.py"))
 
 
+def resolves(module: str) -> bool:
+    """Whether a dotted module path resolves; a path under a missing package does not."""
+    try:
+        return importlib.util.find_spec(module) is not None
+    except ModuleNotFoundError:
+        return False
+
+
 @pytest.mark.parametrize("module", DELETED_MODULES)
 def test_the_deleted_module_is_gone(module: str) -> None:
-    assert importlib.util.find_spec(module) is None
+    assert not resolves(module)
+
+
+def test_a_surviving_module_resolves() -> None:
+    assert resolves("osprey.facility.layers.mml")
 
 
 def retired_source_hits(root: Path) -> list[str]:

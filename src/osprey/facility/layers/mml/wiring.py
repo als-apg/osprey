@@ -93,6 +93,7 @@ from osprey.facility.layers.mml.mapping import (
     TUNE_PLANES,
     EngineBlock,
     ImportStop,
+    Mapping,
     MappingError,
     Model,
     TuneBlock,
@@ -102,8 +103,7 @@ from osprey.facility.layers.mml.mapping import (
 from osprey.simulation.engines.calibration import Calibration, Linear, Table, evaluate, shifted
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
-    from osprey.services.mml.family import FamilyView, FieldView
-    from osprey.services.mml.mapping.schema import Mapping as ExportAnswers
+    from osprey.facility.layers.mml.family import FamilyView, FieldView
 
 __all__ = [
     "ENERGY_SCALINGS",
@@ -179,7 +179,7 @@ def wire_model(
     device_ids: Map[str, Sequence[str]],
     endpoints: Map[str, Sequence[str]],
     channels: Container[str],
-    answers: ExportAnswers,
+    answers: Mapping,
 ) -> Wired | None:
     """Address one model's deck and derive its wiring records.
 
@@ -199,7 +199,7 @@ def wire_model(
         endpoints: The devices binding each address, as the identity model
             resolves them.
         channels: The addresses the import writes a channel record for.
-        answers: The judgment answers, in the shape the export services read.
+        answers: The mapping carrying the reviewer's judgment answers.
 
     Returns:
         The served deck and the wiring records, or ``None`` for a model that
@@ -212,7 +212,7 @@ def wire_model(
         MappingError: The mapping answers a voltage for a deck that holds its
             cavity.
     """
-    from osprey.services.mml.loaders.mat import load_lattice
+    from osprey.facility.layers.mml.loaders.mat import load_lattice
 
     name = model.name
     if deck_path is None:
@@ -261,7 +261,7 @@ def _records(
     views: Map[str, FamilyView],
     device_ids: Map[str, Sequence[str]],
     endpoints: Map[str, Sequence[str]],
-    answers: ExportAnswers,
+    answers: Mapping,
     lines: list[str],
 ) -> list[dict[str, Any]]:
     """Every wiring record of one model, sorted by address.
@@ -272,7 +272,7 @@ def _records(
         ValueError: Two records claim one address or one element field, or
             whatever :func:`_family_records` refuses.
     """
-    from osprey.services.mml.judgments import judged_va_block
+    from osprey.facility.layers.mml.judgments import judged_va_block
 
     wired: dict[str, tuple[str, dict[str, Any]]] = {}
     written: dict[tuple[str, str], str] = {}
@@ -794,7 +794,7 @@ def _require_devices(family: str, view: FamilyView, block: Map[str, Any]) -> Non
         ValueError: The block's ``device_list`` states another device count
             than the judged family has.
     """
-    from osprey.services.mml.family import device_rows
+    from osprey.facility.layers.mml.family import device_rows
 
     rows = device_rows(block.get("device_list"))
     if rows is not None and len(rows) != view.n_devices:

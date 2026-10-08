@@ -526,7 +526,7 @@ def _with_devices(
     stated: list[tuple[int, tuple[tuple[int, int], ...]]],
 ) -> tuple[_Row, ...]:
     """Pair each stated row with the device the export lists it under."""
-    from osprey.services.mml.family import device_rows
+    from osprey.facility.layers.mml.family import device_rows
 
     devices = device_rows(block.get("DeviceList"))
     if devices is None:
