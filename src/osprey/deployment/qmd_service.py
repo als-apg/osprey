@@ -68,6 +68,7 @@ whatever can route to that interface.
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -201,6 +202,36 @@ INDEX_PREBUILT = "prebuilt"
 _CORPUS_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
 
 
+def corpus_service_name(corpus: str) -> str:
+    """Compose service name of *corpus*'s sidecar — its DNS name on the network.
+
+    Args:
+        corpus: ``okf``, ``ariel``, or a name ``services.qmd.corpora`` declares.
+
+    Returns:
+        ``qmd-<corpus>``.
+    """
+    return f"{QMD_SERVICE_NAME}-{corpus}"
+
+
+def corpus_url_env(corpus: str) -> str:
+    """Environment variable naming the URL a container dials *corpus*'s sidecar at.
+
+    The ``services.qmd`` block only knows where a sidecar is *published*, which
+    is right from the host and wrong from inside a bridge-networked container,
+    where the host's loopback is the container's own. The compose render hands
+    such a container the sidecar's in-network URL under this name, and
+    :func:`resolve_qmd_corpus_config` dials it in place of the published one.
+
+    Args:
+        corpus: ``okf``, ``ariel``, or a name ``services.qmd.corpora`` declares.
+
+    Returns:
+        ``OSPREY_QMD_<CORPUS>_URL``.
+    """
+    return f"OSPREY_QMD_{corpus.upper()}_URL"
+
+
 @dataclass(frozen=True)
 class DeclaredCorpus:
     """One entry of ``services.qmd.corpora``.
@@ -242,6 +273,10 @@ class QMDServiceConfig:
             time. Validated for shape here and for contents by
             :func:`preflight_qmd_models_dir` at deploy time.
         corpora: The corpora ``services.qmd.corpora`` declares, in order.
+        dial_url: The URL a client in this process dials the sidecar at in place
+            of the published address, or ``None`` to dial the publish. Set by
+            :func:`resolve_qmd_corpus_config` from :func:`corpus_url_env`; it
+            names one corpus's sidecar, so :meth:`for_corpus` clears it.
     """
 
     port: int = DEFAULT_PORT
@@ -250,6 +285,7 @@ class QMDServiceConfig:
     first_index_grace_seconds: int = DEFAULT_FIRST_INDEX_GRACE_SECONDS
     models_dir: str | None = None
     corpora: tuple[DeclaredCorpus, ...] = ()
+    dial_url: str | None = None
 
     def corpus_offset(self, corpus: str) -> int:
         """Position of *corpus*'s sidecar in the port family.
@@ -278,21 +314,28 @@ class QMDServiceConfig:
     def for_corpus(self, corpus: str) -> QMDServiceConfig:
         """The settings of *corpus*'s own sidecar: the same block, its port.
 
+        The port is an offset from *this* config's port, so it is meant to be
+        called on the family's config; the result dials the publish, since a
+        ``dial_url`` names one sidecar and never another.
+
         Raises:
             ValueError: As :meth:`corpus_offset`.
         """
-        return replace(self, port=self.port + self.corpus_offset(corpus))
+        return replace(self, port=self.port + self.corpus_offset(corpus), dial_url=None)
 
     @property
     def base_url(self) -> str:
-        """URL a client on the host reaches the sidecar at.
+        """URL a client in this process reaches the sidecar at.
 
-        The address comes from :func:`dial_address`, the one rule every
-        host-side dial of a published port follows: a wildcard publish is an
-        address to *listen* on rather than one to connect to and is dialed on
-        loopback, while a concrete interface is published only on that
-        interface and is dialed there.
+        ``dial_url`` when one is set — the in-network address a container on the
+        compose bridge is handed. Otherwise the published address, from
+        :func:`dial_address`, the one rule every host-side dial of a published
+        port follows: a wildcard publish is an address to *listen* on rather
+        than one to connect to and is dialed on loopback, while a concrete
+        interface is published only on that interface and is dialed there.
         """
+        if self.dial_url is not None:
+            return self.dial_url
         return f"http://{dial_address(self.bind_address)}:{self.port}"
 
 
@@ -349,27 +392,41 @@ def resolve_qmd_service_config(config: Mapping[str, Any] | None) -> QMDServiceCo
 
 
 def resolve_qmd_corpus_config(
-    config: Mapping[str, Any] | None, corpus: str
+    config: Mapping[str, Any] | None,
+    corpus: str,
+    *,
+    env: Mapping[str, str] = os.environ,
 ) -> QMDServiceConfig | None:
     """Resolve the settings of one corpus's sidecar, or ``None`` without qmd.
 
     What a client hands :class:`~osprey.services.qmd.client.QMDClient`: the
-    deployment's ``services.qmd`` block with the port of *corpus*'s sidecar.
+    deployment's ``services.qmd`` block with the port of *corpus*'s sidecar,
+    dialled at the URL :func:`corpus_url_env` names when the environment sets
+    one. That variable is how a process inside the compose network reaches the
+    sidecar by its service name rather than at the host's published address,
+    the same way ``ARIEL_DATABASE_HOST`` redirects the derived ARIEL DSN.
 
     Args:
         config: A loaded project config mapping, or ``None``.
         corpus: ``okf``, ``ariel``, or a name ``services.qmd.corpora`` declares.
+        env: Where to read the override from. Defaults to the process
+            environment, which is what every in-container client wants.
 
     Returns:
         The corpus's settings, or ``None`` when the config carries no
-        ``services.qmd`` block.
+        ``services.qmd`` block — an override alone does not make a sidecar
+        this deployment knows.
 
     Raises:
         ValueError: For a malformed block, or a corpus the deployment does not
             know.
     """
     resolved = resolve_qmd_service_config(config)
-    return None if resolved is None else resolved.for_corpus(corpus)
+    if resolved is None:
+        return None
+    settings = resolved.for_corpus(corpus)
+    override = (env.get(corpus_url_env(corpus)) or "").strip().rstrip("/")
+    return replace(settings, dial_url=override) if override else settings
 
 
 def _declared_corpora(raw: Any) -> tuple[DeclaredCorpus, ...]:

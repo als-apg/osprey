@@ -393,11 +393,23 @@ PICTURE_UNAVAILABLE_MESSAGE = (
     "known only by their pictures are missing."
 )
 
-#: Message of the diagnostic an image-only answer to a sidecar outage carries.
-TEXT_UNAVAILABLE_MESSAGE = (
-    "Text ranking unavailable — picture matches only; the qmd sidecar is not "
-    "answering, so entries matching on text are missing."
-)
+#: Opening of the diagnostic an image-only answer to a sidecar outage carries;
+#: :func:`_text_unavailable_message` completes it with the sidecar dialled.
+TEXT_UNAVAILABLE_MESSAGE = "Text ranking unavailable — picture matches only"
+
+
+def _text_unavailable_message(qmd: QMDClient) -> str:
+    """The picture-only diagnostic, naming the sidecar that did not answer.
+
+    The URL is the one this process dialled, which inside a container is not
+    the address the config block publishes, so it is named rather than implied.
+    """
+    cause = (
+        f"the qmd sidecar at {qmd.base_url} is not answering"
+        if qmd.is_configured
+        else "no qmd sidecar is configured for this deployment"
+    )
+    return f"{TEXT_UNAVAILABLE_MESSAGE}; {cause}, so entries matching on text are missing."
 
 
 async def _ranked_search(
@@ -441,7 +453,7 @@ async def _ranked_search(
                     SearchDiagnostic(
                         level=DiagnosticLevel.WARNING,
                         source="hybrid",
-                        message=TEXT_UNAVAILABLE_MESSAGE,
+                        message=_text_unavailable_message(qmd),
                         category="text_ranking",
                     ),
                 ),
