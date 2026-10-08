@@ -400,11 +400,28 @@ PICTURE_UNAVAILABLE_MESSAGE = (
     "known only by their pictures are missing."
 )
 
-#: Message of the diagnostic an image-only answer to a sidecar outage carries.
-TEXT_UNAVAILABLE_MESSAGE = (
-    "Text ranking unavailable — picture matches only; the qmd sidecar is not "
-    "answering, so entries matching on text are missing."
-)
+#: Opening of the diagnostic an image-only answer to a sidecar outage carries;
+#: :func:`_text_unavailable_message` completes it with the sidecar dialled.
+TEXT_UNAVAILABLE_MESSAGE = "Text ranking unavailable — picture matches only"
+
+
+def _sidecar_cause(qmd: QMDClient) -> str:
+    """Why *qmd* cannot rank text: no sidecar configured, or the one dialled is silent.
+
+    The URL is the one this process dialled, which inside a container is not
+    the address the config block publishes, so it is named rather than implied.
+    """
+    if not qmd.is_configured:
+        return "no qmd sidecar is configured for this deployment"
+    return f"the qmd sidecar at {qmd.base_url} is not answering"
+
+
+def _text_unavailable_message(qmd: QMDClient) -> str:
+    """The picture-only diagnostic, naming why the text lane is missing."""
+    return (
+        f"{TEXT_UNAVAILABLE_MESSAGE}; {_sidecar_cause(qmd)}, "
+        "so entries matching on text are missing."
+    )
 
 
 async def _ranked_search(
@@ -448,17 +465,13 @@ async def _ranked_search(
                     SearchDiagnostic(
                         level=DiagnosticLevel.WARNING,
                         source="hybrid",
-                        message=TEXT_UNAVAILABLE_MESSAGE,
+                        message=_text_unavailable_message(qmd),
                         category="text_ranking",
                     ),
                 ),
                 expansion=query_expansion.groups if query_expansion else (),
             )
-        raise QMDUnavailableError(
-            "no qmd sidecar is configured for this deployment"
-            if not qmd.is_configured
-            else f"the qmd sidecar at {qmd.base_url} is not answering"
-        )
+        raise QMDUnavailableError(_sidecar_cause(qmd))
 
     logger.info(
         f"hybrid_search: query={query!r}, max_results={max_results}, fetch_limit={fetch_limit}, "

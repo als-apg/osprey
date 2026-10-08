@@ -93,3 +93,21 @@ async def test_a_malformed_block_is_one_warning_row(monkeypatch):
 @pytest.mark.parametrize("config", [None, {}, {"services": {"postgresql": {}}}])
 async def test_no_sidecar_configured_is_no_rows(config):
     assert await qmd(config)() == []
+
+
+async def test_the_probe_dials_what_the_containers_clients_dial(monkeypatch):
+    # Inside a bridge-networked container the render names each sidecar's
+    # in-network URL; the row probes that URL, not the host publish, so the
+    # verdict is about the address this container's clients actually use.
+    monkeypatch.setenv("OSPREY_QMD_OKF_URL", "http://qmd-okf:9000")
+    dialled: dict[int, str] = {}
+
+    def status(self: QMDClient) -> QMDIndexStatus:
+        dialled[self._config.port] = self.base_url
+        raise QMDUnavailableError("refused")
+
+    monkeypatch.setattr(QMDClient, "status", status)
+    rows = {r.name: r for r in await qmd(BOTH_CORPORA)()}
+
+    assert dialled == {9000: "http://qmd-okf:9000", 9001: "http://127.0.0.1:9001"}
+    assert "http://qmd-okf:9000" in rows["qmd_okf"].message

@@ -101,14 +101,15 @@ services:
       CONFIG_FILE: /app/golden-project/build/config.yml
       OSPREY_PROJECT_DIR: /app/golden-project
       TZ: UTC
-      # On the host namespace this container's loopback IS the host's, so the
-      # store is reached where it PUBLISHES. `port_host` is spelled with the
-      # same defaulting chain every other reader of this store uses: a config
-      # that names the block but omits the key falls back to the layout value
-      # for the deployment's own `deployment.port_base`, and `default({}, true)`
-      # rescues an absent block, which a bare `| default(...)` on the attribute
-      # could not.
-      ARIEL_DATABASE_HOST: localhost
+      # On the host namespace the store is reached where it PUBLISHES: the
+      # interface `deployment.bind_address` names (loopback for a wildcard),
+      # derived once as `osprey_host_dial_address`, on the published
+      # `port_host`. That port is spelled with the same defaulting chain every
+      # other reader of this store uses: a config that names the block but
+      # omits the key falls back to the layout value for the deployment's own
+      # `deployment.port_base`, and `default({}, true)` rescues an absent block,
+      # which a bare `| default(...)` on the attribute could not.
+      ARIEL_DATABASE_HOST: "127.0.0.1"
       ARIEL_DATABASE_PORT: "10800"
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT — hence the build/services/ prefix on
