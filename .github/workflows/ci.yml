@@ -5501,14 +5501,17 @@ jobs:
     #     scratch for each of its three trees — init, import, emit, set,
     #     validate, build — and boots a container of its own per tree under
     #     that module's own `BOOT_TIMEOUT_S` of 240 s.
-    # 60 is that with headroom, which is deliberate for a lane that has never
+    #   - the real-facility lane on the NSLS-II stand-in, one install of a two-model
+    #     export — init, import, set, build — and one boot under that
+    #     module's own `BOOT_TIMEOUT_S` of 240 s, capped at 20 minutes.
+    # 80 is that with headroom, which is deliberate for a lane that has never
     # run here: the first pull request must not be reddened by a cap tuned to
     # a laptop. It is larger than va-substrate-equivalence-e2e and
     # archiver-world-e2e, and than the switch lane's 30, because that lane
     # runs five modules against containers two of its own images serve, while
-    # this one runs eleven and boots eight. Tighten once there are observed
+    # this one runs twelve and boots nine. Tighten once there are observed
     # green timings on a runner.
-    timeout-minutes: 60
+    timeout-minutes: 80
 
     steps:
     - name: Checkout repository
@@ -5550,8 +5553,9 @@ jobs:
     - name: Run the live virtual accelerator E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
-      # that takes the container logs with it. 50 leaves the image build the
-      # rest of the job cap, and still bounds the realistic hang here — a read
+      # that takes the container logs with it. 50 leaves the image build and
+      # the real-facility lane's step the rest of the job cap, and still bounds the
+      # realistic hang here — a read
       # of a channel nobody serves, which the connector itself gives up on
       # after 120 s.
       timeout-minutes: 50
@@ -5589,32 +5593,47 @@ jobs:
           tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_mml_trees_boot.py \
           -v --tb=short --junitxml=junit-va-live-e2e.xml
 
+    - name: Run the real-facility lane on the NSLS-II stand-in
+      # The real-facility lane over the committed stand-in tree: import the
+      # export through `facility import mml`, build, hold the rendered config
+      # to the virtual accelerator on loopback, boot this job's image over the
+      # build and read every wired channel of every model. A step of its own,
+      # not a path in the step above: that step runs the tests/va/e2e
+      # partition. Without the variable the module skips its lane by design,
+      # so its report goes through the zero-skip gate below. Capped under the
+      # job cap so a hang leaves the capture step room to run.
+      timeout-minutes: 20
+      env:
+        OSPREY_ALS_LANE_STAND_IN: tests/fixtures/mml/nsls2
+      run: |
+        uv run pytest tests/cli/test_als_lane.py -v --tb=short --junitxml=junit-als-lane.xml
+
     - name: Fail the lane on any skipped test
       run: |
-        # The gate reads the report rather than pytest's exit code because the
+        # The gate reads the reports rather than pytest's exit codes because an
         # exit code cannot express the difference: a run that skipped every
-        # test it collected exits 0. And there is exactly one way this lane
-        # skips — no module in its set carries a `skipif`, an `importorskip` or
-        # a `pytest.skip` of its own, so `OSPREY_VA_E2E_ENABLE` is the whole
-        # surface. Unset, every module collects cleanly and skips in full, and
-        # the job goes green having built an image and measured nothing.
+        # test it collected exits 0. Each step skips one way: the tests/va/e2e
+        # modules without `OSPREY_VA_E2E_ENABLE`, and the real-facility lane without
+        # `OSPREY_ALS_LANE_STAND_IN`. Unset, either collects cleanly and skips,
+        # and the job goes green having built an image and measured nothing.
+        # One report per step, each named here.
         uv run python - <<'PY'
         import sys
         import xml.etree.ElementTree as ET
 
-        report = "junit-va-live-e2e.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
         failed = False
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            failed = True
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            failed = True
+        for report in ("junit-va-live-e2e.xml", "junit-als-lane.xml"):
+            total = skipped = 0
+            for suite in ET.parse(report).getroot().iter("testsuite"):
+                total += int(suite.get("tests", 0))
+                skipped += int(suite.get("skipped", 0))
+            print(f"{report}: {total} test(s), {skipped} skipped")
+            if total == 0:
+                print(f"::error::{report} collected no tests")
+                failed = True
+            if skipped:
+                print(f"::error::{report} reports {skipped} skipped test(s)")
+                failed = True
         if failed:
             sys.exit(1)
         print("✅ every live virtual accelerator test ran; none skipped")
