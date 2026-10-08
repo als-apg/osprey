@@ -975,10 +975,9 @@ keys:
     default: 20
   control_system.connector: {covered-by: control_system, default: n/a}
   control_system.connector.mock: {rendered: false, covered-by: control_system.connector, default: n/a}
-  # The mock connector's one tuning knob. `rendered: false` since the app
-  # templates went: the presets ship the mock connector at the connector's own
-  # default and do not state it, so a deployment that wants a slower machine
-  # authors it itself.
+  # The mock connector's one tuning knob. `rendered: false`: the presets ship
+  # the mock connector at the connector's own default and do not state it, so a
+  # deployment that wants a slower machine authors it itself.
   control_system.connector.mock.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
   control_system.connector.epics.timeout_s: {covered-by: control_system.connector.epics, default: 5.0}
