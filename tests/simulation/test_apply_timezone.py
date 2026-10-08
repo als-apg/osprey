@@ -91,7 +91,7 @@ def test_deploy_time_entries_and_calendar_events_name_one_instant(tmp_path, monk
     from datetime import UTC, datetime
 
     from osprey.simulation.apply import active_logbook_entries
-    from osprey.simulation.series import anchored_instant
+    from osprey_connectors.simulation.series import anchored_instant
 
     project = _make_project(tmp_path)
 

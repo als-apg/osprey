@@ -929,7 +929,7 @@ def _event_instants(
 ) -> list[float]:
     """Every instant one event fires at, inside ``[horizon_start, anchor]``."""
     if "at_time" in event:
-        from osprey.simulation.series import daily_occurrences
+        from osprey_connectors.simulation.series import daily_occurrences
 
         if tz is None:
             tz = get_facility_timezone()
@@ -939,7 +939,7 @@ def _event_instants(
 
 def _anchored_instant(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None) -> float:
     """An ``at_offset`` or ``at_when`` event's instant, in the facility zone by default."""
-    from osprey.simulation.series import anchored_instant
+    from osprey_connectors.simulation.series import anchored_instant
 
     return anchored_instant(dict(event), anchor, tz if tz is not None else get_facility_timezone())
 

@@ -33,7 +33,6 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from osprey.simulation.series import epoch_seconds_array
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
@@ -51,6 +50,7 @@ from osprey_connectors.simulation.archive import (
     synthesize_documents,
     write_manifest,
 )
+from osprey_connectors.simulation.series import epoch_seconds_array
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 from tests._simulator_view import write_texture_view

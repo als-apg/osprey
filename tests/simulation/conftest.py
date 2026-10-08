@@ -75,7 +75,7 @@ class StubCollection:
     @property
     def manifest(self) -> dict[str, Any] | None:
         """The manifest document, or ``None`` when none was written."""
-        from osprey.simulation.archiver_seed import MANIFEST_ID
+        from osprey_connectors.simulation.archive import MANIFEST_ID
 
         return self._by_id.get(MANIFEST_ID)
 

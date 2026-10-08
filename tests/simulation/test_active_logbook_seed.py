@@ -393,10 +393,11 @@ def test_a_demo_narrative_without_a_project_is_refused_naming_the_view() -> None
 
 
 def _state_file(project: Path) -> Path:
-    from osprey.simulation.engine import ACTIVE_SCENARIOS_FILENAME, resolve_state_dir
+    from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
     config = yaml.safe_load((project / "config.yml").read_text())
-    return resolve_state_dir(config, project) / ACTIVE_SCENARIOS_FILENAME
+    return resolve_simulation_state_dir(config, project) / ACTIVE_SCENARIOS_FILENAME
 
 
 def _start_in(project: Path, names) -> dict:

@@ -496,7 +496,7 @@ def stage_va_project(root: Path) -> VaProject:
     A plain function rather than the fixture body so a caller can stage the
     repo and drive ``osprey sim apply`` at it without a pytest session.
     """
-    from osprey.simulation.engine import resolve_state_dir
+    from osprey_connectors.workspace import resolve_simulation_state_dir
     from tests.cli._lifecycle_build import stub_build
     from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
@@ -514,7 +514,7 @@ def stage_va_project(root: Path) -> VaProject:
     build = stub_build(project_dir, config=yaml.safe_dump(config))
     data_dir = stage_demo_data_dir(build / "data")
 
-    state_dir = resolve_state_dir(config, project_dir)
+    state_dir = resolve_simulation_state_dir(config, project_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "active_scenarios").write_text("nominal\n")
 
