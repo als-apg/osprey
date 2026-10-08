@@ -543,11 +543,6 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "view-unsupported",
         "a top place whose id is `schema`",
     ),
-    (
-        "view_unsupported__recorder_unstorable_address",
-        "view-unsupported",
-        "a recorder-unstorable address",
-    ),
     ("profile_invalid__mirrored_facility_file", "profile-invalid", "`project/facility.json`"),
     (
         "profile_invalid__mirrored_simulator_view",
@@ -1957,14 +1952,6 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: view-unsupported: place schema — its System key `schema` is the document "
             "key of the middle-layer index; fix: give the place an id other than `schema`, or "
             "select another channel_finder_mode"
-        ),
-    ),
-    "view_unsupported__recorder_unstorable_address": (
-        _plain(append("records/channels.yaml", {"id": "BPM1.X"})),
-        (
-            "facility: view-unsupported: channel BPM1.X — the archive recorder cannot store "
-            "the address: it contains '.', which the archive reads as a document path "
-            "separator; fix: rename the channel, or remove the profile's `va_archiver:` block"
         ),
     ),
     "profile_invalid__mirrored_facility_file": (

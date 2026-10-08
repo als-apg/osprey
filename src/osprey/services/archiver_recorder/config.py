@@ -62,8 +62,6 @@ from osprey_connectors.ipc.verification import derive_endpoints
 from osprey_connectors.standin import archive_belongs_to_standin
 from osprey_connectors.types import TARGET_STANDIN
 
-from .field_names import _unstorable_field_name
-
 #: Where the compose template mounts the render's simulator view,
 #: ``build/data/simulator``: the same directory the virtual accelerator serves
 #: from, so the recorder and the IOC read one ``addresses.json``.
@@ -252,20 +250,13 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
     under this facility's name is indistinguishable, later, from a real record
     of the facility.
 
-    An address the archive cannot hold as a field name is refused here on the
-    same terms (see :func:`~osprey.services.archiver_recorder.field_names._unstorable_field_name`),
-    rather than started and discovered a tick at a time. ``osprey build`` stops
-    on such an address whenever the recorder is configured, so a built
-    deployment never reaches this refusal.
-
     Args:
         data_dir: The simulator view's directory; :data:`DEFAULT_DATA_DIR`
             when ``None``.
 
     Raises:
-        RecorderConfigError: if ``addresses.json`` cannot be read, holds no
-            ``channels`` list of strings, or lists an address the archive
-            cannot store as a field name.
+        RecorderConfigError: if ``addresses.json`` cannot be read or holds no
+            ``channels`` list of strings.
     """
     root = Path(data_dir) if data_dir is not None else Path(DEFAULT_DATA_DIR)
     path = root / ADDRESSES_FILE
@@ -282,17 +273,6 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
             f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) holds no "
             f"`channels` list of addresses. Rebuild the project with `osprey build`."
         )
-
-    for address in channels:
-        refusal = _unstorable_field_name(address)
-        if refusal is not None:
-            raise RecorderConfigError(
-                f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) lists "
-                f"{address!r}, which cannot be stored: it {refusal}. Every tick is one "
-                f"document with a field per address, so this channel would be dropped "
-                f"from the archive -- or take the whole write with it -- rather than "
-                f"recorded. Rename the channel in the facility description and rebuild."
-            )
     return list(channels)
 
 
