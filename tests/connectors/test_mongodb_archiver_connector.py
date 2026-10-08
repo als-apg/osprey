@@ -21,6 +21,7 @@ from osprey.connectors.archiver.mongodb_archiver_connector import (
 )
 from osprey.connectors.factory import ConnectorFactory
 from osprey.port_layout import default_port
+from osprey_connectors.archiver.field_names import field_name
 from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
 
 # xdist_group("docker"): the session ``mongodb_container`` fixture starts a real
@@ -404,6 +405,91 @@ class TestMetadataMethods:
 
         with pytest.raises(RuntimeError, match="MongoDB archiver not connected"):
             await connector.get_metadata("BEAM:CURRENT")
+
+
+def _test_collection(mongodb_container):
+    """The fixture collection, through a client the caller closes."""
+    from pymongo import MongoClient
+
+    client = MongoClient(
+        host=mongodb_container["host"],
+        port=mongodb_container["port"],
+        username=mongodb_container["username"],
+        password=mongodb_container["password"],
+        authSource=mongodb_container["auth_db"],
+    )
+    return client, client[mongodb_container["db_name"]][mongodb_container["collection_name"]]
+
+
+class TestDottedChannelAddresses:
+    """A channel address carrying a field name is read under its own address."""
+
+    @pytest.mark.asyncio
+    async def test_a_dotted_channel_reads_back_by_its_address(
+        self, mongodb_config, mongodb_container, mongodb_test_data
+    ):
+        start_date = mongodb_test_data["start_date"]
+        client, collection = _test_collection(mongodb_container)
+        try:
+            collection.insert_many(
+                [
+                    {
+                        "date": start_date + timedelta(minutes=30 + 60 * hour),
+                        field_name("BEAM:REC.RBV"): float(hour),
+                    }
+                    for hour in range(3)
+                ]
+            )
+        finally:
+            client.close()
+
+        connector = MongoDBArchiverConnector()
+        await connector.connect(mongodb_config)
+        try:
+            df = await connector.get_data(
+                channels=["BEAM:REC.RBV", "BEAM:CURRENT"],
+                start_date=start_date.replace(tzinfo=UTC),
+                end_date=(start_date + timedelta(hours=4)).replace(tzinfo=UTC),
+            )
+            metadata = await connector.get_metadata("BEAM:REC.RBV")
+            availability = await connector.check_availability(["BEAM:REC.RBV"])
+        finally:
+            await connector.disconnect()
+
+        assert set(df["channel"]) == {"BEAM:REC.RBV", "BEAM:CURRENT"}
+        dotted = df[df["channel"] == "BEAM:REC.RBV"]
+        assert list(dotted["value"]) == [0.0, 1.0, 2.0]
+        assert metadata.is_archived is True
+        assert metadata.channel == "BEAM:REC.RBV"
+        assert availability == {"BEAM:REC.RBV": True}
+
+    @pytest.mark.asyncio
+    async def test_a_nested_document_is_not_read_as_a_dotted_channel(
+        self, mongodb_config, mongodb_container, mongodb_test_data
+    ):
+        start_date = mongodb_test_data["start_date"]
+        client, collection = _test_collection(mongodb_container)
+        try:
+            collection.insert_one(
+                {"date": start_date + timedelta(minutes=30), "BEAM:REC": {"RBV": 9.0}}
+            )
+        finally:
+            client.close()
+
+        connector = MongoDBArchiverConnector()
+        await connector.connect(mongodb_config)
+        try:
+            df = await connector.get_data(
+                channels=["BEAM:REC.RBV"],
+                start_date=start_date.replace(tzinfo=UTC),
+                end_date=(start_date + timedelta(hours=4)).replace(tzinfo=UTC),
+            )
+            availability = await connector.check_availability(["BEAM:REC.RBV"])
+        finally:
+            await connector.disconnect()
+
+        assert len(df) == 0
+        assert availability == {"BEAM:REC.RBV": False}
 
 
 class TestFactoryIntegration:

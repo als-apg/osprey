@@ -2,7 +2,8 @@
 MongoDB archiver connector for historical channel data retrieval.
 
 Provides interface to MongoDB collections containing archived channel data.
-Documents are expected to have a 'date' field and channel addresses as fields.
+Documents are expected to have a 'date' field and one field per channel, named
+by ``field_name`` of the channel address.
 """
 
 import asyncio
@@ -21,6 +22,7 @@ from osprey_connectors.archiver._timerange import (
     utc_window,
 )
 from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
+from osprey_connectors.archiver.field_names import field_name
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.logger import get_logger
 
@@ -560,15 +562,16 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         def fetch_data():
             """Synchronous data fetch function."""
+            fields = {channel: field_name(channel) for channel in channels}
             # Match any document carrying at least one requested channel: ANDing
             # existence would silently return nothing for channels archived apart.
             query = {
                 "date": {"$gte": start_utc, "$lte": end_utc},
-                "$or": [{channel: {"$exists": True}} for channel in channels],
+                "$or": [{field: {"$exists": True}} for field in fields.values()],
             }
 
             # Project only the fields we need: date and requested channels.
-            projection = {"date": 1, **dict.fromkeys(channels, 1)}
+            projection = {"date": 1, **dict.fromkeys(fields.values(), 1)}
 
             # Query MongoDB collection
             cursor = self._collection.find(query, projection).sort("date", 1)
@@ -588,10 +591,10 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 if doc_date is None:
                     logger.warning("Document missing 'date' field, skipping")
                     continue
-                for channel in channels:
-                    if channel in doc:
+                for channel, field in fields.items():
+                    if field in doc:
                         timestamps[channel].append(doc_date)
-                        values[channel].append(doc[channel])
+                        values[channel].append(doc[field])
 
             # No server-side aggregation to defer to, so every mode — including
             # "raw" — is binned client-side here.
@@ -661,7 +664,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             """Timestamps of the oldest and newest documents carrying this channel."""
             # Sorting on 'date' rides the mandatory {date: 1} index, so this is
             # two index-ordered lookups rather than a collection scan.
-            query = {channel: {"$exists": True}}
+            query = {field_name(channel): {"$exists": True}}
             projection = {"date": 1}
             oldest = self._collection.find_one(query, projection, sort=[("date", 1)])
             if oldest is None:
@@ -702,7 +705,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             """Check which channels exist in the collection."""
             availability = {}
             for channel in channels:
-                query = {channel: {"$exists": True}}
+                query = {field_name(channel): {"$exists": True}}
                 count = self._collection.count_documents(query, limit=1)
                 availability[channel] = count > 0
             return availability
