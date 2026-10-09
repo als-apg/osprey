@@ -15,6 +15,7 @@ volume is ever created or removed here).
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import stat
@@ -186,7 +187,17 @@ def fake_runtime(monkeypatch):
     def _fake_run(argv, capture_output=True, text=True, env=None, check=False):  # noqa: ARG001 - the keywords subprocess.run is called with
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
-            stdout = "\n".join(listing["containers"])
+            # Docker's `ps --format json` shape; compose stamps the service
+            # label from the `web-<user>` service key.
+            stdout = "\n".join(
+                json.dumps(
+                    {
+                        "Names": name,
+                        "Labels": "com.docker.compose.service=web-" + name.rsplit("-web-", 1)[1],
+                    }
+                )
+                for name in listing["containers"]
+            )
         elif argv[1:3] == ["volume", "ls"]:
             stdout = "\n".join(listing["volumes"])
         else:
@@ -536,7 +547,7 @@ class TestTypedGates:
         repo_root = _make_repo(tmp_path, config)
         monkeypatch.chdir(repo_root)
         eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-        listing["containers"] = ["dls-web-eve"]
+        listing["containers"] = ["demo-project-web-eve"]
         listing["volumes"] = [eve_claude, eve_agent]
         prompts: list[str] = []
         monkeypatch.setattr("builtins.input", lambda prompt="": prompts.append(prompt) or "yes")
@@ -592,7 +603,7 @@ class TestTypedGates:
         repo_root = _make_repo(tmp_path, config)
         monkeypatch.chdir(repo_root)
         eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-        listing["containers"] = ["dls-web-eve"]
+        listing["containers"] = ["demo-project-web-eve"]
         listing["volumes"] = [eve_claude, eve_agent]
 
         def _unexpected(prompt=""):

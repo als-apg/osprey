@@ -226,6 +226,54 @@ RUN set -eu; \
     [ "$got" = "$want" ] || { echo "ERROR: SHA256 mismatch for generate model: want $want, got $got" >&2; exit 1; }; \
     echo "verified generate model $got"
 
+# ── qmd patches ──────────────────────────────────────────────────────────────
+# Changes this image carries on top of the pinned release, applied to the
+# installed package's dist/ — the compiled JavaScript npm ships, which is what
+# runs. Each mirrors a change proposed upstream; patches/README.md says what
+# each one does and when the set is dropped. They change the query path only and
+# read the index as it is: none changes the index format or the embedder, so an
+# index built by the unpatched release serves unchanged. The cost is memory: the
+# daemon holds every stored vector in RAM, 3 KiB per chunk at 768 dimensions
+# (2.3 GiB for 791k chunks); QMD_VEC_SCAN=vec0 in the container's environment
+# turns that off and searches sqlite-vec directly, as the plain release does.
+#
+# The set is named here, not globbed, so the image says exactly what it carries
+# and a context that disagrees fails the build: a listed patch that is missing,
+# or a patch file nobody listed. `--fuzz=0` makes a hunk that does not match the
+# pinned release a failure rather than a guess. `patch` is installed and purged
+# in this RUN.
+#
+# The block sits below the model layers, not next to the npm install it
+# modifies, so that editing a patch rebuilds only from here: neither qmd nor the
+# 2.1 GB of models is fetched again.
+#
+# Record a change to the set in OSPREY_QMD_BUILD as well (`+osprey.N`): it is
+# the version the identity file and labels report, so `docker inspect` tells a
+# patched image from another set or from the plain release.
+ENV OSPREY_QMD_PATCHES="0001-searchvec-hydrate-by-key.patch 0002-in-memory-vector-scan.patch 0003-natural-language-lex.patch" \
+    OSPREY_QMD_BUILD=2.5.3+osprey.1
+COPY patches/ /tmp/qmd-patches/
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    apt-get update \
+ && apt-get install -y --no-install-recommends patch \
+ && qmd_root="$(npm root -g)/@tobilu/qmd" \
+ && for f in /tmp/qmd-patches/*.patch; do \
+        case " $OSPREY_QMD_PATCHES " in \
+          *" ${f##*/} "*) ;; \
+          *) echo "ERROR: patches/${f##*/} is not listed in OSPREY_QMD_PATCHES" >&2; exit 1 ;; \
+        esac; \
+    done \
+ && for p in $OSPREY_QMD_PATCHES; do \
+        [ -f "/tmp/qmd-patches/$p" ] || { echo "ERROR: patch $p is listed but not in patches/" >&2; exit 1; }; \
+        echo "applying $p"; \
+        patch -p1 --forward --batch --fuzz=0 --no-backup-if-mismatch -d "$qmd_root" < "/tmp/qmd-patches/$p" || exit 1; \
+    done \
+ && qmd --version \
+ && apt-get purge -y patch \
+ && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/* /tmp/qmd-patches
+LABEL com.osprey.qmd.patches="${OSPREY_QMD_PATCHES}"
+
 # ── embedder identity ────────────────────────────────────────────────────────
 # The startup pass compares this against the identity recorded in the index. A
 # mismatch means the vectors in the index were produced by a different embedder
@@ -240,7 +288,7 @@ RUN printf '%s\n' \
     'OSPREY_QMD_EMBED_MODEL_FILE=hf_ggml-org_embeddinggemma-300M-Q8_0.gguf' \
     "OSPREY_QMD_EMBED_MODEL_SHA256=${OSPREY_QMD_EMBED_SHA256}" \
     "OSPREY_QMD_EMBED_MODEL_ID=hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf@sha256:${OSPREY_QMD_EMBED_SHA256}" \
-    "OSPREY_QMD_VERSION=${QMD_VERSION}" \
+    "OSPREY_QMD_VERSION=${OSPREY_QMD_BUILD}" \
     > "$OSPREY_QMD_MODEL_IDENTITY_FILE"
 
 # The pins name the models this image REQUIRES: the ones it baked in on an
@@ -261,7 +309,7 @@ RUN printf '%s\n' \
 # it stays clear of the cache-key grep.
 ARG OSPREY_QMD_MODEL_DELIVERY="${OSPREY_QMD_MODELS_MOUNTED:+mounted}"
 ENV OSPREY_QMD_MODEL_DELIVERY=${OSPREY_QMD_MODEL_DELIVERY:-baked}
-LABEL com.osprey.qmd.version="2.5.3" \
+LABEL com.osprey.qmd.version="${OSPREY_QMD_BUILD}" \
       com.osprey.qmd.embed_model="hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf" \
       com.osprey.qmd.embed_sha256="b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63" \
       com.osprey.qmd.rerank_sha256="22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48" \

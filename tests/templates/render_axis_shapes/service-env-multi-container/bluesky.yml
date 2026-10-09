@@ -568,9 +568,5 @@ networks:
 
 volumes:
   bluesky_queueserver_redis:
-    labels:
-      com.osprey.repo-id: "0123456789ab"
 
   bluesky_tiled_catalog:
-    labels:
-      com.osprey.repo-id: "0123456789ab"

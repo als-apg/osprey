@@ -124,7 +124,10 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
 #: the divergence; this set only keeps the partition reading the render as it
 #: is produced today. The three ``claude_code.agent_models`` leaves are the
 #: helper-agent pins control-assistant carried; it pins none now, so every agent
-#: runs the deployment's main model, and no preset renders the key.
+#: runs the deployment's main model, and no preset renders the key. The
+#: ``project``/``project_path`` leaves of each control-assistant persona entry
+#: are gone too: an entry that names a ``build_profile`` takes its project name
+#: and directory from that profile, so the catalog no longer spells them.
 _RETIRED_SINCE_THE_FREEZE = frozenset(
     {
         "web.docs_url",
@@ -133,6 +136,11 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
         "claude_code.agent_models.channel-finder",
         "claude_code.agent_models.facility-knowledge-graph",
         "claude_code.agent_models.logbook-deep-research",
+        *(
+            f"modules.web_terminals.personas.{persona}.{key}"
+            for persona in ("admin", "knowledge", "logbook", "readonly", "readwrite")
+            for key in ("project", "project_path")
+        ),
     }
 )
 

@@ -1,0 +1,106 @@
+qmd 2.5.3: resolve vector matches by content hash, read bodies last
+
+searchVec resolved its KNN matches with
+`WHERE cv.hash || '_' || cv.seq IN (...)`, which cannot use the
+(hash, seq) primary key of content_vectors and scans every chunk row,
+and it read the full body of every matching document. The lookup now
+goes by `cv.hash IN (unique hashes)` and keeps the matched seqs in JS;
+bodies are read only for the results returned. Same rows, same order.
+
+Applies to the published package (dist/) with `patch -p1` from the
+package root.
+
+diff --git a/dist/store.js b/dist/store.js
+index 9181263..8da06a4 100644
+--- a/dist/store.js
++++ b/dist/store.js
+@@ -2685,26 +2685,36 @@ export async function searchVec(db, query, model, limit = 20, collectionName, se
+   `).all(new Float32Array(embedding), limit * 3);
+     if (vecResults.length === 0)
+         return [];
+-    // Step 2: Get chunk info and document data
+-    const hashSeqs = vecResults.map(r => r.hash_seq);
++    return hydrateVecMatches(db, vecResults, limit, collectionName);
++}
++/**
++ * Resolve vector matches ({ hash_seq, distance }) to documents: one result per
++ * file at its nearest chunk, nearest first, at most `limit`.
++ *
++ * The lookup goes by `cv.hash IN (...)`, the leading column of content_vectors'
++ * primary key, and keeps the matched seqs in JS: a predicate on the
++ * concatenated `hash || '_' || seq` cannot use that key and scans every chunk
++ * row. Bodies are read only for the results returned, not for every match.
++ */
++function hydrateVecMatches(db, vecResults, limit, collectionName) {
++    if (vecResults.length === 0)
++        return [];
+     const distanceMap = new Map(vecResults.map(r => [r.hash_seq, r.distance]));
+-    // Build query for document lookup
+-    const placeholders = hashSeqs.map(() => '?').join(',');
++    const hashes = [...new Set(vecResults.map(r => r.hash_seq.slice(0, r.hash_seq.lastIndexOf('_'))))];
++    const placeholders = hashes.map(() => '?').join(',');
+     let docSql = `
+     SELECT
+-      cv.hash || '_' || cv.seq as hash_seq,
+       cv.hash,
++      cv.seq,
+       cv.pos,
+       'qmd://' || d.collection || '/' || d.path as filepath,
+       d.collection || '/' || d.path as display_path,
+-      d.title,
+-      content.doc as body
++      d.title
+     FROM content_vectors cv
+     JOIN documents d ON d.hash = cv.hash AND d.active = 1
+-    JOIN content ON content.hash = d.hash
+-    WHERE cv.hash || '_' || cv.seq IN (${placeholders})
++    WHERE cv.hash IN (${placeholders})
+   `;
+-    const params = [...hashSeqs];
++    const params = [...hashes];
+     if (collectionName) {
+         docSql += ` AND d.collection = ?`;
+         params.push(collectionName);
+@@ -2713,16 +2723,26 @@ export async function searchVec(db, query, model, limit = 20, collectionName, se
+     // Combine with distances and dedupe by filepath
+     const seen = new Map();
+     for (const row of docRows) {
+-        const distance = distanceMap.get(row.hash_seq) ?? 1;
++        const distance = distanceMap.get(`${row.hash}_${row.seq}`);
++        if (distance === undefined)
++            continue;
+         const existing = seen.get(row.filepath);
+         if (!existing || distance < existing.bestDist) {
+             seen.set(row.filepath, { row, bestDist: distance });
+         }
+     }
+-    return Array.from(seen.values())
+-        .sort((a, b) => a.bestDist - b.bestDist)
+-        .slice(0, limit)
+-        .map(({ row, bestDist }) => {
++    // A document whose content row is missing is skipped and the next nearest
++    // takes its place.
++    const bodyOf = db.prepare(`SELECT doc FROM content WHERE hash = ?`);
++    const hits = [];
++    for (const hit of Array.from(seen.values()).sort((a, b) => a.bestDist - b.bestDist)) {
++        if (hits.length >= limit)
++            break;
++        const content = bodyOf.get(hit.row.hash);
++        if (content)
++            hits.push({ ...hit, body: content.doc });
++    }
++    return hits.map(({ row, bestDist, body }) => {
+         const collectionName = row.filepath.split('//')[1]?.split('/')[0] || "";
+         return {
+             filepath: row.filepath,
+@@ -2732,8 +2752,8 @@ export async function searchVec(db, query, model, limit = 20, collectionName, se
+             docid: getDocid(row.hash),
+             collectionName,
+             modifiedAt: "", // Not available in vec query
+-            bodyLength: row.body.length,
+-            body: row.body,
++            bodyLength: body.length,
++            body,
+             context: getContextForFile(db, row.filepath),
+             score: 1 - bestDist, // Cosine similarity = 1 - cosine distance
+             source: "vec",

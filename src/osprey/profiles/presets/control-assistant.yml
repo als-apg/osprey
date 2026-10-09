@@ -1122,8 +1122,10 @@ config:
   # `modules.web_terminals.enabled: false` to have `osprey up` deploy backend
   # services only.
   #
-  # Short prefix for the web container names (`<prefix>-nginx`, `<prefix>-web-
-  # <user>`). Must start with a letter or digit. Use your facility's initials.
+  # Short facility token; use your facility's initials. It keys the facility
+  # graph's identifiers and names `/app/<prefix>-assistant`, the in-container
+  # directory of a terminal with no persona render of its own. Container names
+  # come from the top-level `project_name:` instead.
   facility.prefix: ca
   # The hostname people open in a browser. 127.0.0.1 is your own machine; set
   # your real hostname to reach it from anywhere else.
@@ -1261,28 +1263,18 @@ config:
       # `osprey build` builds one of these per file in personas/, into build/.
       # `osprey up` builds nothing: if one is missing it stops and says so.
       readonly:
-        project: control-assistant-readonly
-        project_path: build/control-assistant-readonly
         build_profile: control-assistant-readonly
       readwrite:
-        project: control-assistant-readwrite
-        project_path: build/control-assistant-readwrite
         build_profile: control-assistant-readwrite
       admin:
-        project: control-assistant-admin
-        project_path: build/control-assistant-admin
         build_profile: control-assistant-admin
       logbook:
-        project: control-assistant-logbook
-        project_path: build/control-assistant-logbook
         build_profile: control-assistant-logbook
         # Puts this persona's users under their own landing-page heading
         # instead of in with the people. Presentation only — it changes
         # nothing about the container, its ports, or what it can do.
         landing_group: Standalone deployments
       knowledge:
-        project: control-assistant-knowledge
-        project_path: build/control-assistant-knowledge
         build_profile: control-assistant-knowledge
         landing_group: Standalone deployments
 

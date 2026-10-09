@@ -63,7 +63,7 @@ running — is not reachable from here without racing the switch against a cell,
 so it stays pinned in ``tests/runtime/test_jupyter_kernel.py``.
 
 CONTAINER-OPS SAFETY: every runtime-mutating call below names an EXACT resource
-this test created — the ``<prefix>-*`` containers, this project's volumes and
+this test created — the ``<project>-*`` containers, this project's volumes and
 the ``:local`` image tags — or is the project-scoped ``compose down`` the deploy
 lifecycle itself uses. Nothing here ever runs a prune, an ``-a``/``--all``
 sweep, or a wildcard removal. Set ``E2E_REUSE_IMAGES`` to keep the built images
@@ -229,7 +229,7 @@ def _run_osprey(
 
 
 def _web_container() -> str:
-    return f"{PREFIX}-web-{USER}"
+    return f"{PROJECT_NAME}-web-{USER}"
 
 
 def _logs(name: str) -> str:
@@ -372,13 +372,10 @@ def _shape_repo(repo: Path) -> None:
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     terminals = profile["config"]["modules.web_terminals"]
     terminals["users"] = [{"name": USER, "index": 0, "persona": PERSONA}]
-    terminals["personas"] = {
-        PERSONA: {
-            "project": PERSONA_PROJECT,
-            "project_path": f"build/{PERSONA_PROJECT}",
-            "build_profile": f"personas/{PERSONA}.yml",
-        }
-    }
+    # The delta is the entry's only source: the build derives the persona's
+    # `project` / `project_path` from the profile's `project_name` and refuses
+    # a profile that spells either.
+    terminals["personas"] = {PERSONA: {"build_profile": f"personas/{PERSONA}.yml"}}
     terminals["default_persona"] = PERSONA
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
@@ -458,7 +455,7 @@ def _compose_project() -> str | None:
 def _teardown(project: str | None) -> None:
     """Exact-named sweep; failures swallowed (a safety net, never an assertion)."""
     _runtime_cli("rm", "-f", _web_container())
-    _runtime_cli("rm", "-f", f"{PREFIX}-nginx")
+    _runtime_cli("rm", "-f", f"{PROJECT_NAME}-nginx")
     for project_name in {project, PROJECT_NAME} - {None}:
         _runtime_cli("compose", "-p", str(project_name), "down", timeout=120)
         remove_project_volumes(str(project_name), runtime=RUNTIME)

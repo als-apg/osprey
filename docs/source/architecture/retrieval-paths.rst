@@ -37,9 +37,9 @@ anywhere — it ranks with BM25 and lets the agent walk a hierarchy.
 
 **The qmd sidecar is the one cross-stack component.** It answers ARIEL's
 ``hybrid`` mode and backs :doc:`facility-knowledge </how-to/facility-knowledge/index>`
-search, indexing both corpora — the markdown mirror ARIEL exports and the OKF
-bundle — in one process. Its internals, and the ``rerank`` tradeoff, are covered
-under :ref:`qmd-search-sidecar`.
+search, from one sidecar per corpus — one for the markdown mirror ARIEL exports,
+one for the OKF bundle, one for each corpus a deployment declares. Its internals,
+and the ``rerank`` tradeoff, are covered under :ref:`qmd-search-sidecar`.
 
 **Every stack degrades rather than fails.** The dashed edges are fallbacks: OKF
 search drops to a substring scan when the sidecar is absent, and ARIEL's

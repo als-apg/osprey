@@ -46,7 +46,6 @@ render helpers live at the top so new sections append without restructuring.
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 
@@ -57,9 +56,11 @@ from osprey.cli.build_cmd import _profile_data_bundle
 from osprey.cli.build_profile import BuildProfile, list_presets, resolve_build_profile
 from osprey.cli.build_profile_presets import _presets_dir
 from osprey.cli.templates.manager import TemplateManager
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import resolve_qmd_service_config
 from osprey.deployment.web_terminals.lint import Finding, lint_web_terminals
+from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
 from osprey.port_layout import (
     CA_DEFAULT_PORT,
@@ -223,14 +224,15 @@ def _render_deployable_config(tmp_path: Path, preset: str = "control-assistant")
     So this applies the same rewrite, through the same function the
     materializer calls and over the same catalog it derives, keeping the lint
     tests below a unit-cost check of the real output rather than a pin on an
-    intermediate. ``repo_name`` is *preset*: a repo named after the preset is
-    exactly what a real ``osprey init --preset control-assistant`` produces, so
-    the rewritten ``project``/``project_path`` values match what materialization
-    would actually emit. (The end-to-end proof that these agree lives in
+    intermediate. The build then derives each persona's ``project``/
+    ``project_path`` from ``project_name`` (``derived_persona_catalog``), applied
+    here with ``project_name`` = *preset* — what a real ``osprey init --preset
+    control-assistant`` proposes from a repo named after the preset. (The end-to-end proof that these agree lives in
     ``tests/cli/test_persona_profile_emission.py``, which drives ``osprey
     init`` → ``osprey build`` for every persona-bearing preset.)
     """
     from osprey.cli.build_profile_emit import persona_catalog, persona_catalog_layer
+    from osprey.deployment.web_terminals.persona_naming import derived_persona_catalog
 
     config_path = tmp_path / "config.yml"
     resolved = resolve_preset(preset)
@@ -239,7 +241,11 @@ def _render_deployable_config(tmp_path: Path, preset: str = "control-assistant")
     config_update_fields(config_path, resolved.config)
     config_update_fields(
         config_path,
-        persona_catalog_layer(persona_catalog(resolved.config), repo_name=preset)["config"],
+        persona_catalog_layer(persona_catalog(resolved.config))["config"],
+    )
+    config_update_fields(
+        config_path,
+        {"project_name": preset, **derived_persona_catalog(resolved.config, preset)},
     )
     with config_path.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
@@ -461,8 +467,9 @@ class TestControlAssistantWebTier:
             ("knowledge", "control-assistant-knowledge"),
         ):
             entry = personas[name]
-            # Name invariant: project == basename(project_path).
-            assert entry["project"] == os.path.basename(entry["project_path"])
+            # The catalog stores the render's source only; the build derives
+            # the render's name and directory from the profile's project_name.
+            assert "project" not in entry and "project_path" not in entry
             assert entry["build_profile"] == profile
 
         # Only the standalone personas declare a landing section of their own;
@@ -596,16 +603,21 @@ class TestControlAssistantWebTier:
             assert "jupyter" not in resolve_preset(name).web_panels, name
 
     def test_derived_web_container_names_are_valid_docker_names(self, tmp_path: Path) -> None:
-        """The container names derived from the rendered prefix —
-        ``<prefix>-nginx`` and ``<prefix>-web-<user>`` for the tutorial roster
-        — all match the Docker name grammar (start alphanumeric, no leading
-        dash). An empty prefix renders leading-dash names like ``-nginx``,
-        which Docker rejects and ``osprey up`` fails the web stack on.
+        """The container names derived from the rendered compose project —
+        ``<project>-nginx``, ``<project>-auth`` and ``<project>-web-<user>``
+        for the tutorial roster — all match the Docker name grammar (start
+        alphanumeric, no leading dash), which ``osprey up`` would otherwise
+        fail the web stack on.
         """
         rendered = _render_config_overrides(tmp_path, {"system": {}})
-        prefix = rendered["facility"]["prefix"]
-        assert isinstance(prefix, str) and prefix != ""
-        for name in (f"{prefix}-nginx", f"{prefix}-web-alice", f"{prefix}-web-bob"):
+        project = resolve_project_name(rendered)
+        names = (
+            f"{project}-nginx",
+            f"{project}-auth",
+            web_container_name(project, "alice"),
+            web_container_name(project, "bob"),
+        )
+        for name in names:
             assert DOCKER_NAME_RE.match(name), f"invalid Docker container name: {name!r}"
 
     def test_rendered_config_satisfies_landing_url(self, tmp_path: Path) -> None:
@@ -1630,7 +1642,7 @@ class TestWebTerminalContextShipped:
             encoding="utf-8"
         )
 
-        container = "dls-web-alice"
+        container = web_container_name("ctx-seed-hello", "alice")
         seeded: list[bytes | None] = []
 
         def _fake_run(argv, capture_output=True, text=False, env=None, check=False, input=None):  # noqa: ARG001 - the keywords subprocess.run is called with

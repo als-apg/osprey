@@ -61,6 +61,7 @@ class TestPolicySets:
                 "ariel",
                 "channel_finder",
                 "graphdb",
+                "qmd",
                 "web_panels",
                 "web_terminals",
                 "reach",

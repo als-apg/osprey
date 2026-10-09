@@ -311,6 +311,7 @@ class TestBuildPhases:
 
         class _Profile:
             name = "probe"
+            project_name = "probe"
             data_bundle = "control-assistant"
             provider = "anthropic"
             requires_osprey_version = None

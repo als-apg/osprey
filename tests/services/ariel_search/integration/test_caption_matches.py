@@ -25,7 +25,10 @@ from osprey.services.ariel_search.database.repository import (
     SchemaFacts,
     named_tsquery,
 )
-from osprey.services.ariel_search.database.search_fts import build_expanded_tsquery
+from osprey.services.ariel_search.database.search_fts import (
+    build_expanded_tsquery,
+    coverage_terms,
+)
 from osprey.services.ariel_search.search.base import ExpansionGroup, QueryExpansion
 from osprey.services.ariel_search.search.keyword import build_tsquery, parse_keyword_query
 
@@ -172,7 +175,7 @@ async def test_schema_behind_returns_empty_without_touching_the_database() -> No
     )
     assert (
         await repository.caption_matches(
-            ["e1"], MODEL, query_original="orbit", query_flattened="orbit", min_fraction=0.5
+            ["e1"], MODEL, terms=coverage_terms("orbit"), min_fraction=0.5
         )
         == {}
     )
@@ -376,7 +379,7 @@ async def test_coverage_half_matches_a_close_caption(
     )
     query = "orbit kick near BPM 7"
     result = await repo.caption_matches(
-        ["e1"], MODEL, query_original=query, query_flattened=query, min_fraction=0.5
+        ["e1"], MODEL, terms=coverage_terms(query), min_fraction=0.5
     )
     assert result == {"e1": ["att-1"]}
 
@@ -388,8 +391,7 @@ async def test_coverage_with_no_query_lexemes_matches_nothing(
     result = await repo.caption_matches(
         ["e1"],
         MODEL,
-        query_original="what was it",
-        query_flattened="what was it",
+        terms=coverage_terms("what was it"),
         min_fraction=0.5,
     )
     assert result == {}
@@ -400,16 +402,23 @@ async def test_coverage_counts_an_expansion_alternative_in_the_numerator(
 ) -> None:
     _seed(scratch_database, "e1", captions={"att-1": {MODEL: _caption("BPM drift trace")}})
     original = "beam position monitor drift"
-    # n(q_orig) = 4 (beam, posit, monitor, drift): ceil(0.5 * 4) = 2 lexemes needed.
+    # Four words (beam, position, monitor, drift): ceil(0.5 * 4) = 2 needed.
     unexpanded = await repo.caption_matches(
-        ["e1"], MODEL, query_original=original, query_flattened=original, min_fraction=0.5
+        ["e1"], MODEL, terms=coverage_terms(original), min_fraction=0.5
     )
     assert unexpanded == {}
     expanded = await repo.caption_matches(
         ["e1"],
         MODEL,
-        query_original=original,
-        query_flattened=f"{original} bpm bpms",
+        terms=coverage_terms(
+            original,
+            QueryExpansion(
+                groups=(
+                    ExpansionGroup(original="beam position monitor", alternatives=("bpm", "bpms")),
+                ),
+                flattened_text=f"{original} bpm bpms",
+            ),
+        ),
         min_fraction=0.5,
     )
     assert expanded == {"e1": ["att-1"]}
@@ -438,15 +447,14 @@ async def test_coverage_mode_emits_only_the_coverage_predicate(
         tsquery_sql=sql,
         tsquery_params=params,
         pattern_bodies=bodies,
-        query_original=query,
-        query_flattened=query,
+        terms=coverage_terms(query),
         min_fraction=0.5,
     )
     assert result == {"e1": ["att-1"]}
     selects = [s for s in pool.statements if "set_config" not in s]
     assert len(selects) == 1
-    assert "@@" not in selects[0] and "~*" not in selects[0]
-    assert "INTERSECT" in selects[0]
+    assert "%(tq" not in selects[0] and "~*" not in selects[0]
+    assert "coverage_terms" in selects[0]
 
 
 async def test_coverage_applies_to_upstream_captions(
@@ -459,7 +467,5 @@ async def test_coverage_applies_to_upstream_captions(
         files=[("att-up1", "https://up/1.png")],
     )
     query = "orbit kick near BPM 7"
-    result = await repo.caption_matches(
-        ["e1"], None, query_original=query, query_flattened=query, min_fraction=0.5
-    )
+    result = await repo.caption_matches(["e1"], None, terms=coverage_terms(query), min_fraction=0.5)
     assert result == {"e1": ["att-up1"]}

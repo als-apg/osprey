@@ -157,6 +157,7 @@ _PROFILE_SCHEMA_MIN_OSPREY = "2026.9.0"
 _KNOWN_PROFILE_KEYS = frozenset(
     {
         "name",
+        "project_name",
         "extends",
         "exclude",
         "data",
@@ -1212,6 +1213,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
 
     return BuildProfile(
         name=raw.get("name", ""),
+        project_name=raw.get("project_name"),
         data=raw.get("data"),
         deploy=parse_deploy_block(raw),
         deploy_services=raw.get("deploy_services", True),

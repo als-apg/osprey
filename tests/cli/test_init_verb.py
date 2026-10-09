@@ -134,9 +134,8 @@ def run_init(runner: CliRunner, *args: str):
 def init_exemplar(runner: CliRunner, target: Path, *extra: str):
     """The canonical invocation — the whole command line the exemplar corresponds to.
 
-    Nothing is set beyond the preset: the deployment's name comes from the
-    directory, which is the design (one repo is one deployment, and its
-    directory name IS the deployment name).
+    Nothing is set beyond the preset: the deployment's ``project_name`` is
+    proposed from the directory and recorded in ``profile.yml``.
     """
     return run_init(runner, str(target), "--preset", "control-assistant", *extra)
 
@@ -368,14 +367,12 @@ def test_emitted_profile_resolves(exemplar_repo: Path) -> None:
     assert profile_dir == exemplar_repo
 
 
-def test_persona_renders_land_in_the_build_zone(exemplar_repo: Path) -> None:
-    """A persona render is build output, and its ``project`` is the repo's name.
+def test_persona_catalog_stores_only_each_renders_source(exemplar_repo: Path) -> None:
+    """The catalog names each persona's delta and nothing about where it lands.
 
-    ``project`` must equal ``project_path``'s basename — the invariant that
-    lands each render where the catalog mounts it. ``osprey build`` names a
-    persona render ``<repo>-<delta stem>`` under ``build/`` and the catalog
-    derives the same name from the same repo, so the two meet by construction
-    rather than by anyone keeping them in step.
+    ``osprey build`` derives every persona's ``project``/``project_path`` from
+    ``project_name`` and writes them into ``build/config.yml``, so a catalog
+    that also spelled them would be a second home for one fact.
     """
     profile = yaml.safe_load((exemplar_repo / "profile.yml").read_text(encoding="utf-8"))
     catalog = profile["config"]["modules.web_terminals"]["personas"]
@@ -384,11 +381,54 @@ def test_persona_renders_land_in_the_build_zone(exemplar_repo: Path) -> None:
     # carol's login resolves to it.
     assert sorted(catalog) == ["admin", "knowledge", "logbook", "readonly", "readwrite"]
     for persona_name, entry in catalog.items():
-        assert entry["project"] == f"{EXEMPLAR_DIRNAME}-{persona_name}"
-        assert entry["project_path"] == f"build/{EXEMPLAR_DIRNAME}-{persona_name}"
         assert entry["build_profile"] == f"personas/{persona_name}.yml"
-        assert Path(entry["project_path"]).name == entry["project"]
+        assert "project" not in entry
+        assert "project_path" not in entry
         assert (exemplar_repo / entry["build_profile"]).is_file()
+
+
+def test_init_records_the_folder_name_as_project_name(exemplar_repo: Path) -> None:
+    profile = yaml.safe_load((exemplar_repo / "profile.yml").read_text(encoding="utf-8"))
+    assert profile["project_name"] == EXEMPLAR_DIRNAME
+    assert profile["name"] == "Als Exemplar"
+
+
+def test_init_proposes_the_compose_spelling_of_the_folder(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    target = tmp_path / "My.Facility Repo"
+
+    result = run_init(runner, str(target), "--preset", "hello-world", "--no-git")
+
+    assert result.exit_code == 0, result.output
+    profile = yaml.safe_load((target / "profile.yml").read_text(encoding="utf-8"))
+    assert profile["project_name"] == "myfacilityrepo"
+
+
+def test_init_takes_a_stated_project_name(runner: CliRunner, tmp_path: Path) -> None:
+    target = tmp_path / "checkout"
+
+    result = run_init(
+        runner, str(target), "--preset", "hello-world", "--no-git", "--set", "project_name=demo"
+    )
+
+    assert result.exit_code == 0, result.output
+    profile = yaml.safe_load((target / "profile.yml").read_text(encoding="utf-8"))
+    assert profile["project_name"] == "demo"
+
+
+def test_init_refuses_a_stated_name_compose_would_rewrite(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    target = tmp_path / "checkout"
+
+    result = runner.invoke(
+        init, [str(target), "--preset", "hello-world", "--no-git", "--set", "project_name=My.Demo"]
+    )
+
+    assert result.exit_code != 0
+    assert "project_name: mydemo" in result.output
+    assert not target.exists()
 
 
 def test_data_key_names_the_repos_own_tree(exemplar_repo: Path) -> None:

@@ -1,9 +1,10 @@
 # Build-context hygiene for the qmd search sidecar image.
 #
 # The build context is the rendered service directory. The Dockerfile needs
-# exactly one file from it — entrypoint.sh — plus this file, which doubles as
-# the guaranteed COPY sibling that keeps the optional `entrypoint.s[h]` glob
-# matching. Nothing else in the directory is an image input, so every rule
+# two things from it — entrypoint.sh and the patches/ directory — plus this
+# file, which doubles as the guaranteed COPY sibling that keeps the optional
+# `entrypoint.s[h]` glob matching. Nothing else in the directory is an image
+# input, so every rule
 # below is defensive: it keeps a file that shows up next to a rendered service
 # — a deploy artifact, a bind-mount target, or a volume someone materialised by
 # hand — from being uploaded as build context.

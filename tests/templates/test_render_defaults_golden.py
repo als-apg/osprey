@@ -191,6 +191,9 @@ def _raw_default_config(repo_root: Path) -> dict:
         "deployment": {},
         "system": {"timezone": "UTC"},
         "deployed_services": [],
+        # qmd renders one sidecar per corpus, so with no corpus its golden pins
+        # nothing; the bundle is the corpus the shipped presets index.
+        "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
     }
 
 
@@ -303,13 +306,12 @@ def test_goldens_leave_the_generated_labels_to_the_override() -> None:
     that spelled one of them again would be a second producer, and nothing would
     show that a template omitting them still comes up labelled.
 
-    Named volumes are the other half: the override labels services, not volumes,
-    so every labelled volume keeps its checkout label, which ``osprey reset``
-    needs before it removes one.
+    Named volumes are the other half: they carry no checkout label at all,
+    because a volume belongs to the project by name.
     """
     generated = (PROJECT_LABEL, REPO_ID_LABEL, PROJECT_ROOT_LABEL, CONFIG_DIGEST_LABEL)
     service_hits = []
-    unlabelled_volumes = []
+    labelled_volumes = []
     for path in sorted(_GOLDEN_DIR.glob("*.yml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for service, body in (document.get("services") or {}).items():
@@ -318,16 +320,16 @@ def test_goldens_leave_the_generated_labels_to_the_override() -> None:
                 f"{path.name}: {service}.{key}" for key in generated if key in labels
             )
         for volume, body in (document.get("volumes") or {}).items():
-            if isinstance(body, dict) and REPO_ID_LABEL not in (body.get("labels") or {}):
-                unlabelled_volumes.append(f"{path.name}: {volume}")
+            if isinstance(body, dict) and REPO_ID_LABEL in (body.get("labels") or {}):
+                labelled_volumes.append(f"{path.name}: {volume}")
 
     assert not service_hits, (
         f"these rendered services carry a label the labels override generates: {service_hits}. "
         "The override is the only producer of those labels; remove them from the template."
     )
-    assert not unlabelled_volumes, (
-        f"these named volumes lost the checkout label: {unlabelled_volumes}. "
-        "The override does not reach volumes, so the template must keep writing it."
+    assert not labelled_volumes, (
+        f"these named volumes carry the checkout label: {labelled_volumes}. "
+        "Volumes belong to the project by name; remove it from the template."
     )
 
 

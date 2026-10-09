@@ -269,8 +269,6 @@ services:
 
 volumes:
   nextcloud_bridge_data:
-    labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 {# A deliberate blank line precedes the file-level stanza, so this one call
    carries no left-trim marker (`{{-` would eat the blank line along with the
    newline it is meant to keep): the literal above ends its own line, the macro

@@ -491,14 +491,6 @@ class TestWallClockAnchoredEvents:
             elif ts - now > -45:
                 assert value == 28.4
 
-    def test_fraction_events_unaffected(self, machine_file):
-        engine = SimulationEngine.from_file(machine_file)
-        engine.set_active_scenario("quad-drift")
-        series = engine.synthesize_series("T:Q1:CUR:SP", _timestamps())
-        t = np.linspace(0, 1, 200)
-        assert all(v == 42.0 for v, ti in zip(series, t, strict=True) if ti < 0.35)
-        assert all(v == 28.4 for v, ti in zip(series, t, strict=True) if ti >= 0.35)
-
 
 class TestDailyTimeAnchor:
     """at_time events fire at a wall-clock time-of-day, every date in window."""

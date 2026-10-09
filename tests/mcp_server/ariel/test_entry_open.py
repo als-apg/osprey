@@ -40,7 +40,7 @@ def _panel_base(monkeypatch):
 
 
 async def test_opens_the_entry_and_focuses_the_panel(keyset_harness):  # noqa: ARG001
-    result, focus = await _open(entry_id=KEYSET_SECOND_ENTRY_ID)
+    result, focus = await _open(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
 
     url = f"/panel/ariel/#entry?id={KEYSET_SECOND_ENTRY_ID}"
     assert result["url"] == url
@@ -61,6 +61,41 @@ async def test_opens_a_viewable_picture_enlarged(keyset_harness):  # noqa: ARG00
     focus.assert_called_once_with("ariel", url=url)
 
 
+async def test_opened_without_a_picture_the_result_names_the_viewable_ones(keyset_harness):  # noqa: ARG001
+    """A call that left out the picture under discussion learns its id, and can repeat."""
+    result, _ = await _open(entry_id=KEYSET_ENTRY_ID, attachment_id=None)
+
+    assert result["opened"] == "entry"
+    assert [p["attachment_id"] for p in result["pictures"]] == [PNG_ID]
+    assert PNG_ID in result["message"]
+    assert PDF_ID not in result["message"]
+    assert "call entry_open again" in result["message"]
+
+
+async def test_an_entry_with_no_pictures_carries_no_repeat_hint(keyset_harness):  # noqa: ARG001
+    result, _ = await _open(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
+
+    assert result["pictures"] == []
+    assert "entry_open again" not in result["message"]
+
+
+async def test_opened_with_its_picture_the_result_carries_no_repeat_hint(keyset_harness):  # noqa: ARG001
+    result, _ = await _open(entry_id=KEYSET_ENTRY_ID, attachment_id=PNG_ID)
+
+    assert [p["attachment_id"] for p in result["pictures"]] == [PNG_ID]
+    assert "entry_open again" not in result["message"]
+
+
+async def test_the_attachment_id_is_required_and_nullable():
+    """Every call decides on the picture: an id, or null when none came up."""
+    from osprey.mcp_server.ariel.server import mcp
+
+    schema = (await mcp.get_tool("entry_open")).parameters
+    assert set(schema["required"]) == {"entry_id", "attachment_id"}
+    kinds = {branch.get("type") for branch in schema["properties"]["attachment_id"]["anyOf"]}
+    assert kinds == {"string", "null"}
+
+
 async def test_a_picture_that_is_not_viewable_opens_the_entry_only(keyset_harness):  # noqa: ARG001
     result, focus = await _open(entry_id=KEYSET_ENTRY_ID, attachment_id=PDF_ID)
 
@@ -79,14 +114,14 @@ async def test_the_entry_id_is_url_encoded(keyset_harness, monkeypatch):
         return entry if entry_id == odd else None
 
     monkeypatch.setattr(keyset_harness.repository, "get_entry", get_entry)
-    result, _ = await _open(entry_id=odd)
+    result, _ = await _open(entry_id=odd, attachment_id=None)
 
     assert result["url"] == "/panel/ariel/#entry?id=elog%2F42%20%231%26x%3D2"
 
 
 async def test_ariel_web_url_sets_the_base(keyset_harness, monkeypatch):  # noqa: ARG001
     monkeypatch.setenv("ARIEL_WEB_URL", "https://ariel.example")
-    result, _ = await _open(entry_id=KEYSET_SECOND_ENTRY_ID)
+    result, _ = await _open(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
 
     assert result["url"] == f"https://ariel.example/#entry?id={KEYSET_SECOND_ENTRY_ID}"
 
@@ -96,7 +131,9 @@ async def test_without_a_web_terminal_the_result_still_carries_the_url(keyset_ha
     from osprey.mcp_server.ariel.tools.entry import entry_open
 
     with patch("osprey.mcp_server.http.notify_panel_focus", side_effect=OSError("refused")):
-        result = json.loads(await get_tool_fn(entry_open)(entry_id=KEYSET_SECOND_ENTRY_ID))
+        result = json.loads(
+            await get_tool_fn(entry_open)(entry_id=KEYSET_SECOND_ENTRY_ID, attachment_id=None)
+        )
 
     assert result["url"] == f"/panel/ariel/#entry?id={KEYSET_SECOND_ENTRY_ID}"
 
@@ -108,7 +145,7 @@ async def test_unknown_entry_is_not_found(keyset_harness):  # noqa: ARG001
         patch("osprey.mcp_server.http.notify_panel_focus") as focus,
         assert_raises_error(error_type="not_found"),
     ):
-        await get_tool_fn(entry_open)(entry_id="no-such-entry")
+        await get_tool_fn(entry_open)(entry_id="no-such-entry", attachment_id=None)
     focus.assert_not_called()
 
 
@@ -138,7 +175,7 @@ async def test_missing_entry_id_is_validation_error(keyset_harness, bad_entry): 
     from osprey.mcp_server.ariel.tools.entry import entry_open
 
     with assert_raises_error(error_type="validation_error"):
-        await get_tool_fn(entry_open)(entry_id=bad_entry)
+        await get_tool_fn(entry_open)(entry_id=bad_entry, attachment_id=None)
 
 
 @pytest.mark.parametrize("keyset_harness", [{"view_enabled": False}], indirect=True)
@@ -164,3 +201,16 @@ def test_registered_allowed_and_offered_to_the_main_agent():
     assert "entry_open" not in FRAMEWORK_SERVERS["ariel"].permissions_ask
     assert "entry_open" in _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL
     assert "entry_open" not in _ariel_read_tools(True)
+
+
+def test_the_description_asks_for_the_picture_under_discussion():
+    from osprey.mcp_server.ariel.tools.entry import entry_open
+
+    description = " ".join(
+        (getattr(entry_open, "description", None) or get_tool_fn(entry_open).__doc__).split()
+    )
+    assert (
+        "The `attachment_id` of this entry's picture whenever this conversation holds one "
+        "(a picture viewed, or one a subagent's reply listed next to the entry id), even when "
+        "the operator asks only for the entry; null only when no picture of this entry came up."
+    ) in description

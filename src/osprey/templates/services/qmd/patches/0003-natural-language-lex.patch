@@ -1,0 +1,93 @@
+qmd 2.5.3: read a natural-language lex query as an OR of its content words
+
+A lex query is parsed as keywords: every word, ANDed, each as a prefix
+("w"*). A question ("how is the storage ring RF frequency tuned") then
+asks for a document holding all of its words, function words included,
+and the prefixes of "a", "the", "is" match nearly every row, so the
+query is both slow and usually empty. A query that contains a stopword
+or ends with "?", and uses no explicit syntax (quotes, -negation), is
+now read as a question: its non-stopword terms are ORed without prefix
+expansion and bm25 ranks the matches. Keyword queries and explicit
+syntax keep the existing parse.
+
+Applies to the published package (dist/) with `patch -p1` from the
+package root, after 0001 and 0002.
+
+diff --git a/dist/store.js b/dist/store.js
+index da76ad6..51afee3 100644
+--- a/dist/store.js
++++ b/dist/store.js
+@@ -2458,6 +2458,51 @@ function isHyphenatedToken(token) {
+ function sanitizeHyphenatedTerm(term) {
+     return term.split('-').map(t => sanitizeFTS5Term(t)).filter(t => t).join(' ');
+ }
++/**
++ * Function words that carry no topic. A lex query that contains one is read as
++ * a natural-language question (see buildNaturalLanguageFTS5Query).
++ */
++const LEX_STOPWORDS = new Set(("a an and are as at be by can do does for from has have how in is it its of on or " +
++    "that the their this to was were what when where which while who why with would should could into than " +
++    "then there these those been being also not no").split(" "));
++/**
++ * Build an FTS5 query for a plain natural-language question, or return null
++ * when the query is not one.
++ *
++ * A question such as "how is the storage ring RF frequency tuned" read as
++ * keywords asks for every word, each as a prefix: no document holds them all,
++ * and the prefixes of short function words ("a"*, "the"*) match nearly every
++ * row, which makes the query both slow and empty. Read as a question, its
++ * content words are ORed without prefix expansion and bm25 ranks the
++ * documents by how many of them, and how rare, they hold.
++ *
++ * A query counts as a question when it contains a stopword or ends with "?",
++ * uses none of the explicit syntax (quoted phrases, -negation), and has at
++ * least one content word. Keyword queries ("rf feedback", "multi-agent
++ * memory") keep the AND-of-prefixes reading.
++ */
++function buildNaturalLanguageFTS5Query(query) {
++    const s = query.trim();
++    if (s.includes('"') || /(^|\s)-\S/.test(s))
++        return null;
++    const words = s.split(/\s+/)
++        .map(w => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
++        .filter(w => w.length > 0);
++    const isQuestion = s.endsWith('?') || words.some(w => LEX_STOPWORDS.has(w.toLowerCase()));
++    if (!isQuestion)
++        return null;
++    const terms = [];
++    for (const word of words) {
++        if (LEX_STOPWORDS.has(word.toLowerCase()))
++            continue;
++        const sanitized = isHyphenatedToken(word)
++            ? sanitizeHyphenatedTerm(word)
++            : containsCjk(word) ? sanitizeFTS5Phrase(word) : sanitizeFTS5Term(word);
++        if (sanitized && !terms.includes(`"${sanitized}"`))
++            terms.push(`"${sanitized}"`);
++    }
++    return terms.length > 0 ? terms.join(' OR ') : null;
++}
+ /**
+  * Parse lex query syntax into FTS5 query.
+  *
+@@ -2475,14 +2520,21 @@ function sanitizeHyphenatedTerm(term) {
+  * When a leading `-` is followed by what looks like a hyphenated compound word
+  * (e.g., `-multi-agent`), the entire token is treated as a negated phrase.
+  *
++ * A plain natural-language question is read differently: its content words
++ * are ORed and ranked by bm25 (see buildNaturalLanguageFTS5Query).
++ *
+  * Examples:
+  *   performance -sports     → "performance"* NOT "sports"*
+  *   "machine learning"      → "machine learning"
+  *   multi-agent memory      → "multi agent" AND "memory"*
+  *   DEC-0054               → "dec 0054"
+  *   -multi-agent            → NOT "multi agent"
++ *   how is the RF tuned?    → "rf" OR "tuned"
+  */
+ function buildFTS5Query(query) {
++    const naturalLanguage = buildNaturalLanguageFTS5Query(query);
++    if (naturalLanguage)
++        return naturalLanguage;
+     const positive = [];
+     const negative = [];
+     let i = 0;

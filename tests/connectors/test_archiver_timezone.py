@@ -68,11 +68,8 @@ def _sr07_rows(df):
     return df.loc[df["channel"] == SR07]
 
 
-@pytest.mark.asyncio
-async def test_archiver_spike_materializes_at_facility_wall_clock(tmp_path):
-    machine = _vacuum_burst_machine(tmp_path)
-    df, center = await _sr07_window(machine)
-
+def _assert_spike_at_center(df, center: datetime, box: str) -> None:
+    """SR07 bursts well above baseline, and the peak sits at ``center``."""
     sr07 = _sr07_rows(df)
     baseline = float(sr07["value"].median())
     peak = float(sr07["value"].max())
@@ -80,34 +77,32 @@ async def test_archiver_spike_materializes_at_facility_wall_clock(tmp_path):
     # unseeded per-channel multiplicative noise to synthesized series (independent
     # of the connector's noise_level, which only gates the generic non-engine
     # path), so assert a margin comfortably below the ~4x ceiling rather than on it.
-    assert peak > 2.5 * baseline, f"no SR07 burst: peak {peak:.2e} vs baseline {baseline:.2e}"
+    assert peak > 2.5 * baseline, (
+        f"[{box}] no SR07 burst: peak {peak:.2e} vs baseline {baseline:.2e}"
+    )
 
     # The peak sits at 14:32:08, not some box-local-shifted hour.
     peak_ts = sr07.loc[sr07["value"].idxmax(), "timestamp"].to_pydatetime()
-    assert abs((peak_ts - center).total_seconds()) < 30
+    assert abs((peak_ts - center).total_seconds()) < 30, f"[{box}] peak at {peak_ts}"
 
 
 @pytest.mark.asyncio
-async def test_archiver_spike_is_box_tz_independent(tmp_path):
-    """Same window, same facility zone (UTC) → identical peak position regardless
-    of the host ``$TZ``. Before the fix the spike shifted with the box zone."""
+async def test_archiver_spike_is_at_facility_wall_clock_whatever_the_box_tz(tmp_path):
+    """Same window, same facility zone (UTC) → the burst is there, at 14:32:08,
+    whether the host ``$TZ`` is UTC or UTC+14. Before the fix the spike shifted
+    with the box zone."""
     machine = _vacuum_burst_machine(tmp_path)
 
-    df_utc, center = await _sr07_window(machine)
-    sr07_utc = _sr07_rows(df_utc)
-    peak_utc = sr07_utc.loc[sr07_utc["value"].idxmax(), "timestamp"].to_pydatetime()
+    df_utc, center_utc = await _sr07_window(machine)
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("TZ", "Pacific/Kiritimati")  # UTC+14
         time.tzset()
         try:
-            df_far, _ = await _sr07_window(machine)
+            df_far, center_far = await _sr07_window(machine)
         finally:
             mp.undo()
             time.tzset()
 
-    sr07_far = _sr07_rows(df_far)
-    peak_far = sr07_far.loc[sr07_far["value"].idxmax(), "timestamp"].to_pydatetime()
-    # Both peaks land at 14:32:08 facility-wall-clock, within sampling resolution.
-    assert abs((peak_utc - center).total_seconds()) < 30
-    assert abs((peak_far - center).total_seconds()) < 30
+    _assert_spike_at_center(df_utc, center_utc, "UTC box")
+    _assert_spike_at_center(df_far, center_far, "UTC+14 box")

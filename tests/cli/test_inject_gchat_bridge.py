@@ -51,6 +51,7 @@ triggers:
 _PROFILE_YAML = """\
 extends: hello-world
 name: GChatBridgeTest
+project_name: gcproj
 data: data
 provider: anthropic
 model: claude-haiku-4-5
@@ -513,7 +514,7 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     repo_dir.mkdir()
     (repo_dir / "data").mkdir(exist_ok=True)
     (repo_dir / "profile.yml").write_text(
-        "extends: hello-world\nname: GcNoDispatch\ndata: data\nprovider: anthropic\n"
+        "extends: hello-world\nname: GcNoDispatch\nproject_name: gcproj\ndata: data\nprovider: anthropic\n"
         "model: claude-haiku-4-5\ngchat_bridge: {}\n",
         encoding="utf-8",
     )

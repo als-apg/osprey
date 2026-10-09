@@ -1,32 +1,41 @@
-"""The qmd sidecar's two rendered artifacts, asserted on the rendered text.
+"""The qmd compose fragment, asserted on the rendered text.
 
-The sidecar is a compose fragment plus a collection config, and the two only
-work if they agree: the fragment mounts a corpus read-only at a path, and the
-config declares a collection pointed at that same path. A mount with no
-collection indexes nothing; a collection with no mount points at an empty
-directory. Neither fails loudly — both surface as "search returns nothing" —
-so the agreement is asserted here rather than assumed, and both renders go
-through the production injection (``_inject_project_metadata``) so what is
-tested is the derivation a deploy actually uses.
+The fragment renders one search sidecar per corpus, and each sidecar only works
+if four spellings of its corpus agree: the compose service name, the collection
+its entrypoint is told to declare (``OSPREY_QMD_CORPUS``), the path that
+collection points at (``OSPREY_QMD_CORPUS_PATH``) and the container side of the
+read-only mount that puts the corpus there. A collection pointed at a path with
+nothing mounted indexes nothing; a sidecar published on a port its client does
+not resolve is never asked. Neither fails loudly — both surface as "search
+returns nothing" — so the agreement is asserted here rather than assumed, and
+every render goes through the production injection
+(``_inject_project_metadata``) so what is tested is the derivation a deploy
+actually uses.
 
-Four further properties carry the design and each has its own test:
+Further properties carry the design and each has its own test:
 
-* **The published port is the layout's ``qmd`` slot, never 8181.** qmd's own
-  daemon hardcodes
-  ``listen(port, "localhost")`` — no ``--host`` flag, no env override — so it
-  answers only on a loopback address inside the container, unreachable from any
-  other container. Which loopback family that is depends on the host: Node
-  resolves ``localhost`` to ``[::1]`` on some image/host combinations and to
-  ``127.0.0.1`` on others. So the entrypoint runs the daemon on an internal
-  port, probes both families for ``/health``, and points a socat forwarder at
-  whichever one answered; the forwarder owns the published port. Publishing
-  8181 would publish nothing.
+* **Each published port is the corpus's slot in the qmd family, never 8181.**
+  qmd's own daemon hardcodes ``listen(port, "localhost")`` — no ``--host`` flag,
+  no env override — so it answers only on a loopback address inside the
+  container, unreachable from any other container. Which loopback family that
+  is depends on the host: Node resolves ``localhost`` to ``[::1]`` on some
+  image/host combinations and to ``127.0.0.1`` on others. So the entrypoint
+  runs the daemon on an internal port, probes both families for ``/health``,
+  and points a socat forwarder at whichever one answered; the forwarder owns
+  the published port. Publishing 8181 would publish nothing. The family starts
+  at the layout's ``qmd`` slot: ``okf`` always at ``+0``, ``ariel`` always at
+  ``+1``, declared corpora from ``+2`` in list order.
 * **The publish interface is project-wide.** ``deployment.bind_address``
   decides it, and a per-service ``bind_address`` is deliberately inert — the
   endpoint is unauthenticated, so it must not be possible to expose it on an
   interface the rest of the stack is not on.
-* **The index survives a recreate.** It is a named volume, not a bind and not
-  container-local: rebuilding it costs ~41 minutes at 135,000 documents.
+* **A managed index survives a recreate.** It is a named volume per corpus, not
+  a bind and not container-local: rebuilding it costs ~41 minutes at 135,000
+  documents. A prebuilt index is the exception — it is bound from where the
+  operator put it, and the sidecar only serves it.
+* **One image, built once.** Every sidecar runs the same image; only the first
+  carries ``build:``, and the rest are told never to pull a local tag no
+  registry holds.
 * **Pre-staged models are two edits or none.** ``services.qmd.models_dir`` gates
   a build arg (which tells the image build to skip the 2.1 GB of downloads) and
   a read-only bind mount (which supplies those same files at runtime). One
@@ -76,7 +85,7 @@ def _packaged_template(rel_path: str):
     return env.get_template(rel_path)
 
 
-def _context(
+def _config(
     *,
     project_name: str = "demo",
     project_root: str | None = None,
@@ -85,15 +94,7 @@ def _context(
     facility_knowledge: dict | None = None,
     ariel: dict | None = None,
 ) -> dict:
-    """Build the render context the production injection produces.
-
-    Goes through ``_inject_project_metadata`` rather than hand-assembling
-    ``osprey_qmd``: the corpus list, the port and the publish interface are
-    exactly what is under test, and a hand-built context would assert against
-    values the test itself supplied.
-    """
-    from osprey.deployment.compose_generator import _inject_project_metadata
-
+    """The project config a render starts from, before injection."""
     config: dict = {
         "project_name": project_name,
         # ``resolve_repo_root`` honours ``project_root`` only when it names a
@@ -111,22 +112,55 @@ def _context(
         config["facility_knowledge"] = facility_knowledge
     if ariel is not None:
         config["ariel"] = ariel
-    return _inject_project_metadata(config)
+    return config
+
+
+def _context(**kwargs) -> dict:
+    """Build the render context the production injection produces.
+
+    Goes through ``_inject_project_metadata`` rather than hand-assembling
+    ``osprey_qmd``: the corpus list, the ports and the publish interface are
+    exactly what is under test, and a hand-built context would assert against
+    values the test itself supplied.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    return _inject_project_metadata(_config(**kwargs))
 
 
 def render_compose(**kwargs) -> str:
-    """Render the sidecar's compose fragment."""
+    """Render the sidecars' compose fragment."""
     return _packaged_template("services/qmd/docker-compose.yml.j2").render(_context(**kwargs))
 
 
-def render_index(**kwargs) -> str:
-    """Render the sidecar's collection config."""
-    return _packaged_template("services/qmd/index.yml.j2").render(_context(**kwargs))
+def rendered_compose(**kwargs) -> dict:
+    """The parsed fragment."""
+    return yaml.safe_load(render_compose(**kwargs))
 
 
-def compose_service(**kwargs) -> dict:
-    """The parsed ``qmd`` service block of a rendered fragment."""
-    return yaml.safe_load(render_compose(**kwargs))["services"]["qmd"]
+def sidecars(**kwargs) -> dict:
+    """Every rendered sidecar, by compose service name."""
+    return rendered_compose(**kwargs)["services"]
+
+
+#: The facility-knowledge bundle as it appears in config — the corpus the
+#: shipped presets index, and the one a single-sidecar test renders.
+OKF_BUNDLE = {"bundle_path": "data/facility_knowledge"}
+
+#: An ARIEL block whose markdown export is on and names its mirror.
+ARIEL_EXPORT = {
+    "enhancement_modules": {"qmd_export": {"enabled": True, "mirror_path": "data/ariel_mirror"}}
+}
+
+
+def compose_service(service: str = "qmd-okf", **kwargs) -> dict:
+    """The parsed block of one sidecar, by default the facility-knowledge one.
+
+    A render with no corpus has no sidecar at all, so the bundle is configured
+    unless the test names its own.
+    """
+    kwargs.setdefault("facility_knowledge", OKF_BUNDLE)
+    return sidecars(**kwargs)[service]
 
 
 def _packaged_text(rel_path: str) -> str:
@@ -143,14 +177,23 @@ def _packaged_text(rel_path: str) -> str:
     return resources.files(osprey).joinpath("templates", rel_path).read_text()
 
 
-#: The two corpora a fully-configured deployment mounts, as they appear in
+#: The two corpora a fully-configured deployment derives, as they appear in
 #: config. Spelled once so every test that needs "both corpora" agrees.
-BOTH_CORPORA = {
-    "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
-    "ariel": {
-        "enhancement_modules": {"qmd_export": {"enabled": True, "mirror_path": "data/ariel_mirror"}}
-    },
-}
+BOTH_CORPORA = {"facility_knowledge": OKF_BUNDLE, "ariel": ARIEL_EXPORT}
+
+#: Two declared corpora, one of each index mode, in the order their ports follow.
+DECLARED_CORPORA = [
+    {"name": "papers", "source": "data/papers"},
+    {"name": "manuals", "index": "prebuilt", "index_dir": "/srv/qmd/manuals-index"},
+]
+
+
+def _corpus_mounts(service: dict) -> list[str]:
+    return [v for v in service["volumes"] if ":/corpus/" in v]
+
+
+def _port(service: dict) -> int:
+    return int(service["environment"]["OSPREY_QMD_PORT"])
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +202,7 @@ BOTH_CORPORA = {
 
 
 def test_publishes_the_layout_port_not_qmds_own_8181():
-    """The layout's ``qmd`` port is the forwarder's; 8181 is the daemon's.
+    """The layout's ``qmd`` port is the first sidecar's forwarder; 8181 is the daemon's.
 
     qmd binds a loopback address — whichever family the host resolves
     ``localhost`` to — and offers no ``--host`` flag, so a fragment that
@@ -173,7 +216,7 @@ def test_publishes_the_layout_port_not_qmds_own_8181():
     assert service["environment"]["OSPREY_QMD_PORT"] == str(port)
     # 8181 appears in the fragment's header comment, explaining why it is NOT
     # here; it must not appear in anything compose acts on.
-    assert "8181" not in yaml.safe_dump(service)
+    assert "8181" not in yaml.safe_dump(sidecars(**BOTH_CORPORA))
 
 
 def test_port_override_moves_publish_environment_and_healthcheck_together():
@@ -193,7 +236,8 @@ def test_loopback_requests_bypass_any_proxy_in_the_container_env():
     entrypoint's probe is exercised for real in
     ``test_qmd_entrypoint_loopback_probe``; this holds every curl call to it.
     """
-    assert "--noproxy '*'" in compose_service()["healthcheck"]["test"][1]
+    for service in sidecars(**BOTH_CORPORA).values():
+        assert "--noproxy '*'" in service["healthcheck"]["test"][1]
 
     curls = [
         line
@@ -216,15 +260,84 @@ def test_port_default_tracks_the_schema_module():
 
 
 # ---------------------------------------------------------------------------
+# The port family
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        pytest.param({"facility_knowledge": OKF_BUNDLE}, id="okf-only"),
+        pytest.param({"ariel": ARIEL_EXPORT}, id="ariel-only"),
+        pytest.param(BOTH_CORPORA, id="both"),
+    ],
+)
+def test_okf_and_ariel_hold_fixed_slots_whichever_is_configured(configured):
+    """``okf`` is at the family's first port and ``ariel`` at the next, always.
+
+    A slot counted from the corpora a render happens to configure would move
+    ARIEL onto the first port in a deployment without a bundle — the port a
+    facility-knowledge client resolves — and each would answer the other's
+    queries.
+    """
+    port = default_port("qmd")
+    expected = {"qmd-okf": port, "qmd-ariel": port + 1}
+
+    rendered = sidecars(**configured)
+
+    assert {name: _port(service) for name, service in rendered.items()} == {
+        name: expected[name] for name in rendered
+    }
+
+
+def test_declared_corpora_follow_the_derived_ones_in_list_order():
+    port = default_port("qmd")
+
+    rendered = sidecars(qmd={"corpora": DECLARED_CORPORA}, **BOTH_CORPORA)
+
+    assert {name: _port(service) for name, service in rendered.items()} == {
+        "qmd-okf": port,
+        "qmd-ariel": port + 1,
+        "qmd-papers": port + 2,
+        "qmd-manuals": port + 3,
+    }
+
+
+def test_every_sidecar_publishes_on_the_port_its_client_resolves():
+    """The fragment and the client resolve each corpus's port independently.
+
+    The client asks ``resolve_qmd_corpus_config`` for its corpus; the fragment
+    publishes what the corpus derivation says. Two derivations of one number
+    are only safe while a test holds them together, and a client that dials a
+    neighbour's port gets the neighbour's results with no error.
+    """
+    from osprey.deployment.qmd_service import resolve_qmd_corpus_config
+
+    kwargs = {"qmd": {"port": 20000, "corpora": DECLARED_CORPORA}, **BOTH_CORPORA}
+    config = _config(**kwargs)
+
+    for service in sidecars(**kwargs).values():
+        corpus = service["environment"]["OSPREY_QMD_CORPUS"]
+        assert _port(service) == resolve_qmd_corpus_config(config, corpus).port
+        assert service["ports"] == [f"127.0.0.1:{_port(service)}:{_port(service)}"]
+
+
+def test_health_probe_goes_through_each_sidecars_own_forwarder():
+    """Probing the daemon's internal port would report healthy for a container
+    whose published path is dead, and probing a neighbour's port would report
+    one sidecar's health as another's."""
+    for service in sidecars(**BOTH_CORPORA).values():
+        assert f"http://127.0.0.1:{_port(service)}/health" in service["healthcheck"]["test"][1]
+
+
+# ---------------------------------------------------------------------------
 # The publish interface
 # ---------------------------------------------------------------------------
 
 
 def test_bind_address_comes_from_the_project_wide_key():
-    service = compose_service(deployment={"bind_address": "0.0.0.0"})
-
-    port = default_port("qmd")
-    assert service["ports"] == [f"0.0.0.0:{port}:{port}"]
+    for service in sidecars(deployment={"bind_address": "0.0.0.0"}, **BOTH_CORPORA).values():
+        assert service["ports"] == [f"0.0.0.0:{_port(service)}:{_port(service)}"]
 
 
 def test_per_service_bind_address_is_inert():
@@ -234,12 +347,14 @@ def test_per_service_bind_address_is_inert():
     deployment expose search over the whole corpus on an interface the rest of
     the stack is not on. The project-wide key stays in charge.
     """
-    service = compose_service(
-        qmd={"bind_address": "0.0.0.0"}, deployment={"bind_address": "127.0.0.1"}
+    rendered = sidecars(
+        qmd={"bind_address": "0.0.0.0"},
+        deployment={"bind_address": "127.0.0.1"},
+        **BOTH_CORPORA,
     )
 
-    port = default_port("qmd")
-    assert service["ports"] == [f"127.0.0.1:{port}:{port}"]
+    for service in rendered.values():
+        assert service["ports"] == [f"127.0.0.1:{_port(service)}:{_port(service)}"]
 
 
 def test_bind_address_defaults_to_loopback_with_no_deployment_block():
@@ -255,14 +370,38 @@ def test_bind_address_defaults_to_loopback_with_no_deployment_block():
 def test_image_is_overridable_via_osprey_qmd_image():
     """The override variable is ``OSPREY_QMD_IMAGE``; the default tag is
     project-prefixed so two projects on one host never race to tag one image."""
-    assert compose_service()["image"] == "${OSPREY_QMD_IMAGE:-demo-qmd:local}"
+    for service in sidecars(**BOTH_CORPORA).values():
+        assert service["image"] == "${OSPREY_QMD_IMAGE:-demo-qmd:local}"
+
+
+def test_only_the_first_sidecar_builds_and_the_rest_never_pull():
+    """Every sidecar runs the one image, so it is built once.
+
+    A second ``build:`` for the same tag races the first to tag it. And a
+    sidecar without ``build:`` would by default try to pull the tag — a local,
+    project-prefixed name no registry holds — so the rest are told never to.
+    """
+    rendered = sidecars(qmd={"corpora": DECLARED_CORPORA}, **BOTH_CORPORA)
+    first, *rest = rendered.values()
+
+    assert "build" in first
+    assert "pull_policy" not in first
+    assert rest
+    for service in rest:
+        assert "build" not in service
+        assert service["pull_policy"] == "never"
+    assert len({service["image"] for service in rendered.values()}) == 1
 
 
 def test_explicit_service_image_replaces_the_built_default():
-    service = compose_service(qmd={"image": "registry.example/osprey-qmd:2.5.3"})
+    """A foreign image is pulled and run as named by every sidecar: no build,
+    and no ``pull_policy: never`` that would forbid fetching it."""
+    rendered = sidecars(qmd={"image": "registry.example/osprey-qmd:2.5.3"}, **BOTH_CORPORA)
 
-    assert service["image"] == "${OSPREY_QMD_IMAGE:-registry.example/osprey-qmd:2.5.3}"
-    assert "build" not in service
+    for service in rendered.values():
+        assert service["image"] == "${OSPREY_QMD_IMAGE:-registry.example/osprey-qmd:2.5.3}"
+        assert "build" not in service
+        assert "pull_policy" not in service
 
 
 def test_build_context_is_repo_root_relative():
@@ -279,55 +418,75 @@ def test_build_context_is_repo_root_relative():
 # ---------------------------------------------------------------------------
 
 
-def test_index_lives_on_a_named_volume_the_sidecar_owns():
-    rendered = yaml.safe_load(render_compose())
+def test_each_managed_index_lives_on_its_own_named_volume():
+    """Per corpus, so recreating or wiping one sidecar's index never touches
+    another's — and each survives its own container's recreate."""
+    rendered = rendered_compose(**BOTH_CORPORA)
 
-    assert "qmd_index:/var/lib/qmd" in rendered["services"]["qmd"]["volumes"]
-    assert "qmd_index" in rendered["volumes"]
+    assert "qmd_index_okf:/var/lib/qmd" in rendered["services"]["qmd-okf"]["volumes"]
+    assert "qmd_index_ariel:/var/lib/qmd" in rendered["services"]["qmd-ariel"]["volumes"]
+    assert set(rendered["volumes"]) == {"qmd_index_okf", "qmd_index_ariel"}
 
 
 def test_state_dir_environment_matches_the_volume_target():
     """The entrypoint reads ``OSPREY_QMD_STATE_DIR``; a volume mounted anywhere
     else means the index is written outside it and lost on recreate."""
-    service = compose_service()
-    state_dir = service["environment"]["OSPREY_QMD_STATE_DIR"]
-
-    assert f"qmd_index:{state_dir}" in service["volumes"]
-
-
-def test_rendered_index_config_is_mounted_read_only_where_the_entrypoint_looks():
-    service = compose_service()
-    index_config = service["environment"]["OSPREY_QMD_INDEX_CONFIG"]
-
-    assert f"./build/services/qmd/index.yml:{index_config}:ro" in service["volumes"]
+    for name, service in sidecars(**BOTH_CORPORA).items():
+        state_dir = service["environment"]["OSPREY_QMD_STATE_DIR"]
+        corpus = service["environment"]["OSPREY_QMD_CORPUS"]
+        assert f"qmd_index_{corpus}:{state_dir}" in service["volumes"], name
 
 
 # ---------------------------------------------------------------------------
-# Corpus mounts
+# One sidecar per corpus
 # ---------------------------------------------------------------------------
 
 
-def test_one_read_only_mount_per_configured_corpus():
-    service = compose_service(**BOTH_CORPORA)
-
-    corpus_mounts = [v for v in service["volumes"] if ":/corpus/" in v]
-    assert corpus_mounts == [
-        "./data/facility_knowledge:/corpus/okf:ro",
-        "./data/ariel_mirror:/corpus/ariel:ro",
-    ]
+def test_one_sidecar_per_configured_corpus():
+    assert set(sidecars(**BOTH_CORPORA)) == {"qmd-okf", "qmd-ariel"}
 
 
-def test_okf_bundle_alone_mounts_only_its_own_corpus():
-    service = compose_service(facility_knowledge={"bundle_path": "data/facility_knowledge"})
+def test_service_corpus_and_mount_are_spelled_from_one_descriptor():
+    """The agreement each sidecar rests on, asserted directly.
 
-    assert [v for v in service["volumes"] if ":/corpus/" in v] == [
-        "./data/facility_knowledge:/corpus/okf:ro"
-    ]
+    The collection the entrypoint declares, the path it points that collection
+    at, the container side of the corpus mount and the service name must all
+    name the same corpus. A path with no mount behind it indexes an empty
+    directory; a service named for one corpus and configured for another
+    answers the wrong queries. Either renders a sidecar that starts, reports
+    success, and finds nothing.
+    """
+    rendered = sidecars(qmd={"corpora": DECLARED_CORPORA[:1]}, **BOTH_CORPORA)
+
+    assert len(rendered) == 3
+    for name, service in rendered.items():
+        environment = service["environment"]
+        corpus = environment["OSPREY_QMD_CORPUS"]
+        assert name == f"qmd-{corpus}"
+        assert environment["OSPREY_QMD_CORPUS_PATH"] == f"/corpus/{corpus}"
+        assert [v.split(":")[1] for v in _corpus_mounts(service)] == [f"/corpus/{corpus}"]
 
 
-def test_disabled_qmd_export_mounts_no_mirror():
+def test_each_sidecar_mounts_only_its_own_corpus():
+    rendered = sidecars(**BOTH_CORPORA)
+
+    assert _corpus_mounts(rendered["qmd-okf"]) == ["./data/facility_knowledge:/corpus/okf:ro"]
+    assert _corpus_mounts(rendered["qmd-ariel"]) == ["./data/ariel_mirror:/corpus/ariel:ro"]
+
+
+def test_derived_corpora_are_managed():
+    """OSPREY writes both trees itself, so their sidecars index and sweep them."""
+    for service in sidecars(**BOTH_CORPORA).values():
+        assert service["environment"]["OSPREY_QMD_INDEX_MODE"] == "managed"
+
+
+def test_okf_bundle_alone_renders_only_its_own_sidecar():
+    assert set(sidecars(facility_knowledge=OKF_BUNDLE)) == {"qmd-okf"}
+
+
+def test_disabled_qmd_export_renders_no_mirror_sidecar():
     """A configured-but-disabled export writes nothing to mirror."""
-    service = compose_service(
+    rendered = sidecars(
         ariel={
             "enhancement_modules": {
                 "qmd_export": {"enabled": False, "mirror_path": "data/ariel_mirror"}
@@ -335,82 +494,93 @@ def test_disabled_qmd_export_mounts_no_mirror():
         }
     )
 
-    assert [v for v in service["volumes"] if ":/corpus/" in v] == []
+    assert rendered == {}
 
 
-def test_enabled_qmd_export_without_a_mirror_path_mounts_nothing():
+def test_enabled_qmd_export_without_a_mirror_path_renders_nothing():
     """There is no path to mount. The exporter refuses this config at runtime;
     the render must not invent a directory for it."""
-    service = compose_service(ariel={"enhancement_modules": {"qmd_export": {"enabled": True}}})
-
-    assert [v for v in service["volumes"] if ":/corpus/" in v] == []
+    assert sidecars(ariel={"enhancement_modules": {"qmd_export": {"enabled": True}}}) == {}
 
 
-def test_no_corpus_configured_mounts_none():
-    service = compose_service()
+def test_no_corpus_renders_no_sidecar_and_no_volume():
+    """A sidecar with nothing to search would refuse to serve; the honest
+    render for a deployment with no corpus is no sidecar at all."""
+    rendered = rendered_compose()
 
-    assert [v for v in service["volumes"] if ":/corpus/" in v] == []
-
-
-# ---------------------------------------------------------------------------
-# The collection config
-# ---------------------------------------------------------------------------
-
-
-def test_one_collection_per_mounted_corpus():
-    index = yaml.safe_load(render_index(**BOTH_CORPORA))
-
-    assert index["collections"] == {
-        "okf": {"path": "/corpus/okf", "pattern": "**/*.md"},
-        "ariel": {"path": "/corpus/ariel", "pattern": "**/*.md"},
-    }
-
-
-def test_collections_and_mounts_are_generated_from_one_list():
-    """The agreement the whole design rests on, asserted directly.
-
-    Every collection's ``path`` must be the container side of a corpus mount,
-    and every corpus mount must have a collection. Either half alone renders a
-    sidecar that starts, reports success, and finds nothing.
-    """
-    service = compose_service(**BOTH_CORPORA)
-    collections = yaml.safe_load(render_index(**BOTH_CORPORA))["collections"]
-
-    mount_targets = {v.split(":")[1] for v in service["volumes"] if ":/corpus/" in v}
-    assert {c["path"] for c in collections.values()} == mount_targets
-    # ...and each collection's mount target ends in its own name, so neither can
-    # be renamed without the other.
-    assert {name: c["path"] for name, c in collections.items()} == {
-        name: f"/corpus/{name}" for name in collections
-    }
-
-
-def test_no_corpus_renders_an_empty_collection_mapping():
-    """The honest render for a sidecar with nothing to search. The entrypoint's
-    fail-closed gate then refuses to serve, which is the intended report."""
-    assert yaml.safe_load(render_index()) == {"collections": {}}
-
-
-def test_collection_config_declares_no_models_block():
-    """The image pins the embedder, reranker and expansion models and bakes
-    those exact files in. A second spelling here could disagree with what is on
-    disk, and a disagreeing embedder costs a full rebuild."""
-    assert "models" not in yaml.safe_load(render_index(**BOTH_CORPORA))
+    assert rendered["services"] == {}
+    assert "volumes" not in rendered
 
 
 def test_collection_names_match_the_code_that_queries_them():
     """The names are a contract with the query code, not labels: a filtered
     query naming a collection the daemon does not have returns nothing, with no
-    error anywhere. They are restated in ``compose_generator`` rather than
-    imported, so that rendering a compose file does not drag the search services
-    into the deployment import graph — which makes this test the only thing
-    holding the two spellings together."""
+    error anywhere. ``compose_generator`` takes them from the qmd schema rather
+    than from the search services, so that rendering a compose file does not
+    drag those services into the deployment import graph — which makes this
+    test the only thing holding the spellings together."""
     from osprey.deployment.compose_generator import QMD_ARIEL_COLLECTION, QMD_OKF_COLLECTION
+    from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS
     from osprey.services.ariel_search.search.qmd import ARIEL_COLLECTION
     from osprey.services.facility_knowledge.okf.bundle import OKF_COLLECTION
 
-    assert QMD_OKF_COLLECTION == OKF_COLLECTION
-    assert QMD_ARIEL_COLLECTION == ARIEL_COLLECTION
+    assert QMD_OKF_COLLECTION == OKF_CORPUS == OKF_COLLECTION
+    assert QMD_ARIEL_COLLECTION == ARIEL_CORPUS == ARIEL_COLLECTION
+
+
+# ---------------------------------------------------------------------------
+# Declared corpora
+# ---------------------------------------------------------------------------
+
+
+def test_a_declared_managed_corpus_is_indexed_like_a_derived_one():
+    service = compose_service("qmd-papers", qmd={"corpora": DECLARED_CORPORA})
+
+    assert service["environment"]["OSPREY_QMD_INDEX_MODE"] == "managed"
+    assert "qmd_index_papers:/var/lib/qmd" in service["volumes"]
+    assert _corpus_mounts(service) == ["./data/papers:/corpus/papers:ro"]
+
+
+def test_a_prebuilt_corpus_serves_its_index_from_where_the_operator_put_it():
+    """The index was built elsewhere and copied in, so it is bound at the
+    state directory rather than kept on a volume the sidecar would fill itself.
+
+    Read-write on purpose: SQLite keeps its write-ahead files beside the
+    database even for a reader, so a read-only bind fails the first query.
+    """
+    rendered = rendered_compose(qmd={"corpora": DECLARED_CORPORA})
+    service = rendered["services"]["qmd-manuals"]
+    state_dir = service["environment"]["OSPREY_QMD_STATE_DIR"]
+
+    assert service["environment"]["OSPREY_QMD_INDEX_MODE"] == "prebuilt"
+    assert f"/srv/qmd/manuals-index:{state_dir}" in service["volumes"]
+    assert not [v for v in service["volumes"] if v.startswith("qmd_index_")]
+    assert "qmd_index_manuals" not in rendered["volumes"]
+
+
+def test_a_prebuilt_corpus_without_a_source_mounts_no_corpus():
+    """Its index already holds the text, so there is no tree to mount and no
+    path to point a collection at."""
+    service = compose_service("qmd-manuals", qmd={"corpora": DECLARED_CORPORA})
+
+    assert _corpus_mounts(service) == []
+    assert "OSPREY_QMD_CORPUS_PATH" not in service["environment"]
+    assert service["environment"]["OSPREY_QMD_CORPUS"] == "manuals"
+
+
+def test_a_prebuilt_corpus_with_a_source_mounts_it_read_only():
+    corpora = [{**DECLARED_CORPORA[1], "source": "data/manuals"}]
+    service = compose_service("qmd-manuals", qmd={"corpora": corpora})
+
+    assert _corpus_mounts(service) == ["./data/manuals:/corpus/manuals:ro"]
+    assert service["environment"]["OSPREY_QMD_CORPUS_PATH"] == "/corpus/manuals"
+
+
+def test_a_relative_prebuilt_index_dir_is_spelled_for_the_compose_project_directory():
+    corpora = [{"name": "manuals", "index": "prebuilt", "index_dir": "data/manuals-index"}]
+    service = compose_service("qmd-manuals", qmd={"corpora": corpora})
+
+    assert "./data/manuals-index:/var/lib/qmd" in service["volumes"]
 
 
 # ---------------------------------------------------------------------------
@@ -434,13 +604,10 @@ def test_corpus_mount_sources_are_spelled_for_the_compose_project_directory(
     read as a path by every runtime, and relative sources resolve against the
     repo root the deploy pins — so an absolute path INSIDE that root is spelled
     relative to it and one outside stays absolute."""
-    context = _context(
+    service = compose_service(
         project_root=str(tmp_path),
         facility_knowledge={"bundle_path": configured.format(repo=tmp_path)},
     )
-    service = yaml.safe_load(
-        _packaged_template("services/qmd/docker-compose.yml.j2").render(context)
-    )["services"]["qmd"]
 
     assert f"{expected}:/corpus/okf:ro" in service["volumes"]
 
@@ -450,6 +617,8 @@ def test_mirror_path_is_read_from_settings_when_present():
     ``settings`` winning. The mount has to follow whichever the exporter will
     actually write to."""
     service = compose_service(
+        "qmd-ariel",
+        facility_knowledge=None,
         ariel={
             "enhancement_modules": {
                 "qmd_export": {
@@ -458,7 +627,7 @@ def test_mirror_path_is_read_from_settings_when_present():
                     "settings": {"mirror_path": "data/real_mirror"},
                 }
             }
-        }
+        },
     )
 
     assert "./data/real_mirror:/corpus/ariel:ro" in service["volumes"]
@@ -499,18 +668,16 @@ def test_first_index_grace_default_tracks_the_schema_module():
     )
 
 
-def test_container_name_is_namespaced_per_project():
+def test_container_name_is_namespaced_per_project_and_corpus():
     """``container_name`` is a host-global docker identifier: two projects
-    deploying a sidecar on one host must not collide on one name."""
-    assert compose_service(project_name="other")["container_name"] == "other-qmd"
+    deploying a sidecar on one host, or two sidecars in one project, must not
+    collide on one name."""
+    rendered = sidecars(project_name="other", **BOTH_CORPORA)
 
-
-def test_health_probe_goes_through_the_forwarder():
-    """Probing the daemon's internal port would report healthy for a container
-    whose published path is dead."""
-    service = compose_service()
-
-    assert f"http://127.0.0.1:{default_port('qmd')}/health" in service["healthcheck"]["test"][1]
+    assert {name: s["container_name"] for name, s in rendered.items()} == {
+        "qmd-okf": "other-qmd-okf",
+        "qmd-ariel": "other-qmd-ariel",
+    }
 
 
 def test_health_start_period_outlasts_a_first_boot_full_build():
@@ -521,30 +688,34 @@ def test_health_start_period_outlasts_a_first_boot_full_build():
 
 
 def test_joins_the_project_network_by_default():
-    rendered = yaml.safe_load(render_compose())
+    rendered = rendered_compose(**BOTH_CORPORA)
 
-    assert rendered["services"]["qmd"]["networks"] == ["osprey-network"]
+    for service in rendered["services"].values():
+        assert service["networks"] == ["osprey-network"]
     assert "osprey-network" in rendered["networks"]
 
 
 def test_host_network_suppresses_ports_and_the_network_declaration():
     """The shared macro's contract, honoured mechanically: under ``host`` there
     is no port map to publish and no network for anything to join."""
-    rendered = yaml.safe_load(render_compose(qmd={"network": "host"}))
+    rendered = rendered_compose(qmd={"network": "host"}, **BOTH_CORPORA)
 
-    assert rendered["services"]["qmd"]["network_mode"] == "host"
-    assert "ports" not in rendered["services"]["qmd"]
+    for service in rendered["services"].values():
+        assert service["network_mode"] == "host"
+        assert "ports" not in service
     assert "networks" not in rendered
-    # The named volume is orthogonal to the network axis and must survive it.
-    assert "qmd_index" in rendered["volumes"]
+    # The named volumes are orthogonal to the network axis and must survive it.
+    assert set(rendered["volumes"]) == {"qmd_index_okf", "qmd_index_ariel"}
 
 
-def test_fragment_is_valid_yaml_with_both_corpora():
-    """The corpus mounts are emitted inside a Jinja loop between two macro
-    calls; a whitespace slip there produces a file compose cannot parse."""
-    rendered = yaml.safe_load(render_compose(**BOTH_CORPORA))
+def test_fragment_is_valid_yaml_with_every_kind_of_corpus():
+    """The sidecars are emitted by a Jinja loop between macro calls, with
+    branches per index mode; a whitespace slip there produces a file compose
+    cannot parse."""
+    rendered = rendered_compose(qmd={"corpora": DECLARED_CORPORA}, **BOTH_CORPORA)
 
     assert set(rendered) == {"services", "volumes", "networks"}
+    assert len(rendered["services"]) == 4
 
 
 # ---------------------------------------------------------------------------
@@ -581,9 +752,10 @@ def test_render_service_templates_renders_siblings_and_skips_the_compose_templat
     assert not (out / "docker-compose.yml").exists()
 
 
-def test_setup_build_dir_produces_both_of_the_sidecars_artifacts(tmp_path, monkeypatch):
+def test_setup_build_dir_produces_the_sidecars_artifacts(tmp_path, monkeypatch):
     """End to end through the real build step: the compose fragment and the
-    collection config it mounts are produced together, from one render."""
+    image's build context land together, and nothing else is rendered — the
+    entrypoint configures each sidecar's one collection from its environment."""
     from importlib import resources
 
     import osprey
@@ -607,17 +779,18 @@ def test_setup_build_dir_produces_both_of_the_sidecars_artifacts(tmp_path, monke
             "build_dir": "./build",
             "services": {"qmd": {}},
             "system": {"timezone": "UTC"},
-            "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
+            "facility_knowledge": OKF_BUNDLE,
         },
         {},
     )
 
     out = repo / "build" / "services" / "qmd"
     compose = yaml.safe_load((out / "docker-compose.yml").read_text())
-    index = yaml.safe_load((out / "index.yml").read_text())
 
-    assert "./data/facility_knowledge:/corpus/okf:ro" in compose["services"]["qmd"]["volumes"]
-    assert index["collections"]["okf"]["path"] == "/corpus/okf"
+    assert "./data/facility_knowledge:/corpus/okf:ro" in compose["services"]["qmd-okf"]["volumes"]
+    assert (out / "Dockerfile").is_file()
+    assert (out / "entrypoint.sh").is_file()
+    assert not (out / "index.yml").exists()
     # The templates themselves must never land in a build context.
     assert not list(out.glob("*.j2"))
 
@@ -648,14 +821,14 @@ def _models_mounts(service: dict) -> list[str]:
 
 
 def test_no_models_dir_renders_neither_the_build_arg_nor_the_mount():
-    service = compose_service()
+    rendered = sidecars(**BOTH_CORPORA)
 
-    assert MODELS_BUILD_ARG not in _build_args(service)
-    assert _models_mounts(service) == []
+    assert MODELS_BUILD_ARG not in _build_args(rendered["qmd-okf"])
+    assert all(_models_mounts(service) == [] for service in rendered.values())
 
 
 def test_no_models_dir_leaves_the_fragment_exactly_as_it_was():
-    """The unset state is the default, so it has to render the pre-change shape.
+    """The unset state is the default, so it has to render the plain shape.
 
     Asserted as whole collections rather than as absences: an extra build arg or
     an extra volume that happened not to mention the model directory would slip
@@ -665,8 +838,8 @@ def test_no_models_dir_leaves_the_fragment_exactly_as_it_was():
 
     assert _build_args(service) == {"OSPREY_PROJECT_NAME": "demo"}
     assert service["volumes"] == [
-        "qmd_index:/var/lib/qmd",
-        "./build/services/qmd/index.yml:/etc/qmd/index.yml:ro",
+        "qmd_index_okf:/var/lib/qmd",
+        "./data/facility_knowledge:/corpus/okf:ro",
     ]
 
 
@@ -682,12 +855,14 @@ def test_the_build_arg_and_the_mount_fire_together(qmd, expected):
     mounted to supply them; the mount alone mounts three files over models the
     image already has. The first is the silent failure this pairing exists to
     prevent — the container starts, finds no model, and tries to download one on
-    a host that was configured this way precisely because it cannot.
+    a host that was configured this way precisely because it cannot. The arg
+    rides on the one sidecar that builds; every sidecar runs that image, so
+    every one of them needs the mount.
     """
-    service = compose_service(qmd=qmd)
+    rendered = sidecars(qmd=qmd, **BOTH_CORPORA)
 
-    fired = (MODELS_BUILD_ARG in _build_args(service), bool(_models_mounts(service)))
-    assert fired == (expected, expected)
+    assert (MODELS_BUILD_ARG in _build_args(rendered["qmd-okf"])) == expected
+    assert [bool(_models_mounts(service)) for service in rendered.values()] == [expected] * 2
 
 
 def test_models_dir_mounts_the_staged_directory_read_only():
@@ -722,23 +897,34 @@ def test_a_relative_models_dir_refuses_the_render():
         compose_service(qmd={"models_dir": "qmd-models"})
 
 
-def test_the_models_mount_precedes_the_corpus_mounts():
-    """Position is not cosmetic: the corpus mounts are emitted by a Jinja loop,
-    and a models mount rendered inside that loop would repeat per corpus."""
-    volumes = compose_service(qmd={"models_dir": MODELS_DIR}, **BOTH_CORPORA)["volumes"]
+def test_the_models_mount_sits_between_the_index_and_the_corpus():
+    """Position is not cosmetic: the index and corpus mounts come from each
+    corpus's own descriptor, and a models mount rendered inside one of their
+    branches would vanish for the corpora that take the other."""
+    rendered = sidecars(qmd={"models_dir": MODELS_DIR}, **BOTH_CORPORA)
 
-    models = volumes.index(f"{MODELS_DIR}:{MODELS_TARGET}:ro")
-    corpora = [i for i, v in enumerate(volumes) if ":/corpus/" in v]
-    assert volumes.index("./build/services/qmd/index.yml:/etc/qmd/index.yml:ro") < models
-    assert models < min(corpora)
+    for service in rendered.values():
+        volumes = service["volumes"]
+        models = volumes.index(f"{MODELS_DIR}:{MODELS_TARGET}:ro")
+        (corpus,) = [i for i, v in enumerate(volumes) if ":/corpus/" in v]
+        assert volumes[0].endswith(":/var/lib/qmd")
+        assert 0 < models < corpus
+
+
+def test_the_models_mount_reaches_a_prebuilt_corpus_too():
+    """A prebuilt sidecar still embeds every query, so it needs the models as
+    much as one that builds its own index."""
+    service = compose_service(
+        "qmd-manuals", qmd={"models_dir": MODELS_DIR, "corpora": DECLARED_CORPORA[1:]}
+    )
+
+    assert _models_mounts(service) == [f"{MODELS_DIR}:{MODELS_TARGET}:ro"]
 
 
 def test_the_models_mount_survives_host_networking():
     """The network axis suppresses ports and the network stanza. It must not
     take an unrelated volume with it."""
-    service = yaml.safe_load(render_compose(qmd={"network": "host", "models_dir": MODELS_DIR}))[
-        "services"
-    ]["qmd"]
+    service = compose_service(qmd={"network": "host", "models_dir": MODELS_DIR})
 
     assert _models_mounts(service) == [f"{MODELS_DIR}:{MODELS_TARGET}:ro"]
 

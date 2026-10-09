@@ -7,6 +7,7 @@ the child this process's own stdio with no redirection at all.
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -16,7 +17,11 @@ import pytest
 
 from osprey.cli.phase_reporter import NullReporter, PhaseReporter, install_reporter
 from osprey.deployment.errors import CapturedProcessError
-from osprey.deployment.subprocess_capture import SPOOL_RETENTION, run_captured
+from osprey.deployment.subprocess_capture import (
+    SPOOL_RETENTION,
+    _mismatched_volumes,
+    run_captured,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -275,6 +280,7 @@ class TestVerbosePassThrough:
         assert args[0] == argv
         assert "stdout" not in kwargs
         assert "stderr" not in kwargs
+        assert "stdin" not in kwargs
         assert kwargs["env"] == {"A": "1"}
 
     @pytest.mark.usefixtures("recorded_run", "verbose_reporter")
@@ -374,3 +380,133 @@ class TestWorkingDirectory:
 
         (_args, kwargs) = recorded_run[0]
         assert kwargs["cwd"] is None
+
+
+#: A child that reports whether its stdin is the null device and, if so, what a
+#: read of it returns. It never reads a terminal, so a regression fails rather
+#: than hanging the suite.
+_STDIN_PROBE = [
+    sys.executable,
+    "-c",
+    "import os, sys\n"
+    "null = os.path.samestat(os.fstat(0), os.stat(os.devnull))\n"
+    "print(null)\n"
+    "print(repr(sys.stdin.read()) if null else 'not-read')\n",
+]
+
+
+@pytest.fixture
+def typed_stdin():
+    """Put a pipe holding an operator's answer on this process's fd 0.
+
+    pytest already parks fd 0 on the null device, so without this a child that
+    merely inherited stdin would look exactly like one given the null device.
+    """
+    saved = os.dup(0)
+    read_end, write_end = os.pipe()
+    os.write(write_end, b"y\n")
+    os.close(write_end)
+    os.dup2(read_end, 0)
+    os.close(read_end)
+    try:
+        yield
+    finally:
+        os.dup2(saved, 0)
+        os.close(saved)
+
+
+@pytest.mark.usefixtures("typed_stdin")
+class TestNoTerminalForCapturedChildren:
+    """A captured child owns no terminal: a prompt reads EOF instead of blocking."""
+
+    def test_captured_child_reads_eof_on_stdin(self, tmp_path):
+        run_captured(_STDIN_PROBE, spool_name="probe", repo_root=tmp_path)
+
+        assert _spools(tmp_path)[0].read_text() == "True\n''\n"
+
+    def test_watched_child_reads_eof_on_stdin(self, tmp_path):
+        seen: list[str] = []
+
+        run_captured(_STDIN_PROBE, spool_name="probe", repo_root=tmp_path, on_line=seen.append)
+
+        assert seen == ["True", "''"]
+
+
+#: The line compose prints when a named volume's labels differ from the compose
+#: file; with stdin at EOF it answers the prompt No and carries on.
+_MISMATCH = (
+    'Volume "{}" exists but doesn\'t match configuration in compose file. '
+    "Recreate (data will be lost)?"
+)
+
+
+def _exits(code: int, *lines: str) -> list[str]:
+    """Argv for a child that prints ``lines`` and exits with ``code``."""
+    body = "".join(f"print({line!r})\n" for line in lines)
+    return [sys.executable, "-c", f"{body}raise SystemExit({code})"]
+
+
+class TestKeptVolumeWarning:
+    """Compose keeping a mismatched volume is a silent success the run still reports."""
+
+    def test_helper_names_each_volume_once_in_order(self):
+        text = "\n".join(
+            [
+                _MISMATCH.format("demo_pgdata"),
+                "Container demo-postgres-1  Started",
+                _MISMATCH.format("demo_qmd-index"),
+                _MISMATCH.format("demo_pgdata"),
+            ]
+        )
+
+        assert _mismatched_volumes(text) == ["demo_pgdata", "demo_qmd-index"]
+
+    def test_helper_finds_nothing_in_ordinary_output(self):
+        assert _mismatched_volumes('Volume "demo_pgdata"  Created\n') == []
+
+    def test_successful_run_warns_naming_volume_and_spool(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING):
+            result = run_captured(
+                _exits(0, _MISMATCH.format("demo_pgdata"), "Container demo-pg-1  Started"),
+                spool_name="compose-up",
+                repo_root=tmp_path,
+            )
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        message = warnings[0].getMessage()
+        assert "demo_pgdata" in message
+        assert str(result.spool_path) in message
+        assert "osprey status" in message
+
+    def test_watched_run_warns_too(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING):
+            run_captured(
+                _exits(0, _MISMATCH.format("demo_pgdata"), _MISMATCH.format("demo_mongo")),
+                spool_name="compose-up",
+                repo_root=tmp_path,
+                on_line=lambda _line: None,
+            )
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "demo_pgdata" in warnings[0].getMessage()
+        assert "demo_mongo" in warnings[0].getMessage()
+
+    def test_failed_run_warns_before_raising(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING), pytest.raises(CapturedProcessError):
+            run_captured(
+                _exits(1, _MISMATCH.format("demo_pgdata")),
+                spool_name="compose-up",
+                repo_root=tmp_path,
+            )
+
+        assert "demo_pgdata" in caplog.text
+
+    def test_no_marker_no_warning(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING):
+            run_captured(
+                _exits(0, "Container demo-pg-1  Started"), spool_name="up", repo_root=tmp_path
+            )
+
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]

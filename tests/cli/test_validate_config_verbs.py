@@ -39,7 +39,7 @@ WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
     "users": [{"name": "operator", "index": 0, "persona": "readwrite"}],
     "default_persona": "readwrite",
-    "personas": {"readwrite": {"build_profile": "hello-world", "project": "demo-readwrite"}},
+    "personas": {"readwrite": {"build_profile": "hello-world"}},
 }
 
 #: A source manifest with a comment in it. The comment is the assertion: the

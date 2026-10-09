@@ -76,8 +76,8 @@ prime) and stages the locally-built wheel the image then overlays, so what runs
 here is this branch's code rather than a release.
 
 CONTAINER-OPS SAFETY: every runtime-mutating call below names an EXACT resource
-this test created — the ``<prefix>-nginx`` / ``<prefix>-auth`` / ``<prefix>-web-
-<user>`` containers, this project's volumes, and the ``:local`` image tags — or
+this test created — the ``<project>-nginx`` / ``<project>-auth`` /
+``<project>-web-<user>`` containers, this project's volumes, and the ``:local`` image tags — or
 is the project-scoped ``compose down`` the deploy lifecycle itself uses. Nothing
 here ever runs a prune, an ``-a``/``--all`` sweep, or a wildcard removal.
 """
@@ -146,14 +146,14 @@ BASE_PORTS = {
 #: back to the container that produced it.
 UPSTREAM_MARKER = "osprey-e2e-auth-perimeter upstream"
 
-AUTH_IMAGE_TAG = f"{PREFIX}-assistant-auth:local"
+AUTH_IMAGE_TAG = f"{PROJECT_NAME}-auth:local"
 # `<catalog project>:local`, exactly as resolve_personas derives a
 # local-mode persona tag. Teardown-only, but spelled the way the render spells
 # it so an `rmi` here removes the tag this deploy actually built.
 PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}:local"
 
-NGINX_C = f"{PREFIX}-nginx"
-AUTH_C = f"{PREFIX}-auth"
+NGINX_C = f"{PROJECT_NAME}-nginx"
+AUTH_C = f"{PROJECT_NAME}-auth"
 
 # The sidecar build is a real framework install; everything else here is alpine.
 DEPLOY_UP_TIMEOUT_SEC = 1800
@@ -177,7 +177,7 @@ _ENV_CONTENT = "ANTHROPIC_API_KEY=fake-llm-key-value\n" + "".join(
 
 
 def _web_container(user: str) -> str:
-    return f"{PREFIX}-web-{user}"
+    return f"{PROJECT_NAME}-web-{user}"
 
 
 def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:

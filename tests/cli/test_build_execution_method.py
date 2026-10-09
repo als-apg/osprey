@@ -29,6 +29,7 @@ CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 PROFILE = """\
 extends: hello-world
 name: Execution Method
+project_name: repo
 data: data
 provider: anthropic
 config:

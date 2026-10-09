@@ -10,12 +10,19 @@
   TEMPLATE CONTRACT (variables render.py MUST supply)
   ----------------------------------------------------------------------------
 
+    project_name: str
+      The deployment's compose project, `resolve_project_name()` of the as-built
+      config. Every container name here is `<project_name>-…`
+      (`<project_name>-web-<user>`, `<project_name>-nginx`,
+      `<project_name>-auth`), as is the sidecar's local image tag, so two
+      deployments on one host contend for a name only when they share a compose
+      project. naming.py spells the same pattern for Python consumers.
+
     facility_prefix: str
-      `facility.prefix` from the deployed project's config (e.g. "ex"). Used for
-      container_name (`<prefix>-web-<user>`, `<prefix>-nginx`) only — the
-      per-user agent-data mount path comes from each service's own
-      `container_agent_data_dir` (below), not this field, so a persona-resolved
-      user's mount can differ from the facility-prefix default.
+      `facility.prefix` from the deployed project's config (e.g. "ex"). Not read
+      by this template: no container or image name carries it. The per-user
+      agent-data mount path comes from each service's own
+      `container_agent_data_dir` (below).
 
     registry_url: str
       `registry.url` from the deployed project's config. NOT read directly by this
@@ -253,12 +260,11 @@
       applies.
     auth_image: str | None
       Registry-mode image for the sidecar. When unset, the local-build tag
-      `<facility_prefix>-assistant-auth:local` is referenced instead — the
-      suffixed local-tag pattern personas.py keeps for entries without their
-      own render (`<project>-<suffix>:local`) applied to the sidecar, whose
-      `<project>` is resolve_personas()'s default `<facility_prefix>-assistant`.
-      Producing that image is the runtime build's job; this template only
-      names the tag.
+      `<project_name>-auth:local` is referenced instead (provision.py's
+      `auth_sidecar_local_tag()` spells the same tag). Its `-auth` suffix keeps
+      it clear of the dispatch worker's `<project_name>:local` and of every
+      persona render's tag. Producing that image is the runtime build's job;
+      this template only names the tag.
     auth_oidc_issuer: str | None, auth_oidc_client_id_env / auth_oidc_client_secret_env: str
       Emitted only in `oidc` mode. The two `*_env` values are env-var NAMES, not
       credentials: the sidecar reads the named variable out of its `.env.auth`
@@ -541,7 +547,7 @@ services:
 
   nginx:
     image: {{ nginx_image | default("nginx:1.31-alpine") }}
-    container_name: {{ facility_prefix }}-nginx
+    container_name: {{ project_name }}-nginx
     restart: unless-stopped
     network_mode: host
     labels:
@@ -648,8 +654,8 @@ services:
        runtime build produces this tag (see AUTH SIDECAR contract above). A
        registry-mode deployment that forgot `auth.image` is caught by the
        deploy preflight, not by silently building here. #}
-    image: {{ auth_image | default(facility_prefix ~ "-assistant-auth:local", true) }}
-    container_name: {{ facility_prefix }}-auth
+    image: {{ auth_image | default(project_name ~ "-auth:local", true) }}
+    container_name: {{ project_name }}-auth
     restart: unless-stopped
     network_mode: host
     {#- Single process, deliberately: the revocation list and the brute-force
@@ -948,7 +954,7 @@ services:
 
   web-{{ svc.user }}:
     image: {{ svc.image }}
-    container_name: {{ facility_prefix }}-web-{{ svc.user }}
+    container_name: {{ project_name }}-web-{{ svc.user }}
     restart: unless-stopped
     network_mode: host
     labels:
@@ -1603,10 +1609,6 @@ services:
 volumes:
 {% for svc in services %}
   {{ svc.claude_config_volume }}:
-    labels:
-      com.osprey.repo-id: "{{ repo_id }}"
   {{ svc.user }}-agent-data:
-    labels:
-      com.osprey.repo-id: "{{ repo_id }}"
 {% endfor %}
 {% endif %}

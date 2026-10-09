@@ -138,11 +138,7 @@ services:
 volumes:
 {%- for terminal in src.terminals %}
   {{ terminal.volume }}:
-    labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
   {{ terminal.agent_data_volume }}:
-    labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 {%- endfor %}
 {%- endif %}
 {{ net.network_declaration(svc) }}

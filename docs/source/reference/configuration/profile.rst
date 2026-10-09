@@ -23,7 +23,23 @@ Profile YAML reference
    * - ``name``
      - string
      - *required*
-     - Human-readable profile name.
+     - Human-readable profile name. It is display text only; no container,
+       volume or image is named from it.
+   * - ``project_name``
+     - string
+     - *required*
+     - The deployment's name on a host. It names the compose project, its
+       volumes (``<project_name>_<volume>``), the ``:local`` images, the web
+       containers and the persona renders (``<project_name>-<persona>``).
+       ``osprey init`` writes it from the folder name, normalized to a valid
+       compose project name; after that it is a tracked value, and the folder
+       the repository is checked out into plays no part. It must already be a
+       valid compose name (lowercase letters, digits, ``-`` and ``_``, starting
+       and ending with a letter or digit); the build refuses any other spelling and prints
+       the normalized one. A second checkout that runs on the same host as the
+       first sets its own value in a variant overlay (see
+       :ref:`profile-host-variants`). Changing it renames the deployment, and
+       the volumes follow the new name.
    * - ``data``
      - string
      - *required*
@@ -313,8 +329,9 @@ refuse that line by name and say what supplies the value instead:
      - the top-level ``panel_presets:`` field
    * - ``api.providers``
      - ``providers.yml`` beside the profile (:ref:`profile-provider-catalog`)
-   * - ``project_name``, ``project_root``, ``build_dir``, ``file_paths``,
-       ``agent_data.base_dir``
+   * - ``project_name``
+     - the top-level ``project_name:`` field
+   * - ``project_root``, ``build_dir``, ``file_paths``, ``agent_data.base_dir``
      - nothing — the build takes them from the repository it renders into
    * - ``execution.environment.python`` / ``.packages`` / ``.inherit_exclude``
      - the ``environment:`` block (:ref:`profile-environment`)
