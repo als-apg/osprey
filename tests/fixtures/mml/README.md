@@ -42,3 +42,51 @@ PATH and compares it with the committed files.
 |-----------|------|--------------|----------------|
 | `nsls2/` | `nsls2.storagering.ao.json` + `.ad.json`, `nsls2.ltb.ao.json` + `.ad.json` | none needed: each `.ad.json` names its sub-machine | NSLS-II storage ring and LTB transfer line: two systems in one import, a zero-channel `Screen` family, `RBKL`/`SPKL` strength fields beside the current fields, turn-by-turn BPM fields. |
 | `spear3/` | `spear3.storagering.ao.json` + `.ad.json` | none needed: `AD.SubMachine` = `StorageRing` | SPEAR3 storage ring: 43 families including beamline, vacuum and injection signals; a broadcast `TUNE` channel; monitor and setpoint on one record (`RF`, `ShuntCurrent`); nine new classes declared under packaged parents. |
+
+## Re-running the export on a MATLAB host
+
+The same steps produce a fresh export on any Linux host with MATLAB and an
+MML-prod checkout; `tests/templates/test_mml_export_parity.py` runs exactly this
+program when a MATLAB is on PATH.
+
+1. **Compile the bundled AT once.** The Accelerator Toolbox that MML-prod ships
+   under `simulators/at2.0` needs integrators built for the MATLAB that runs it:
+   run `atmexall` in its `atmat/` folder.
+2. **Make the two case symlinks SPEAR3 needs.** Linux is case-sensitive, and the
+   Middle Layer asks for `machine/SPEAR3/...` and `SPEAR3physdata.mat` where the
+   checkout spells both `Spear3`. Without `machine/SPEAR3 -> Spear3` and
+   `Spear3/StorageRingOpsData/SPEAR3physdata.mat -> Spear3physdata.mat` the golden
+   response file and the physics data are skipped silently and the export measures
+   the model instead. A fresh checkout needs them again.
+3. **Start one MATLAB per sub-machine.** Nothing carries over between
+   sub-machines, so each gets its own session. The machine's setpath
+   (`setpathspear3`, `setpathnsls2('StorageRing')`, `setpathnsls2('LTB')`) calls
+   `setpathmml`, and that has to run before anything else is put on the path: it
+   puts the bundled AT on the path and initialises the Accelerator Objects through
+   it. One line for `matlab -batch`, which runs only the first line of a
+   multi-line statement:
+
+   ```matlab
+   addpath('<MML-prod>/mml'); setpathspear3; setpathat('<AT>'); switch2sim; addpath('<folder of mml_export.m>'); mml_export('<outdir>')
+   ```
+
+4. **Expect the LabCA warning.** The link method defaults to LabCA; on a host
+   without it the Middle Layer warns once. `switch2sim` then puts every family in
+   simulator mode, which is what the export samples.
+
+A 2.1.0 run writes six files per sub-machine: `.ao.json`, `.ad.json`, `.va.json`,
+`.response.json`, `.lattice.mat` and `.model.json`.
+
+### Refreshing the committed SPEAR3 and NSLS-II exports
+
+This step is the owner's; no automated change touches those files.
+
+- Commit all six files of one run per sub-machine, never a mix of runs.
+- Compare the five older files with the committed ones first. If any differs
+  beyond `_export.exporter`, `timestamp` or `matlab`, stop: that is a change in
+  the facility or the exporter, not a refresh. Two differences are expected
+  and are not a stop: floating-point values that move in the last digits
+  (about 1e-15 relative) when the run is on a different host, and the `DCCT`
+  nominal, which the Middle Layer's simulator derives from the time of day.
+- Update the file counts in `tests/fixtures/mml/spear3/README.md` and
+  `tests/fixtures/mml/nsls2/README.md`.
