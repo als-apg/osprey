@@ -203,6 +203,19 @@ def test_a_render_without_a_view_is_refused(lifecycle_repo: Path) -> None:
     assert "No simulator view" in result.output
 
 
+def test_a_view_from_another_schema_is_refused_naming_rebuild(deployment: Path) -> None:
+    variables = _view(deployment) / "variables.json"
+    document = json.loads(variables.read_text(encoding="utf-8"))
+    variables.write_text(
+        json.dumps({**document, "schema": "osprey.facility.simulator/1"}), encoding="utf-8"
+    )
+
+    result = _status(deployment)
+
+    assert result.exit_code == 1
+    assert "rebuild" in result.output
+
+
 def test_list_names_the_views_scenarios_and_marks_the_active_set(deployment: Path) -> None:
     _activate(deployment, "nominal", "sr-broken")
 
