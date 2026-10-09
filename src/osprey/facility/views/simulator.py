@@ -74,7 +74,6 @@ from osprey_connectors.simulation.view import (
     SERVED_MODELS_SCHEMA,
     VARIABLES_FILE,
     VARIABLES_SCHEMA,
-    SimulatorView,
 )
 
 __all__ = [
@@ -91,16 +90,10 @@ __all__ = [
     "SERVED_MODELS_SCHEMA",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
-    "simulator_view",
     "simulator_wiring",
     "status_address",
     "write_simulator_view",
 ]
-
-
-def simulator_view(project_dir: Path) -> Path:
-    """The simulator view of *project_dir*'s render, ``<render>/data/simulator``."""
-    return SimulatorView.path_for_project(project_dir)
 
 
 #: The mark a scenario's faults carry for a model the render does not serve.

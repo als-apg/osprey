@@ -15,9 +15,9 @@ on demand via ``osprey sim apply``.
 from __future__ import annotations
 
 import asyncio
-import json
 import math
 import tempfile
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -43,12 +43,13 @@ from osprey_connectors.simulation.state import (
 from osprey_connectors.workspace import resolve_simulation_state_dir
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Coroutine, Iterator, Sequence
     from zoneinfo import ZoneInfo
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
     from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
     from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
+    from osprey_connectors.simulation.view import SimulatorView
 
 logger = get_logger("simulation_apply")
 
@@ -203,18 +204,20 @@ def apply_scenarios(
         ValueError: If the render carries no simulator view, a scenario name is
             unknown, or the requested set does not compose (channel collision).
     """
-    from osprey.facility.views.simulator import SCENARIOS_DIR, simulator_view
+    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
 
     project_dir = Path(project_dir)
     config = load_config(str(_config_file(project_dir)))
 
-    scenarios = view_scenarios(project_dir)
-    if scenarios is None:
+    view = SimulatorView.find(project_dir)
+    if view is None:
         raise ValueError(
-            f"Project {project_dir} has no simulator view in {simulator_view(project_dir)}; "
+            f"Project {project_dir} has no simulator view in "
+            f"{SimulatorView.path_for_project(project_dir)}; "
             "`sim apply` only applies to simulation-backed projects (guards a real DB). "
             "Run 'osprey build'."
         )
+    scenarios = _scenarios(view)
 
     # Default anchor in the FACILITY zone (not UTC): the anchor's tzinfo is the
     # zone each seeded logbook entry's relative time-of-day resolves into, and it
@@ -239,7 +242,7 @@ def apply_scenarios(
     if seed_logbook:
         ariel_config = config.get("ariel")
         if ariel_config:
-            logbook = _view_logbook(scenarios, active, simulator_view(project_dir) / SCENARIOS_DIR)
+            logbook = _view_logbook(scenarios, active, view.path / SCENARIOS_DIR)
             with seed_payload(logbook, t0) as (entries, pictures):
                 seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries, pictures))
             logger.info(f"Seeded {seeded} logbook entries (logbook purged and reseeded)")
@@ -289,17 +292,30 @@ _SPIKE_WINDOW_SIGMAS = 4.0
 
 
 def view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]] | None:
-    """The scenarios the simulator view lists, by name; ``None`` without a view."""
-    from osprey.facility.views.simulator import SCENARIOS_FILE, simulator_view
+    """The scenarios the simulator view lists, by name; ``None`` without a view.
 
-    path = simulator_view(project_dir) / SCENARIOS_FILE
-    if not path.is_file():
-        return None
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{path} is not valid JSON: {exc}") from None
-    return {str(scenario["name"]): scenario for scenario in document["scenarios"]}
+    Raises:
+        ValueError: The view is from another schema, or a file of it is not
+            JSON.
+    """
+    from osprey_connectors.simulation.view import SimulatorView
+
+    view = SimulatorView.find(project_dir)
+    return None if view is None else _scenarios(view)
+
+
+def _scenarios(view: SimulatorView) -> dict[str, dict[str, Any]]:
+    """The scenarios ``view`` lists, by name, as plain dicts."""
+    return {str(scenario["name"]): _plain(scenario) for scenario in view.scenarios()}
+
+
+def _plain(value: Any) -> Any:
+    """A JSON value the reader froze, as plain dicts and lists."""
+    if isinstance(value, Mapping):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_plain(item) for item in value]
+    return value
 
 
 def require_view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]]:
@@ -308,11 +324,14 @@ def require_view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]]:
     Raises:
         ValueError: If the render carries no simulator view.
     """
-    from osprey.facility.views.simulator import simulator_view
+    from osprey_connectors.simulation.view import SimulatorView
 
     scenarios = view_scenarios(project_dir)
     if scenarios is None:
-        raise ValueError(f"No simulator view in {simulator_view(project_dir)}. Run 'osprey build'.")
+        raise ValueError(
+            f"No simulator view in {SimulatorView.path_for_project(project_dir)}. "
+            "Run 'osprey build'."
+        )
     return scenarios
 
 
@@ -411,7 +430,7 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
     See :func:`active_logbook_entries`; the entries are empty when the render
     carries no simulator view.
     """
-    from osprey.facility.views.simulator import SCENARIOS_DIR, simulator_view
+    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
 
     # Read in the facility zone, as the simulator reads the same anchor: a logbook
     # entry's ``days_ago`` and an ``at_when`` event's count the same calendar days.
@@ -434,7 +453,8 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
         {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
         resolve_active_scenarios(names),
     )
-    return _view_logbook(scenarios, served, simulator_view(project_dir) / SCENARIOS_DIR), anchor
+    files = SimulatorView.path_for_project(project_dir) / SCENARIOS_DIR
+    return _view_logbook(scenarios, served, files), anchor
 
 
 def _view_logbook(
@@ -538,7 +558,7 @@ def _demo_narrative(
     The arguments of :func:`_view_logbook`; see :func:`demo_narrative_scenarios`.
     No scenarios and no names when the key is unset.
     """
-    from osprey.facility.views.simulator import SCENARIOS_DIR, simulator_view
+    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
 
     raw = ariel_config.get(DEMO_NARRATIVE_KEY)
     if not raw:
@@ -564,7 +584,7 @@ def _demo_narrative(
             f"simulator view does not list; it lists {', '.join(sorted(scenarios))}"
         )
     order = sorted(names, key=lambda name: (name != DEFAULT_SCENARIO, name))
-    return scenarios, order, simulator_view(project_dir) / SCENARIOS_DIR
+    return scenarios, order, SimulatorView.path_for_project(project_dir) / SCENARIOS_DIR
 
 
 async def seed_narrative_if_empty(
@@ -1050,8 +1070,8 @@ def seed_archiver(
         ValueError: If an active scenario positions an archiver event by window
             fraction, which stored history cannot represent.
     """
-    from osprey.facility.views.simulator import simulator_view
     from osprey_connectors.simulation.archive import MANIFEST_ID, SeedKnobs, build
+    from osprey_connectors.simulation.view import SimulatorView
 
     store = archiver_store_config(config, project_dir)
     if store is None:
@@ -1077,7 +1097,7 @@ def seed_archiver(
 
         persisted = persisted_scenario_anchor(config, project_dir)
         archive = build(
-            simulator_view(project_dir),
+            SimulatorView.of_project(project_dir),
             names,
             anchor_s=None if persisted is None else persisted.timestamp(),
         )
