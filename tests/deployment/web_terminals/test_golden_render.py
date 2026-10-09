@@ -2,7 +2,7 @@
 
 This is the FIRST guard committed before any persona-render change lands (P4
 personas/portability). Its job is narrow and mechanical: pin today's rendered
-output for a representative, no-personas facility config so any *unintended*
+output for a representative facility config so any *unintended*
 drift in Task 2's render threading (`render.py`, `docker-compose.web.yml.j2`,
 `seeding.py`) shows up as a byte-diff here, immediately, rather than as a
 runtime surprise in a downstream lifecycle/e2e test.
@@ -41,9 +41,9 @@ and `OSPREY_TERMINAL_EXTERNAL_ORIGIN` — are already pinned by `test_render.py`
 non-default-TLS-port origin tests, so a second compose golden would only be
 another file to regenerate.
 
-``EXAMPLE_CONFIG`` is the reference "no-personas" shape a facility profile's
-web-terminals section is patterned on: two bare-string users, the `users` +
-`links` landing groups, and no `personas:` block.
+``EXAMPLE_CONFIG`` is the reference shape a facility profile's web-terminals
+section is patterned on: two bare-string users on one default persona whose
+project is the image's, and the `users` + `links` landing groups.
 
 It also carries **no port keys at all** — no ``nginx_port``, no
 ``*_base_port``. That is deliberate and load-bearing: every port in the three
@@ -98,6 +98,8 @@ EXAMPLE_CONFIG: dict = {
         "web_terminals": {
             "enabled": True,
             "users": ["alice", "bob"],
+            "default_persona": "assistant",
+            "personas": {"assistant": {"project": "dls_controls-assistant"}},
             "landing": {
                 "groups": [
                     {"type": "users"},
@@ -234,6 +236,7 @@ def _persona_config() -> dict:
     non-``None`` persona for both — the case that produces sublabel badges."""
     config = copy.deepcopy(EXAMPLE_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
+    web_terminals["default_persona"] = "operator"
     web_terminals["personas"] = {
         "operator": {
             "project": "dls-operator",
@@ -264,17 +267,6 @@ def test_persona_users_render_persona_sublabel_badge() -> None:
     assert landing.count('class="landing-card-sublabel"') == 2
     assert '<span class="landing-card-sublabel">operator</span>' in landing
     assert '<span class="landing-card-sublabel">physicist</span>' in landing
-
-
-def test_bare_string_users_render_no_persona_sublabel() -> None:
-    """The no-personas EXAMPLE_CONFIG (bare-string roster) renders user cards with
-    NO persona sublabel badge — resolve_personas() returns ``persona=None``, the
-    caller omits the ``sublabel`` key, and the template's guard skips the span so
-    the card stays a plain {label, url} card, unchanged from pre-persona output."""
-    artifacts = render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
-    landing = artifacts["nginx/landing.html"]
-
-    assert 'class="landing-card-sublabel"' not in landing
 
 
 def _regenerate() -> None:

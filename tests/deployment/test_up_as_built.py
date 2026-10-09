@@ -943,6 +943,8 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
                     "ariel_base_port": 8300,
                     "lattice_base_port": 8400,
                     "users": ["alice"],
+                    "default_persona": "assistant",
+                    "personas": {"assistant": {"project": "ex-assistant"}},
                 }
             },
         }
@@ -1020,7 +1022,14 @@ def test_the_web_re_render_lands_in_the_block_the_build_recorded(lifecycle_repo,
                 "facility": {"prefix": "ex"},
                 "deploy": {"fqdn": "example.invalid"},
                 "registry": {"url": "registry.example.org/demo"},
-                "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
+                "modules": {
+                    "web_terminals": {
+                        "enabled": True,
+                        "users": ["alice"],
+                        "default_persona": "assistant",
+                        "personas": {"assistant": {"project": "ex-assistant"}},
+                    }
+                },
             }
         ),
     )
@@ -1175,6 +1184,8 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, monkeypatch):
                         "enabled": True,
                         "auth": {"method": "password"},
                         "users": ["alice"],
+                        "default_persona": "assistant",
+                        "personas": {"assistant": {"project": "ex-assistant"}},
                     }
                 },
             }
@@ -1514,6 +1525,8 @@ def test_the_web_stack_labels_every_container_and_no_volume_too(tmp_path):
                     # test is about.
                     "auth": {"method": "password", "allow_insecure_http": True},
                     "users": ["alice", "bob"],
+                    "default_persona": "assistant",
+                    "personas": {"assistant": {"project": "ex-assistant"}},
                 }
             },
         }

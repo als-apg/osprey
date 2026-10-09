@@ -41,6 +41,15 @@ def _inert_orphan_reconcile(monkeypatch):
     monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
 
 
+def _web_terminals_on() -> dict:
+    """An enabled web-terminals stanza with no users, on its default persona."""
+    return {
+        "enabled": True,
+        "default_persona": "assistant",
+        "personas": {"assistant": {"project": "demo-assistant"}},
+    }
+
+
 def _fake_popen(record):
     """A ``subprocess.Popen`` stand-in for the watched capture path.
 
@@ -308,7 +317,7 @@ def captured_web_runs(monkeypatch, tmp_path):
         lambda *a, **k: (
             {
                 "deployed_services": [],
-                "modules": {"web_terminals": {"enabled": True}},
+                "modules": {"web_terminals": _web_terminals_on()},
             },
             [],
         ),
@@ -515,7 +524,7 @@ def captured_combined_runs(monkeypatch, tmp_path):
         lambda *a, **k: (
             {
                 "deployed_services": ["event_dispatcher"],
-                "modules": {"web_terminals": {"enabled": True}},
+                "modules": {"web_terminals": _web_terminals_on()},
             },
             ["docker-compose.yml"],
         ),
@@ -669,7 +678,7 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
         container_lifecycle,
         "prepare_compose_files",
         lambda *a, **k: (
-            {"deployed_services": [], "modules": {"web_terminals": {"enabled": True}}},
+            {"deployed_services": [], "modules": {"web_terminals": _web_terminals_on()}},
             [],
         ),
     )
@@ -1193,7 +1202,7 @@ def test_web_deploy_raises_before_any_compose_call_when_shared_disk_missing(monk
             {
                 "deployed_services": [],
                 "modules": {
-                    "web_terminals": {"enabled": True},
+                    "web_terminals": _web_terminals_on(),
                     "shared_disk": {"enabled": True, "host_path": str(missing)},
                 },
             },
@@ -1747,7 +1756,7 @@ def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path
         container_lifecycle,
         "prepare_compose_files",
         lambda *a, **k: (
-            {"deployed_services": [], "modules": {"web_terminals": {"enabled": True}}},
+            {"deployed_services": [], "modules": {"web_terminals": _web_terminals_on()}},
             [],
         ),
     )
@@ -1878,7 +1887,7 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
         lambda *a, **k: (
             {
                 "deployed_services": ["event_dispatcher"],
-                "modules": {"web_terminals": {"enabled": True}},
+                "modules": {"web_terminals": _web_terminals_on()},
             },
             ["build/services/docker-compose.yml"],
         ),
@@ -1933,7 +1942,7 @@ def test_web_services_start_does_not_build_a_service_running_an_overridden_image
         lambda *a, **k: (
             {
                 "deployed_services": ["event_dispatcher", "virtual_accelerator"],
-                "modules": {"web_terminals": {"enabled": True}},
+                "modules": {"web_terminals": _web_terminals_on()},
             },
             ["build/services/docker-compose.yml"],
         ),
@@ -2768,7 +2777,7 @@ def test_deploy_up_prints_endpoint_summary_on_web_path(_wiring_calls, monkeypatc
         container_lifecycle,
         "prepare_compose_files",
         lambda *a, **k: (
-            {"modules": {"web_terminals": {"enabled": True}}},
+            {"modules": {"web_terminals": _web_terminals_on()}},
             ["docker-compose.yml"],
         ),
     )

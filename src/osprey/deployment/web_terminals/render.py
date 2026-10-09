@@ -1047,7 +1047,7 @@ def render_web_terminals(
     ):
         raise ValueError(REGISTRY_MODE_MISSING_URL)
 
-    resolved_users = resolve_personas(web_terminals, registry, project_name, strict=True)
+    resolved_users = resolve_personas(web_terminals, registry, strict=True)
     # The other half of what a roster `role:` says. `resolve_personas` above
     # consumed it into each entry's persona (which image, which project); this
     # is the role NAME, which the auth sidecar carries on that user's password

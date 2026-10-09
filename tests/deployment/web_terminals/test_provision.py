@@ -16,6 +16,7 @@ provisioning steps have their own modules and test files
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     AuthSecretsResult,
     TerminalSecretsResult,
 )
+from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
@@ -302,20 +304,30 @@ def _auth_config(method: str, users=("alice", "bob"), auth_image="reg/osprey-aut
         "modules": {
             "web_terminals": {
                 "users": list(users),
+                "default_persona": "assistant",
+                "personas": {
+                    "assistant": {
+                        "project": "als_controls-assistant",
+                        "project_path": _DEFAULT_PERSONA_PATH,
+                    }
+                },
                 "auth": auth,
             }
         },
     }
 
 
-def _write_deploy_project_settings(project_root: Path) -> None:
-    """Ship the deploy project's own `.claude/settings.json`, as a scaffold does.
+#: Where the default persona of :func:`_auth_config` is rendered.
+_DEFAULT_PERSONA_PATH = "build/als_controls-assistant"
 
-    A bare-string roster entry runs the deploy project itself, so that file is the
-    settings artifact the entry ships — and the open-mode gate fails closed on its
-    absence. Every real project root has one; a fixture root without one models a
-    deployment that cannot exist, and would make `auth.method: none` unreachable in
-    tests that are not about the gate at all.
+
+def _write_default_persona_settings(project_root: Path) -> None:
+    """Ship the default persona's rendered `.claude/settings.json`, as a build does.
+
+    The open-mode gate reads it and fails closed on its absence. Every real
+    build renders one; a fixture root without one models a deployment that
+    cannot exist, and would make `auth.method: none` unreachable in tests that
+    are not about the gate at all.
 
     A root this cannot be written to is left alone rather than failed on: the
     unwritable-root cases below are about a different refusal entirely, and none of
@@ -324,9 +336,10 @@ def _write_deploy_project_settings(project_root: Path) -> None:
     import contextlib
     import json
 
+    settings = project_root / _DEFAULT_PERSONA_PATH / ".claude" / "settings.json"
     with contextlib.suppress(OSError):
-        (project_root / ".claude").mkdir(parents=True, exist_ok=True)
-        (project_root / ".claude" / "settings.json").write_text(
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text(
             json.dumps({"permissions": {"deny": list(DENY_DEFAULTS)}}), encoding="utf-8"
         )
 
@@ -338,7 +351,7 @@ def _run_preflight(monkeypatch, project_root: Path, config: dict):
     a registry-mode root with no .env.production); it is covered by
     test_env_production.py, so stub it out to keep these assertions about auth.
     """
-    _write_deploy_project_settings(project_root)
+    _write_default_persona_settings(project_root)
     monkeypatch.chdir(project_root)
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
     return provision.preflight_web_terminals(config)
@@ -1240,6 +1253,7 @@ def _persona_roster_config(root: Path, *, denies_bash: bool) -> dict:
         "modules": {
             "web_terminals": {
                 "users": [{"name": "alice", "index": 0, "persona": "readwrite"}],
+                "default_persona": "readwrite",
                 "auth": {"method": "none"},
                 "personas": {
                     "readwrite": {
@@ -1288,6 +1302,30 @@ def test_preflight_refuses_before_any_credential_is_minted(monkeypatch, tmp_path
 
     with pytest.raises(BashLaunchTokenConflictError):
         provision.preflight_web_terminals(_persona_roster_config(tmp_path, denies_bash=False))
+
+    assert reached == []
+
+
+def test_preflight_refuses_a_registry_roster_with_no_catalog_before_any_mint(monkeypatch, tmp_path):
+    """A registry deployment with no persona catalog names no project for its
+    terminals; the preflight refuses it first, before any gate or credential."""
+    monkeypatch.chdir(tmp_path)
+    reached: list[str] = []
+    for step in ("check_bash_launch_token_conflict", "check_open_mode_requirements"):
+        monkeypatch.setattr(provision, step, lambda *a, _s=step, **k: reached.append(_s))
+    monkeypatch.setattr(
+        provision, "ensure_env_production", lambda config, root: reached.append("env_production")
+    )
+    monkeypatch.setattr(
+        provision, "_provision_auth_secrets", lambda wt, root: reached.append("auth_secrets")
+    )
+    config = _auth_config("password")
+    web_terminals = config["modules"]["web_terminals"]
+    del web_terminals["personas"]
+    del web_terminals["default_persona"]
+
+    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
+        provision.preflight_web_terminals(config)
 
     assert reached == []
 
@@ -1414,6 +1452,7 @@ def _registry_open_repo(root: Path, *, rendered: bool) -> dict:
                 "image_source": "registry",
                 "auth": {"method": "none"},
                 "users": [{"name": "alice", "index": 0, "persona": "operator"}],
+                "default_persona": "operator",
                 "personas": {
                     "operator": {
                         "project": "op",

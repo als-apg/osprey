@@ -86,7 +86,13 @@ def _web_terminals(throttle: Any = None, *, authored: bool = True) -> dict:
     auth: dict[str, Any] = {"method": "password", "allow_insecure_http": True}
     if authored:
         auth["throttle"] = throttle
-    return {"enabled": True, "users": ["alice", "bob"], "auth": auth}
+    return {
+        "enabled": True,
+        "users": ["alice", "bob"],
+        "default_persona": "assistant",
+        "personas": {"assistant": {"project": "demo-assistant"}},
+        "auth": auth,
+    }
 
 
 def _config(throttle: Any = None, *, authored: bool = True) -> dict:

@@ -200,7 +200,7 @@ The config block
          and writes it into ``build/config.yml`` as the persona's ``project`` and
          ``project_path``. Spelling either key beside a ``build_profile`` is
          refused. An entry with no ``build_profile`` — a persona rendered
-         somewhere else — still names its ``project_path`` itself, and proves
+         somewhere else — still names its ``project`` and ``project_path`` itself, and proves
          its tier by that render: the build reads the ``config.yml`` there, the
          same file ``osprey up`` reads, so such a persona may be the
          ``default_persona`` or sit on a shared card like any other. A bundled
@@ -437,7 +437,7 @@ names it derives itself.
 
    * - Who pulls it
      - Image
-   * - The ``default_persona``, and every user when there is no ``personas`` catalog
+   * - The ``default_persona``
      - ``<registry.url>/web-terminal:<tag>``
    * - Every other persona
      - ``<registry.url>/web-terminal-<persona>:<tag>``
@@ -445,8 +445,8 @@ names it derives itself.
 ``<persona>`` is the persona's key in the ``personas`` catalog, not its
 ``project``. The ``project`` is ``<project_name>-<persona>``, which the build
 derives from the profile's ``project_name:``.
-The default persona keeps the unsuffixed name, so adding a catalog never
-renames the image its users already pull.
+A persona whose image is built elsewhere states its ``project``, the project
+the image was built from, and its terminal runs in ``/app/<project>``.
 
 ``<tag>`` is ``modules.web_terminals.image_tag``, ``latest`` when unset.
 A ``${VAR}`` in it is expanded from the environment of ``osprey up``, and a
@@ -479,9 +479,13 @@ Registry mode also pulls the auth sidecar from
 
 ``osprey scaffold web-terminals lint``, ``osprey profile validate`` and
 ``osprey build`` refuse a registry-mode config with no ``registry.url`` (code
-``web_terminals.registry_mode_missing_url``), with or without a ``personas``
-catalog.
+``web_terminals.registry_mode_missing_url``).
 ``osprey up`` refuses to render it.
+They also refuse a config with web terminals enabled and no ``personas``
+catalog or no ``default_persona``, in either image source (code
+``web_terminals.requires_catalog``), and an in-effect persona with neither
+``build_profile`` nor ``project`` (code ``web_terminals.persona_missing_project``);
+``osprey up`` refuses both before it mints anything.
 
 For example, with this config:
 

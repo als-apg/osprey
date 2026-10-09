@@ -1562,12 +1562,17 @@ QMD_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-validate"
 #: root exactly as a facility config spells it.
 BUNDLE_REL = "data/facility/knowledge"
 
+#: The project the fixture catalog's default persona names, and where the
+#: scenario renders that persona's config.yml (relative to the repo root).
+DEFAULT_PERSONA_PROJECT = f"{PROJECT}-assistant"
+DEFAULT_PERSONA_RENDER = f"{BUILD_DIRNAME}/{DEFAULT_PERSONA_PROJECT}"
+
 #: Where that same directory lands inside a web-terminal container. Derived by
 #: render._container_bundle_dir as `<container_project_dir>/<bundle_path>`, and
-#: `container_project_dir` for this fixture's persona-less roster is
-#: `/app/<project>-assistant` (resolve_personas' no-persona path) --
-#: the directory Dockerfile.web_terminal_stub already creates.
-CONTAINER_BUNDLE_DIR = f"/app/{PROJECT}-assistant/{BUNDLE_REL}"
+#: `container_project_dir` for this fixture's default persona is
+#: `/app/<its project>` -- the directory Dockerfile.web_terminal_stub already
+#: creates.
+CONTAINER_BUNDLE_DIR = f"/app/{DEFAULT_PERSONA_PROJECT}/{BUNDLE_REL}"
 
 #: Where the sidecar mounts it, and the collection it is indexed under. Both
 #: come from the framework's own constants rather than being re-spelled, since
@@ -1824,14 +1829,20 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
     )
     _retarget_bundle_group_if_vacuous(bundle_dir, dispatch_primary_gid)
 
+    # The entitlement: both users run the default persona, whose rendered
+    # config.yml names the bundle path (personas.personas_needing_facility_bundle).
+    persona_render = repo / DEFAULT_PERSONA_RENDER
+    persona_render.mkdir(parents=True, exist_ok=True)
+    (persona_render / "config.yml").write_text(
+        yaml.safe_dump({"facility_knowledge": {"bundle_path": BUNDLE_REL}}), encoding="utf-8"
+    )
+
     config_writer.config_update_fields(
         config_path,
         {
-            # The entitlement AND the location, in one key: a project that
-            # names a bundle path gets the mount
-            # (personas.config_needs_facility_bundle), and this fixture's
-            # roster carries no persona references, so both users resolve
-            # their entitlement from here.
+            "modules.web_terminals.personas.assistant.project_path": DEFAULT_PERSONA_RENDER,
+            # The location: the deploy config names the one shared directory
+            # every entitled container binds.
             "facility_knowledge.bundle_path": BUNDLE_REL,
             # `path` is what find_service_config resolves the rendered compose
             # fragment under build/ from; `port` is what the client and the

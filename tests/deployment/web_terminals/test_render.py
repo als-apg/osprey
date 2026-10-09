@@ -17,6 +17,7 @@ from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.naming import web_container_name
+from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
 from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
     allocate_ports,
@@ -117,6 +118,8 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
         "ariel_base_port": _CONFIGURED_BASE_PORTS["ariel"],
         "lattice_base_port": _CONFIGURED_BASE_PORTS["lattice"],
         "users": users,
+        "default_persona": "assistant",
+        "personas": {"assistant": {"project": "dls_controls-assistant"}},
     }
     if groups is not None:
         web_terminals["landing"] = {"groups": groups}
@@ -138,28 +141,37 @@ _MULTI_USER_CONFIG = _config(["alice", "bob", "carol"])
 _ABSENT = object()
 
 
-@pytest.mark.parametrize("with_catalog", [False, True], ids=["no-catalog", "catalog"])
 @pytest.mark.parametrize(
     "registry", [_ABSENT, {}, {"url": ""}], ids=["absent", "empty-section", "empty-url"]
 )
-def test_render_refuses_registry_mode_without_a_registry_url(
-    with_catalog: bool, registry: Any
-) -> None:
+def test_render_refuses_registry_mode_without_a_registry_url(registry: Any) -> None:
     """Registry mode names every terminal image under registry.url, so the
-    render refuses to run without one, persona catalog or not."""
+    render refuses to run without one."""
     # Arrange
     config = _config(["alice"])
     if registry is _ABSENT:
         del config["registry"]
     else:
         config["registry"] = registry
-    if with_catalog:
-        web_terminals = config["modules"]["web_terminals"]
-        web_terminals["personas"] = {"assistant": {"project": "dls_controls-assistant"}}
-        web_terminals["default_persona"] = "assistant"
 
     # Act / Assert
     with pytest.raises(ValueError, match=r"registry\.url is not set"):
+        render_web_terminals(config)
+
+
+@pytest.mark.parametrize("image_source", ["registry", "local"])
+def test_render_refuses_a_roster_with_no_persona_catalog(image_source: str) -> None:
+    """Nothing but a persona's project names the directory a terminal runs in,
+    so the render refuses a roster with no catalog in either image source."""
+    # Arrange
+    config = _config(["alice"])
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["image_source"] = image_source
+    del web_terminals["personas"]
+    del web_terminals["default_persona"]
+
+    # Act / Assert
+    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
         render_web_terminals(config)
 
 
@@ -170,8 +182,6 @@ def test_render_in_local_mode_needs_no_registry_url() -> None:
     del config["registry"]
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["image_source"] = "local"
-    web_terminals["personas"] = {"assistant": {"project": "dls_controls-assistant"}}
-    web_terminals["default_persona"] = "assistant"
 
     # Act
     artifacts = render_web_terminals(config)
@@ -609,6 +619,7 @@ def _roster_config(users: list[dict], personas: dict, groups: list[dict] | None 
     """
     config = copy.deepcopy(_config(users, groups=groups))
     config["modules"]["web_terminals"]["personas"] = personas
+    config["modules"]["web_terminals"]["default_persona"] = next(iter(personas))
     return config
 
 

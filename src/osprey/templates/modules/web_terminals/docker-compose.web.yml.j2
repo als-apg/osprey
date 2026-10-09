@@ -15,8 +15,7 @@
       (e.g. "my-assistant"). Used for container_name (`<project>-web-<user>`,
       `<project>-nginx`, `<project>-auth`) and the sidecar's local image tag
       only — the per-user agent-data mount path comes from each service's own
-      `container_agent_data_dir` (below), not this field, so a persona-resolved
-      user's mount can differ from the project default.
+      `container_agent_data_dir` (below), not this field.
 
     registry_url: str
       `registry.url` from the deployed project's config. NOT read directly by this
@@ -27,7 +26,7 @@
 
     services: list[dict], required (may be empty — the 0-user case)
       ONE entry per configured user, PRE-BUILT by render.py from
-      `resolve_personas()` (deployment/web_terminals/ports.py) +
+      `resolve_personas()` (deployment/web_terminals/personas.py) +
       `allocate_ports()` — persona resolution and port arithmetic both stay
       in Python; this template only iterates. Each entry is
       `{"user": str, "image": str, "project": str, "container_project_dir": str,
@@ -102,10 +101,7 @@
       (allocate_ports() also merges each companion family's port under its
       family name — e.g. "artifact": int — for callers/tests; this template
       reads only "web" and "panel_env".)
-      A no-personas config resolves every entry's `image` to
-      `<registry_url>/web-terminal:latest` and every entry's
-      `container_project_dir` to `/app/<project_name>-assistant` (see
-      resolve_personas()'s docstring). render.py MUST NOT include an entry
+      render.py MUST NOT include an entry
       whose "user" is "nginx" (reserved service name; enforced by the lint
       against the roster).
       This template ALSO refuses to render such a `services` list (see the

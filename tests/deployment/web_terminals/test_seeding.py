@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import subprocess
 import tarfile
 
@@ -20,6 +21,7 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals import seeding
+from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
 
 _PROJECT = "demo-project"
 
@@ -27,16 +29,21 @@ _PROJECT = "demo-project"
 def _config(users, *, registry=None, web_terminals_extra=None):
     """Minimal-but-complete facility config exercising every field seed_user_containers reads.
 
-    ``registry`` and ``web_terminals_extra`` (merged into ``modules.web_terminals``, e.g.
-    ``personas``/``default_persona``/``image_source``) let persona-resolution tests build on
-    top of this without duplicating the whole config shape.
+    Every roster runs the default persona ``assistant`` (project ``<_PROJECT>-assistant``)
+    unless told otherwise. ``registry`` and ``web_terminals_extra`` (merged into
+    ``modules.web_terminals``, e.g. ``personas``/``default_persona``/``image_source``) let
+    persona-resolution tests build on top of this without duplicating the whole config
+    shape; extra ``personas`` join the default one.
     """
     web_terminals: dict = {
         "enabled": True,
         "users": users,
+        "default_persona": "assistant",
+        "personas": {"assistant": {"project": f"{_PROJECT}-assistant"}},
     }
-    if web_terminals_extra:
-        web_terminals.update(web_terminals_extra)
+    extra = dict(web_terminals_extra or {})
+    web_terminals["personas"].update(extra.pop("personas", {}))
+    web_terminals.update(extra)
     config = {
         "project_name": _PROJECT,
         "facility": {"prefix": "dls"},
@@ -458,10 +465,8 @@ def test_skills_reconcile_carries_names_and_target_and_sentinel_phases(
     assert inputs[idx] is not None and len(inputs[idx]) > 0  # non-empty tar stream
 
 
-def test_no_catalog_config_targets_hardcoded_default_dir(tmp_path, monkeypatch, fake_runtime):
-    """The no-persona path: a config with no personas catalog resolves to today's exact hardcoded
-    skills path (`resolve_personas` guarantees this default), so pre-existing rosters are
-    unaffected by the switch to persona-derived paths."""
+def test_default_persona_targets_its_project_dir(tmp_path, monkeypatch, fake_runtime):
+    """A roster on the default persona seeds skills into that persona's project."""
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
     _write_base_md(tmp_path)
@@ -475,11 +480,28 @@ def test_no_catalog_config_targets_hardcoded_default_dir(tmp_path, monkeypatch, 
     assert skills_calls[0][11] == f"/app/{_PROJECT}-assistant/build/.claude/skills"
 
 
+def test_no_catalog_config_raises_before_touching_runtime(tmp_path, monkeypatch, fake_runtime):
+    """A roster with no persona catalog names no project to seed into, so seeding
+    refuses before any container is inspected."""
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path)
+    ready.add(f"{_PROJECT}-web-alice")
+    config = _config(["alice"])
+    del config["modules"]["web_terminals"]["personas"]
+    del config["modules"]["web_terminals"]["default_persona"]
+
+    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
+        seeding.seed_user_containers(config)
+
+    assert calls == []
+
+
 def test_non_default_persona_drives_skills_target_from_its_own_project(
     tmp_path, monkeypatch, fake_runtime
 ):
-    """A non-default persona's `container_project_dir` (its own `/app/<project>`, not the
-    project-name default) drives the per-user skills target."""
+    """A non-default persona's `container_project_dir` (its own `/app/<project>`) drives
+    the per-user skills target."""
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
     _write_base_md(tmp_path)
@@ -503,9 +525,7 @@ def test_non_default_persona_drives_skills_target_from_its_own_project(
 
 def test_default_persona_skills_target_follows_its_project(tmp_path, monkeypatch, fake_runtime):
     """The default persona's skills target follows its own catalog project uniformly,
-    like every other persona — `/app/<persona.project>/.claude/skills` with no
-    project-name special case. Uses a project (`ops-app`) that does not coincide
-    with the no-persona `/app/<project>-assistant` path to prove it."""
+    like every other persona — `/app/<persona.project>/.claude/skills`."""
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
     _write_base_md(tmp_path)

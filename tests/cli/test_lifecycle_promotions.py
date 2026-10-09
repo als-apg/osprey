@@ -1889,7 +1889,14 @@ def _seed_config(users: list[str]) -> dict:
         "project_name": "demo",
         "facility": {"name": "Demo", "prefix": "dls"},
         "system": {"timezone": "UTC"},
-        "modules": {"web_terminals": {"enabled": True, "users": users}},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "users": users,
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "demo-assistant"}},
+            }
+        },
     }
 
 

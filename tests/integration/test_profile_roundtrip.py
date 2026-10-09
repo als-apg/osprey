@@ -267,6 +267,10 @@ def _apply_profile_edits(profile_dir: Path) -> None:
     config = raw.setdefault("config", {})
     config["modules.web_terminals.enabled"] = True
     config["modules.web_terminals.users"] = [ROSTER_USER]
+    # Every terminal runs a persona's project; this one's image is built
+    # elsewhere, so the catalog states the project it was built from.
+    config["modules.web_terminals.default_persona"] = "main"
+    config["modules.web_terminals.personas"] = {"main": {"project": "facility-assistant"}}
     # The values a roster cannot be deployed without, and which `osprey build`
     # therefore refuses a profile for: the per-user web port family's base,
     # which has no registry default because it is facility-chosen, and the

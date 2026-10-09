@@ -73,6 +73,8 @@ def _config(users: list[str]) -> dict:
                 "ariel_base_port": _BASE_PORTS["ariel"],
                 "lattice_base_port": _BASE_PORTS["lattice"],
                 "users": users,
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "demo-assistant"}},
             }
         },
     }

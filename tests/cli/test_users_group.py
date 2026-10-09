@@ -61,6 +61,8 @@ def _config(users_list, *, project_name="demo-project"):
             "web_terminals": {
                 "enabled": True,
                 "users": users_list,
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": f"{project_name}-assistant"}},
             }
         },
     }

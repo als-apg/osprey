@@ -8,10 +8,10 @@
 # scripts depend on: a "dispatch" user (chown target) and the two mount-point
 # directories the per-user compose service declares volumes onto.
 #
-# The paths below are the no-persona project directory of the fixture's
-# project name ("osprey-e2e-mus-p3" -> /app/osprey-e2e-mus-p3-assistant/...) —
-# see multi_user_config.yml. If that project name ever changes, these paths
-# must change with it.
+# The paths below are the directory of the project the fixture's catalog
+# names for its default persona (/app/osprey-e2e-mus-p3-assistant/...) — see
+# multi_user_config.yml. If that project ever changes, these paths must change
+# with it.
 #
 # `var/agent_data` must name the same directory as config.yml's
 # `agent_data.base_dir` (the fixture config declares none, so it is the default

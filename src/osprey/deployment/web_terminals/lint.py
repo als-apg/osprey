@@ -38,6 +38,7 @@ from osprey.deployment.web_terminals.persona_images import (
 )
 from osprey.deployment.web_terminals.personas import (
     ALL_PRIVILEGES,
+    PERSONA_CATALOG_REQUIRED,
     REGISTRY_MODE_MISSING_URL,
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
@@ -246,7 +247,7 @@ def lint_web_terminals(
     findings.extend(_check_unknown_image_source(web_terminals))
     findings.extend(_check_image_tag_empty(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
-    findings.extend(_check_local_mode_requires_catalog(web_terminals))
+    findings.extend(_check_requires_catalog(web_terminals))
     findings.extend(_check_persona_project_collisions(root, web_terminals, users))
     if rendered_project:
         findings.extend(
@@ -278,6 +279,7 @@ def lint_web_terminals(
         findings.extend(_check_seeded_passwords(root, web_terminals, project_root=project_root))
         findings.extend(_check_auth_stored_hashes(web_terminals, users, project_root=project_root))
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
+    findings.extend(_check_persona_missing_project(web_terminals, users))
     findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
     findings.extend(_check_nginx_image(web_terminals))
@@ -1742,13 +1744,7 @@ def _check_privileged_persona_exposure(
     # the whole roster, and a clean config must not pay for a report nobody is
     # going to make.
     registry_cfg = as_dict(root.get("registry"))
-    resolved = (
-        list(
-            resolve_personas(web_terminals, registry_cfg, resolve_project_name(root), strict=False)
-        )
-        if users
-        else []
-    )
+    resolved = list(resolve_personas(web_terminals, registry_cfg, strict=False)) if users else []
 
     findings: list[Finding] = _check_unreadable_persona_privileges(
         root, web_terminals, resolved, unreadable, rendered_project=rendered_project
@@ -2039,9 +2035,7 @@ def _check_live_writer_without_control_identity(
 
     registry_cfg = as_dict(root.get("registry"))
     findings: list[Finding] = []
-    for entry in resolve_personas(
-        web_terminals, registry_cfg, resolve_project_name(root), strict=False
-    ):
+    for entry in resolve_personas(web_terminals, registry_cfg, strict=False):
         persona = entry.get("persona")
         if not isinstance(persona, str) or persona not in live_writers:
             continue
@@ -2087,9 +2081,7 @@ def _check_unknown_persona_reference(
         return []
     personas_catalog = _persona_catalog(web_terminals)
     registry_cfg = as_dict(root.get("registry"))
-    resolved = resolve_personas(
-        web_terminals, registry_cfg, resolve_project_name(root), strict=False
-    )
+    resolved = resolve_personas(web_terminals, registry_cfg, strict=False)
 
     findings: list[Finding] = []
     for entry in resolved:
@@ -2165,8 +2157,7 @@ def _check_registry_url_coherence(
     """``image_source`` and ``registry.url`` must agree.
 
     Registry mode names every web-terminal image under ``registry.url``, the
-    no-catalog default image included, so the check runs whether or not a
-    persona catalog is configured. Local mode builds its images, so a URL set
+    default persona's image included. Local mode builds its images, so a URL set
     there only draws a warning.
     """
     registry_url = configured_registry_url(root.get("registry"))
@@ -2195,14 +2186,11 @@ def _check_registry_url_coherence(
     return []
 
 
-def _check_local_mode_requires_catalog(web_terminals: dict[str, Any]) -> list[Finding]:
-    """The lint-side mirror of
-    :func:`~osprey.deployment.web_terminals.personas.resolve_personas`'s
-    ``strict=True`` ``ValueError`` guard. ``osprey up`` never runs the lint
-    pass, so both guards must independently fail closed on ``image_source:
-    local`` without a catalog + ``default_persona``."""
-    if effective_image_source(web_terminals) != "local":
-        return []
+def _check_requires_catalog(web_terminals: dict[str, Any]) -> list[Finding]:
+    """The lint-side mirror of the strict guard in
+    :func:`~osprey.deployment.web_terminals.personas.resolve_personas`: web
+    terminals need a persona catalog and a ``default_persona``, in either image
+    source. ``osprey up`` never runs the full lint, so both fail closed."""
     default_persona = web_terminals.get("default_persona")
     has_default = isinstance(default_persona, str) and bool(default_persona)
     if _persona_catalog(web_terminals) and has_default:
@@ -2210,12 +2198,8 @@ def _check_local_mode_requires_catalog(web_terminals: dict[str, Any]) -> list[Fi
     return [
         Finding(
             severity="error",
-            code="web_terminals.local_mode_requires_catalog",
-            message=(
-                "modules.web_terminals.image_source is 'local', which requires "
-                "both a non-empty modules.web_terminals.personas catalog and "
-                "default_persona to be configured"
-            ),
+            code="web_terminals.requires_catalog",
+            message=PERSONA_CATALOG_REQUIRED,
         )
     ]
 
@@ -2460,9 +2444,8 @@ def _check_persona_project_collisions(
       path-derived fallbacks are unknowable at profile altitude, and every
       rendered project carries the key.
 
-    A catalog entry with no ``project`` of its own resolves to the legacy
-    suffixed tag (``<default>-<persona>:local``) and cannot collide with
-    either, so it is skipped.
+    A catalog entry with no ``project`` is skipped: it names no tag, and
+    :func:`_check_persona_missing_project` reports it.
     """
     if effective_image_source(web_terminals) != "local":
         return []
@@ -2474,7 +2457,7 @@ def _check_persona_project_collisions(
             continue  # unresolvable reference — reported elsewhere
         project = entry.get("project")
         if not isinstance(project, str) or not project:
-            continue  # legacy suffixed fallback; no collision possible
+            continue  # no project: reported by _check_persona_missing_project
         project_path = entry.get("project_path")
         by_project.setdefault(project, []).append(
             (persona_name, project_path if isinstance(project_path, str) else "")
@@ -2753,6 +2736,44 @@ def _check_registry_mode_build_profile(
                     f"modules.web_terminals.personas[{persona_name!r}] has no "
                     "build_profile set; image_source: registry needs one to "
                     "generate this non-default persona's CI build job"
+                ),
+            )
+        )
+    return findings
+
+
+def _check_persona_missing_project(
+    web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """Every referenced persona must name the project its terminal runs.
+
+    A terminal runs in ``/app/<project>``, so a persona with no ``project``
+    names no directory. An entry with a ``build_profile`` is skipped: the build
+    derives its ``project``
+    (:func:`~osprey.deployment.web_terminals.persona_naming.derived_persona_catalog`),
+    and at profile altitude there is nothing to derive yet. A ready-made entry —
+    an image built elsewhere — states the project that image was built from.
+    Config-only, so it runs at both altitudes, in either image source."""
+    catalog = _persona_catalog(web_terminals)
+    findings: list[Finding] = []
+    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+        entry = catalog.get(persona_name)
+        if not isinstance(entry, dict):
+            continue  # unresolvable reference — reported elsewhere
+        build_profile = entry.get("build_profile")
+        if isinstance(build_profile, str) and build_profile:
+            continue
+        project = entry.get("project")
+        if isinstance(project, str) and project:
+            continue
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.persona_missing_project",
+                message=(
+                    f"modules.web_terminals.personas[{persona_name!r}] has no project; "
+                    "a persona whose image is built elsewhere states the project that "
+                    "image was built from (its directory is /app/<project>)"
                 ),
             )
         )

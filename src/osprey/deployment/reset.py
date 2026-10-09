@@ -1013,7 +1013,6 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
         personas = resolve_personas(
             web_terminals,
             as_dict(config.get("registry")),
-            project,
             strict=False,
         )
         built_here = set(image_defaults.values())

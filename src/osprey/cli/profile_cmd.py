@@ -1229,7 +1229,7 @@ def _privileged_persona_problems(
     # lint's `web_terminals.invalid_user_access` there), and raising from this
     # rule would replace that report with a worse one. The unreadable entry is
     # dropped, so this rule says nothing about it — again as lint does.
-    resolved = resolve_personas(web_terminals, {}, "", strict=False)
+    resolved = resolve_personas(web_terminals, {}, strict=False)
     problems.extend(shared_card_privileged_problems(resolved, absolute_privileges))
     return problems
 

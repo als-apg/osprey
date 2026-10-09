@@ -30,6 +30,8 @@ def _config(*, theme: str | None = None) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "users": ["alice", "bob"],
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "demo-assistant"}},
                 # The render refuses any auth method over cleartext otherwise;
                 # that gate has its own coverage and is not this file's subject.
                 "auth": {"method": "password", "allow_insecure_http": True},

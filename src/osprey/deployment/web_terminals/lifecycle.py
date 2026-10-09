@@ -574,8 +574,8 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
        (:func:`osprey.deployment.web_terminals.personas.resolve_personas` with
        ``strict=False`` — a stale/bad persona reference never blocks ``nuke``),
        collect the distinct ``:local``-suffixed image tags (registry-mode
-       images and lenient-degraded entries never resolve to a ``:local`` tag,
-       so they are never candidates), then ``image inspect`` each candidate and
+       images are never ``:local`` and an unresolved entry names no image, so
+       neither is a candidate), then ``image inspect`` each candidate and
        keep only the ones whose ``com.osprey.project`` label matches this
        deployment's project name.
     4. Print a plan (the project-scoped container teardown, the full exact
@@ -630,15 +630,14 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     for user_volumes in orphan_volumes.values():
         volumes.extend(user_volumes)
 
-    # Roster personas' locally-built images. Lenient resolution (strict=False)
-    # means a stale/bad persona reference degrades to the no-persona
-    # (non-":local") image rather than blocking nuke — see resolve_personas.
+    # Roster personas' locally-built images. Lenient resolution: an entry that
+    # does not resolve has no image and is no candidate.
     registry_cfg = as_dict(config.get("registry"))
-    personas_resolved = resolve_personas(web_terminals, registry_cfg, project, strict=False)
+    personas_resolved = resolve_personas(web_terminals, registry_cfg, strict=False)
     candidate_images: list[str] = []
     for entry in personas_resolved:
         image = entry["image"]
-        if image.endswith(":local") and image not in candidate_images:
+        if isinstance(image, str) and image.endswith(":local") and image not in candidate_images:
             candidate_images.append(image)
 
     # The auth sidecar's own locally-built tag, on exactly the terms that

@@ -30,6 +30,8 @@ def _config(**extra: object) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "users": ["alice"],
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "demo-assistant"}},
                 "auth": {"method": "password", "allow_insecure_http": True},
             }
         },

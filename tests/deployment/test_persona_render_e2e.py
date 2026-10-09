@@ -37,10 +37,9 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build as build_command
 from osprey.cli.repo_resolver import PROFILE_FILENAME
-from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.staleness import DriftState, check_drift
 from osprey.deployment.web_terminals.persona_images import verify_persona_renders
-from osprey.deployment.web_terminals.personas import resolve_personas
+from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED, resolve_personas
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
     build_exemplar_repo,
@@ -85,7 +84,6 @@ def _resolved_users(config: dict) -> list[dict]:
     return resolve_personas(
         web_terminals,
         config.get("registry") or {},
-        resolve_project_name(config),
         strict=True,
     )
 
@@ -372,7 +370,7 @@ def test_a_catalog_entry_whose_delta_was_deleted_is_not_told_to_rewrite_itself(
 
 
 def _remove_persona_layer(repo: Path) -> None:
-    """Turn the exemplar into a deployment that never had personas.
+    """Turn the exemplar into a deployment with no persona catalog.
 
     That is the deltas AND the catalog that names them AND the roster's
     ``persona:`` keys, because the three are one feature. Deleting only the
@@ -381,7 +379,7 @@ def _remove_persona_layer(repo: Path) -> None:
     refused where its privileges would decide something (the
     ``default_persona`` every unlabelled user inherits, the shared card every
     login opens), which is the guard doing its job on a broken
-    catalog, not the pre-persona shape this test protects.
+    catalog, not the catalog-less shape this test refuses.
     """
     shutil.rmtree(repo / "personas")
     profile_path = repo / PROFILE_FILENAME
@@ -399,17 +397,20 @@ def _remove_persona_layer(repo: Path) -> None:
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
 
-def test_a_repo_with_no_personas_renders_only_its_own_project(tmp_path: Path):
-    """The absent-``personas/`` path, which must stay exactly as it was.
-
-    Every repo that has no personas has to render what it always rendered —
-    which is also what keeps the persona fold out of its build hash.
-    """
+def test_a_repo_with_no_persona_catalog_is_refused_by_the_build(tmp_path: Path):
+    """A web-terminal deployment with no catalog names no project for its
+    terminals, so the build refuses it before it renders anything."""
     repo = build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME, seed_env=True)
     _remove_persona_layer(repo)
 
-    _run_build(repo)
+    previous = Path.cwd()
+    os.chdir(repo)
+    try:
+        with preserved_environ():
+            result = CliRunner().invoke(build_command, CI_FLAGS)
+    finally:
+        os.chdir(previous)
 
-    build_dir = repo / "build"
-    assert (build_dir / "config.yml").is_file()
-    assert not [entry for entry in build_dir.iterdir() if entry.name.startswith(f"{repo.name}-")]
+    assert result.exit_code != 0
+    assert PERSONA_CATALOG_REQUIRED in " ".join(result.output.split())
+    assert not (repo / "build" / "config.yml").exists()
