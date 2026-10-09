@@ -56,7 +56,13 @@ RULE_5 = (
 RULE_6 = "A truncated caption is complete in entry_get."
 RULE_UNCAPTIONED = (
     "When an entry matches the question but its text does not give the answer, and it has a "
-    "viewable picture with no caption, the answer may be in the picture: view that picture once."
+    "viewable picture with no caption, view that picture once before you report the answer "
+    "missing: a value the text leaves out is often only in a plot's title, labels or legend."
+)
+RULE_ENTRY_ID = (
+    "An entry id is the logbook's key for an entry, not something the entry records: never "
+    "give one as the answer to a question about what an entry says, such as a run, shot or "
+    "ticket number."
 )
 
 VIEW_FLAGS = [True, False]
@@ -108,7 +114,7 @@ def _include_tools(rendered_include: str) -> set[str]:
 
 def test_include_on_carries_every_rule():
     text = _flat(_render(INCLUDE, True))
-    for sentence in (RULE_0, RULE_3, RULE_5, RULE_6, RULE_UNCAPTIONED):
+    for sentence in (RULE_0, RULE_3, RULE_5, RULE_6, RULE_UNCAPTIONED, RULE_ENTRY_ID):
         assert sentence in text
     assert "viewable: true" in text
     assert "matched_attachment_ids" in text
@@ -120,6 +126,7 @@ def test_include_off_keeps_rules_0_and_5_only():
     text = _flat(_render(INCLUDE, False))
     assert RULE_0 in text
     assert RULE_5 in text
+    assert RULE_ENTRY_ID in text
     assert "attachment_view" not in text
     assert RULE_6 not in text
     assert RULE_UNCAPTIONED not in text
@@ -274,18 +281,32 @@ def test_a_non_boolean_view_switch_is_refused_at_build_naming_the_key(tmp_path):
 # Showing the operator an entry or picture
 # ---------------------------------------------------------------------------
 
-SHOW_PICTURE_RULE = (
-    "When the conversation is about one of that entry's pictures (one you viewed or "
-    "described, or one a subagent reported), also pass that picture's {id}, "
-    'even when the operator only says "the entry".'
+SHOW_PICTURE_TAIL = (
+    "the id of that entry's picture whenever this conversation holds one (a picture you "
+    "viewed, or one a subagent's reply listed next to the entry id), even when the operator "
+    'only says "the entry"; null only when none came up.'
 )
 SHOW_RULE_MAIN = (
-    "To show the operator a logbook entry, call `entry_open` yourself with its entry id. "
-    + SHOW_PICTURE_RULE.format(id="attachment id")
+    "To show the operator a logbook entry, call `entry_open` yourself with its entry id and an "
+    "attachment id: " + SHOW_PICTURE_TAIL
 )
-SHOW_RULE_ARIEL = "To show the operator an entry, call `entry_open` with its entry id. " + (
-    SHOW_PICTURE_RULE.format(id="`attachment_id`")
+SHOW_RULE_ARIEL = (
+    "To show the operator an entry, call `entry_open` with its entry id and an "
+    "`attachment_id`: " + SHOW_PICTURE_TAIL
 )
+
+
+MAIN_ENTRY_ID_RULE = (
+    "An entry id is the logbook's key for an entry, not something the entry records: never "
+    "equate one with a value the operator asks about, such as a run, shot or ticket number, "
+    "in a delegation or an answer."
+)
+
+
+@pytest.mark.parametrize("view", VIEW_FLAGS)
+def test_main_claude_md_keeps_entry_ids_apart_from_recorded_values(view):
+    """The main agent words the delegation, so it must not equate the two either."""
+    assert MAIN_ENTRY_ID_RULE in _flat(_render(CLAUDE_MD, view))
 
 
 @pytest.mark.parametrize("view", VIEW_FLAGS)
@@ -317,6 +338,45 @@ def test_subagent_bodies_name_no_show_tool(path, view):
     text = _render(path, view)
     assert "entry_open" not in text
     assert "attachment_to_artifact" not in text
+
+
+HAND_BACK_RULE = (
+    "Your reply to the parent lists, among its identifier lines, the entry id and "
+    "`attachment_id` of every picture you viewed, as `<entry_id> <attachment_id>`, even when "
+    "the question did not ask for identifiers: the parent sees only that reply, and needs both "
+    "ids to show the operator that picture."
+)
+HAND_BACK_SLOT = (
+    "<`<entry_id> <attachment_id>` of every picture you viewed, one per line, whether or not "
+    "the question asked for identifiers>"
+)
+
+
+@pytest.mark.parametrize("path", AGENTS.values())
+def test_logbook_subagents_hand_back_the_ids_of_every_picture_they_viewed(path):
+    """The parent sees only the reply, so a viewed picture's ids must ride on it."""
+    text = _flat(_render(path, True))
+    assert HAND_BACK_RULE in text
+    hand_back = text.split("## Handing Back", 1)[1]
+    assert HAND_BACK_SLOT in hand_back
+
+
+@pytest.mark.parametrize("path", AGENTS.values())
+def test_logbook_subagents_hand_back_no_picture_ids_while_the_view_is_off(path):
+    text = _flat(_render(path, False))
+    assert HAND_BACK_RULE not in text
+    assert HAND_BACK_SLOT not in text
+
+
+@pytest.mark.parametrize("view", VIEW_FLAGS)
+@pytest.mark.parametrize("path", [SKILL, CLAUDE_ARIEL])
+def test_bodies_without_a_parent_carry_no_hand_back_rule(path, view):
+    assert "Your reply to the parent" not in _render(path, view)
+
+
+def test_other_subagents_hand_back_no_picture_slot():
+    text = _flat(_render("claude_code/claude/agents/channel-finder.md.j2", True))
+    assert HAND_BACK_SLOT not in text
 
 
 KEEP_RULE_MAIN = (

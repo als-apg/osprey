@@ -78,7 +78,7 @@ Follow this approach to find the most relevant logbook entries:
 7. **Get full details**: Use `entry_get` with an entry ID when summaries
    from search results aren't detailed enough.
 
-{% include "claude_code/claude/agents/_shared/attachments.md.j2" %}
+{% set attachments_hand_back = true %}{% include "claude_code/claude/agents/_shared/attachments.md.j2" %}
 
 ## Synthesis Guidelines
 

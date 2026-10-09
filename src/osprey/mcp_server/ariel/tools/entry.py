@@ -267,7 +267,7 @@ async def entries_by_ids(
 @mcp.tool()
 async def entry_open(
     entry_id: str,
-    attachment_id: str | None = None,
+    attachment_id: str | None,
 ) -> str:
     """Show a logbook entry to the operator in the ARIEL panel.
 
@@ -275,20 +275,26 @@ async def entry_open(
     to the front. With `attachment_id` it also opens that picture enlarged,
     when the picture is one of this entry's and `viewable`. Use it whenever
     the operator asks to see an entry or one of its pictures; it reads no
-    picture into this conversation and writes nothing. When the conversation
-    is about one of the entry's pictures (one viewed, described or reported
-    earlier), pass its `attachment_id` too, even when the operator only asks
-    for the entry.
+    picture into this conversation and writes nothing.
 
     Args:
         entry_id: The entry to show, as listed by a search, browse or entry_get.
-        attachment_id: Optional `attachment_id` of one of that entry's
-            attachments (for example "att-0123456789abcdef01234567").
+        attachment_id: Required, may be null. The `attachment_id` of this
+            entry's picture whenever this conversation holds one (a picture
+            viewed, or one a subagent's reply listed next to the entry id),
+            even when the operator asks only for the entry; null only when no
+            picture of this entry came up. For example
+            "att-0123456789abcdef01234567".
 
     Returns:
         JSON with `entry_id`, `attachment_id`, `opened` ("entry" or
-        "entry_and_picture"), the panel `url` (a link the operator can follow
-        when no web terminal is running) and a `message`. Errors:
+        "entry_and_picture"), `pictures` (the `attachment_id` and `filename`
+        of each viewable picture of the entry; absent while the attachment
+        view is off), the panel `url` (a link the
+        operator can follow when no web terminal is running) and a `message`.
+        Opened without `attachment_id`, the message names the entry's viewable
+        pictures, so a call that left out the picture under discussion can be
+        repeated with it. Errors:
         validation_error for a missing entry id or a malformed attachment id,
         not_found for an unknown entry or an attachment that is not the
         entry's.
@@ -324,13 +330,12 @@ async def entry_open(
                 ],
             )
 
-        route = f"entry?id={quote(entry['entry_id'], safe='')}"
-        opened = "entry"
-        message = f"The ARIEL panel shows entry {entry['entry_id']}."
-        if attachment_id is not None:
+        config = registry.config
+        view_enabled = config.attachments.view_enabled
+        summaries: list[dict] = []
+        if view_enabled or attachment_id is not None:
             from osprey.services.ariel_search.database.repository import read_attachment_rows
 
-            config = registry.config
             rows_map = await read_attachment_rows(service.repository, [entry["entry_id"]])
             summaries = build_attachment_summaries(
                 entry,
@@ -341,6 +346,23 @@ async def entry_open(
                 full_captions=False,
                 model_id=caption_model_id(config),
             )
+        pictures = [
+            {"attachment_id": item["attachment_id"], "filename": item.get("filename")}
+            for item in summaries
+            if view_enabled and item.get("viewable") and item.get("attachment_id")
+        ]
+
+        route = f"entry?id={quote(entry['entry_id'], safe='')}"
+        opened = "entry"
+        message = f"The ARIEL panel shows entry {entry['entry_id']}."
+        if attachment_id is None and pictures:
+            listed = ", ".join(f"{p['filename']} ({p['attachment_id']})" for p in pictures)
+            message += (
+                f" Its pictures are listed on the entry card, none enlarged: {listed}. If this "
+                "conversation holds the attachment_id of one of them, call entry_open again "
+                "with it, so the operator sees that picture enlarged."
+            )
+        if attachment_id is not None:
             summary = next(
                 (item for item in summaries if item.get("attachment_id") == attachment_id), None
             )
@@ -365,15 +387,16 @@ async def entry_open(
 
         url = ariel_panel_url(route)
         _focus_ariel_panel(url)
-        return json.dumps(
-            {
-                "entry_id": entry["entry_id"],
-                "attachment_id": attachment_id,
-                "opened": opened,
-                "url": url,
-                "message": f"{message} If no ARIEL panel is in view, open {url}",
-            }
-        )
+        result: dict = {
+            "entry_id": entry["entry_id"],
+            "attachment_id": attachment_id,
+            "opened": opened,
+            "url": url,
+            "message": f"{message} If no ARIEL panel is in view, open {url}",
+        }
+        if view_enabled:
+            result["pictures"] = pictures
+        return json.dumps(result)
 
     except ToolError:
         raise
