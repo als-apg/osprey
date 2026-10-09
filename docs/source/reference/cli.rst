@@ -288,6 +288,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    osprey profile expand
    osprey profile presets
    osprey profile artifacts
+   osprey profile card
 
 ``osprey profile validate TARGET``
    Check a profile without building anything. ``TARGET`` is a directory holding
@@ -346,6 +347,14 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    List every artifact the six profile lists can name — hooks, rules, skills,
    agents, output styles, and web panels — with a one-line description of
    each. The same menu appears as commented entries in an emitted profile.
+
+``osprey profile card [--json] [--repo DIRECTORY]``
+   Print the composition card ``osprey init`` prints, for a repo that already
+   exists: who can sign in and with what rights, what the agent runs on, what
+   machine it talks to, and what runs beside it. It reads ``profile.yml`` and
+   the persona files beside it; nothing is built, started or probed.
+   ``--json`` prints the rows as one JSON array of ``{group, label, value}``
+   objects on stdout and every warning on stderr.
 
 .. code-block:: bash
 
@@ -968,6 +977,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``path``, ``written``, and ``reason`` only on a view that is not written);
    a record's are ``record``, ``kind``, ``provenance`` and ``fixes_applied``.
 
+``osprey facility import``
+   Group for the importers that write an export as sources under
+   ``data/facility/imported/``; ``mml`` is the one importer.
+
 ``osprey facility import mml EXPORT... [--repo DIRECTORY]``
    Write MML exports as the mml layer's sources under
    ``data/facility/imported/mml/`` and seed each authored file that does not
@@ -1011,9 +1024,10 @@ osprey sim
 List, inspect and apply the scenarios of a simulated deployment. The scenarios
 are authored under ``data/facility/scenarios/`` and served from the simulator
 view the build writes under ``build/data/simulator/``; a repo with no build, or
-a build with no simulator view, exits 1 with ``run 'osprey build' first``. All
-three verbs take ``--repo DIRECTORY``; without it, the nearest ``profile.yml``
-at or above the current directory is used.
+a build with no simulator view, exits 1 with ``run 'osprey build' first``.
+``osprey sim`` alone prints its help, naming the three verbs. All three verbs
+take ``--repo DIRECTORY``; without it, the nearest ``profile.yml`` at or above
+the current directory is used.
 
 ``osprey sim list [--repo DIRECTORY]``
    Print one line per scenario of the view, sorted by name:
@@ -1198,6 +1212,9 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 ``osprey web stop``
    Stop a background web terminal server.
 
+``osprey web sessions``
+   Group for the commands that manage the sessions kept on disk.
+
 ``osprey web sessions clear``
    Forget the sessions this project has kept on disk, so everyone has to open
    the login URL again. It refuses to run while a server is using them — stop
@@ -1322,6 +1339,25 @@ All subcommands accept a common flag:
    boot hook at boot — the route for a daemon-managed autofs home, and the
    no-root fallback elsewhere.
 
+``osprey scaffold personas [--from PRESET] [--force] [--repo DIRECTORY]``
+   Write ``personas/<name>.yml`` for every entry in the profile's
+   ``modules.web_terminals.personas`` catalog, then point each entry at its
+   file, so the catalog no longer resolves to the preset it was copied from.
+   Each file holds only what the persona changes. ``--from`` names the preset
+   whose catalog to emit (default: the preset this repo was created from). A
+   file that already exists is reported and left alone unless ``--force`` is
+   given.
+
+``osprey scaffold pull PRESET[:PATH] [--list] [--force] [--with-content] [--repo DIRECTORY]``
+   Copy a preset's packaged content into this repo, each file at the same path,
+   for you to edit and commit: ``control-assistant`` copies the whole app
+   template, ``control-assistant:data/facility/knowledge`` one subtree of it.
+   ``--list`` prints every path the preset offers and copies nothing. The
+   knowledge base arrives as its ``index.md`` files alone, rebuilt from what
+   landed; ``--with-content`` brings its documents too. A file that is already
+   here stops the pull before anything is written unless ``--force`` is given;
+   a symlink on the way to a target is always refused.
+
 ``osprey scaffold list``
    List all build artifacts and their ownership status (framework vs.
    user-owned).
@@ -1353,6 +1389,10 @@ All subcommands accept a common flag:
    give the artifact up for good by deleting it from the profile's convention
    directory.
 
+``osprey scaffold web-terminals``
+   Group for the two verbs that check and render the deployment's
+   ``modules.web_terminals`` stanza.
+
 ``osprey scaffold web-terminals lint [--repo PATH]``
    Validate the deployment's ``modules.web_terminals`` stanza (port-family
    allocation, reserved service names, duplicate users, persona references).
@@ -1370,6 +1410,8 @@ All subcommands accept a common flag:
 
    osprey scaffold ci                             # Re-emit the CI files
    osprey scaffold systemd                        # Write the boot unit
+   osprey scaffold personas                       # Emit the persona files
+   osprey scaffold pull control-assistant --list  # Show what a preset offers
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing
    osprey scaffold claim services/postgresql      # Freeze a service template
