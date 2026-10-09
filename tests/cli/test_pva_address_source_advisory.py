@@ -91,6 +91,7 @@ def test_every_connector_block_is_checked() -> None:
 _PROFILE = """\
 extends: hello-world
 name: PVA Advisory Fixture
+project_name: pva-advisory-fixture
 data: data
 config:
   control_system.connector.epics.pva_channels: ["*:image"]

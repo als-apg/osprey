@@ -57,7 +57,7 @@ _FOREIGN_PORT_MARKER = re.compile(r"^#\s*Not a deployment port:\s*(\d+(?:,\s*\d+
 
 
 def _emit(preset: str, set_pairs: tuple[str, ...] = ()) -> str:
-    return emit_standalone_profile_yaml(preset, set_pairs, "Emitted")
+    return emit_standalone_profile_yaml(preset, set_pairs, "Emitted", project_name="emitted")
 
 
 def _active_and_commented(text: str) -> tuple[set[str], set[str]]:
@@ -122,11 +122,13 @@ def test_every_commented_member_has_a_template() -> None:
 
 
 def test_explicit_defaults_cover_every_synthesizable_member() -> None:
-    """Only the three keys the emitter always writes may lack a default: the
-    display `name`, the version stamp, and the `provenance` record. A default
-    for any of them would be a value the emitter never falls back to."""
+    """Only the keys the emitter always writes may lack a default: the
+    display `name`, the deployment's `project_name`, the version stamp, and the
+    `provenance` record. A default for any of them would be a value the emitter
+    never falls back to."""
     assert set(_EXPLICIT_DEFAULTS) == _EXPLICIT_KEYS - {
         "name",
+        "project_name",
         "requires_osprey_version",
         "provenance",
     }

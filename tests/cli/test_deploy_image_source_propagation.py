@@ -38,10 +38,9 @@ DEPLOY_BLOCK: dict[str, Any] = {
     },
 }
 
-# Paired with a `facility.prefix` wherever this is built: container names render
-# as `<prefix>-nginx` / `<prefix>-web-<user>`, so an empty prefix would produce
-# `-nginx`, which Docker rejects — and profile validation refuses a roster
-# without one.
+# Paired with a `facility.prefix` wherever this is built: a terminal with no
+# persona render of its own runs in `/app/<prefix>-assistant`, and profile
+# validation refuses a roster without a prefix.
 WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
     "nginx_port": 20000,
@@ -58,7 +57,7 @@ WEB_TERMINALS: dict[str, Any] = {
 WEB_TERMINALS_LOCAL: dict[str, Any] = {
     **WEB_TERMINALS,
     "default_persona": "readwrite",
-    "personas": {"readwrite": {"build_profile": "hello-world", "project": "demo-readwrite"}},
+    "personas": {"readwrite": {"build_profile": "hello-world"}},
 }
 
 
@@ -68,7 +67,12 @@ def runner() -> CliRunner:
 
 
 def _profile(deploy: dict[str, Any] | None, config: dict[str, Any] | None) -> dict[str, Any]:
-    raw: dict[str, Any] = {"name": "Demo", "extends": "hello-world", "data": "data"}
+    raw: dict[str, Any] = {
+        "name": "Demo",
+        "project_name": "demo",
+        "extends": "hello-world",
+        "data": "data",
+    }
     if deploy is not None:
         raw["deploy"] = deploy
     if config is not None:

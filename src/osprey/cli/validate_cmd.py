@@ -123,7 +123,10 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     # reports the profile valid.
     profile_root = profile_file.parent
     web_errors = deploy_aware_config_errors(
-        build_profile.deploy, build_profile.config, profile_root=profile_root
+        build_profile.deploy,
+        build_profile.config,
+        profile_root=profile_root,
+        project_name=build_profile.project_name,
     )
     # A sibling call, not a line inside `deploy_aware_config_errors`: that
     # function judges the multi-user web stack against the deploy block, and
@@ -149,7 +152,10 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
     # a finding nobody prints is a finding nobody has.
     for warning in (
         *deploy_aware_config_warnings(
-            build_profile.deploy, build_profile.config, profile_root=profile_root
+            build_profile.deploy,
+            build_profile.config,
+            profile_root=profile_root,
+            project_name=build_profile.project_name,
         ),
         # The same line `osprey build` prints for a `web.bar_items` entry the
         # served default drops because its panel is not selected.

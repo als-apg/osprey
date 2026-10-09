@@ -43,12 +43,16 @@ what the agent thinks your devices are called.
      - Display name woven into the agent's prompts and the web-terminal landing
        page. With no value set, the project name is used.
    * - ``facility.prefix``
-     - Short abbreviation the multi-user web stack puts in front of its
-       container names. Nothing else reads it.
+     - The facility's short token. The facility graph embeds it in every
+       identifier it mints (``osprey knowledge build-ttl --facility``
+       defaults to it), and a multi-user deployment without a ``personas``
+       catalog runs its terminals from ``/app/<prefix>-assistant`` inside the
+       container. It names no container, volume or image; those come from the
+       profile's ``project_name:`` (:ref:`reference-profile`).
    * - ``facility.ontology``
      - Path — relative to the project root — to this facility's **compiled
        ontology table**, the JSON that ``osprey knowledge compile-ontology``
-       writes. See below.
+       writes.
 
 ``facility.ontology`` is the deployment's device vocabulary: the class names
 your facility uses, the everyday words operators say for each one, and the

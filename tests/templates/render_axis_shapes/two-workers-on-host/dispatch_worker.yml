@@ -447,11 +447,7 @@ volumes:
 
 
   dispatch_workspace_1:
-    labels:
-      com.osprey.repo-id: "0123456789ab"
 
   dispatch_workspace_2:
-    labels:
-      com.osprey.repo-id: "0123456789ab"
 
 

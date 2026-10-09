@@ -34,7 +34,8 @@ async def browse(
     Args:
         page_size: Number of entries to return (default 20, max 100).
         start_date: Filter entries after this ISO-8601 date.
-        end_date: Filter entries before this ISO-8601 date.
+        end_date: Filter entries up to this ISO-8601 date or time; a bare date
+            includes that whole day.
         author: Filter by author name (exact match — use ``filter_options``
             for the spelling).
         source_system: Filter by source system (exact match).

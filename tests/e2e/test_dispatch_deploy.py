@@ -176,7 +176,7 @@ WORKER_AGENT_DATA = f"/app/{PROJECT_NAME}/var/agent_data"
 # ``<repo>-<persona>`` at ``build/<repo>-<persona>``, and `project` must equal
 # `project_path`'s basename for the render to land where the deploy mounts it.
 # ---------------------------------------------------------------------------
-WEB_PREFIX = "dde"  # facility.prefix override: container names dde-nginx, dde-web-<user>
+WEB_PREFIX = "dde"  # facility.prefix override; container names follow PROJECT_NAME
 # Which roster user holds which tier is the preset's decision, not this
 # module's: ``modules.web_terminals.users`` binds each name to a persona, and
 # the persona is what decides the tier. Pinned against the render by
@@ -239,10 +239,10 @@ VA_CA_PORT = 15068
 
 
 def _web_container(user: str) -> str:
-    return f"{WEB_PREFIX}-web-{user}"
+    return f"{PROJECT_NAME}-web-{user}"
 
 
-NGINX_CONTAINER = f"{WEB_PREFIX}-nginx"
+NGINX_CONTAINER = f"{PROJECT_NAME}-nginx"
 
 # hello-dispatch / triage-event / save-report should complete; denied-tool-demo
 # must be rejected by the server-side denylist.
@@ -546,7 +546,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     # The preset's multi-user web tier deploys as shipped; only its
     # host-global identifiers are remapped to e2e-unique values (see
-    # COEXISTENCE in the module docstring): the container-name prefix, and the
+    # COEXISTENCE in the module docstring): the facility prefix, and the
     # one port base every published port of the stack derives from. Dotted LEAF
     # keys on purpose -- each edit states only its own leaf and leaves its
     # subtree's siblings intact (same convention as tests/e2e/_orm_stack.py).

@@ -82,6 +82,9 @@ def _rendered_repo_id() -> str:
 
 
 EXAMPLE_CONFIG: dict = {
+    # Deliberately unlike `facility.prefix`, so the golden shows which of the
+    # two each container and image name is spelled on.
+    "project_name": "dls_controls",
     "facility": {
         "name": "Demo Light Source",
         "prefix": "dls",

@@ -245,7 +245,7 @@ fails at ``up`` on the image it forgot:
        image_tag: "2026.08.1"
        nginx_image: registry.example.org/mirror/nginx:1.31-alpine
        auth:
-         image: registry.example.org/accelerator/demo-assistant-auth:2026.08.1
+         image: registry.example.org/accelerator/demo-auth:2026.08.1
 
 Copy only the rows for services you actually deploy — the upstream pins for a
 service that is not in ``deployed_services`` are never rendered.

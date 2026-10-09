@@ -2,7 +2,8 @@
 
 ``osprey reset`` returns a deployment to the state a fresh ``osprey init``
 leaves behind, without touching the source zone: the stack is stopped, the
-containers and volumes carrying this checkout's identity are removed along with
+containers carrying this checkout's identity and the volumes of its project
+name are removed along with
 the images this deployment built, the agent's memory is destroyed, the tokens
 ``osprey up`` minted are stripped out of ``.env``, and every derived artifact —
 ``build/`` and the merged compose document a deploy writes at the repo root —
@@ -26,36 +27,36 @@ one that quietly locked them all out.
 SCOPING BOUNDARY — the safety core of this module
 =================================================
 
-``COMPOSE_PROJECT_NAME`` is derived from the repo's *directory name*, so two
-checkouts of one deployment on a single host — a clone beside the original, a
-git worktree, a colleague's copy under another home directory — share a project
-name, a volume namespace, and an image tag. A destructive verb scoped by project
-name alone would reach into the other checkout's data.
+Two checkouts of one deployment on a single host — a clone beside the original,
+a git worktree, a colleague's copy under another home directory — can declare
+one compose project name, and then share its volume namespace and its image
+tags. A destructive verb has to tell them apart before it removes anything.
 
-So nothing here is removed on a project-name match. A container or volume is
-removed only when it carries
-:data:`~osprey.deployment.compose_generator.REPO_ID_LABEL` set to *this*
-checkout's identity (:func:`~osprey.deployment.compose_generator.repo_identity`,
-the single spelling of that rule, shared with the render that baked the label
-in). Both conditions, never one:
+Containers carry
+:data:`~osprey.deployment.compose_generator.REPO_ID_LABEL`, the identity of the
+checkout that created them, and are judged by the one ownership rule in
+:mod:`osprey.deployment.container_ownership`:
 
 * **Project name AND matching identity** — removed.
-* **Project name, different identity** — this resource was created from a
+* **Project name, different identity** — this container was created from a
   different repo PATH, which is all the hash proves and all the refusal claims.
   Usually that means another checkout; it equally means a directory the operator
   renamed or moved, and the message says both. Reset REFUSES outright
   (:class:`ForeignCheckoutError`), before the plan is confirmed and before
   anything at all is removed, naming that path *when a label records one*.
-  Not skipped-with-a-warning: a same-name foreign resource means the operator
-  may well be standing in the wrong directory, and continuing would remove
-  *this* repo's data on that assumption.
+  Not skipped-with-a-warning: a same-name foreign container means the operator
+  may well be standing in the wrong directory, or the other copy is running,
+  and continuing would remove the data that copy is using.
 * **Project name, no identity label at all** — NOT removed, and listed as such.
-  Labels are applied at CREATE time, so a stack started before OSPREY labelled
-  its resources carries none, and nothing can prove whose it is. The remedy
-  differs by kind and both are stated where they are printed: a container gets
-  its label back the moment something recreates it, but *a named volume takes
-  labels only when it is first created and is never relabelled by a later
-  deploy*, so an unlabelled volume can only ever be removed by hand.
+  Labels are applied at CREATE time, so a container started before OSPREY
+  labelled it carries none, and nothing can prove whose it is. It gets its label
+  back the moment something recreates it.
+
+Volumes carry no checkout label: they belong to the project by NAME. A second
+checkout that declares the same project name is the same instance and shares
+its data by declaration, so once no other copy's container holds the name,
+every volume of the project is this reset's to remove. A label an older OSPREY
+stamped on a volume decides nothing.
 
 Images are the one class this scoping cannot cover, and the plan says why.
 The project image (``<project>:local``, or whatever the image axes renamed it
@@ -67,7 +68,7 @@ image to put it on. Each candidate tag is instead individually
 same check ``nuke`` uses — so a same-named tag belonging to something that is
 not an OSPREY deployment is never touched. The residual exposure is bounded and
 one-directional: reset reaches image removal only when the identity scan found
-no foreign resource under this project name, and what a shared tag's removal
+no foreign container under this project name, and what a shared tag's removal
 costs another checkout is a rebuild, never data.
 
 EXECUTION SHAPE
@@ -95,15 +96,13 @@ import json
 import os
 import shutil
 import subprocess
-import textwrap
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
 from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
-    PROJECT_ROOT_LABEL,
     REPO_ID_LABEL,
     repo_identity,
     resolve_image_defaults,
@@ -111,6 +110,26 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.deployment.container_lifecycle import as_built_config_path, down_deployment
+
+# The ownership rule and its refusal live with the rest of the ownership code;
+# they are re-exported here under the names reset has always offered.
+from osprey.deployment.container_ownership import (
+    PATH_EVIDENCE_LABELS as PATH_EVIDENCE_LABELS,
+)
+from osprey.deployment.container_ownership import (
+    RESET_REFUSAL,
+    Resource,
+    partition_by_identity,
+)
+from osprey.deployment.container_ownership import (
+    ForeignCheckoutError as ForeignCheckoutError,
+)
+from osprey.deployment.container_ownership import (
+    Partition as Partition,
+)
+from osprey.deployment.container_ownership import (
+    foreign_refusal as _foreign_refusal,
+)
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
     removal_refusal,
@@ -174,25 +193,6 @@ WEB_CREDENTIAL_FILES: tuple[tuple[str, str, str], ...] = (
         f"Nothing reads it and no deploy refreshes it: {USERS_ENV_FILENAME} is the live "
         f"file. Delete it yourself once you have confirmed {USERS_ENV_FILENAME} is good.",
     ),
-)
-
-#: Where a foreign checkout's PATH is read from, most authoritative first.
-#: ``repo_id`` is a one-way hash, so the identity that proves a resource is
-#: someone else's cannot itself produce the directory to go look in — these can.
-#:
-#: ``com.docker.compose.project.working_dir`` is compose's own record of the
-#: ``--project-directory`` it was pinned to, which
-#: :func:`~osprey.deployment.compose_generator.compose_base_cmd` sets to the repo
-#: root on every invocation. ``osprey.project.root`` is OSPREY's render-time
-#: label and is the fallback rather than the primary because a ``--runtime-root``
-#: build records the path the project will run at *inside a container*, which is
-#: not a host path at all.
-#:
-#: When neither is present the refusal says the path is not recoverable. It
-#: never guesses one.
-PATH_EVIDENCE_LABELS: tuple[str, ...] = (
-    "com.docker.compose.project.working_dir",
-    PROJECT_ROOT_LABEL,
 )
 
 #: Header comments of the ``.env`` blocks a deploy writes, carried at EVERY
@@ -333,168 +333,9 @@ EXIT_CODES: Mapping[ResetOutcome, int] = {
 PARTIAL_RESET_EXIT_CODE = EXIT_CODES[ResetOutcome.COMPLETED_WITH_FAILURES]
 
 
-class ForeignCheckoutError(RuntimeError):
-    """Same-named resources were created from a different repo path — nothing was touched.
-
-    Carried in parts rather than as one block of text, because the two verbs
-    that meet this refusal have different room for it and different advice to
-    give. A verb renders :attr:`summary`, :attr:`cause` and :attr:`remedy`
-    through :func:`osprey.cli.output.fail` and shows :attr:`inventory` only
-    under ``--verbose``: the inventory is the evidence, and on a real deployment
-    it runs to dozens of lines that repeat one path between them, which is how
-    an operator ends up reading past the sentence that would have explained it.
-
-    The parts claim exactly as much as the labels support, which is the property
-    the split has to preserve. :attr:`cause` names a path only when a
-    path-evidence label supplies one, and says the path is unknown when none
-    does, because a foreign checkout's path is not derivable from its identity
-    hash and inventing one would be worse than admitting it is unknown.
-
-    ``str(e)`` remains the whole refusal, evidence included. That is what a log
-    record and a ``--verbose`` run keep, and what a caller that has no renderer
-    still gets by printing the exception.
-    """
-
-    #: The refusal's opening line, minus the verb that provoked it. Held apart
-    #: so ``reset`` and ``init --reset`` name themselves in their own summary
-    #: rather than one of them reporting the other's verb.
-    SUMMARY_TAIL = "will not remove containers and volumes from another copy of this repo"
-
-    def __init__(
-        self,
-        *,
-        project: str,
-        identity: str,
-        resources: Sequence[Resource],
-        cause: str,
-        remedy: str | None,
-        inventory: Sequence[str],
-    ) -> None:
-        #: The compose project name both copies claim.
-        self.project = project
-        #: This repo's identity, the one the foreign resources do not carry.
-        self.identity = identity
-        #: The foreign resources, in discovery order.
-        self.resources = list(resources)
-        #: Why, in full sentences: what was found, where it came from, and why
-        #: refusing is the right answer. Multi-line.
-        self.cause = cause
-        #: The one thing to do about it, or ``None`` where nothing honest fits.
-        self.remedy = remedy
-        #: One line per foreign resource, read off its own labels.
-        self.inventory = list(inventory)
-        super().__init__(self.full_text())
-
-    def summary(self, actor: str = "reset") -> str:
-        """The opening line, named for the verb the operator actually typed."""
-        return f"{actor} {self.SUMMARY_TAIL}"
-
-    def full_text(self, actor: str = "reset") -> str:
-        """Every part, evidence included: the record, and the ``--verbose`` view."""
-        parts = [self.summary(actor), "", self.cause]
-        if self.inventory:
-            parts += [
-                "",
-                "Read off the resources' own labels, none of it inferred:",
-                *self.inventory,
-            ]
-        if self.remedy:
-            parts += ["", f"-> {self.remedy}"]
-        return "\n".join(parts)
-
-
 # ---------------------------------------------------------------------------
 # What the runtime has
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Resource:
-    """One container, volume or image, with the labels that decide its fate.
-
-    ``name`` is the exact removal target and is always a name or an id the
-    runtime resolves on its own — never a glob, a label selector, or ``-a``.
-    """
-
-    kind: str
-    name: str
-    labels: Mapping[str, str] = field(default_factory=dict)
-
-    @property
-    def repo_id(self) -> str | None:
-        """This resource's checkout identity, or ``None`` when it carries none."""
-        value = self.labels.get(REPO_ID_LABEL)
-        return value if isinstance(value, str) and value else None
-
-    @property
-    def recorded_path(self) -> str | None:
-        """The repo path recorded on this resource, or ``None`` if it has none.
-
-        See :data:`PATH_EVIDENCE_LABELS`. ``None`` is a real answer that callers
-        must render as such: the path of a foreign checkout is not derivable
-        from its identity hash, and inventing one would be worse than admitting
-        it is unknown.
-        """
-        for label in PATH_EVIDENCE_LABELS:
-            value = self.labels.get(label)
-            if isinstance(value, str) and value:
-                return value
-        return None
-
-    def describe_origin(self) -> str:
-        """Operator-facing "whose is this?", claiming only what the labels say.
-
-        Two branches, and each says exactly what its own evidence supports. With
-        a path label the identity is quoted alongside the path it was *recorded*
-        at — "recorded at", not "lives at", because a label is a record of where
-        a deploy ran, which is not a promise about what is on disk now (the
-        refusal adds that separately, from the filesystem). Without one, the
-        identity is all there is, and the line says so rather than leaving a
-        reader to assume the path was simply omitted.
-        """
-        identity = self.repo_id or "no identity label"
-        path = self.recorded_path
-        if path is None:
-            return (
-                f"{identity} — no path is recorded on this resource, and a repo path "
-                "cannot be derived back out of the identity hash"
-            )
-        return f"{identity}, recorded at {path}"
-
-
-@dataclass(frozen=True)
-class Partition:
-    """A discovered resource set, split by the two-condition scoping rule."""
-
-    ours: list[Resource] = field(default_factory=list)
-    foreign: list[Resource] = field(default_factory=list)
-    unidentified: list[Resource] = field(default_factory=list)
-
-
-def partition_by_identity(resources: Iterable[Resource], identity: str) -> Partition:
-    """Split *resources* into ours / another checkout's / unprovable.
-
-    The single implementation of the AND rule, so containers, volumes and every
-    later caller cannot come to different conclusions from the same labels.
-
-    Args:
-        resources: Already project-name-filtered resources.
-        identity: This checkout's :func:`~osprey.deployment.compose_generator.repo_identity`.
-
-    Returns:
-        A :class:`Partition`. Membership is exclusive and total: every input
-        lands in exactly one list.
-    """
-    partition = Partition()
-    for resource in resources:
-        repo_id = resource.repo_id
-        if repo_id is None:
-            partition.unidentified.append(resource)
-        elif repo_id == identity:
-            partition.ours.append(resource)
-        else:
-            partition.foreign.append(resource)
-    return partition
 
 
 class RuntimeProbe:
@@ -559,18 +400,22 @@ class RuntimeProbe:
             return {}
         return {k: v for k, v in labels.items() if isinstance(v, str)}
 
-    def containers_for_project(self, project: str) -> list[Resource]:
+    def containers_for_project(
+        self, project: str, *, include_stopped: bool = True
+    ) -> list[Resource]:
         """Read-only: this compose project's containers, with their labels.
 
         ``ps -a --filter label=com.docker.compose.project=<project>``. The
         ``-a`` includes stopped containers on purpose — a stopped container
         still holds its name and its published-port reservation, so a reset
         that skipped it would leave the next deploy colliding with it.
+        ``include_stopped=False`` drops it, for a caller asking what is
+        running right now.
         """
         listing = self._capture(
             [
                 "ps",
-                "-a",
+                *(["-a"] if include_stopped else []),
                 "--filter",
                 f"label={COMPOSE_PROJECT_LABEL}={project}",
                 "--format",
@@ -988,7 +833,7 @@ class ResetPlan:
                 f"    {resource.kind} {resource.name}  carries no {REPO_ID_LABEL} label, so it "
                 "cannot be proved to be this repo's"
             )
-        if any(r.kind == "container" for r in self.unidentified):
+        if self.unidentified:
             lines.append(
                 "      Containers are labelled when they are CREATED, so one started before "
                 "this OSPREY version has no"
@@ -996,18 +841,6 @@ class ResetPlan:
             lines.append(
                 "      identity. `osprey up` recreates it with the label, after which reset "
                 "can see whose it is."
-            )
-        if any(r.kind == "volume" for r in self.unidentified):
-            lines.append(
-                "      A named volume takes labels only when it is FIRST created and is "
-                "never relabelled by a later"
-            )
-            lines.append(
-                "      deploy, so no OSPREY command can ever make this one provable. Inspect "
-                "it, then remove it by hand"
-            )
-            lines.append(
-                "      if it is yours — reset will not remove it, on this run or any later one."
             )
         return lines
 
@@ -1056,10 +889,12 @@ def resolve_reset_project_name(repo_root: Path, config: dict | None) -> tuple[st
 
     Read from the rendered config when there is one, because that is the value
     the running containers were actually labelled with. With no readable config
-    — a repo that was never built, or one whose build was already wiped — it
-    falls back to the repo directory name through the same
-    :func:`~osprey.deployment.compose_generator.resolve_project_name` rule,
-    which is exactly what compose itself would derive.
+    — a repo that was never built, or one whose build was already wiped — it is
+    read from the profile's top-level ``project_name:`` field, as merged with
+    the host's selected overlay, which is the value the next build would
+    render. Only when neither says it does it fall back to the repo directory
+    name through the same
+    :func:`~osprey.deployment.compose_generator.resolve_project_name` rule.
 
     The source is returned alongside the name, not kept internal: a reset
     planned against a *guessed* project name is a different thing to confirm
@@ -1071,10 +906,47 @@ def resolve_reset_project_name(repo_root: Path, config: dict | None) -> tuple[st
     """
     if config:
         return resolve_project_name(config), f"from {BUILD_DIRNAME}/config.yml"
+    declared, source = _profile_project_name(Path(repo_root))
+    if declared:
+        return resolve_project_name({"project_name": declared}), f"from {source}"
     return (
         resolve_project_name({"project_root": str(repo_root)}),
-        "derived from this directory's name — no build/config.yml to read it from",
+        "derived from this directory's name — no build/config.yml or project_name: to read it from",
     )
+
+
+def _profile_project_name(repo_root: Path) -> tuple[str | None, str]:
+    """The top-level ``project_name:`` the profile declares, and the file it came from.
+
+    The host's selected overlay (``profiles/<variant>.yml``) outranks
+    ``profile.yml``, as it does in a build. Read leniently, for the same reason
+    :func:`load_as_built_config` is: a reset of a broken repo must not fail on
+    an unreadable profile, it loses only this one detail.
+
+    Returns:
+        ``(name, relative file)``, or ``(None, "")`` when neither file declares one.
+    """
+    import yaml
+
+    from osprey.cli.repo_resolver import PROFILE_FILENAME
+    from osprey.cli.variant_selection import active_variant_overlay
+
+    candidates = [repo_root / PROFILE_FILENAME]
+    try:
+        overlay = active_variant_overlay(repo_root)
+    except Exception:  # a host preference must not block a reset
+        overlay = None
+    if overlay is not None:
+        candidates.insert(0, overlay)
+    for path in candidates:
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        value = document.get("project_name") if isinstance(document, dict) else None
+        if isinstance(value, str) and value.strip():
+            return value.strip(), path.relative_to(repo_root).as_posix()
+    return None, ""
 
 
 def resolve_agent_data_target(repo_root: Path, config: dict | None) -> tuple[Path, bool]:
@@ -1173,6 +1045,7 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
             web_terminals,
             as_dict(config.get("registry")),
             as_dict(config.get("facility")).get("prefix") or "",
+            project_name=project,
             strict=False,
         )
         built_here = set(image_defaults.values())
@@ -1336,7 +1209,7 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         The plan, ready to render and to execute.
 
     Raises:
-        ForeignCheckoutError: When a resource carrying this project's name
+        ForeignCheckoutError: When a container carrying this project's name
             carries a different checkout's identity.
     """
     # Resolved once, here, so every path this plan holds is comparable to every
@@ -1351,11 +1224,13 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
     identity = repo_identity(repo_root)
 
     containers = partition_by_identity(probe.containers_for_project(project), identity)
-    volumes = partition_by_identity(probe.volumes_for_project(project), identity)
-
-    foreign = [*containers.foreign, *volumes.foreign]
-    if foreign:
-        raise _foreign_refusal(project, identity, foreign)
+    if containers.foreign:
+        raise _foreign_refusal(
+            project, identity, containers.foreign, RESET_REFUSAL, runtime=probe.runtime
+        )
+    # Volumes belong to the project by name (see the module docstring), so with
+    # no other copy's container holding the name, every one of them is ours.
+    volumes = probe.volumes_for_project(project)
 
     images = [
         image
@@ -1396,9 +1271,9 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         identity=identity,
         project_name_source=source,
         containers=containers.ours,
-        volumes=volumes.ours,
+        volumes=volumes,
         images=images,
-        unidentified=[*containers.unidentified, *volumes.unidentified],
+        unidentified=containers.unidentified,
         paths=paths,
         external_paths=external,
         agent_data_dir=agent_data,
@@ -1406,166 +1281,6 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         env_kept_keys=env_kept,
         purge_audit=purge_audit,
     )
-
-
-def _foreign_refusal(
-    project: str, identity: str, foreign: Sequence[Resource]
-) -> ForeignCheckoutError:
-    """Build the refusal, claiming exactly as much as the labels support.
-
-    An operator who sees this is in one of three situations, and the parts have
-    to serve all of them without deciding between them: they are standing in the
-    wrong directory, two checkouts of one deployment are genuinely sharing a
-    host, or they renamed or moved *this* directory and are meeting their own
-    resources under the old path. The recorded path is what tells them which, so
-    it is quoted from the resource rather than reconstructed, and when no
-    resource carries one, the message says so instead of guessing.
-
-    Neutral about WHICH of the three it is; not neutral about ORDER. The
-    conclusion, the path and the way out come first, and the per-resource
-    evidence goes to :attr:`ForeignCheckoutError.inventory` for a verb to show
-    under ``--verbose``. That ordering claims nothing extra: a refusal whose
-    explanation sits below thirty lines of hashes is one an operator stops
-    reading before they reach it, which is how a careful guard comes across as a
-    crash.
-
-    What is a *label* fact and what is a *filesystem* fact are kept apart on
-    purpose: the path is reported as recorded, and whether it still exists is
-    added separately by :func:`_path_liveness_note`. The remedy then branches on
-    that (:func:`_foreign_remedies`), because "go and reset it over there" is
-    wrong advice for a directory that is no longer on the host.
-    """
-    inventory = [
-        f"  {resource.kind} {resource.name}  — {resource.describe_origin()}"
-        f"{_path_liveness_note(resource.recorded_path)}"
-        for resource in foreign
-    ]
-    return ForeignCheckoutError(
-        project=project,
-        identity=identity,
-        resources=foreign,
-        cause=_foreign_cause(project, identity, foreign),
-        remedy=_foreign_remedy(foreign),
-        inventory=inventory,
-    )
-
-
-def _distinct(values: Iterable[str]) -> list[str]:
-    """``values`` without repeats, in first-seen order."""
-    seen: dict[str, None] = {}
-    for value in values:
-        seen.setdefault(value, None)
-    return list(seen)
-
-
-def _foreign_cause(project: str, identity: str, foreign: Sequence[Resource]) -> str:
-    """Why this refused, in the order the reader needs it.
-
-    Every path is listed once rather than once per resource. Fifteen containers
-    of one deployment record one directory between them, and printing it fifteen
-    times says nothing the first line did not while burying what follows.
-
-    Wrapped here rather than left to the renderer:
-    :func:`osprey.cli.output.fail` prints each cause line as given, on the rule
-    that a caller passes lines already the shape it wants them. So this is where
-    the shape is decided.
-    """
-    recorded = _distinct(path for resource in foreign if (path := resource.recorded_path))
-    theirs = _distinct(repo_id for resource in foreign if (repo_id := resource.repo_id))
-    ids = f"{identity} here" + (f", {', '.join(theirs)} on those" if theirs else "")
-
-    lines = _wrap(
-        f"{len(foreign)} container(s) and volume(s) are named {project!r}, but they were "
-        "created from a different copy of this repo:"
-    )
-    lines.append("")
-    if recorded:
-        lines += [f"    {path}  ({_path_state(path)})" for path in recorded]
-    else:
-        lines += _wrap(
-            "the path is unknown: none of them carries a label recording it, and a repo path "
-            "cannot be derived back out of the identity hash",
-            indent="    ",
-        )
-    lines.append("")
-    lines += _wrap(
-        "Compose names a project after its directory, so a second clone, a worktree, or a "
-        "directory you renamed or moved claims the same name as the first, and would share "
-        f"its volumes. The repo ids say they are not the same repo ({ids}). Removing them "
-        "from here would mean taking resources this repo cannot prove are its own, which is "
-        "what keeps one checkout from destroying another's, so it stopped."
-    )
-    lines.append("")
-    lines += _wrap(
-        "If you renamed or moved this directory, these are your own resources under its old "
-        "path. Reset still will not take them: from here they cannot be told apart from a "
-        "colleague's."
-    )
-    lines += ["", "Nothing has been stopped, removed, or written."]
-    return "\n".join(lines)
-
-
-#: Where the refusal's prose wraps. Narrow enough that the renderer's indent
-#: still leaves it inside a default terminal, since nothing downstream will
-#: re-wrap it.
-_WRAP_WIDTH = 88
-
-
-def _wrap(paragraph: str, *, indent: str = "") -> list[str]:
-    """``paragraph`` as terminal-width lines, each carrying ``indent``."""
-    return textwrap.wrap(
-        paragraph,
-        width=_WRAP_WIDTH,
-        initial_indent=indent,
-        subsequent_indent=indent,
-        break_long_words=False,
-        break_on_hyphens=False,
-    )
-
-
-def _path_state(path: str) -> str:
-    """Whether ``path`` is on this host now, as the filesystem answers it."""
-    return "still on disk" if Path(path).is_dir() else "no such directory on this host now"
-
-
-def _foreign_remedy(foreign: Sequence[Resource]) -> str:
-    """The way out, branched on what the refusal actually knows.
-
-    Three states, because the honest advice differs and one line covering all of
-    them would be wrong in two: a recorded path that still exists can be reset
-    from; one that no longer exists cannot, and naming it as a remedy would send
-    the operator to a directory that is not there; and with no path recorded at
-    all there is nowhere to send them, which has to be said rather than papered
-    over with generic advice.
-    """
-    recorded = [path for resource in foreign if (path := resource.recorded_path)]
-    live = [path for path in recorded if Path(path).is_dir()]
-
-    if live:
-        return f"reset that deployment where it lives: `osprey reset --repo {live[0]}`"
-    if recorded:
-        return (
-            "these are leftovers from a deployment whose repo is gone, and the identity they "
-            "carry is tied to that path rather than to this one, so check them and remove "
-            "them by hand"
-        )
-    return (
-        "this refusal cannot point you at the repo they came from; run `osprey reset` there "
-        "if you know which one it is, and otherwise inspect them and remove them by hand"
-    )
-
-
-def _path_liveness_note(path: str | None) -> str:
-    """What the filesystem adds to a recorded path — nothing, when there is none.
-
-    Separate from :meth:`Resource.describe_origin` on purpose: that method
-    reports what the labels say, and this reports what is on disk *now*. Keeping
-    them apart is what lets the refusal state a recorded path and its current
-    absence as two different kinds of fact, rather than one blurred claim.
-    """
-    if path is None:
-        return ""
-    return "" if Path(path).is_dir() else "  (no such directory on this host now)"
 
 
 # ---------------------------------------------------------------------------

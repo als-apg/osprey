@@ -59,13 +59,20 @@ def qmd(
 
     async def _run() -> list[CheckResult]:
         from osprey.deployment.compose_generator import _resolve_qmd_corpora
-        from osprey.deployment.qmd_service import resolve_qmd_service_config
+        from osprey.deployment.qmd_service import (
+            resolve_qmd_corpus_config,
+            resolve_qmd_service_config,
+        )
 
         try:
-            resolved = resolve_qmd_service_config(cfg)
-            if resolved is None:
+            if resolve_qmd_service_config(cfg) is None:
                 return []
-            corpora = [corpus["collection"] for corpus in _resolve_qmd_corpora(dict(cfg), None)]
+            # Through the clients' own resolver, so a probe run inside a
+            # container dials the address that container's clients dial.
+            sidecars = [
+                (corpus["collection"], resolve_qmd_corpus_config(cfg, corpus["collection"]))
+                for corpus in _resolve_qmd_corpora(dict(cfg), None)
+            ]
         except ValueError as exc:
             return [
                 CheckResult(
@@ -77,7 +84,7 @@ def qmd(
                 )
             ]
         rows = await asyncio.gather(
-            *(asyncio.to_thread(_probe, name, resolved.for_corpus(name)) for name in corpora)
+            *(asyncio.to_thread(_probe, name, settings) for name, settings in sidecars)
         )
         return list(rows)
 

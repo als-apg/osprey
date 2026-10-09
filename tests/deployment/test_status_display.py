@@ -143,8 +143,8 @@ def test_per_user_section_reports_running_and_present(runtime_calls, rendered):
     claude_vol_bob, agent_vol_bob = status_display.resolve_user_volume_names(config, "bob")
 
     runtime_calls["ps_stdout"] = _ps_stdout(
-        _ps_container("dls-web-alice", "running"),
-        _ps_container("dls-web-bob", "exited"),
+        _ps_container("demo-project-web-alice", "running"),
+        _ps_container("demo-project-web-bob", "exited"),
     )
     runtime_calls["volume_stdout"] = "\n".join(
         [claude_vol_alice, agent_vol_alice]  # bob's volumes absent
@@ -217,7 +217,7 @@ def test_per_user_section_handles_object_form_users(runtime_calls, rendered):
     config = _base_config(users=[{"name": "dana", "index": 0}])
     _register_config("cfg.yml", config)
 
-    runtime_calls["ps_stdout"] = _ps_stdout(_ps_container("dls-web-dana", "running"))
+    runtime_calls["ps_stdout"] = _ps_stdout(_ps_container("demo-project-web-dana", "running"))
     claude_vol, agent_vol = status_display.resolve_user_volume_names(config, "dana")
     runtime_calls["volume_stdout"] = "\n".join([claude_vol, agent_vol])
 
@@ -261,7 +261,9 @@ def test_table_cells_carry_no_markup_tags(runtime_calls, rendered):
     _register_config("cfg.yml", config)
 
     runtime_calls["ps_stdout"] = _ps_stdout(
-        _ps_container("dls-web-alice", "running", labels={"osprey.project.name": "demo-project"})
+        _ps_container(
+            "demo-project-web-alice", "running", labels={"osprey.project.name": "demo-project"}
+        )
     )
     runtime_calls["volume_stdout"] = ""
 

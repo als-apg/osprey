@@ -7,11 +7,12 @@ producer of those four labels: a template that spelled one again would be a
 second producer, and nothing would show that a template omitting them still
 comes up labelled.
 
-Two labels stay the template's own. The checkout label on every named volume,
-because the override labels services, not volumes, and ``osprey reset`` needs it
-before it removes one. And the env digest, on exactly the services that read the
-env chain, because carrying it anywhere else would recreate a service on every
-``.env`` edit.
+One label stays the template's own: the env digest, on exactly the services
+that read the env chain, because carrying it anywhere else would recreate a
+service on every ``.env`` edit. No named volume carries the checkout label:
+volumes belong to the project by name, and a volume whose label differed from
+the one compose expected is what made a second checkout's ``up`` ask to
+recreate it.
 
 Read at source level rather than off the goldens, so the branches no golden
 scenario renders (more bluesky lanes, more VA instances, more dispatch workers)
@@ -91,37 +92,31 @@ def test_no_service_template_writes_a_generated_label() -> None:
     )
 
 
-def test_every_named_volume_in_a_service_template_keeps_the_checkout_label() -> None:
-    """Every labelled named volume carries the checkout label ``osprey reset`` reads."""
-    missing = []
-    labelled = 0
-    for path in _service_templates():
-        volume = None
-        in_labels = False
-        carries = True
-        for number, section, indent, key in _keyed_lines(path):
-            if section != "volumes":
-                continue
-            if indent == 2:
-                if in_labels and not carries:
-                    missing.append(f"{path.parent.name}: {volume}")
-                volume, in_labels, carries = f"{key} (line {number})", False, True
-            elif indent == 4:
-                if in_labels and not carries:
-                    missing.append(f"{path.parent.name}: {volume}")
-                in_labels = key == "labels"
-                carries = not in_labels
-            elif in_labels and key == REPO_ID_LABEL:
-                carries = True
-                labelled += 1
-        if in_labels and not carries:
-            missing.append(f"{path.parent.name}: {volume}")
+def test_no_named_volume_in_a_service_template_carries_the_checkout_label() -> None:
+    """Volumes belong to the project by name; the checkout label is on containers only."""
+    hits = [
+        f"{path.parent.name}/{path.name}:{number}"
+        for path in _service_templates()
+        for number, section, _indent, key in _keyed_lines(path)
+        if section == "volumes" and key == REPO_ID_LABEL
+    ]
+    raw = [
+        path.parent.name
+        for path in _service_templates()
+        if REPO_ID_LABEL in path.read_text(encoding="utf-8")
+    ]
 
-    assert not missing, (
-        f"these named volumes have a labels block without {REPO_ID_LABEL}: {missing}. "
-        "The labels override does not reach volumes, so the template writes it."
-    )
-    assert labelled >= 15, f"only {labelled} named-volume checkout labels found"
+    assert not hits, f"these named volumes carry {REPO_ID_LABEL}: {hits}"
+    assert not raw, f"these service templates still spell {REPO_ID_LABEL}: {raw}"
+
+
+def test_services_still_get_the_checkout_label_from_the_override() -> None:
+    """Containers keep the label ``up`` and ``reset`` decide ownership by."""
+    from osprey.deployment.compose_generator import generated_label_entries
+
+    labels = generated_label_entries({"project_name": "p", "project_root": "/tmp"})
+
+    assert labels[REPO_ID_LABEL]
 
 
 def test_env_digest_stays_on_the_services_that_read_the_env_chain() -> None:

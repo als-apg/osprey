@@ -1419,7 +1419,7 @@ def test_a_real_build_leaves_no_runtime_state_in_the_output_zone(built_repo):
 
 
 def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):
-    """CC-1, as rendered: a literal on EVERY container and EVERY volume.
+    """CC-1, as rendered: a literal on EVERY container, and on NO volume.
 
     Read off the real render rather than the injection helper, because the
     thing that has to be true is that a verb reading these files back — ``down``
@@ -1427,10 +1427,11 @@ def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):
     — sees a value, not an unexpanded variable.
 
     Containers take the label from the build's generated labels override, which
-    names every rendered service; volumes take it from the templates, because
-    the override labels services only. So services are enumerated from the
-    rendered documents and looked up in the override, where a missing entry
-    reads as unlabelled, never as skipped.
+    names every rendered service. So services are enumerated from the rendered
+    documents and looked up in the override, where a missing entry reads as
+    unlabelled, never as skipped. Volumes belong to the compose project by
+    name, so a path-derived label on one would only tie its data to the
+    directory the checkout happened to live in; the templates write none.
 
     Enumerated from the rendered documents, never filtered by what already
     carries the label. A test that starts from the files containing
@@ -1451,7 +1452,7 @@ def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):
     override_services = override.get("services") or {}
 
     unlabelled_services: list[str] = []
-    unlabelled_volumes: list[str] = []
+    labelled_volumes: list[str] = []
     seen_services = 0
     seen_volumes = 0
 
@@ -1470,22 +1471,23 @@ def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):
         for name, definition in (document.get("volumes") or {}).items():
             seen_volumes += 1
             labels = definition.get("labels") or {} if isinstance(definition, dict) else {}
-            if labels.get(REPO_ID_LABEL) != identity:
-                unlabelled_volumes.append(f"{where}::{name}")
+            if REPO_ID_LABEL in labels:
+                labelled_volumes.append(f"{where}::{name}")
 
     assert seen_services, "the exemplar rendered no services to check"
     assert seen_volumes, "the exemplar rendered no named volumes to check"
     assert not unlabelled_services, f"containers without {REPO_ID_LABEL}: {unlabelled_services}"
-    assert not unlabelled_volumes, f"volumes without {REPO_ID_LABEL}: {unlabelled_volumes}"
+    assert not labelled_volumes, f"volumes carrying {REPO_ID_LABEL}: {labelled_volumes}"
 
 
-def test_the_web_stack_labels_every_container_and_volume_too(tmp_path):
+def test_the_web_stack_labels_every_container_and_no_volume_too(tmp_path):
     """The other half of the deployment, which the build does not render.
 
     ``osprey build`` renders the services stack; the web stack's compose file is
     written at start by the web-terminal path. Both are one deployment, so a
     verb reading labels back has to find them on both — and the web stack is
-    where the per-user containers and their durable volumes live.
+    where the per-user containers live. Its durable volumes follow the same
+    rule as the services stack: owned by the project name, no path label.
     """
     import yaml
 
@@ -1526,7 +1528,13 @@ def test_the_web_stack_labels_every_container_and_volume_too(tmp_path):
 
     unlabelled = [
         name
-        for name, definition in {**services, **volumes}.items()
+        for name, definition in services.items()
         if ((definition or {}).get("labels") or {}).get(REPO_ID_LABEL) != identity
     ]
-    assert not unlabelled, f"web-stack entries without {REPO_ID_LABEL}: {unlabelled}"
+    assert not unlabelled, f"web-stack containers without {REPO_ID_LABEL}: {unlabelled}"
+    labelled = [
+        name
+        for name, definition in volumes.items()
+        if REPO_ID_LABEL in ((definition or {}).get("labels") or {})
+    ]
+    assert not labelled, f"web-stack volumes carrying {REPO_ID_LABEL}: {labelled}"

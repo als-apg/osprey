@@ -51,7 +51,7 @@ _ANNOTATION_FRAGMENTS: dict[str, tuple[str, ...]] = {
 
 
 def _emit(preset: str) -> str:
-    return emit_standalone_profile_yaml(preset, (), "Emitted")
+    return emit_standalone_profile_yaml(preset, (), "Emitted", project_name="emitted")
 
 
 def _uncomment(line: str) -> str:

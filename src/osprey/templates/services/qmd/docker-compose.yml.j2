@@ -220,8 +220,6 @@ services:
 volumes:
 {%- for corpus in volumes %}
   {{ corpus.volume }}:
-    labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 {%- endfor %}
 {%- endif %}
 {# A deliberate blank line precedes the file-level stanza, so this call carries

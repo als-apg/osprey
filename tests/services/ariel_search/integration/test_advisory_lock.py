@@ -217,3 +217,34 @@ async def test_share_lock_lets_readers_through(probe_database) -> None:
                 await reader.execute("SET lock_timeout = '2s'")
                 cur = await reader.execute("SELECT count(*) FROM lock_probe")
                 assert (await cur.fetchone())[0] == 0
+
+
+async def test_try_advisory_lock_lets_go_before_its_connection_closes(
+    probe_database, monkeypatch
+) -> None:
+    """The next caller finds the lock free as soon as the body exits.
+
+    Closing a connection only asks its backend to exit; the server drops the
+    session's locks when that exit completes, after ``close()`` has returned.
+    The lock is checked from another session at the moment the lock connection
+    is closed, so a release left to the close alone is seen as still held.
+    """
+    from osprey.services.ariel_search.database.connection import try_advisory_lock
+
+    key = "ariel_enhance:probe"
+    free_at_close: list[bool] = []
+    real_close = psycopg.AsyncConnection.close
+
+    async def checked_close(self) -> None:
+        with psycopg.connect(probe_database, autocommit=True) as probe:
+            got = probe.execute(TRY_LOCK_SQL, {"key": key}).fetchone()[0]
+            if got:
+                probe.execute(UNLOCK_SQL, {"key": key})
+        free_at_close.append(bool(got))
+        await real_close(self)
+
+    monkeypatch.setattr(psycopg.AsyncConnection, "close", checked_close)
+    async with try_advisory_lock(probe_database, key) as held:
+        assert held is True
+
+    assert free_at_close == [True]

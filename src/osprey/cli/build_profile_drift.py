@@ -117,42 +117,12 @@ def _catalog_note(root_dir: Path) -> str | None:
 
 
 # Top-level keys `osprey init` writes for the repo rather than copies from the
-# preset: the display name, the materialized data tree, the schema floor, and
-# the provenance stamp itself — whose hash difference is the note, not a finding.
+# preset: the display name, the deployment's own name, the materialized data
+# tree, the schema floor, and the provenance stamp itself — whose hash
+# difference is the note, not a finding.
 _MATERIALIZATION_KEYS: frozenset[str] = frozenset(
-    {"name", "data", "provenance", "requires_osprey_version"}
+    {"name", "project_name", "data", "provenance", "requires_osprey_version"}
 )
-
-# Where the persona catalog sits in a rendered config, and the two rows of
-# each entry that name the repo's own render rather than anything the preset
-# carries: `osprey build` writes that render and `osprey up` mounts it, both
-# by the name the entry pins, and a shipped preset cannot spell either —
-# neither is knowable until a repo has a directory. `project_path`'s basename
-# must still equal `project`, which the web-stack lint enforces.
-_PERSONA_CATALOG_PATH: tuple[str, ...] = ("config", "modules", "web_terminals", "personas")
-_RENDER_NAME_KEYS: frozenset[str] = frozenset({"project", "project_path"})
-
-
-def _is_render_name(path: tuple[str, ...]) -> bool:
-    """Whether *path* addresses one persona entry's render name.
-
-    Matched on the whole path rather than on the leaf, so the skip reaches
-    exactly the two rows of a catalog entry and nothing else a config happens
-    to spell the same way.
-
-    Args:
-        path: A key path into the compared document, ``config`` first.
-
-    Returns:
-        ``True`` for ``config.modules.web_terminals.personas.<persona>.project``
-        and its ``project_path`` sibling.
-    """
-    depth = len(_PERSONA_CATALOG_PATH)
-    return (
-        len(path) == depth + 2
-        and path[:depth] == _PERSONA_CATALOG_PATH
-        and path[-1] in _RENDER_NAME_KEYS
-    )
 
 
 @dataclass(frozen=True)
@@ -290,11 +260,12 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance) -> Dr
     preset_raw, preset_path = _load_preset_raw(preset)
     chain: list[Path] = []
     preset_resolved = _resolve_extends(preset_raw, preset_path, chain)
-    # The repo name reaches this reference only through the persona catalog's
-    # render names, which the comparison does not read, so the findings are a
-    # function of the tracked documents alone.
+    # The two names are copied from the profile itself, so neither ever reads as
+    # a difference and the findings are a function of the tracked documents alone.
     expected = materialized_profile(
-        preset, repo_name=root_dir.name, profile_name=str(profile.get("name", ""))
+        preset,
+        project_name=str(profile.get("project_name") or ""),
+        profile_name=str(profile.get("name", "")),
     )
     tag = provenance.deviation_marker
 
@@ -414,8 +385,6 @@ class _Comparison:
         if isinstance(actual, Mapping) and isinstance(expected, Mapping):
             for key in sorted(set(actual) | set(expected), key=str):
                 sub = (*path, str(key))
-                if _is_render_name(sub):
-                    continue
                 if key not in expected:
                     self._extra(sub)
                 elif key not in actual:
@@ -630,10 +599,11 @@ def lacking_config_keys(profile_raw: Mapping[str, Any], preset: str) -> list[str
         BuildProfileError: When the preset is unknown or will not emit.
     """
     name = str(profile_raw.get("name", ""))
-    # Only which keys the reference carries is read here, never their values,
-    # so the repo name the persona catalog derives from cannot reach the answer.
+    # Only which keys the reference carries is read here, never their values.
     expected = materialized_profile(
-        _normalize_preset_name(preset), repo_name=name or preset, profile_name=name
+        _normalize_preset_name(preset),
+        project_name=str(profile_raw.get("project_name") or ""),
+        profile_name=name,
     )
     # Flattening each side to its dotted leaves normalizes every spelling at
     # once, which nesting the dots does not: a mapping only ever splits the

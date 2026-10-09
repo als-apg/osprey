@@ -311,11 +311,11 @@ def _mongodb_archiver_connector(
 
 
 def _simulation_archiver_store(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
-    """``simulation.apply.archiver_store_config`` dials the store it publishes."""
-    from osprey.simulation.apply import archiver_store_config
+    """``simulation.apply.archiver_store_connection`` dials the store it publishes."""
+    from osprey.simulation.apply import archiver_store_connection
 
     config = {**CONFIG, "archiver": {"mongodb_archiver": {"host": "localhost"}}}
-    store = archiver_store_config(config, tmp_path)
+    store = archiver_store_connection(config, tmp_path)
     assert store is not None
     return store["port"], default_port("mongo", base=PORT_BASE)
 
@@ -586,7 +586,7 @@ CASES: tuple[Case, ...] = (
         _mongodb_archiver_connector,
     ),
     Case(
-        "simulation.apply.archiver_store_config",
+        "simulation.apply.archiver_store_connection",
         "the config it is handed",
         _simulation_archiver_store,
         ("mongo",),

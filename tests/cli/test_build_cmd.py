@@ -1969,6 +1969,7 @@ def _tier_repo(tmp_path: Path, paradigm: str, tier: int | None = None) -> Path:
     repo.mkdir(parents=True, exist_ok=True)
     profile_data: dict = {
         "name": "Tier Test",
+        "project_name": "tier-test",
         "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
@@ -2277,6 +2278,7 @@ def test_build_channel_finder_agent_requires_mode(tmp_path: Path, caplog) -> Non
 
     profile_data = {
         "name": "no mode",
+        "project_name": "no-mode",
         "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",

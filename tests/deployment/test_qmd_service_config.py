@@ -19,6 +19,8 @@ from osprey.deployment.qmd_service import (
     PORT_CONFIG_KEY,
     DeclaredCorpus,
     QMDServiceConfig,
+    corpus_service_name,
+    corpus_url_env,
     preflight_qmd_corpora,
     preflight_qmd_models_dir,
     resolve_bind_address,
@@ -419,3 +421,90 @@ class TestCorporaPreflight:
         (tmp_path / "idx" / ".qmd").mkdir(parents=True)
         (tmp_path / "idx" / ".qmd" / "index.sqlite").write_bytes(b"x")
         preflight_qmd_corpora(self._config(index="prebuilt", index_dir="idx"), tmp_path)
+
+
+class TestInNetworkDial:
+    """A client inside the compose network dials the sidecar by its service name.
+
+    The ``services.qmd`` block only knows where the sidecar is PUBLISHED, which
+    from inside a bridge-networked container is that container's own loopback.
+    The render hands such a container the in-network URL under
+    :func:`corpus_url_env`, and the corpus resolver honours it.
+    """
+
+    BLOCK = {"services": {"qmd": {"port": 9000, "corpora": [{"name": "papers", "source": "./p"}]}}}
+
+    def test_service_name_and_env_name_derive_from_the_corpus(self) -> None:
+        assert corpus_service_name("ariel") == "qmd-ariel"
+        assert corpus_url_env("ariel") == "OSPREY_QMD_ARIEL_URL"
+        assert corpus_url_env("site_docs") == "OSPREY_QMD_SITE_DOCS_URL"
+
+    def test_without_an_override_the_host_address_is_dialled(self) -> None:
+        resolved = resolve_qmd_corpus_config(self.BLOCK, "ariel", env={})
+        assert resolved is not None
+        assert resolved.dial_url is None
+        assert resolved.base_url == "http://127.0.0.1:9001"
+
+    def test_the_override_names_the_url_dialled(self) -> None:
+        env = {"OSPREY_QMD_ARIEL_URL": "http://qmd-ariel:9001"}
+        resolved = resolve_qmd_corpus_config(self.BLOCK, "ariel", env=env)
+        assert resolved is not None
+        assert resolved.base_url == "http://qmd-ariel:9001"
+        # The published port is still the deployment's fact; only the dial moves.
+        assert resolved.port == 9001
+
+    def test_the_override_is_per_corpus(self) -> None:
+        env = {"OSPREY_QMD_ARIEL_URL": "http://qmd-ariel:9001"}
+        assert resolve_qmd_corpus_config(self.BLOCK, "okf", env=env).base_url == (
+            "http://127.0.0.1:9000"
+        )
+        assert resolve_qmd_corpus_config(self.BLOCK, "papers", env=env).base_url == (
+            "http://127.0.0.1:9002"
+        )
+
+    @pytest.mark.parametrize("value", ["", "   "])
+    def test_an_empty_override_is_no_override(self, value: str) -> None:
+        resolved = resolve_qmd_corpus_config(
+            self.BLOCK, "ariel", env={"OSPREY_QMD_ARIEL_URL": value}
+        )
+        assert resolved.base_url == "http://127.0.0.1:9001"
+
+    def test_a_trailing_slash_is_dropped(self) -> None:
+        env = {"OSPREY_QMD_ARIEL_URL": "http://qmd-ariel:9001/"}
+        assert resolve_qmd_corpus_config(self.BLOCK, "ariel", env=env).base_url == (
+            "http://qmd-ariel:9001"
+        )
+
+    def test_the_process_environment_is_the_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OSPREY_QMD_OKF_URL", "http://qmd-okf:9000")
+        assert resolve_qmd_corpus_config(self.BLOCK, "okf").base_url == "http://qmd-okf:9000"
+
+    def test_an_override_without_a_block_still_resolves_to_none(self) -> None:
+        # No block means no sidecar this deployment knows; a stray variable does
+        # not conjure one.
+        assert (
+            resolve_qmd_corpus_config({}, "okf", env={"OSPREY_QMD_OKF_URL": "http://x:1"}) is None
+        )
+
+    def test_another_corpus_never_inherits_a_dial_url(self) -> None:
+        env = {"OSPREY_QMD_ARIEL_URL": "http://qmd-ariel:9001"}
+        ariel = resolve_qmd_corpus_config(self.BLOCK, "ariel", env=env)
+        assert ariel.dial_url == "http://qmd-ariel:9001"
+        assert ariel.for_corpus("okf").dial_url is None
+
+    def test_the_render_hands_each_sidecar_its_in_network_url(self, tmp_path: Path) -> None:
+        from osprey.deployment.compose_generator import _resolve_qmd_render_context
+
+        config = {
+            **self.BLOCK,
+            "facility_knowledge": {"bundle_path": "./okf"},
+        }
+        context = _resolve_qmd_render_context(config, str(tmp_path))
+        assert [c["service"] for c in context["corpora"]] == [
+            corpus_service_name("okf"),
+            corpus_service_name("papers"),
+        ]
+        assert context["network_env"] == {
+            "OSPREY_QMD_OKF_URL": "http://qmd-okf:9000",
+            "OSPREY_QMD_PAPERS_URL": "http://qmd-papers:9002",
+        }
