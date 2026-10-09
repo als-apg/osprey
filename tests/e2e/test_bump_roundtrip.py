@@ -471,14 +471,14 @@ def _horizontal_devices(repo: Path) -> tuple[list[str], list[str]]:
     refuses, before any bump is solved.
 
     Which plane a device belongs to is read off the deployed tree's own
-    simulator view: a corrector's wiring names the ``KickAngle`` component it
-    writes, and a monitor's wiring names the transverse axis it reads. Both
+    simulator view: a corrector's binding states its plane, and a monitor's
+    binding states the transverse plane it reads. Both
     lists come from ``select_correctors``/``select_bpms``, so they are the
     staged view's devices in address order.
     """
     view = _orm_stack.repo_view(repo)
-    kicks = _orm_stack.corrector_addresses(view, index=_orm_stack.KICK_HORIZONTAL)
-    monitors = _orm_stack.monitor_addresses(view, axis=_orm_stack.MONITOR_X)
+    kicks = _orm_stack.corrector_addresses(view, plane="x")
+    monitors = _orm_stack.monitor_addresses(view, plane="x")
     correctors = [
         address for address in _orm_stack.select_correctors(repo, count=None) if address in kicks
     ]
