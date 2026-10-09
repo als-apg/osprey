@@ -379,8 +379,9 @@ def test_limits_name_the_retry_and_the_refresh() -> None:
 
 def test_guide_states_the_entry_open_picture_rule() -> None:
     assert (
-        "When the conversation is about one of the entry's pictures, the agent passes that "
-        'picture\'s ``attachment_id`` too, even when the operator asks only for "the entry".'
+        "``attachment_id`` is required and may be null: whenever the conversation holds the id "
+        "of one of the entry's pictures, the agent passes it, even when the operator asks only "
+        'for "the entry".'
     ) in _flat(_text(_GUIDE))
 
 
