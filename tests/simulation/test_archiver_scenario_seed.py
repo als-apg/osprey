@@ -746,7 +746,7 @@ class TestComposedEvents:
 
     def test_a_render_without_a_simulator_view_is_refused_by_name(self, tmp_path):
         root = _write_project(tmp_path / "proj", None, password=None)
-        (root / "data" / "simulator" / "scenarios.json").unlink()
+        (root / "data" / "simulator" / "addresses.json").unlink()
 
         with pytest.raises(ValueError, match="No simulator view in .*simulator"):
             active_archiver_events(root, ["nominal"])
