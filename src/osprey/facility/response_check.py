@@ -61,6 +61,7 @@ The engine is imported inside the function that solves.
 
 from __future__ import annotations
 
+import functools
 import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
@@ -68,7 +69,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import IO, Any
 
-from osprey.facility.layers.mml.decks import KICK
 from osprey.facility.layers.mml.mapping import (
     LAYER_DIR,
     MAPPING_FILE,
@@ -124,10 +124,6 @@ MEASURED_SIGN = 0.95
 
 #: File-name suffix of a model's kept response export under the layer.
 RESPONSE_SUFFIX = ".response.json"
-
-#: The two transverse planes and the orbit coordinate each one is read at.
-_COORDINATE = {"x": 0, "y": 2}
-
 
 # -- the figures -------------------------------------------------------------
 
@@ -680,11 +676,7 @@ def _family_records(
         channel["id"]: (channel.get("on") or {}).get("device")
         for channel in document.get("channels", [])
     }
-    words = {
-        key: getattr(engine, key)
-        for key in ("attribute", "index", "axis")
-        if getattr(engine, key) is not None
-    }
+    words = engine.words()
     found: dict[tuple[int, ...], list[Mapping[str, Any]]] = {}
     for record in model.get("wiring", []):
         device = on_device.get(record.get("address"))
@@ -696,18 +688,17 @@ def _family_records(
     return {key: records[0] for key, records in found.items() if len(records) == 1}
 
 
-def _plane(engine: Any) -> str | None:
-    """The transverse plane a family's engine words work in."""
-    if engine is None:
-        return None
-    if engine.axis in _COORDINATE:
-        return str(engine.axis)
-    if engine.attribute == KICK:
-        return {0: "x", 1: "y"}.get(engine.index)
-    return None
-
-
 # -- the model ---------------------------------------------------------------
+
+
+@functools.cache
+def _engine(name: str) -> Any:
+    """The simulation engine registered as ``name``."""
+    from importlib import metadata
+
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+
+    return metadata.entry_points(group=ENTRY_POINT_GROUP)[name].load()
 
 
 def _physics_span(record: Mapping[str, Any], held: float, width: float) -> float:
@@ -814,9 +805,17 @@ def compare(
             return {}
         return _family_records(document, model, mapping.mapped(family), wired.engine, direction)
 
-    def plane(family: str) -> str | None:
+    def plane(family: str, direction: str) -> str | None:
+        """The transverse plane the model's engine says a family's records work in."""
         wired = wiring.get(family)
-        return None if wired is None else _plane(wired.engine)
+        if wired is None or wired.engine is None:
+            return None
+        record = {"element": family, "direction": direction, "engine": wired.engine.words()}
+        try:
+            stated: str | None = _engine(str(model["engine"])).describe(record)["plane"]
+        except ValueError:
+            return None
+        return stated
 
     swept: dict[tuple[str, float], dict[str, float] | None] = {}
 
@@ -837,7 +836,8 @@ def compare(
     for block in blocks:
         monitor_family = _word(_side(block, "monitor").get("family"))
         actuator_family = _word(_side(block, "actuator").get("family"))
-        monitor_plane, actuator_plane = plane(monitor_family), plane(actuator_family)
+        monitor_plane = plane(monitor_family, "read")
+        actuator_plane = plane(actuator_family, "write")
         entries: list[Entry] = []
         rows, left_rows = _kept_rows(block, "monitor", records(monitor_family, "read"))
         columns, left_columns = _kept_rows(block, "actuator", records(actuator_family, "write"))

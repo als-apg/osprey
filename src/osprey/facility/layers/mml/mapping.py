@@ -267,6 +267,11 @@ class EngineBlock:
     axis: str | None = None
     index_open: bool = False
 
+    def words(self) -> dict[str, Any]:
+        """The block as a wiring record's ``engine``: its stated attribute, index and axis."""
+        stated = {"attribute": self.attribute, "index": self.index, "axis": self.axis}
+        return {key: value for key, value in stated.items() if value is not None}
+
 
 @dataclass(frozen=True)
 class WiringFamily:
