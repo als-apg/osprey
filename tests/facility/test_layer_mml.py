@@ -344,7 +344,7 @@ def test_two_exports_merged_state_no_id_twice(nsls2: Path) -> None:
 
 
 def test_the_storage_model_gives_disjoint_corrector_candidates_per_plane(nsls2: Path) -> None:
-    from osprey.simulation.engines.pyat import plane
+    from osprey.simulation.engines.pyat import describe
 
     ao = json.loads((FIXTURES / "nsls2" / "nsls2.storagering.ao.json").read_text(encoding="utf-8"))
     document = _combined(nsls2).document
@@ -352,7 +352,7 @@ def test_the_storage_model_gives_disjoint_corrector_candidates_per_plane(nsls2: 
     model = _by(document["models"], "name")["StorageRing"]
     candidates: dict[str, set[str]] = {"x": set(), "y": set()}
     for record in model["wiring"]:
-        found = plane(record)
+        found = describe(record)["plane"]
         if found is not None and record["address"] in setpoints:
             candidates[found].add(record["address"])
 

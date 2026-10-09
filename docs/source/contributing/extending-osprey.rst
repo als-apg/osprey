@@ -271,6 +271,17 @@ What a plug-in is given and asked for:
   ``pyproject.toml``, under the name a model record's ``engine`` gives. The
   composite looks it up with ``metadata.entry_points(group=ENGINE_GROUP,
   name=...)``; an engine no package registers fails that model.
+- **Build-time contract.** ``osprey build`` calls four pure functions of the
+  module, none of which builds a model: ``locate`` gives an element's place
+  along the deck, ``prepare`` checks the deck against the model's settings,
+  ``start_values`` derives each wired channel's operating point from the deck,
+  and ``describe(record)`` says what one wiring record is. ``describe``
+  returns ``{role, plane, refresh}``: ``role`` is ``setpoint``, ``readback``,
+  ``monitor`` or ``output``; ``plane`` is ``x`` or ``y`` for a record that
+  steers or reads one transverse plane, else ``None``; ``refresh`` is
+  ``pass`` for a value each write's solve updates, or ``periodic`` for one
+  only the periodic solve publishes. The build stamps the description into each wiring record
+  of the simulator view, so no reader re-derives it from engine attributes.
 - **Build.** The composite calls the module's
   ``build(model, wiring, deck, settings, active=...)`` once per served model.
   ``wiring`` is the model's wiring records from the simulator view's

@@ -8,7 +8,8 @@ These functions read a deck -- a lattice file pyAT loads with
   and normalises that block once;
 * :func:`start_values` derives each wired channel's operating point from the
   deck;
-* :func:`plane` says which transverse plane a wiring record drives;
+* :func:`describe` says what a wiring record is: its role, the transverse
+  plane it steers or reads, and how often it refreshes;
 * :func:`build` builds the LUME model that serves the wiring;
 * :func:`response_matrix` steps wired correctors and returns the orbit
   response at the wired monitors;
@@ -37,7 +38,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines.calibration import NoInverse, curve_from_record, field, to_hardware
@@ -53,8 +54,8 @@ __all__ = [
     "build",
     "error_text",
     "fault_variables",
+    "describe",
     "locate",
-    "plane",
     "prepare",
     "readout",
     "response_matrix",
@@ -92,6 +93,9 @@ OPTICS_ATTRIBUTES: dict[str, str] = {"tune": "tunes", "chromaticity": "chromatic
 
 #: The ``axis`` words an optics record may name, each with the plane it reads.
 OPTICS_AXES: dict[str, int] = {"x": 0, "y": 1}
+
+#: The plane each ``index`` 0 and 1 names, for a kick and for an optics output.
+_INDEX_PLANES: dict[int, str] = {0: "x", 1: "y"}
 
 Deck = str | os.PathLike[str]
 
@@ -619,24 +623,81 @@ def _check_whole_output(record: Any, shape: Iterable[int], deck: Deck, planes: i
     )
 
 
-def plane(wiring_record: Any) -> Literal["x", "y"] | None:
-    """Say which transverse plane a wiring record drives.
+def describe(wiring_record: Any) -> Mapping[str, Any]:
+    """Say what a wiring record is, in words that name no engine attribute.
+
+    The description reads the record alone, never the deck:
+
+    * ``direction: write`` is a ``setpoint``;
+    * a read naming an element (or slices) with an engine ``axis`` and no
+      ``attribute`` is a ``monitor``, its plane the axis;
+    * a read naming an element (or slices) and an engine ``attribute`` is a
+      ``readback``;
+    * a read naming no element is a ``readback`` of a deck property such as
+      ``energy``, else an ``output`` of the tunes or the chromaticity, its
+      plane the ``axis``, else the ``index`` (0 is ``x``, 1 is ``y``); a
+      whole-output waveform has no plane.
+
+    A setpoint or readback has a plane only when it steers one: ``KickAngle``
+    index 0 is ``x`` and index 1 is ``y``. A chromaticity output refreshes
+    ``periodic``, published by the periodic solve alone; every other record
+    refreshes ``pass``, with each write's solve.
 
     Args:
-        wiring_record: One wiring record.
+        wiring_record: One wiring record, read by key or by attribute.
 
     Returns:
-        ``x`` for ``KickAngle`` index 0 or ``PolynomB`` index 0, ``y`` for
-        ``KickAngle`` index 1 or ``PolynomA`` index 0, else ``None``.
+        ``{role, plane, refresh}``: ``role`` one of ``setpoint``,
+        ``readback``, ``monitor``, ``output``; ``plane`` ``x``, ``y`` or
+        ``None``; ``refresh`` ``pass`` or ``periodic``.
+
+    Raises:
+        ValueError: naming the record's address, for a record none of the
+            rules describes.
     """
     block = field(wiring_record, "engine")
     attribute = field(block, "attribute")
-    index = field(block, "index")
-    if attribute == "KickAngle":
-        return {0: "x", 1: "y"}.get(index)  # type: ignore[return-value]
-    if index == 0:
-        return {"PolynomB": "x", "PolynomA": "y"}.get(attribute)  # type: ignore[return-value]
-    return None
+    if field(wiring_record, "direction") == "write":
+        return _description("setpoint", _steered_plane(block))
+    if _names_element(wiring_record):
+        if _is_monitor_reading(wiring_record):
+            axis = field(block, "axis")
+            return _description("monitor", axis if axis in OPTICS_AXES else None)
+        if attribute is not None:
+            return _description("readback", _steered_plane(block))
+    elif attribute in DECK_PROPERTIES:
+        return _description("readback", None)
+    elif attribute in OPTICS_ATTRIBUTES:
+        refresh = "periodic" if OPTICS_ATTRIBUTES[attribute] == "chromaticity" else "pass"
+        return _description("output", _output_plane(block), refresh)
+    raise ValueError(
+        f"{field(wiring_record, 'address')} is no setpoint, monitor, readback or optics output"
+    )
+
+
+def _description(role: str, plane: str | None, refresh: str = "pass") -> Mapping[str, Any]:
+    return {"role": role, "plane": plane, "refresh": refresh}
+
+
+def _steered_plane(block: Any) -> str | None:
+    """The transverse plane a kick steers: ``KickAngle`` index 0 ``x``, 1 ``y``."""
+    if field(block, "attribute") != "KickAngle":
+        return None
+    return _index_plane(field(block, "index"))
+
+
+def _output_plane(block: Any) -> str | None:
+    """The plane an optics output reads: its axis, else its index; none for the whole output."""
+    axis = field(block, "axis")
+    if axis is not None:
+        return axis if axis in OPTICS_AXES else None
+    return _index_plane(field(block, "index"))
+
+
+def _index_plane(index: Any) -> str | None:
+    if isinstance(index, bool) or not isinstance(index, int):
+        return None
+    return _INDEX_PLANES.get(index)
 
 
 def _target(record: Mapping[str, Any]) -> tuple[Any, ...]:
