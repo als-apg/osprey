@@ -13,8 +13,8 @@
  * second click inside ARM_WINDOW_MS runs it. Because the arming lives here
  * rather than in either rendering, both show the same armed label.
  *
- * The button-enabled state and the lattice name are pushed in from the
- * dashboard state (see syncState), the model list from GET /api/models (see
+ * The button-enabled state and the selected model's name are pushed in from
+ * the dashboard state (see syncState), the model list from GET /api/models (see
  * syncModels) — this module reads no state of its own.
  */
 
@@ -46,6 +46,7 @@ export function createHeader(callbacks) {
   let armTimer = null;
   let latticeName = NO_LATTICE;
   let hasLattice = false;
+  let canVerify = false;
   /** @type {import('./models.js').ModelEntry[]} */
   let models = [];
 
@@ -91,7 +92,7 @@ export function createHeader(callbacks) {
         id: 'verify',
         label: 'Verify',
         title: 'Run DA + LMA verification',
-        disabled: !hasLattice,
+        disabled: !hasLattice || !canVerify,
         priority: 2,
       },
       {
@@ -171,15 +172,16 @@ export function createHeader(callbacks) {
   }
 
   /**
-   * Adopt the dashboard state the tile bar has to reflect: the loaded
-   * lattice's name and whether the actions apply at all. render.js paints
-   * the same facts onto the standalone bar.
+   * Adopt the dashboard state the tile bar has to reflect: the selected
+   * model's name, whether the actions apply at all, and whether Verify does.
+   * render.js paints the same facts onto the standalone bar.
    * @param {any} state - the /api/state payload
    */
   function syncState(state) {
-    const path = state?.base_lattice || '';
-    latticeName = path ? path.split('/').pop() || path : NO_LATTICE;
-    const nowHasLattice = !!path;
+    const selection = state?.selection;
+    const nowHasLattice = selection?.status === 'ready';
+    latticeName = selection?.model || NO_LATTICE;
+    canVerify = nowHasLattice && !!selection.capabilities?.verify;
     // Losing the lattice mid-arm would leave a confirm prompt for an action
     // that no longer applies.
     if (!nowHasLattice && armed) disarm();

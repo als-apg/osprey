@@ -74,6 +74,17 @@ describe('updateSummaryStats', () => {
     expect(qs(document, '#stat-chrom-y .stat-value').textContent).toBe('1.20');
   });
 
+  test('single-pass state blanks the tune chips', () => {
+    updateSummaryStats({ energy_gev: 1.9, tunes: [14.25, 8.18], chromaticity: [1.4, 1.2] });
+
+    updateSummaryStats({ energy_gev: 1.9, circumference_m: 30.0, beta_max: [8.0, 4.0] });
+
+    for (const chip of ['stat-nux', 'stat-nuy', 'stat-chrom-x', 'stat-chrom-y']) {
+      expect(qs(document, `#${chip} .stat-value`).textContent).toBe('—');
+    }
+    expect(qs(document, '#stat-energy .stat-value').textContent).toBe('1.90');
+  });
+
   test('a missing/NaN value falls back to the em-dash placeholder', () => {
     updateSummaryStats({ energy_gev: null });
     expect(qs(document, '#stat-energy .stat-value').textContent).toBe('—');
@@ -118,12 +129,12 @@ describe('figure-status primitives (LED / spinner / error)', () => {
   test('updateFigureStatuses drives LED + spinner + error per the state machine', () => {
     updateFigureStatuses({
       optics: { status: 'computing' },
-      da: { status: 'error', error: 'solver diverged' },
+      da: { status: 'failed', error: 'solver diverged' },
     });
     expect(byId('led-optics').dataset.status).toBe('computing');
     expect(document.querySelector('#plot-optics .figure-spinner')).not.toBeNull();
 
-    expect(byId('led-da').dataset.status).toBe('error');
+    expect(byId('led-da').dataset.status).toBe('failed');
     expect(document.querySelector('#plot-da .figure-spinner')).toBeNull();
     expect(document.querySelector('#plot-da .figure-error')).not.toBeNull();
   });
@@ -310,7 +321,7 @@ describe('createRenderer / updateSliders debounce', () => {
   test('renderState routes each already-ready figure through onFigureReady', () => {
     const renderer = createRenderer(FIGURE_NAMES, callbacks);
     renderer.renderState({
-      base_lattice: 'sr.lat',
+      selection: { model: 'SR', status: 'ready', capabilities: { verify: true } },
       summary: {},
       families: {},
       figures: {
@@ -320,6 +331,20 @@ describe('createRenderer / updateSliders debounce', () => {
     });
     expect(callbacks.onFigureReady).toHaveBeenCalledTimes(1);
     expect(callbacks.onFigureReady).toHaveBeenCalledWith('optics');
+  });
+
+  test('renderState names the selected model and follows its capabilities', () => {
+    const renderer = createRenderer(FIGURE_NAMES, callbacks);
+    renderer.renderState({
+      selection: { model: 'LINE', status: 'ready', capabilities: { verify: false } },
+      summary: {},
+      families: {},
+      figures: {},
+    });
+
+    expect(byId('lattice-name').textContent).toBe('LINE');
+    expect(/** @type {HTMLButtonElement} */ (byId('btn-verify')).disabled).toBe(true);
+    expect(/** @type {HTMLButtonElement} */ (byId('btn-refresh')).disabled).toBe(false);
   });
 
   test('renderState is a no-op on a null/undefined state', () => {

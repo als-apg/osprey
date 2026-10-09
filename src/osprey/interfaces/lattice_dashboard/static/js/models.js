@@ -5,10 +5,12 @@
  * bar's rendering of the same choice is a contributed menu (see header.js);
  * both label an entry the same way, through modelLabel().
  *
- * The figure panels the selected model cannot draw: a single-pass model
- * draws optics alone, and every other panel shows why in place of its plot.
- * Whether the build serves a model is a mark on its label only. The banner above the figures carries the state's
- * notice when the build gives the dashboard nothing to load.
+ * The figure panels the selected model cannot draw, as the server's
+ * selection.capabilities lists them: every other panel shows why in place of
+ * its plot. Whether the build serves a model is a mark on its label only.
+ * The banner above the figures carries the state's notice when the build
+ * gives the dashboard nothing to load, and says so when the selected model
+ * did not load.
  *
  * Uses the createElement()/textContent DOM style — no innerHTML with
  * interpolated data.
@@ -16,12 +18,6 @@
 
 /** The mark an unserved model carries wherever it is listed. */
 export const UNSERVED_LABEL = 'not served';
-
-/** The solve whose model draws optics alone. */
-const SINGLE_PASS = 'single_pass';
-
-/** The figures a single-pass model still draws. */
-const OPTICS_ONLY = ['optics'];
 
 /** Each panel's placeholder as the page first drew it, by figure name. */
 /** @type {Map<string, Node>} */
@@ -75,14 +71,18 @@ export function bindModelSelect(onSelect) {
 }
 
 /**
- * The figures the selected model of *state* cannot draw.
+ * The figures the selected model of *state* cannot draw: those its ready
+ * selection's capabilities leave out. A selection that is not ready hides
+ * nothing.
  * @param {any} state - the /api/state payload
  * @param {string[]} figureNames - the full figure catalog
  * @returns {string[]}
  */
 export function unavailableFigures(state, figureNames) {
-  if (state.solve !== SINGLE_PASS) return [];
-  return figureNames.filter((name) => !OPTICS_ONLY.includes(name));
+  const selection = state?.selection;
+  if (selection?.status !== 'ready') return [];
+  const drawn = selection.capabilities.figures;
+  return figureNames.filter((name) => !drawn.includes(name));
 }
 
 /**
@@ -135,6 +135,20 @@ export function syncAvailability(state, figureNames, fetchFigure) {
     if (!hidden.includes(name)) clearFigureUnavailable(name);
     else fetchFigure(name);
   }
+}
+
+/**
+ * The banner text for a state: the build's notice, else the selected model's
+ * load error, else null.
+ * @param {any} state - the /api/state body
+ * @returns {string | null}
+ */
+export function selectionNotice(state) {
+  if (state?.notice) return state.notice;
+  const selection = state?.selection;
+  if (selection?.status !== 'failed') return null;
+  const error = selection.error ?? 'unknown error';
+  return selection.model ? `${selection.model} did not load: ${error}` : `No model loaded: ${error}`;
 }
 
 /**

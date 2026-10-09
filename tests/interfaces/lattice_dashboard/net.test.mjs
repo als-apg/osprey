@@ -4,8 +4,9 @@
  * Pure logic guard, happy-dom environment (configured globally), fetch mocked:
  *   npx vitest run tests/interfaces/lattice_dashboard/net.test.mjs
  *
- * Covers apiFetch() success/error propagation and the handleSSEEvent()
- * dispatch table. Does NOT exercise createNetClient()'s connectSSE() —
+ * Covers apiFetch() success/error propagation, the handleSSEEvent()
+ * dispatch table, and how a figure fetch reads the figure route's bodies.
+ * Does NOT exercise createNetClient()'s connectSSE() —
  * the live EventSource wiring is covered by the browser load-smoke test
  * (tests/interfaces/test_load_smokes.py -m browser -k lattice).
  */
@@ -14,6 +15,7 @@ import { test, expect, vi, describe, afterEach } from 'vitest';
 
 import {
   apiFetch,
+  createNetClient,
   handleSSEEvent,
 } from '../../../src/osprey/interfaces/lattice_dashboard/static/js/net.js';
 
@@ -149,5 +151,57 @@ describe('handleSSEEvent dispatch table', () => {
     for (const fn of Object.values(handlers)) {
       expect(fn).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe('figure fetch', () => {
+  /** @param {any} body @param {number} status */
+  function stubFigure(body, status) {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: status < 400,
+      status,
+      json: () => Promise.resolve(body),
+      text: () => Promise.resolve(JSON.stringify(body)),
+    })));
+  }
+
+  function makeCallbacks() {
+    return {
+      onState: vi.fn(), onModels: vi.fn(), onParamSet: vi.fn(), onFigureData: vi.fn(),
+      onFigureUnavailable: vi.fn(), onFigureStatus: vi.fn(), onFigureReady: vi.fn(),
+      onFigureError: vi.fn(), onSettingsUpdated: vi.fn(), onBaselineSet: vi.fn(),
+    };
+  }
+
+  test('a ready body renders its figure', async () => {
+    const figure = { data: [], layout: {} };
+    stubFigure({ status: 'ready', key: 'k', figure }, 200);
+    const cb = makeCallbacks();
+
+    await createNetClient(cb).fetchAndRenderFigure('optics');
+
+    expect(cb.onFigureData).toHaveBeenCalledWith('optics', figure);
+  });
+
+  test('a stale 404 body sets the LED to stale', async () => {
+    stubFigure({ status: 'stale', key: 'k', error: null }, 404);
+    const cb = makeCallbacks();
+
+    await createNetClient(cb).fetchAndRenderFigure('optics');
+
+    expect(cb.onFigureStatus).toHaveBeenCalledWith('optics', 'stale');
+    expect(cb.onFigureData).not.toHaveBeenCalled();
+  });
+
+  test('a 409 body keeps the unavailable text', async () => {
+    stubFigure({ status: 'unavailable', reason: 'not available for a single-pass model' }, 409);
+    const cb = makeCallbacks();
+
+    await createNetClient(cb).fetchAndRenderFigure('da');
+
+    expect(cb.onFigureUnavailable).toHaveBeenCalledWith(
+      'da', 'not available for a single-pass model'
+    );
+    expect(cb.onFigureStatus).not.toHaveBeenCalled();
   });
 });
