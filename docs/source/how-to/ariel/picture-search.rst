@@ -31,10 +31,14 @@ Agent tools for pictures
 - ``entry_open`` shows an entry to the operator: it brings the ARIEL panel
   forward with the entry's detail card open, and with an ``attachment_id`` it
   also opens that picture enlarged. The main agent calls it itself, with the
-  entry id a logbook subagent reported. When the conversation is about one of
-  the entry's pictures, the agent passes that picture's ``attachment_id`` too,
-  even when the operator asks only for "the entry". The same view is a link,
-  ``#entry?id=<entry_id>&attachment=<attachment_id>``, on the ARIEL web page.
+  ids a logbook subagent reported: a subagent hands back the entry id and
+  ``attachment_id`` of every picture it viewed. ``attachment_id`` is required
+  and may be null: whenever the conversation holds the id of one of the
+  entry's pictures, the agent passes it, even when the operator asks only for
+  "the entry". Opened without one, the result lists the entry's viewable pictures, so the
+  agent can repeat the call with the picture under discussion. The same view
+  is a link, ``#entry?id=<entry_id>&attachment=<attachment_id>``, on the ARIEL
+  web page.
   Its lightbox also links the stored original at full resolution
   ("Open original").
 - ``attachment_to_artifact`` keeps one picture: it copies the picture's stored

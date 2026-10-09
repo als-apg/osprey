@@ -100,7 +100,7 @@ ALLOWED_ADDITIONS: dict[str, tuple[str, ...]] = {
         "entry_fields_error",
     ),
     "status": (),
-    "entry_open": (),
+    "entry_open": ("pictures", "pictures[]*"),
     "attachment_to_artifact": (),
 }
 
