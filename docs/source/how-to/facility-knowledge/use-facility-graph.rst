@@ -340,11 +340,14 @@ and reads back through its ``pair``, and a readback channel is readable. No
 build derives a direction from the limits file or from an ``:SP`` address
 grammar.
 
-Where there is no corpus to build from — the store belongs to the facility and
-this deployment holds no ``.ttl`` file, or ``services.graphdb.ttl_path`` points
-at nothing — the web view says it has nothing to enumerate from and names that
-key, rather than reporting a facility with no channels. The rest of the app
-starts as usual, and the graph tools keep answering from the store.
+The web view lists channels from the facility file the build writes into the
+render (``facility.json``), never from the corpus or the store. A render without
+that file says so and names ``osprey build``, rather than reporting a facility
+with no channels. The rest of the app starts as usual, and the graph tools keep
+answering from the store.
+
+Search needs the index the build writes from the corpus. A profile whose
+``services.graphdb.ttl_path`` names no corpus is told to set that key.
 
 
 Rebuilding the Search Index
