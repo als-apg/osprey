@@ -5854,14 +5854,15 @@ def test_gchat_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Pat
     )
 
 
-def test_gchat_bridge_image_installs_the_gchat_extra_on_both_install_lines() -> None:
-    """Both framework installs carry ``[gchat]`` — the pinned one and the dev fallback.
+def test_gchat_bridge_image_installs_the_gchat_extra_over_the_shared_deps_layer() -> None:
+    """The ``[gchat]`` extra lands in its own layer, after the shared deps layer.
 
     The Google client libraries (Pub/Sub, Chat, GCS) live behind the extra, so an
-    install without it produces an image whose bridge dies on its first import.
-    The dev fallback matters as much as the pin: ``osprey up --dev``
-    against an unreleased version takes that branch, and it is the branch a
-    plain copy of a sibling service's Dockerfile would leave unextra'd.
+    image without it has a bridge that dies on its first import. The deps layer
+    itself installs the plain framework, the same layer every service image
+    shares; the extra follows unpinned so it holds on the ``--dev`` path too,
+    where the pin is not on PyPI and the deps layer fell back to the latest
+    release.
     """
     from importlib import resources
 
@@ -5870,15 +5871,17 @@ def test_gchat_bridge_image_installs_the_gchat_extra_on_both_install_lines() -> 
         .joinpath("templates/services/gchat_bridge/Dockerfile")
         .read_text(encoding="utf-8")
     )
+    deps_install = (
+        'pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION"'
+    )
+    extras_install = 'pip install --no-cache-dir "osprey-framework[gchat]"'
+    assert deps_install in dockerfile
+    assert extras_install in dockerfile
     assert (
-        "pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "
-        '"osprey-framework[gchat]==$OSPREY_VERSION"'
-    ) in dockerfile
-    assert 'pip install --no-cache-dir "osprey-framework[gchat]"' in dockerfile
-    # A bare (extra-less) framework install anywhere would silently win or waste
-    # a layer depending on order, so neither spelling may survive.
-    assert '"osprey-framework==$OSPREY_VERSION"' not in dockerfile
-    assert '"osprey-framework"' not in dockerfile
+        dockerfile.index(deps_install)
+        < dockerfile.index(extras_install)
+        < dockerfile.index("# ── wheel layer ─")
+    )
 
 
 def _gchat_services(**block: object) -> dict:
@@ -6682,16 +6685,16 @@ def test_teams_bridge_dockerignore_keeps_the_relay_out_of_the_image() -> None:
     )
 
 
-def test_teams_bridge_image_installs_the_teams_extra_on_all_three_install_lines() -> None:
-    """Every framework install carries ``[teams]`` — pin, dev fallback, and wheel overlay.
+def test_teams_bridge_image_installs_the_teams_extra_over_the_shared_deps_layer() -> None:
+    """The ``[teams]`` extra lands in its own layer, and again on the wheel overlay.
 
     The Azure Service Bus client and Pillow (image downscaling for file delivery)
-    live behind the extra, so an install without it produces an image whose
-    bridge cannot consume its queue.
-    The two non-pinned lines matter as much as the pin: ``osprey up --dev``
-    against an unreleased version takes the fallback, then overlays the locally
-    built wheel — and ``pip check`` cannot detect a *missing extra*, so an
-    unextra'd wheel install would leave the image quietly incomplete.
+    live behind the extra, so an image without it has a bridge that cannot
+    consume its queue. The deps layer installs the plain framework, the same
+    layer every service image shares; the extras layer follows it unpinned so it
+    holds on the ``--dev`` path too. The wheel overlay carries the extra as well:
+    ``pip check`` cannot detect a *missing extra*, so an unextra'd wheel install
+    would leave a dev image quietly incomplete.
     """
     from importlib import resources
 
@@ -6700,16 +6703,18 @@ def test_teams_bridge_image_installs_the_teams_extra_on_all_three_install_lines(
         .joinpath("templates/services/teams_bridge/Dockerfile")
         .read_text(encoding="utf-8")
     )
+    deps_install = (
+        'pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION"'
+    )
+    extras_install = 'pip install --no-cache-dir "osprey-framework[teams]"'
+    assert deps_install in dockerfile
+    assert extras_install in dockerfile
     assert (
-        "pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "
-        '"osprey-framework[teams]==$OSPREY_VERSION"'
-    ) in dockerfile
-    assert 'pip install --no-cache-dir "osprey-framework[teams]"' in dockerfile
+        dockerfile.index(deps_install)
+        < dockerfile.index(extras_install)
+        < dockerfile.index("# ── wheel layer ─")
+    )
     assert 'pip install --no-cache-dir "${whl}[teams]"' in dockerfile
-    # A bare (extra-less) framework or wheel install anywhere would silently win
-    # or waste a layer depending on order, so no such spelling may survive.
-    assert '"osprey-framework==$OSPREY_VERSION"' not in dockerfile
-    assert '"osprey-framework"' not in dockerfile
     assert '"${whl}"' not in dockerfile
 
 

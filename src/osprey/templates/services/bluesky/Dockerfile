@@ -5,7 +5,7 @@
 # ophyd-async devices — one image, two entrypoints, so the worker namespace
 # and the bridge always agree on the osprey code they share.
 #
-# osprey install strategy (two cache-friendly layers):
+# osprey install strategy (cache-friendly layers):
 #   * deps layer  — primes the pinned framework release (+ its dependencies)
 #     from PyPI in one RUN. The framework's core deps already include
 #     bluesky/ophyd-async/tiled (Bluesky is a core part of OSPREY), so a plain
@@ -13,6 +13,7 @@
 #     local dependency delta staged as osprey-local-requirements.txt on dev
 #     builds. Its build cache is shared across projects and only rebuilds when
 #     the staged manifest changes.
+#   * queueserver layer — the RE Manager at its lock-checked pin.
 #   * wheel layer — when `osprey up --dev` stages a locally-built wheel
 #     into the build context, this later layer overlays it (so unreleased code
 #     is included). With no wheel staged it is a no-op.
@@ -28,8 +29,8 @@ WORKDIR /app
 # the project image's. OSPREY_SITE_CA names a CA file (PEM) staged in the build
 # context; the compose build stages the operator's `images.site_ca` there and
 # passes the name, because a COPY cannot reach outside the context. The
-# `.dockerignore` sibling keeps the glob COPY matching when nothing is staged,
-# and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
+# `.osprey-layer-anchor` sibling keeps the glob COPY matching when nothing is
+# staged, and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
 # apt install below deliberately: that fetch verifies TLS against the system
 # store this extends.
 #
@@ -41,7 +42,7 @@ WORKDIR /app
 # not exist crashes an httpx client at construction. No NODE_EXTRA_CA_CERTS —
 # this image has no Node.
 ARG OSPREY_SITE_CA=""
-COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/
+COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/
 RUN if [ -n "$OSPREY_SITE_CA" ]; then \
         cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
         && update-ca-certificates; \
@@ -77,10 +78,63 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # unpinned prime (the wheel layer below then overlays the real code); without it
 # a pin miss stays fatal. Any local dependency delta staged as
 # osprey-local-requirements.txt (dev builds only) is installed after the primer,
-# while the toolchain is still available; the `.dockerignore` COPY sibling keeps
-# the glob matching when no manifest is staged, so this cache only busts when
-# the manifest content changes.
+# while the toolchain is still available; the `.osprey-layer-anchor` COPY
+# sibling keeps the glob matching when no manifest is staged, so this cache only
+# busts when the manifest content changes.
 #
+# Everything from FROM through this layer is the same, instruction for
+# instruction, in every Python service recipe, and `.osprey-layer-anchor` is the
+# same bytes in every context. That is what lets BuildKit run the framework
+# install once and share the layer across every service image a deploy builds;
+# whatever one image needs beyond it goes in a layer below this one.
+ARG OSPREY_VERSION=""
+ARG OSPREY_DEV=""
+# OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
+# connectors ship as a pair from one tag, and pip never picks a pre-release
+# for a requirement that names none (the framework's own connectors
+# requirement), so the deps layer then resolves as a whole with --pre.
+ARG OSPREY_PIP_PRE=""
+# The three pip ARGs are the rest of the site build settings the compose build
+# hands this image (the same producer that passes OSPREY_SITE_CA above).
+# Declaring them is what makes them arrive: Docker drops a --build-arg no
+# recipe declares, with a warning nobody reads, so an internal mirror
+# configured once in `config.yml` would reach the project image and quietly
+# leave this one resolving from PyPI. PIP_INDEX_URL and PIP_EXTRA_INDEX_URL are
+# pip's own environment names, so the declaration alone delivers them and an
+# unset one arrives empty, which pip drops before it parses its configuration.
+# PIP_NO_PROXY is not a pip name — it is the proxy bypass list, mapped onto
+# NO_PROXY/no_proxy in the deps RUN below, and only when it is set: exporting
+# it empty would undo the bridge on the line above it.
+ARG PIP_NO_PROXY=""
+ARG PIP_INDEX_URL=""
+ARG PIP_EXTRA_INDEX_URL=""
+COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/
+# setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
+# fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
+# where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
+# pip's isolated build environments. Drop once a fixed release is out.
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
+    [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
+    && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
+    && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends build-essential python3-dev \
+    && { pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION" \
+         || if [ "$OSPREY_DEV" = "1" ]; then \
+                echo "WARNING: pin unreleased, priming with latest" \
+                && pip install --no-cache-dir "osprey-framework" ; \
+            else \
+                exit 1 ; \
+            fi ; } \
+    && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
+           pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+       fi \
+    && apt-get purge -y build-essential python3-dev \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
+
+# ── queueserver layer ────────────────────────────────────────────────────────
 # `bluesky-queueserver` (the RE Manager itself, providing `start-re-manager`)
 # arrives transitively via the framework's `bluesky-queueserver-api` client
 # dependency, but transitively means unpinned: it is installed again here at an
@@ -103,65 +157,26 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # wheel, whose own metadata is what the local pins belong to, and runs its own
 # unconditional `pip check` on the result. Non-dev builds install exactly the
 # pinned release and keep the strict check.
-ARG OSPREY_VERSION=""
-ARG OSPREY_DEV=""
-# OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
-# connectors ship as a pair from one tag, and pip never picks a pre-release
-# for a requirement that names none (the framework's own connectors
-# requirement), so the deps layer then resolves as a whole with --pre.
-ARG OSPREY_PIP_PRE=""
-# The three pip ARGs are the rest of the site build settings the compose build
-# hands this image (the same producer that passes OSPREY_SITE_CA above).
-# Declaring them is what makes them arrive: Docker drops a --build-arg no
-# recipe declares, with a warning nobody reads, so an internal mirror
-# configured once in `config.yml` would reach the project image and quietly
-# leave this one resolving from PyPI. PIP_INDEX_URL and PIP_EXTRA_INDEX_URL are
-# pip's own environment names, so the declaration alone delivers them and an
-# unset one arrives empty, which pip drops before it parses its configuration.
-# PIP_NO_PROXY is not a pip name — it is the proxy bypass list, mapped onto
-# NO_PROXY/no_proxy in the deps RUN below, and only when it is set: exporting
-# it empty would undo the bridge on the line above it.
-ARG PIP_NO_PROXY=""
-ARG PIP_INDEX_URL=""
-ARG PIP_EXTRA_INDEX_URL=""
+#
+# A layer of its own, after the deps layer rather than inside it, so the deps
+# layer above stays instruction-for-instruction the same as every other
+# service's and BuildKit builds that framework install once for all of them.
+# No toolchain here: the manager is pure Python, and everything it needs
+# arrived with the framework's queueserver client above.
 ARG BLUESKY_QUEUESERVER_VERSION="0.0.25"
-COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
-# setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
-# fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
-# where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
-# pip's isolated build environments. Drop once a fixed release is out.
-RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
-    [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
-    [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
-    && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
-    && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends build-essential python3-dev \
-    && { pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION" \
-         || if [ "$OSPREY_DEV" = "1" ]; then \
-                echo "WARNING: pin unreleased, priming with latest" \
-                && pip install --no-cache-dir "osprey-framework" ; \
-            else \
-                exit 1 ; \
-            fi ; } \
-    && pip install --no-cache-dir "bluesky-queueserver==$BLUESKY_QUEUESERVER_VERSION" \
-    && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
-           pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
-       fi \
-    && { [ "$OSPREY_DEV" = "1" ] || pip check ; } \
-    && apt-get purge -y build-essential python3-dev \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
+RUN [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
+    pip install --no-cache-dir "bluesky-queueserver==$BLUESKY_QUEUESERVER_VERSION" \
+    && { [ "$OSPREY_DEV" = "1" ] || pip check ; }
 
 # ── wheel layer ──────────────────────────────────────────────────────────────
-# Overlay a locally-built wheel when `osprey up --dev` stages one into
-# the build context. `.dockerignore` is a guaranteed sibling of the COPY, so
-# the glob always matches at least one file; `*.wh[l]` optionally pulls in the
+# Overlay a locally-built wheel when `osprey up --dev` stages one into the build
+# context. `.osprey-layer-anchor` is a guaranteed sibling of the COPY, so the
+# glob always matches at least one file; `*.wh[l]` optionally pulls in the
 # wheel. The wheel is installed plain (no extra — the deps layer already primed
 # every extra), then force-reinstalled --no-deps to guarantee its own modules
 # win, and `pip check` guards against residual mismatches. No wheel staged →
 # no-op, image already complete after the deps layer.
-COPY .dockerignore *.wh[l] /tmp/ctx/
+COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
         && pip install --no-cache-dir /tmp/ctx/*.whl \

@@ -36,8 +36,8 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # the project image's. OSPREY_SITE_CA names a CA file (PEM) staged in the build
 # context; the compose build stages the operator's `images.site_ca` there and
 # passes the name, because a COPY cannot reach outside the context. The
-# `.dockerignore` sibling keeps the glob COPY matching when nothing is staged,
-# and with the ARG unset the RUN is a no-op. This layer sits AFTER the
+# `.osprey-layer-anchor` sibling keeps the glob COPY matching when nothing is
+# staged, and with the ARG unset the RUN is a no-op. This layer sits AFTER the
 # bootstrap fetch above and before every fetch below it: the base image carries
 # no trust store for `update-ca-certificates` to extend until that plain-HTTP
 # fetch has installed one, and every fetch from here on is HTTPS.
@@ -51,7 +51,7 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # restate each tool's own default, whereas a variable naming a path that may
 # not exist crashes an httpx client at construction.
 ARG OSPREY_SITE_CA=""
-COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/
+COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/
 RUN if [ -n "$OSPREY_SITE_CA" ]; then \
         cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
         && update-ca-certificates; \
@@ -318,10 +318,10 @@ LABEL com.osprey.qmd.version="${OSPREY_QMD_BUILD}" \
 
 # ── entrypoint ───────────────────────────────────────────────────────────────
 # `entrypoint.sh` is a sibling of this Dockerfile in the rendered service
-# directory (which is the build context). `.dockerignore` is a guaranteed
+# directory (which is the build context). `.osprey-layer-anchor` is a guaranteed
 # sibling, so the COPY always matches at least one file and the image can still
 # be built — models and all — before the entrypoint exists.
-COPY .dockerignore entrypoint.s[h] /tmp/ctx/
+COPY .osprey-layer-anchor entrypoint.s[h] /tmp/ctx/
 RUN if [ -f /tmp/ctx/entrypoint.sh ]; then \
         install -m 0755 /tmp/ctx/entrypoint.sh /usr/local/bin/qmd-sidecar-entrypoint ; \
     else \

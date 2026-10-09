@@ -23,8 +23,8 @@ WORKDIR /app
 # the project image's. OSPREY_SITE_CA names a CA file (PEM) staged in the build
 # context; the compose build stages the operator's `images.site_ca` there and
 # passes the name, because a COPY cannot reach outside the context. The
-# `.dockerignore` sibling keeps the glob COPY matching when nothing is staged,
-# and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
+# `.osprey-layer-anchor` sibling keeps the glob COPY matching when nothing is
+# staged, and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
 # apt install below deliberately: that fetch verifies TLS against the system
 # store this extends.
 #
@@ -36,7 +36,7 @@ WORKDIR /app
 # not exist crashes an httpx client at construction. No NODE_EXTRA_CA_CERTS —
 # this image has no Node.
 ARG OSPREY_SITE_CA=""
-COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/
+COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/
 RUN if [ -n "$OSPREY_SITE_CA" ]; then \
         cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
         && update-ca-certificates; \
@@ -72,9 +72,15 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # unpinned prime (the wheel layer below then overlays the real code); without it
 # a pin miss stays fatal. Any local dependency delta staged as
 # osprey-local-requirements.txt (dev builds only) is installed after the primer,
-# while the toolchain is still available; the `.dockerignore` COPY sibling keeps
-# the glob matching when no manifest is staged, so this cache only busts when
-# the manifest content changes.
+# while the toolchain is still available; the `.osprey-layer-anchor` COPY
+# sibling keeps the glob matching when no manifest is staged, so this cache only
+# busts when the manifest content changes.
+#
+# Everything from FROM through this layer is the same, instruction for
+# instruction, in every Python service recipe, and `.osprey-layer-anchor` is the
+# same bytes in every context. That is what lets BuildKit run the framework
+# install once and share the layer across every service image a deploy builds;
+# whatever one image needs beyond it goes in a layer below this one.
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
 # OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
@@ -96,7 +102,7 @@ ARG OSPREY_PIP_PRE=""
 ARG PIP_NO_PROXY=""
 ARG PIP_INDEX_URL=""
 ARG PIP_EXTRA_INDEX_URL=""
-COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
+COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
 # fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
 # where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
@@ -123,14 +129,14 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
 
 # ── wheel layer ──────────────────────────────────────────────────────────────
-# Overlay a locally-built wheel when `osprey up --dev` stages one into
-# the build context. `.dockerignore` is a guaranteed sibling of the COPY, so
-# the glob always matches at least one file; `*.wh[l]` optionally pulls in the
+# Overlay a locally-built wheel when `osprey up --dev` stages one into the build
+# context. `.osprey-layer-anchor` is a guaranteed sibling of the COPY, so the
+# glob always matches at least one file; `*.wh[l]` optionally pulls in the
 # wheel. The wheel is installed plain (no extra — the deps layer already primed
 # every extra), then force-reinstalled --no-deps to guarantee its own modules
 # win, and `pip check` guards against residual mismatches. No wheel staged →
 # no-op, image already complete after the deps layer.
-COPY .dockerignore *.wh[l] /tmp/ctx/
+COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
         && pip install --no-cache-dir /tmp/ctx/*.whl \

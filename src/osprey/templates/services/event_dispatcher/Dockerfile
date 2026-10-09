@@ -5,11 +5,12 @@
 # agent via the Claude Code CLI, which is a Node package — hence Node + the CLI
 # are installed here alongside the Python framework.
 #
-# osprey install strategy (two cache-friendly layers):
+# osprey install strategy (cache-friendly layers):
 #   * deps layer  — primes the pinned framework release (+ its dependencies)
 #     from PyPI in one RUN, plus any local dependency delta staged as
 #     osprey-local-requirements.txt on dev builds. Its build cache is shared
 #     across projects and only rebuilds when the staged manifest changes.
+#   * node layer  — Node and the pinned Claude Code CLI the worker runs.
 #   * wheel layer — when `osprey up --dev` stages a locally-built wheel
 #     into the build context, this later layer overlays it (so unreleased code
 #     is included). With no wheel staged it is a no-op and the image is complete
@@ -19,13 +20,15 @@
 
 FROM python:3.11-slim
 
+WORKDIR /app
+
 # Optional site CA, for building (and running) behind a TLS-intercepting proxy
 # that re-signs traffic with a site CA — the same layer, in the same place, as
 # the project image's. OSPREY_SITE_CA names a CA file (PEM) staged in the build
 # context; the compose build stages the operator's `images.site_ca` there and
 # passes the name, because a COPY cannot reach outside the context. The
-# `.dockerignore` sibling keeps the glob COPY matching when nothing is staged,
-# and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
+# `.osprey-layer-anchor` sibling keeps the glob COPY matching when nothing is
+# staged, and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
 # apt install below deliberately: that fetch verifies TLS against the system
 # store this extends.
 #
@@ -34,11 +37,11 @@ FROM python:3.11-slim
 # / REQUESTS_CA_BUNDLE cover Python's ssl module and requests. They are set
 # unconditionally and always name the merged bundle: with no CA staged they
 # restate each tool's own default, whereas a variable naming a path that may
-# not exist crashes an httpx client at construction. NODE_EXTRA_CA_CERTS covers
-# the Node tooling this image installs, which reads neither the system store
-# nor any of the three above.
+# not exist crashes an httpx client at construction. NODE_EXTRA_CA_CERTS, for
+# the Node tooling, is set in the node layer further down rather than here:
+# everything down to the deps layer is shared with the other service images.
 ARG OSPREY_SITE_CA=""
-COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/
+COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/
 RUN if [ -n "$OSPREY_SITE_CA" ]; then \
         cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
         && update-ca-certificates; \
@@ -46,8 +49,7 @@ RUN if [ -n "$OSPREY_SITE_CA" ]; then \
  && rm -rf /tmp/ca-ctx
 ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
-    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
-    NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 # Debian apt mirrors over HTTPS (plain-HTTP bulk fetches are throttled or
 # broken by middleboxes on some networks; deb.debian.org supports HTTPS), and
@@ -67,43 +69,23 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
  && printf 'Acquire::Retries "5";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-osprey-retries
 
-# Node + the Claude Code CLI (the dispatch-worker shells out to `claude`).
-# Node comes from the base image's own Debian release rather than a third-party
-# apt repo, so the image has a single package provenance and needs no network
-# beyond the Debian mirror to build. The CLI's engines floor is node >= 18,
-# which every Debian release the slim bases resolve to satisfies.
-#
-# npm is a runtime dependency, not a build-time convenience: the agent is
-# launched as `npx -y @anthropic-ai/claude-code@<version>` (agent_runner/launcher.py),
-# so npm must remain in the final image.
-RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
-    apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates nodejs npm \
-    # Pin the Claude Code CLI so an upstream release cannot silently change the
-    # headless agent's behavior between image builds (matches the cli_version
-    # OSPREY documents in config.yml). Bump deliberately; the npm channel the
-    # value is taken from is written beside _DEFAULT_CLAUDE_CLI_VERSION in
-    # src/osprey/cli/templates/scaffolding.py.
-    && npm install -g @anthropic-ai/claude-code@2.1.267 \
-    && rm -rf /var/lib/apt/lists/*
-# The pin is the point, so the CLI's background self-updater is off: a
-# successful update would silently replace the pinned version. Same rationale
-# as the project image (Dockerfile.j2); bump the pin and rebuild instead.
-ENV DISABLE_AUTOUPDATER=1
-
-WORKDIR /app
-
 # ── deps layer ───────────────────────────────────────────────────────────────
 # Prime the image with the pinned framework release and its dependencies. A C
-# toolchain is needed at install time to compile any native deps (e.g.
-# accelerator-toolbox on arm64); it is purged in this same RUN so it does not
-# bloat the final image. Under `--dev` an unreleased pin may not exist on PyPI:
-# OSPREY_DEV=1 relaxes the failure to an unpinned prime (the wheel layer below
-# then overlays the real code); without it a pin miss stays fatal. Any local
-# dependency delta staged as osprey-local-requirements.txt (dev builds only) is
-# installed after the primer, while the toolchain is still available; the
-# `.dockerignore` COPY sibling keeps the glob matching when no manifest is
-# staged, so this cache only busts when the manifest content changes.
+# toolchain is needed at install time to compile any native deps; it is purged
+# in this same RUN so it does not bloat the final image. Under `--dev` an
+# unreleased pin may not exist on PyPI: OSPREY_DEV=1 relaxes the failure to an
+# unpinned prime (the wheel layer below then overlays the real code); without it
+# a pin miss stays fatal. Any local dependency delta staged as
+# osprey-local-requirements.txt (dev builds only) is installed after the primer,
+# while the toolchain is still available; the `.osprey-layer-anchor` COPY
+# sibling keeps the glob matching when no manifest is staged, so this cache only
+# busts when the manifest content changes.
+#
+# Everything from FROM through this layer is the same, instruction for
+# instruction, in every Python service recipe, and `.osprey-layer-anchor` is the
+# same bytes in every context. That is what lets BuildKit run the framework
+# install once and share the layer across every service image a deploy builds;
+# whatever one image needs beyond it goes in a layer below this one.
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
 # OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
@@ -125,7 +107,7 @@ ARG OSPREY_PIP_PRE=""
 ARG PIP_NO_PROXY=""
 ARG PIP_INDEX_URL=""
 ARG PIP_EXTRA_INDEX_URL=""
-COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
+COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
 # fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
 # where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
@@ -151,15 +133,49 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
 
+# ── node layer ───────────────────────────────────────────────────────────────
+# Node + the Claude Code CLI (the dispatch-worker shells out to `claude`).
+# Below the deps layer rather than above it, so the framework install stays
+# the one every service image shares, and a CLI pin bump rebuilds only this
+# layer and the wheel layer instead of the whole framework install.
+#
+# Node comes from the base image's own Debian release rather than a third-party
+# apt repo, so the image has a single package provenance and needs no network
+# beyond the Debian mirror to build. The CLI's engines floor is node >= 18,
+# which every Debian release the slim bases resolve to satisfies.
+#
+# npm is a runtime dependency, not a build-time convenience: the agent is
+# launched as `npx -y @anthropic-ai/claude-code@<version>` (agent_runner/launcher.py),
+# so npm must remain in the final image.
+#
+# NODE_EXTRA_CA_CERTS points Node at the merged bundle the site-CA layer wrote,
+# since Node reads neither the system store nor the Python trust variables.
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates nodejs npm \
+    # Pin the Claude Code CLI so an upstream release cannot silently change the
+    # headless agent's behavior between image builds (matches the cli_version
+    # OSPREY documents in config.yml). Bump deliberately; the npm channel the
+    # value is taken from is written beside _DEFAULT_CLAUDE_CLI_VERSION in
+    # src/osprey/cli/templates/scaffolding.py.
+    && npm install -g @anthropic-ai/claude-code@2.1.267 \
+    && rm -rf /var/lib/apt/lists/*
+# The pin is the point, so the CLI's background self-updater is off: a
+# successful update would silently replace the pinned version. Same rationale
+# as the project image (Dockerfile.j2); bump the pin and rebuild instead.
+ENV DISABLE_AUTOUPDATER=1
+
+
 # ── wheel layer ──────────────────────────────────────────────────────────────
-# Overlay a locally-built wheel when `osprey up --dev` stages one into
-# the build context. `.dockerignore` is a guaranteed sibling of the COPY, so
-# the glob always matches at least one file; `*.wh[l]` optionally pulls in the
+# Overlay a locally-built wheel when `osprey up --dev` stages one into the build
+# context. `.osprey-layer-anchor` is a guaranteed sibling of the COPY, so the
+# glob always matches at least one file; `*.wh[l]` optionally pulls in the
 # wheel. The wheel is installed plain (no extra — the deps layer already primed
 # every extra), then force-reinstalled --no-deps to guarantee its own modules
 # win, and `pip check` guards against residual mismatches. No wheel staged →
 # no-op, image already complete after the deps layer.
-COPY .dockerignore *.wh[l] /tmp/ctx/
+COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
         && pip install --no-cache-dir /tmp/ctx/*.whl \

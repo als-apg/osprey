@@ -18,8 +18,8 @@ expensive framework/deps install:
   delta, COPYed via the guaranteed-sibling idiom) before purging the toolchain,
   and
 - a separate **wheel layer** that optionally overlays a locally-built wheel via
-  the ``COPY .dockerignore *.wh[l]`` idiom, force-reinstalls it ``--no-deps`` and
-  runs ``pip check``,
+  the ``COPY .osprey-layer-anchor *.wh[l]`` idiom, force-reinstalls it
+  ``--no-deps`` and runs ``pip check``,
 
 followed by a metadata-only ``ARG OSPREY_PROJECT_NAME`` / ``LABEL
 com.osprey.project`` pair kept last so a per-project value never invalidates the
@@ -127,10 +127,10 @@ PRIMER_SPEC = {
 }
 SERVICES = sorted(PRIMER_SPEC)
 
-# The dev-staged local-dependency manifest: COPYed next to .dockerignore (the
-# guaranteed sibling keeps the glob matching when absent) and installed inside
-# the deps RUN while the C toolchain is still available.
-MANIFEST_COPY = "COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/"
+# The dev-staged local-dependency manifest: COPYed next to .osprey-layer-anchor
+# (the guaranteed sibling keeps the glob matching when absent) and installed
+# inside the deps RUN while the C toolchain is still available.
+MANIFEST_COPY = "COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/"
 MANIFEST_INSTALL = "pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt"
 
 
@@ -183,7 +183,7 @@ class TestLayerSplit:
 
     def test_wheel_copy_idiom(self, service):
         text = _dockerfile(service)
-        assert "COPY .dockerignore *.wh[l] /tmp/ctx/" in text, (
+        assert "COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/" in text, (
             f"{service}: missing the guaranteed-sibling wheel COPY idiom"
         )
 
@@ -537,6 +537,93 @@ def test_every_service_ships_non_self_excluding_dockerignore():
         }
         offenders = {e for e in entries if e.strip("/") == ".dockerignore"}
         assert not offenders, f"{d.name}: .dockerignore self-excludes: {offenders}"
+
+
+# ── Shared deps layer ────────────────────────────────────────────────────────
+#
+# A deploy builds several of these images at once, and the framework install is
+# by far the slowest step in each. BuildKit runs a step once and shares the
+# layer only when everything up to and including it is identical: the same
+# instructions, the same build args, and the same bytes in every file a COPY
+# reads. These pin both halves of that for the Python service recipes.
+
+LAYER_ANCHOR = ".osprey-layer-anchor"
+
+#: Python service recipes that legitimately diverge before the deps layer. The
+#: virtual accelerator pins its base to linux/amd64 and refuses any other
+#: architecture ahead of the install, because no pcaspy wheel exists elsewhere.
+_OWN_DEPS_LAYER = {"services/virtual_accelerator"}
+
+SHARED_DEPS_IDS = [
+    label
+    for label, path in zip(SHIPPED_DOCKERFILE_IDS, SHIPPED_DOCKERFILES, strict=True)
+    if "FROM python:" in path.read_text(encoding="utf-8") and label not in _OWN_DEPS_LAYER
+]
+
+
+def _shared_prefix(dockerfile: pathlib.Path) -> list[str]:
+    """The instructions from FROM through the deps RUN, as Docker reads them."""
+    prefix: list[str] = []
+    for _keyword, line in _instructions(dockerfile.read_text(encoding="utf-8")):
+        prefix.append(line)
+        if line.startswith("RUN ") and MANIFEST_INSTALL in line:
+            return prefix
+    raise AssertionError(f"{dockerfile}: no deps RUN installing the manifest")
+
+
+def test_every_build_context_ships_the_same_layer_anchor():
+    """Each recipe's context carries the anchor, byte-identical to every other.
+
+    The recipes COPY it beside their optional globs, so its content is part of
+    every cache key from the site-CA layer down. A copy that drifted would cost
+    nothing visible and quietly give that image its own framework install.
+    """
+    anchors = {
+        label: path.parent / LAYER_ANCHOR
+        for label, path in zip(SHIPPED_DOCKERFILE_IDS, SHIPPED_DOCKERFILES, strict=True)
+    }
+    missing = sorted(label for label, anchor in anchors.items() if not anchor.is_file())
+    assert not missing, f"no {LAYER_ANCHOR} beside: {missing}"
+    contents = {anchor.read_bytes() for anchor in anchors.values()}
+    assert len(contents) == 1, f"{LAYER_ANCHOR} copies differ between build contexts"
+
+
+@pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
+def test_no_context_ignores_the_layer_anchor(dockerfile):
+    """The anchor reaches the build: a context that ignored it would fail every COPY."""
+    ignore = dockerfile.parent / ".dockerignore"
+    entries = {
+        line.strip().strip("/")
+        for line in ignore.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    }
+    assert not entries & {LAYER_ANCHOR, ".*", "*"}, f"{ignore} excludes {LAYER_ANCHOR}"
+
+
+@pytest.mark.parametrize("label", SHARED_DEPS_IDS)
+def test_python_services_share_one_deps_layer(label):
+    """Every Python service recipe is identical from FROM through the deps RUN.
+
+    Whatever one image needs beyond the framework (an extra, the queueserver
+    pin, Node) belongs in a layer after it; one differing instruction above it
+    gives that image a framework install of its own, which on a slow index is
+    most of a deploy's build time.
+    """
+    reference = TEMPLATES_DIR / "services" / "bluesky_web" / "Dockerfile"
+    dockerfile = TEMPLATES_DIR / label / "Dockerfile"
+    assert _shared_prefix(dockerfile) == _shared_prefix(reference), (
+        f"{label}: diverges from bluesky_web before the end of the deps layer"
+    )
+
+
+def test_shared_deps_layer_covers_the_compose_built_services():
+    """Floor on the discovery: the services a deploy builds together are in it."""
+    assert {
+        "modules/web_terminals/auth_sidecar",
+        "services/bluesky",
+        "services/bluesky_web",
+        "services/event_dispatcher",
+    } <= set(SHARED_DEPS_IDS)
 
 
 # ── Proxy delivery ───────────────────────────────────────────────────────────

@@ -58,8 +58,8 @@ WORKDIR /app
 # the project image's. OSPREY_SITE_CA names a CA file (PEM) staged in the build
 # context; the compose build stages the operator's `images.site_ca` there and
 # passes the name, because a COPY cannot reach outside the context. The
-# `.dockerignore` sibling keeps the glob COPY matching when nothing is staged,
-# and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
+# `.osprey-layer-anchor` sibling keeps the glob COPY matching when nothing is
+# staged, and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
 # apt install below deliberately: that fetch verifies TLS against the system
 # store this extends.
 #
@@ -71,7 +71,7 @@ WORKDIR /app
 # not exist crashes an httpx client at construction. No NODE_EXTRA_CA_CERTS —
 # this image has no Node.
 ARG OSPREY_SITE_CA=""
-COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/
+COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/
 RUN if [ -n "$OSPREY_SITE_CA" ]; then \
         cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
         && update-ca-certificates; \
@@ -113,16 +113,16 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 
 # ── deps layer ───────────────────────────────────────────────────────────────
 # Prime the image with the pinned framework release + `virtual-accelerator`
-# extra and their dependencies. Under `--dev` an unreleased pin may not exist
-# on PyPI: OSPREY_DEV=1 relaxes the failure to an unpinned prime (the wheel
-# layer below then overlays the real code); without it a pin miss stays fatal.
-# Any local dependency delta staged as osprey-local-requirements.txt (dev
-# builds only) is installed after the primer, while the toolchain is still
-# available — that delta is arbitrary, so it is the one install here that may
-# still need to compile something; the `.dockerignore` COPY sibling keeps the
-# glob matching when no manifest is staged, so this cache only busts when the
-# manifest content changes. The toolchain is purged in this same RUN so it
-# never bloats the final image.
+# extra and their dependencies. Under `--dev` an unreleased pin may not exist on
+# PyPI: OSPREY_DEV=1 relaxes the failure to an unpinned prime (the wheel layer
+# below then overlays the real code); without it a pin miss stays fatal. Any
+# local dependency delta staged as osprey-local-requirements.txt (dev builds
+# only) is installed after the primer, while the toolchain is still available —
+# that delta is arbitrary, so it is the one install here that may still need to
+# compile something; the `.osprey-layer-anchor` COPY sibling keeps the glob
+# matching when no manifest is staged, so this cache only busts when the
+# manifest content changes. The toolchain is purged in this same RUN so it never
+# bloats the final image.
 #
 # `--only-binary pcaspy` is a guard, not an optimisation: pcaspy's sdist wants
 # a full EPICS base + epics-modules/pcas build that this image is not set up
@@ -156,7 +156,7 @@ ARG OSPREY_PIP_PRE=""
 ARG PIP_NO_PROXY=""
 ARG PIP_INDEX_URL=""
 ARG PIP_EXTRA_INDEX_URL=""
-COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
+COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
     [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
@@ -179,18 +179,18 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
 
 # ── wheel layer ──────────────────────────────────────────────────────────────
-# Overlay a locally-built wheel when `osprey up --dev` stages one into
-# the build context. `.dockerignore` is a guaranteed sibling of the COPY, so
-# the glob always matches at least one file; `*.wh[l]` optionally pulls in the
+# Overlay a locally-built wheel when `osprey up --dev` stages one into the build
+# context. `.osprey-layer-anchor` is a guaranteed sibling of the COPY, so the
+# glob always matches at least one file; `*.wh[l]` optionally pulls in the
 # wheel. The first wheel install carries the `[virtual-accelerator]` extra so a
-# dev wheel whose extra adds/bumps a dep resolves it (the primer only covers
-# the released extra set and `pip check` cannot detect missing extras); the
-# staged osprey-connectors wheel rides in the same call so the framework's
-# requirement on it resolves locally rather than from PyPI. The wheels are
-# then force-reinstalled --no-deps (no extra) to guarantee their own
-# modules win, and `pip check` guards against residual mismatches. No wheel
-# staged → no-op, image already complete after the deps layer.
-COPY .dockerignore *.wh[l] /tmp/ctx/
+# dev wheel whose extra adds/bumps a dep resolves it (the primer only covers the
+# released extra set and `pip check` cannot detect missing extras); the staged
+# osprey-connectors wheel rides in the same call so the framework's requirement
+# on it resolves locally rather than from PyPI. The wheels are then
+# force-reinstalled --no-deps (no extra) to guarantee their own modules win, and
+# `pip check` guards against residual mismatches. No wheel staged → no-op, image
+# already complete after the deps layer.
+COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
         && whl="$(ls /tmp/ctx/osprey_framework-*.whl)" \

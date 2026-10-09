@@ -4,13 +4,15 @@
 # The relay itself is published to Azure Functions and is never baked in here;
 # `.dockerignore` keeps its directory out of the build context.
 #
-# osprey install strategy (two cache-friendly layers):
+# osprey install strategy (cache-friendly layers):
 #   * deps layer  — primes the pinned framework release (+ its dependencies)
-#     from PyPI in one RUN. The [teams] extra is what pulls the Azure Service Bus
-#     client the bridge cannot run without and Pillow (image downscaling for
-#     file delivery), plus any local dependency delta staged as
-#     osprey-local-requirements.txt on dev builds. Its build cache is shared
-#     across projects and only rebuilds when the staged manifest changes.
+#     from PyPI in one RUN, plus any local dependency delta staged as
+#     osprey-local-requirements.txt on dev builds. The same layer every
+#     service image builds, so its cache is shared across services and
+#     projects and only rebuilds when the staged manifest changes.
+#   * extras layer — the [teams] extra: the Azure Service Bus client the
+#     bridge cannot run without and Pillow (image downscaling for file
+#     delivery).
 #   * wheel layer — when `osprey up --dev` stages a locally-built wheel
 #     into the build context, this later layer overlays it (so unreleased code
 #     is included). With no wheel staged it is a no-op.
@@ -26,8 +28,8 @@ WORKDIR /app
 # the project image's. OSPREY_SITE_CA names a CA file (PEM) staged in the build
 # context; the compose build stages the operator's `images.site_ca` there and
 # passes the name, because a COPY cannot reach outside the context. The
-# `.dockerignore` sibling keeps the glob COPY matching when nothing is staged,
-# and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
+# `.osprey-layer-anchor` sibling keeps the glob COPY matching when nothing is
+# staged, and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
 # apt install below deliberately: that fetch verifies TLS against the system
 # store this extends.
 #
@@ -39,7 +41,7 @@ WORKDIR /app
 # not exist crashes an httpx client at construction. No NODE_EXTRA_CA_CERTS —
 # this image has no Node.
 ARG OSPREY_SITE_CA=""
-COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/
+COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/
 RUN if [ -n "$OSPREY_SITE_CA" ]; then \
         cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
         && update-ca-certificates; \
@@ -73,13 +75,17 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # in this same RUN so it does not bloat the final image. Under `--dev` an
 # unreleased pin may not exist on PyPI: OSPREY_DEV=1 relaxes the failure to an
 # unpinned prime (the wheel layer below then overlays the real code); without it
-# a pin miss stays fatal. The [teams] extra is carried on BOTH install lines —
-# the unpinned fallback must still bring in the Azure clients, or a `--dev`
-# build would produce an image whose bridge dies on its first import. Any local
-# dependency delta staged as osprey-local-requirements.txt (dev builds only) is
-# installed after the primer, while the toolchain is still available; the
-# `.dockerignore` COPY sibling keeps the glob matching when no manifest is
-# staged, so this cache only busts when the manifest content changes.
+# a pin miss stays fatal. Any local dependency delta staged as
+# osprey-local-requirements.txt (dev builds only) is installed after the primer,
+# while the toolchain is still available; the `.osprey-layer-anchor` COPY
+# sibling keeps the glob matching when no manifest is staged, so this cache only
+# busts when the manifest content changes.
+#
+# Everything from FROM through this layer is the same, instruction for
+# instruction, in every Python service recipe, and `.osprey-layer-anchor` is the
+# same bytes in every context. That is what lets BuildKit run the framework
+# install once and share the layer across every service image a deploy builds;
+# whatever one image needs beyond it goes in a layer below this one.
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
 # OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
@@ -101,7 +107,7 @@ ARG OSPREY_PIP_PRE=""
 ARG PIP_NO_PROXY=""
 ARG PIP_INDEX_URL=""
 ARG PIP_EXTRA_INDEX_URL=""
-COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
+COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
 # fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
 # where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
@@ -113,10 +119,10 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
-    && { pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "osprey-framework[teams]==$OSPREY_VERSION" \
+    && { pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION" \
          || if [ "$OSPREY_DEV" = "1" ]; then \
                 echo "WARNING: pin unreleased, priming with latest" \
-                && pip install --no-cache-dir "osprey-framework[teams]" ; \
+                && pip install --no-cache-dir "osprey-framework" ; \
             else \
                 exit 1 ; \
             fi ; } \
@@ -127,19 +133,30 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
 
+# ── extras layer ─────────────────────────────────────────────────────────────
+# The [teams] extra, on top of the framework the deps layer installed. Kept out
+# of the deps layer so that layer stays instruction-for-instruction the same as
+# every other service's, and BuildKit builds the framework install once for
+# all of them. The framework is named unpinned on purpose: pip keeps the
+# installed one (a pre-release included) and adds only the extra's
+# dependencies, so a `--dev` build whose pin is not on PyPI still gets the
+# Azure clients — without them the bridge dies on its first import. The
+# extra's dependencies all ship binary wheels, so no toolchain here.
+RUN [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
+    pip install --no-cache-dir "osprey-framework[teams]"
+
 # ── wheel layer ──────────────────────────────────────────────────────────────
-# Overlay a locally-built wheel when `osprey up --dev` stages one into
-# the build context. `.dockerignore` is a guaranteed sibling of the COPY, so
-# the glob always matches at least one file; `*.wh[l]` optionally pulls in the
+# Overlay a locally-built wheel when `osprey up --dev` stages one into the build
+# context. `.osprey-layer-anchor` is a guaranteed sibling of the COPY, so the
+# glob always matches at least one file; `*.wh[l]` optionally pulls in the
 # wheel. The framework wheel's first install carries the [teams] extra so a dev
 # wheel that adds or bumps a dependency INSIDE the extra picks it up (`pip
-# check` cannot detect a missing extra), with the staged osprey-connectors
-# wheel in the same call so the framework's requirement on it resolves locally
-# rather than from PyPI; the wheels are then force-reinstalled --no-deps to
-# guarantee their own modules win, and `pip check` guards against residual
-# mismatches. No wheel staged → no-op, image already complete after the deps
-# layer.
-COPY .dockerignore *.wh[l] /tmp/ctx/
+# check` cannot detect a missing extra), with the staged osprey-connectors wheel
+# in the same call so the framework's requirement on it resolves locally rather
+# than from PyPI; the wheels are then force-reinstalled --no-deps to guarantee
+# their own modules win, and `pip check` guards against residual mismatches. No
+# wheel staged → no-op, image already complete after the deps layer.
+COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
         && whl="$(ls /tmp/ctx/osprey_framework-*.whl)" \

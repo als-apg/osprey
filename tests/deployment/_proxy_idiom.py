@@ -121,9 +121,9 @@ def assert_apt_runs_carry_proxy_idiom(text: str, label: str) -> None:
 
 #: The site-CA staging idiom, as the recipes spell it. ``COPY`` cannot reach
 #: outside the build context, so the CA is staged into it and named by the
-#: build arg; the ``.dockerignore`` sibling is the guaranteed match that keeps
-#: the two optional globs from failing the COPY when nothing is staged.
-SITE_CA_COPY = "COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/"
+#: build arg; the ``.osprey-layer-anchor`` sibling is the guaranteed match that
+#: keeps the two optional globs from failing the COPY when nothing is staged.
+SITE_CA_COPY = "COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/"
 
 #: The merged Debian bundle ``update-ca-certificates`` writes, and the only
 #: path a trust variable may name: one pointing at a file the image does not
