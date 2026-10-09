@@ -917,11 +917,13 @@ def test_p2_full_manifest_liveness(deployed_stack: DeployedStack) -> None:
     # The sweep script defaults EPICS_CA_NAME_SERVERS to localhost:5064; this
     # stack serves CA on the module's ephemeral VA_CA_PORT, so the subprocess
     # must be told explicitly (the in-process connectors get it via
-    # _VA_GATEWAY instead). The addresses file is the deployed render's, named
+    # _VA_GATEWAY instead). The view is the deployed render's, named
     # absolutely: the script's default is relative to its working directory.
-    addresses_json = deployed_stack.repo / "build" / "data" / "simulator" / "addresses.json"
+    from osprey_connectors.simulation.view import SimulatorView
+
+    view_dir = SimulatorView.of_project(deployed_stack.repo).path
     proc = subprocess.run(
-        [sys.executable, str(SWEEP_SCRIPT), str(addresses_json)],
+        [sys.executable, str(SWEEP_SCRIPT), str(view_dir)],
         capture_output=True,
         text=True,
         timeout=SWEEP_TIMEOUT_SEC,

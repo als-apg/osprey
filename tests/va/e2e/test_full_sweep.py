@@ -1,8 +1,8 @@
 """SC4 acceptance: every channel the simulator view lists is live over CA.
 
 Batched bulk reads (one shared connect deadline, never a per-channel serial
-loop -- see ``scripts/va/sweep_check.py``) of every address the served view's
-``addresses.json`` lists, against the real running container. Hard wall-clock bound: the full
+loop -- see ``scripts/va/sweep_check.py``) of every address the served view
+lists, against the real running container. Hard wall-clock bound: the full
 sweep must finish in under 60s, and zero addresses may fail to connect or
 return a value.
 """
@@ -13,6 +13,7 @@ import sys
 
 import pytest
 
+from osprey_connectors.simulation.view import VIEW_RELPATH
 from tests.va.e2e.conftest import sweep_check
 
 FULL_SWEEP_WALL_CLOCK_BUDGET_S = 60.0
@@ -24,9 +25,7 @@ MIN_COLLECTED_TESTS = 2
 
 class TestFullSweep:
     def test_every_served_address_is_live_over_ca(self, va_container):
-        addresses = sweep_check.served_addresses(
-            va_container.data_dir / "simulator" / "addresses.json"
-        )
+        addresses = sweep_check.served_addresses(va_container.data_dir / VIEW_RELPATH.name)
         assert len(addresses) > 1000, (
             "sanity check: expected the demo's whole namespace (a few thousand "
             f"addresses), got {len(addresses)}"
