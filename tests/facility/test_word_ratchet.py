@@ -108,8 +108,6 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/services/channel_finder/benchmarks/generator.py": "rename:12",
     "src/osprey/services/channel_finder/feedback/pending_store.py": "rename:12",
     "src/osprey/services/facility_knowledge/okf/document.py": "rename:12",
-    "src/osprey/services/facility_knowledge/ttl_generator/emitter.py": "delete:7e",
-    "src/osprey/services/facility_knowledge/ttl_generator/model.py": "delete:7e",
     "src/osprey/templates/claude_code/CLAUDE.channel-finder.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/_terminology/graph.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/_terminology/in_context.md.j2": "rename:12",

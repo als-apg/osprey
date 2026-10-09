@@ -226,45 +226,6 @@ def test_demo_ttl_gives_every_channel_binding_exactly_one_direction(
     )
 
 
-def test_demo_ttl_generator_refuses_a_mixed_direction_group(tmp_path: Path) -> None:
-    """A signal group whose members disagree is refused, not averaged.
-
-    One ``(FAMILY, FIELD, SUBFIELD)`` group mints one ``SemanticSignal``, so its
-    members must share a direction. If a future limits file made one member of a
-    group read-only, silently picking a direction would publish a graph that
-    contradicts the write path for the other members — the exact failure the
-    cross-artifact assertions above exist to catch, only invisible because the
-    corpus and the limits file would still be *self*-consistent.
-    """
-    from osprey.services.facility_knowledge.ttl_generator import direction, model
-
-    addresses = [f"SR:MAG:DIPOLE:{n:02d}:CURRENT:SP" for n in range(1, 5)]
-    dissenter = addresses[-1]
-
-    limits_path = tmp_path / "mixed_limits.json"
-    limits_path.write_text(
-        json.dumps(
-            {
-                **{address: {"writable": True} for address in addresses[:-1]},
-                dissenter: {"writable": False},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    synthetic = model.build_model({address: {} for address in addresses})
-
-    with pytest.raises(direction.DirectionConflictError) as excinfo:
-        direction.resolve_and_assign(synthetic, limits_path)
-
-    error = excinfo.value
-    assert error.group_key == ("DIPOLE", "CURRENT", "SP")
-    assert error.dissenting == (dissenter,)
-    message = str(error)
-    assert "(DIPOLE, CURRENT, SP)" in message
-    assert dissenter in message
-
-
 # ---------------------------------------------------------------------------
 # The corpus carries the prose both databases hold
 # ---------------------------------------------------------------------------
