@@ -16,11 +16,13 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import hashlib
 import json
 import logging
 import threading
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -179,32 +181,27 @@ FIGURE_BUILDERS: dict[str, Any] = {
 
 
 class _SSEBroadcaster:
-    """Manages per-client asyncio.Queue instances for SSE push."""
+    """Manages per-client asyncio.Queue instances for SSE push.
+
+    Called on the event loop only.
+    """
 
     def __init__(self) -> None:
         self._queues: list[asyncio.Queue[dict]] = []
-        self._lock = threading.Lock()
 
     def subscribe(self) -> asyncio.Queue[dict]:
         q: asyncio.Queue[dict] = asyncio.Queue(maxsize=64)
-        with self._lock:
-            self._queues.append(q)
+        self._queues.append(q)
         return q
 
     def unsubscribe(self, q: asyncio.Queue[dict]) -> None:
-        with self._lock:
-            try:
-                self._queues.remove(q)
-            except ValueError:
-                pass
+        with contextlib.suppress(ValueError):
+            self._queues.remove(q)
 
     def broadcast(self, data: dict) -> None:
-        with self._lock:
-            for q in self._queues:
-                try:
-                    q.put_nowait(data)
-                except asyncio.QueueFull:
-                    pass
+        for q in self._queues:
+            with contextlib.suppress(asyncio.QueueFull):
+                q.put_nowait(data)
 
 
 # ── Request models ────────────────────────────────────────
@@ -310,9 +307,8 @@ class _ModelLoader:
     def select(self, name: str) -> DashboardModel | None:
         """Initialise the state from model *name*'s deck.
 
-        Overrides and the old baseline are dropped; settings are kept. The
-        running workers are stopped and every figure is removed first, so no
-        figure of the previous model is served or written after the switch.
+        Overrides and the old baseline are dropped; settings are kept. Every
+        figure is removed first, so no figure of the previous model is served.
 
         Returns:
             The model loaded, or None when the catalog has no model *name*.
@@ -321,7 +317,6 @@ class _ModelLoader:
             model = self.catalog().get(name)
             if model is None:
                 return None
-            self._compute.cancel_all()
             self._state.clear_figures()
             self._load(model, self._digest(model.deck))
             return model
@@ -334,7 +329,8 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
     """Create the Lattice Dashboard FastAPI application.
 
     Constructing the app loads no deck and starts no worker: the state is
-    initialised on the first ``/api/state`` or ``/api/models`` request.
+    initialised on the first ``/api/state`` or ``/api/models`` request. Every
+    worker is put down when the app shuts down.
 
     Args:
         workspace_root: Agent-data root (e.g. ``<repo>/var/agent_data``). The
@@ -390,10 +386,19 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
         if not figure_available(name, current.get("solve")):
             raise HTTPException(status_code=409, detail=optics_only_reason(current))
 
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        # No worker outlives the app.
+        try:
+            yield
+        finally:
+            await compute.stop_all()
+
     app = FastAPI(
         title="Lattice Dashboard",
         description="Live lattice visualization dashboard",
         version="1.0.0",
+        lifespan=lifespan,
     )
 
     # ── Health ────────────────────────────────────────────

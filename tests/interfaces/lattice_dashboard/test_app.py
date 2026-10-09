@@ -2,8 +2,8 @@
 
 Each app is built over a synthetic render under ``tmp_path``: its simulator
 view ``data/simulator/`` holds ``variables.json`` with the models and a pyAT
-JSON deck per deck-bearing model. Worker launches go to a recording
-``Popen`` stand-in, so no subprocess runs.
+JSON deck per deck-bearing model. Worker launches go to ``FakeSlots``
+(conftest), so no subprocess runs.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.lattice_dashboard import app as app_mod
-from osprey.interfaces.lattice_dashboard import compute as compute_mod
 from osprey.interfaces.lattice_dashboard.app import create_app
 from osprey.interfaces.lattice_dashboard.catalog import NO_SERVED_MODEL_TEXT, NO_VIEW_TEXT
 from osprey.interfaces.lattice_dashboard.state import (
@@ -75,30 +74,10 @@ def _write_render(root, *, served, models):
     return root
 
 
-class _RecordingPopen:
-    """A worker process that never runs; each launch records its module."""
-
-    launched: list[str] = []
-
-    def __init__(self, cmd, stdout=None, stderr=None):  # noqa: ARG002
-        _RecordingPopen.launched.append(cmd[2].rsplit(".", 1)[-1])
-        self.pid = 0
-        self.returncode = None
-
-    def poll(self):
-        return 0
-
-    def communicate(self, timeout=None):  # noqa: ARG002
-        return (b"", b"")
-
-
 @pytest.fixture(autouse=True)
-def launched(monkeypatch):
-    """The figure workers launched, by name, with no subprocess or monitor thread."""
-    _RecordingPopen.launched = []
-    monkeypatch.setattr(compute_mod.subprocess, "Popen", _RecordingPopen)
-    monkeypatch.setattr(compute_mod.ComputeManager, "_monitor_worker", lambda *a, **k: None)
-    return _RecordingPopen.launched
+def launched(fake_slots):
+    """The figure workers launched, by name, with no subprocess."""
+    return fake_slots.launched
 
 
 @pytest.fixture
@@ -118,7 +97,8 @@ def render(tmp_path):
 
 @pytest.fixture
 def client(tmp_path, render):
-    return TestClient(create_app(workspace_root=tmp_path / "ws", render_root=render))
+    with TestClient(create_app(workspace_root=tmp_path / "ws", render_root=render)) as client:
+        yield client
 
 
 class TestLaunch:
@@ -300,16 +280,17 @@ class TestModelSwitch:
         (figures / "optics.json").write_text(json.dumps(_OPTICS_RAW))
         assert client.get("/api/figures/optics").status_code == 200
 
-    def test_switch_cancels_the_running_workers(self, client, monkeypatch):
+    def test_switch_broadcasts_no_figure_error(self, client, monkeypatch):
         client.get("/api/state")
-        cancelled = []
+        events = []
         monkeypatch.setattr(
-            compute_mod.ComputeManager, "cancel_all", lambda self: cancelled.append(True)
+            app_mod._SSEBroadcaster, "broadcast", lambda self, data: events.append(data)
         )
 
         client.post("/api/models/select", json={"name": "TRANSFER"})
+        client.get("/health")
 
-        assert cancelled == [True]
+        assert [e for e in events if e["type"] == "figure_error"] == []
 
     def test_unknown_model_keeps_the_figures(self, client, figures):
         client.get("/api/state")

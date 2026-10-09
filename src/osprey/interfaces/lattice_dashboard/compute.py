@@ -1,18 +1,22 @@
-"""Compute manager — subprocess orchestration for figure workers.
+"""Compute manager — the figure workers' supervision.
 
-Spawns workers as subprocesses, monitors completion, updates state,
-and broadcasts SSE events when figures are ready.
+Each figure has one job slot. A launch reserves the slot, which makes the new
+job current at once, and schedules one task on the event loop that starts the
+worker, waits for it and applies its result. Only the current job's result is
+applied: a job superseded by a later launch of the same figure ends as
+``cancelled`` and changes nothing, since its successor has already marked the
+figure computing. Every launch returns before any worker is started or reaped,
+and every state write and broadcast happens on the loop.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import subprocess
 import sys
-import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from osprey.interfaces.lattice_dashboard.state import (
     ALL_FIGURES,
@@ -20,11 +24,23 @@ from osprey.interfaces.lattice_dashboard.state import (
     LatticeState,
     fast_figures,
 )
-
-if TYPE_CHECKING:
-    pass
+from osprey_connectors.process import ChildExit, ChildJob, ExitCause, JobSlots
 
 logger = logging.getLogger("osprey.lattice_dashboard.compute")
+
+#: Longest a figure worker may run before it is put down as timed out.
+WORKER_DEADLINE_S = 300.0
+
+#: How much of a failed worker's stderr its error keeps.
+_STDERR_TAIL = 500
+
+#: The package each figure's worker module lives in.
+_WORKERS = "osprey.interfaces.lattice_dashboard.workers"
+
+
+def worker_argv(name: str, state_path: Path, output_path: Path) -> list[str]:
+    """Return the command line that runs figure *name*'s worker."""
+    return [sys.executable, "-m", f"{_WORKERS}.{name}", str(state_path), str(output_path)]
 
 
 def _read_summary_updates(output_path: Path, name: str) -> dict[str, Any] | None:
@@ -54,118 +70,94 @@ def _read_summary_updates(output_path: Path, name: str) -> dict[str, Any] | None
 
 
 class ComputeManager:
-    """Manages subprocess workers for lattice figure computation.
+    """Supervises the figure workers.
 
     Args:
         state: LatticeState instance for reading/writing state.
         broadcaster: Object with a ``broadcast(data)`` method for SSE push.
+        slots: The job slots, one per figure; a fresh set when omitted.
     """
 
-    def __init__(self, state: LatticeState, broadcaster: Any) -> None:
+    def __init__(
+        self, state: LatticeState, broadcaster: Any, slots: JobSlots | None = None
+    ) -> None:
         self._state = state
         self._broadcaster = broadcaster
-        self._processes: dict[str, subprocess.Popen] = {}
-        self._lock = threading.Lock()
+        self._slots = slots if slots is not None else JobSlots()
+        self._tasks: set[asyncio.Task[None]] = set()
 
     def refresh_fast(self) -> list[str]:
-        """Cancel running fast workers and recompute the loaded model's fast figures.
+        """Recompute the loaded model's fast figures.
 
         A ``single_pass`` model draws optics only, so only that worker runs.
         """
-        launched = []
-        for name in fast_figures(self._state.load().get("solve")):
-            self._launch_worker(name)
-            launched.append(name)
-        return launched
+        names = list(fast_figures(self._state.load().get("solve")))
+        for name in names:
+            self._launch(name)
+        return names
 
     def refresh_verification(self) -> list[str]:
         """Launch DA + LMA verification workers."""
-        launched = []
-        for name in VERIFICATION_FIGURES:
-            self._launch_worker(name)
-            launched.append(name)
-        return launched
+        names = list(VERIFICATION_FIGURES)
+        for name in names:
+            self._launch(name)
+        return names
 
     def refresh_one(self, name: str) -> None:
         """Launch a single figure worker."""
         if name not in ALL_FIGURES:
             raise ValueError(f"Unknown figure: {name}. Must be one of {ALL_FIGURES}")
-        self._launch_worker(name)
+        self._launch(name)
 
-    def _launch_worker(self, name: str) -> None:
-        """Spawn a subprocess for the named worker."""
-        # Cancel if already running
-        with self._lock:
-            proc = self._processes.get(name)
-            if proc is not None and proc.poll() is None:
-                logger.info("Cancelling running %s worker (pid=%d)", name, proc.pid)
-                proc.terminate()
-                try:
-                    proc.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
+    async def stop_all(self) -> None:
+        """Put every worker down, then cancel the supervision tasks.
 
-        state_path = self._state.state_path
+        Returns once every worker is reaped and every task has ended.
+        """
+        await self._slots.stop_all(ExitCause.CANCELLED)
+        tasks = list(self._tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _launch(self, name: str) -> None:
+        """Make a new job current for *name* and schedule its supervision."""
+        job = self._slots.reserve(name)
         output_path = self._state.figures_dir / f"{name}.json"
-
-        worker_module = f"osprey.interfaces.lattice_dashboard.workers.{name}"
-        cmd = [sys.executable, "-m", worker_module, str(state_path), str(output_path)]
-
-        logger.info("Launching %s worker: %s", name, " ".join(cmd))
+        argv = worker_argv(name, self._state.state_path, output_path)
+        logger.info("Launching %s worker (job %d)", name, job.job)
         self._state.mark_computing(name)
         self._broadcaster.broadcast({"type": "figure_status", "name": name, "status": "computing"})
+        task = asyncio.get_running_loop().create_task(self._supervise(job, argv, output_path))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
+    async def _supervise(self, job: ChildJob, argv: list[str], output_path: Path) -> None:
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-        except Exception as exc:
-            error_msg = f"Failed to launch worker: {exc}"
-            logger.exception("Worker launch failed for %s", name)
-            self._state.mark_error(name, error_msg)
-            self._broadcaster.broadcast({"type": "figure_error", "name": name, "error": error_msg})
+            await job.start(argv, collect_stderr=_STDERR_TAIL)
+        except OSError as exc:
+            await job.stop(ExitCause.CANCELLED)
+            if self._slots.is_current(job):
+                self._fail(job.name, f"Failed to launch worker: {exc}")
             return
-
-        with self._lock:
-            self._processes[name] = proc
-
-        # Monitor in background thread
-        t = threading.Thread(
-            target=self._monitor_worker,
-            args=(name, proc, output_path),
-            daemon=True,
-            name=f"lattice-worker-{name}",
-        )
-        t.start()
-
-    def _monitor_worker(self, name: str, proc: subprocess.Popen, output_path: Path) -> None:
-        """Wait for worker to complete and update state accordingly."""
-        try:
-            stdout, stderr = proc.communicate(timeout=300)  # 5 min max
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.communicate()
-            error_msg = "Worker timed out after 300s"
-            logger.warning("%s worker timed out", name)
-            self._state.mark_error(name, error_msg)
-            self._broadcaster.broadcast({"type": "figure_error", "name": name, "error": error_msg})
+        exit_ = await job.wait(deadline_s=WORKER_DEADLINE_S)
+        if not self._slots.is_current(job):
+            logger.debug("%s job %d is no longer current; its result is dropped", job.name, job.job)
             return
+        self._apply(job.name, exit_, output_path)
 
-        if proc.returncode != 0:
-            stderr_text = stderr.decode("utf-8", errors="replace")[-500:]
-            error_msg = f"Worker exited with code {proc.returncode}: {stderr_text}"
-            logger.warning("%s worker failed: %s", name, error_msg)
-            self._state.mark_error(name, error_msg)
-            self._broadcaster.broadcast({"type": "figure_error", "name": name, "error": error_msg})
+    def _apply(self, name: str, exit_: ChildExit, output_path: Path) -> None:
+        """Apply the current job's exit to its figure."""
+        if exit_.cause is ExitCause.CANCELLED:
             return
-
+        if exit_.cause is ExitCause.TIMED_OUT:
+            self._fail(name, f"Worker timed out after {WORKER_DEADLINE_S:.0f} s")
+            return
+        if exit_.cause is not ExitCause.COMPLETED:
+            self._fail(name, f"Worker exited with code {exit_.returncode}: {exit_.stderr_tail}")
+            return
         if not output_path.exists():
-            error_msg = "Worker completed but no output file produced"
-            logger.warning("%s: %s", name, error_msg)
-            self._state.mark_error(name, error_msg)
-            self._broadcaster.broadcast({"type": "figure_error", "name": name, "error": error_msg})
+            self._fail(name, "Worker completed but no output file produced")
             return
 
         logger.info("%s worker completed successfully", name)
@@ -177,10 +169,7 @@ class ComputeManager:
             # summary chips come from /api/state, so ask for a state re-read.
             self._broadcaster.broadcast({"type": "state_updated"})
 
-    def cancel_all(self) -> None:
-        """Terminate all running workers."""
-        with self._lock:
-            for name, proc in self._processes.items():
-                if proc.poll() is None:
-                    logger.info("Terminating %s worker", name)
-                    proc.terminate()
+    def _fail(self, name: str, error: str) -> None:
+        logger.warning("%s worker failed: %s", name, error)
+        self._state.mark_error(name, error)
+        self._broadcaster.broadcast({"type": "figure_error", "name": name, "error": error})
