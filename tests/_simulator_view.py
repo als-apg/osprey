@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import shutil
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from osprey.facility.sources import read_yaml
 from osprey.facility.views import view_bytes
 from osprey.facility.views.simulator import SCENARIOS_DIR, SCENARIOS_FILE, SCENARIOS_SCHEMA
+from osprey_connectors.simulation.view import SCHEMAS
 
 
 def write_scenarios_view(
@@ -60,16 +61,22 @@ def write_texture_view(
     render: Path,
     channels: Mapping[str, Mapping[str, Any]],
     scenarios: Mapping[str, Mapping[str, Any]] | None = None,
+    models: Sequence[Mapping[str, Any]] = (),
 ) -> Path:
-    """Write a whole simulator view whose every channel the texture serves.
+    """Write a whole simulator view, every document carrying its schema.
 
     Args:
         render: The render's root.
         channels: Address -> its ``value_type`` (``float`` when absent),
-            ``options`` and ``role`` (``readback`` when absent), plus the seed
-            fields ``nominal``, ``noise``, ``drift`` and ``clamp``.
+            ``options``, ``role`` (``readback`` when absent) and ``owner``
+            (``texture`` when absent), plus the seed fields ``nominal``,
+            ``noise``, ``drift`` and ``clamp``.
         scenarios: Scenario name -> its blocks, as :func:`write_scenarios_view`
             takes them.
+        models: Served physics models, each a ``variables.json`` model record
+            (``name``, ``engine``, ``settings``, ``deck`` and ``wiring``, every
+            wiring record carrying its ``role``, ``plane`` and ``refresh``);
+            each is listed as served with its status address.
 
     Returns:
         The view directory, ``<render>/data/simulator``.
@@ -89,22 +96,28 @@ def write_texture_view(
                 "description": None,
                 "writable": role == "setpoint",
                 "value_range": None,
-                "owner": "texture",
+                "owner": spec.get("owner", "texture"),
+                "on": None,
                 **({"options": spec["options"]} if "options" in spec else {}),
             }
         )
         seed = {field: spec[field] for field in _SEED_FIELDS if field in spec}
         if seed:
             seeds[address] = seed
+    physics = [{"served": True, **dict(model)} for model in models]
+    names = sorted(str(model["name"]) for model in physics)
     view = render / "data" / "simulator"
     documents = {
-        "served_models.json": {"models": ["texture"]},
-        "addresses.json": {"channels": sorted(channels), "status": []},
-        "variables.json": {"code": "T", "models": [], "channels": records},
+        "served_models.json": {"models": [*names, "texture"]},
+        "addresses.json": {
+            "channels": sorted(channels),
+            "status": [f"T:SIM:{name}:STATUS" for name in names],
+        },
+        "variables.json": {"code": "T", "models": physics, "channels": records},
         "seeds.json": {"seeds": seeds},
     }
     view.mkdir(parents=True, exist_ok=True)
     for name, document in documents.items():
-        (view / name).write_bytes(view_bytes(document))
+        (view / name).write_bytes(view_bytes({"schema": SCHEMAS[name], **document}))
     write_scenarios_view(render, {"nominal": {}, **(scenarios or {})})
     return view

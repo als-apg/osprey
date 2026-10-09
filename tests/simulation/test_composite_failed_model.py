@@ -28,6 +28,7 @@ from osprey.connectors.control_system.mock_connector import MockConnector, simul
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import ENGINE_GROUP, STATUS_MAX_BYTES, Composite
+from osprey_connectors.simulation.view import SCHEMAS
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -286,6 +287,7 @@ def _channel(address: str, owner: str, **fields: Any) -> dict[str, Any]:
         "writable": role == "setpoint",
         "value_range": None,
         "owner": owner,
+        "on": None,
         **fields,
     }
 
@@ -298,7 +300,14 @@ def _stub_view(root: Path, settings: Mapping[str, Any] | None = None) -> Path:
         _channel("T:SP", "texture", role="setpoint"),
     ]
     wiring = [
-        {"id": str(index), "address": channel["address"], "direction": "read"}
+        {
+            "id": str(index),
+            "address": channel["address"],
+            "direction": "read",
+            "role": "readback",
+            "plane": None,
+            "refresh": "pass",
+        }
         for index, channel in enumerate(channels[:3])
     ]
     documents = {
@@ -335,7 +344,9 @@ def _stub_view(root: Path, settings: Mapping[str, Any] | None = None) -> Path:
     view = root / "stub" / "data" / "simulator"
     view.mkdir(parents=True)
     for name, document in documents.items():
-        (view / name).write_text(json.dumps(document), encoding="utf-8")
+        (view / name).write_text(
+            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+        )
     return view
 
 

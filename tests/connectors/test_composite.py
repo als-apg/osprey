@@ -25,6 +25,7 @@ from osprey_connectors.simulation.composite import (
     STATUS_MAX_BYTES,
     Composite,
 )
+from osprey_connectors.simulation.view import SCHEMAS
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -150,21 +151,36 @@ def _channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, A
         "writable": fields.pop("writable", False),
         "value_range": fields.pop("value_range", None),
         "owner": owner,
+        "on": None,
         **fields,
     }
 
 
+def _described(role: str, plane: str | None = None) -> dict[str, Any]:
+    """The description a build stamps on a wiring record."""
+    return {"role": role, "plane": plane, "refresh": "pass"}
+
+
 def _wiring(*, waveform: bool = False) -> list[dict[str, Any]]:
-    trace = [{"id": "7", "address": "M:TRACE", "direction": "read", "default": [0.1, 0.2, 0.3]}]
+    trace = [
+        {"id": "7", "address": "M:TRACE", "direction": "read", "default": [0.1, 0.2, 0.3]}
+        | _described("output")
+    ]
     return [
-        {"id": "1", "address": "M:SP", "direction": "write", "default": 2.0},
-        {"id": "2", "address": "M:STUCK:SP", "direction": "write", "default": 1.0},
+        {"id": "1", "address": "M:SP", "direction": "write", "default": 2.0}
+        | _described("setpoint"),
+        {"id": "2", "address": "M:STUCK:SP", "direction": "write", "default": 1.0}
+        | _described("setpoint"),
         {"id": "3", "address": "M:BPM:X", "direction": "read", "element": "B1"}
-        | {"engine": {"axis": "x"}, "default": 0.25},
+        | {"engine": {"axis": "x"}, "default": 0.25}
+        | _described("monitor", "x"),
         {"id": "4", "address": "M:BPM:Y", "direction": "read", "element": "B1"}
-        | {"engine": {"axis": "y"}, "default": -0.5},
-        {"id": "5", "address": "M:RB", "direction": "read", "default": 4.0},
-        {"id": "6", "address": "M:STATE", "direction": "read", "default": "OFF"},
+        | {"engine": {"axis": "y"}, "default": -0.5}
+        | _described("monitor", "y"),
+        {"id": "5", "address": "M:RB", "direction": "read", "default": 4.0}
+        | _described("readback"),
+        {"id": "6", "address": "M:STATE", "direction": "read", "default": "OFF"}
+        | _described("output"),
         *(trace if waveform else []),
     ]
 
@@ -237,7 +253,9 @@ def _view(
     view = path / "simulator"
     view.mkdir(parents=True, exist_ok=True)
     for name, document in documents.items():
-        (view / name).write_text(json.dumps(document), encoding="utf-8")
+        (view / name).write_text(
+            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+        )
     return view
 
 

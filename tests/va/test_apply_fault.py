@@ -181,20 +181,25 @@ def _channel(address: str, role: str) -> dict[str, Any]:
         "writable": role == "setpoint",
         "value_range": BAND if role == "setpoint" else None,
         "owner": MODEL,
+        "on": None,
     }
 
 
 def _write_view(data_dir: Path) -> Path:
     """The stub view under ``data_dir/simulator``; returns the view directory."""
+    from osprey_connectors.simulation.view import SCHEMAS
+
     channels = [
         _channel(address, "setpoint" if address in PAIRS.values() else "readback")
         for address in sorted([*PAIRS, *PAIRS.values()])
     ]
     wiring = [
         {"id": str(index), "address": address, "direction": "write", "default": BOOT}
+        | {"role": "setpoint", "plane": None, "refresh": "pass"}
         for index, address in enumerate(sorted(PAIRS.values()))
     ] + [
         {"id": str(index + len(PAIRS)), "address": address, "direction": "read"}
+        | {"role": "readback", "plane": None, "refresh": "pass"}
         for index, address in enumerate(sorted(PAIRS))
     ]
     documents = {
@@ -236,7 +241,9 @@ def _write_view(data_dir: Path) -> Path:
     view = data_dir / "simulator"
     view.mkdir(parents=True)
     for name, document in documents.items():
-        (view / name).write_text(json.dumps(document), encoding="utf-8")
+        (view / name).write_text(
+            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+        )
     return view
 
 

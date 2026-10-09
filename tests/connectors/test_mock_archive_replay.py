@@ -21,6 +21,7 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import series
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.composite import Composite
+from osprey_connectors.simulation.view import SCHEMAS
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -98,6 +99,7 @@ def _channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, A
         "writable": fields.pop("writable", False),
         "value_range": None,
         "owner": owner,
+        "on": None,
         **fields,
     }
 
@@ -133,8 +135,10 @@ def _view(
                     "settings": {},
                     "deck": None,
                     "wiring": [
-                        {"id": "1", "address": "M:SP", "direction": "write", "default": 2.0},
-                        {"id": "2", "address": "M:RB", "direction": "read", "default": 4.0},
+                        {"id": "1", "address": "M:SP", "direction": "write", "default": 2.0}
+                        | {"role": "setpoint", "plane": None, "refresh": "pass"},
+                        {"id": "2", "address": "M:RB", "direction": "read", "default": 4.0}
+                        | {"role": "readback", "plane": None, "refresh": "pass"},
                     ],
                 },
             ],
@@ -155,7 +159,9 @@ def _view(
     view = path / "simulator"
     view.mkdir(parents=True, exist_ok=True)
     for name, document in documents.items():
-        (view / name).write_text(json.dumps(document), encoding="utf-8")
+        (view / name).write_text(
+            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+        )
     return view
 
 
