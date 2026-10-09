@@ -93,6 +93,8 @@ from osprey_connectors.simulation.view import (
     SEEDS_FILE,
     SERVED_MODELS_FILE,
     VARIABLES_FILE,
+    Model,
+    SimulatorView,
 )
 from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
 
@@ -183,11 +185,6 @@ def _default_log_dir() -> Path | None:
     return log_dir()
 
 
-def _read_json(path: Path) -> dict[str, Any]:
-    document: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    return document
-
-
 def _plain(value: Any) -> Any:
     """A child's output in its stored representation: a waveform as a flat list."""
     if isinstance(value, np.ndarray):
@@ -211,7 +208,7 @@ class _Child:
     """One physics child and what the composite keeps for it."""
 
     name: str
-    record: Mapping[str, Any]
+    source: Model
     owned: list[str]
     defaults: dict[str, Any]
     setpoints: frozenset[str]
@@ -230,7 +227,8 @@ class Composite(LUMEModel):
     """Serve one simulator view through its physics children and the texture.
 
     Args:
-        view_dir: The simulator view, ``<render>/data/simulator``.
+        view: The simulator view, ``<render>/data/simulator``, opened or as
+            its directory, which is opened with :meth:`SimulatorView.open`.
         state_dir: The directory holding the ``active_scenarios`` file; ``None``
             serves ``nominal`` alone.
         instance: The serving instance the model log names, one of
@@ -243,11 +241,13 @@ class Composite(LUMEModel):
 
     Raises:
         ValueError: ``instance`` is not one of :data:`INSTANCES`.
+        NoSimulatorView: The directory holds no simulator view.
+        ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
 
     def __init__(
         self,
-        view_dir: Path | str,
+        view: SimulatorView | Path | str,
         *,
         state_dir: Path | str | None = None,
         instance: str = "inprocess",
@@ -257,7 +257,8 @@ class Composite(LUMEModel):
     ) -> None:
         if instance not in INSTANCES:
             raise ValueError(f"instance is {instance!r}; use one of {list(INSTANCES)}")
-        self._view_dir = Path(view_dir)
+        if not isinstance(view, SimulatorView):
+            view = SimulatorView.open(view)
         self._instance = instance
         self._clock = clock
         self._state_path = (
@@ -268,41 +269,28 @@ class Composite(LUMEModel):
         )
         self._active: list[str] = []
 
-        variables = _read_json(self._view_dir / VARIABLES_FILE)
-        seeds = _read_json(self._view_dir / SEEDS_FILE)
-        addresses = _read_json(self._view_dir / ADDRESSES_FILE)
-        served = _read_json(self._view_dir / SERVED_MODELS_FILE)["models"]
+        variables = view.document(VARIABLES_FILE)
         self._scenarios: dict[str, Mapping[str, Any]] = {
-            str(scenario["name"]): scenario
-            for scenario in _read_json(self._view_dir / SCENARIOS_FILE)["scenarios"]
+            str(scenario["name"]): scenario for scenario in view.scenarios()
         }
         self._channels: dict[str, Mapping[str, Any]] = {
             str(channel["address"]): channel for channel in variables["channels"]
         }
-        records = {str(model["name"]): model for model in variables["models"]}
-        physics = sorted(
-            name
-            for name in served
-            if name in records and records[name].get("engine") != TEXTURE_OWNER
-        )
-        code = str(variables["code"])
+        models = {model.name: model for model in view.physics_models()}
+        physics = sorted(models)
 
-        self._texture = TextureModel(variables, seeds, clock=clock)
+        self._texture = TextureModel(variables, view.document(SEEDS_FILE), clock=clock)
         self._owner: dict[str, str] = {
             address: (owner if (owner := str(record.get("owner"))) in physics else TEXTURE_OWNER)
             for address, record in self._channels.items()
         }
-        self._children: dict[str, _Child] = {
-            name: self._child(name, records[name]) for name in physics
+        self._children: dict[str, _Child] = {name: self._child(models[name]) for name in physics}
+        self._status: dict[str, str] = {
+            address: name for name, address in view.status_addresses().items()
         }
-        self._status: dict[str, str] = {}
-        for name in physics:
-            address = f"{code}:SIM:{name}:STATUS"
-            if address in addresses["status"]:
-                self._status[address] = name
 
         self._variables: dict[str, Variable] = {}
-        for address in addresses["channels"]:
+        for address in view.channels():
             if self._owner[address] == TEXTURE_OWNER:
                 self._variables[address] = self._texture.supported_variables[address]
             else:
@@ -310,7 +298,7 @@ class Composite(LUMEModel):
                 self._variables[address] = channel_variable(
                     self._channels[address], self._start_value(child, address)
                 )
-        for address in addresses["status"]:
+        for address in self._status:
             self._variables[address] = StrVariable(
                 name=address, default_value=STATUS_OK, read_only=True
             )
@@ -320,9 +308,10 @@ class Composite(LUMEModel):
 
     # -- construction --------------------------------------------------------
 
-    def _child(self, name: str, record: Mapping[str, Any]) -> _Child:
+    def _child(self, source: Model) -> _Child:
+        name = source.name
         owned = sorted(address for address, owner in self._owner.items() if owner == name)
-        wiring = list(record.get("wiring") or [])
+        wiring = [binding.record for binding in source.bindings]
         defaults = {
             str(entry["address"]): entry.get("default")
             for entry in wiring
@@ -346,7 +335,7 @@ class Composite(LUMEModel):
         partners = {address: tuple(sorted(group)) for group in groups.values() for address in group}
         return _Child(
             name=name,
-            record=record,
+            source=source,
             owned=owned,
             defaults=defaults,
             setpoints=setpoints,
@@ -384,19 +373,18 @@ class Composite(LUMEModel):
 
     def _build(self, child: _Child) -> None:
         """Build a child at its active state; a raise leaves it failed with the engine's text."""
-        record = child.record
+        source = child.source
         child.model = None
         child.engine = None
         child.starts = {}
         child.inputs = self._start_inputs(child)
         try:
-            child.engine = self._engine(str(record.get("engine")))
-            deck = record.get("deck")
+            child.engine = self._engine(str(source.engine))
             child.model = child.engine.build(
                 child.name,
-                list(record.get("wiring") or []),
-                None if deck is None else self._view_dir / deck,
-                record.get("settings"),
+                [binding.record for binding in source.bindings],
+                source.deck,
+                source.settings,
                 active=dict(child.active),
             )
             writable = [
