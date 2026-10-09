@@ -40,21 +40,12 @@ from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
     terminal_secret_var,
 )
-from osprey.deployment.web_terminals.env_production import telemetry_delivered_vars
 from osprey.deployment.web_terminals.personas import (
     REGISTRY_MODE_MISSING_URL,
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
     access_wire_value,
     as_dict,
-    config_archiver_credential_envs,
-    config_needs_ariel_mirror,
-    config_needs_ariel_password,
-    config_needs_dispatcher_token,
-    config_needs_facility_bundle,
-    config_needs_graphdb_password,
-    config_needs_launch_token_for,
-    config_needs_phoebus_handles,
     configured_registry_url,
     control_identity_problems,
     effective_image_source,
@@ -739,7 +730,6 @@ def _control_context_mount_source(config: Any, identity: str) -> str:
 
 
 def _launch_token_env_vars(
-    config: Any,
     entry: dict[str, Any],
     launch_token_personas: dict[str, set[str]] | None,
 ) -> list[str]:
@@ -751,11 +741,6 @@ def _launch_token_env_vars(
     entitled persona every rendered lane's token would let a launch approved
     against one machine be replayed against the other.
 
-    A persona-less roster entry — the no-persona path, where the web image IS
-    the deploy project — is answered from this same config, with no disk read, so
-    the determinism contract holds either way.
-
-    :param config: The parsed facility config (the deploy config's own root).
     :param entry: One resolved roster entry.
     :param launch_token_personas: ``{lane: personas}`` — see
         :func:`render_web_terminals`.
@@ -767,11 +752,7 @@ def _launch_token_env_vars(
     return [
         f"{lane_env_prefix(lane)}_LAUNCH_TOKEN"
         for lane in LANE_KEYS
-        if (
-            persona in entitled_by_lane.get(lane, set())
-            if persona
-            else config_needs_launch_token_for(config, lane)
-        )
+        if persona in entitled_by_lane.get(lane, set())
     ]
 
 
@@ -788,7 +769,6 @@ def render_web_terminals(
     ariel_mirror_gid: int | None = None,
     archiver_credential_personas: dict[str, tuple[str, ...]] | None = None,
     archiver_ca_bundle_personas: dict[str, tuple[str, ...]] | None = None,
-    archiver_ca_bundles: tuple[str, ...] = (),
     telemetry_vars_personas: dict[str, tuple[str, ...]] | None = None,
     phoebus_handle_personas: set[str] | None = None,
     terminal_secrets: dict[str, str] | None = None,
@@ -937,10 +917,6 @@ def render_web_terminals(
             Each file is bind-mounted read-only at the same path into the
             user's container, so the key names one file on the host and in the
             container. ``None`` emits no mount.
-        archiver_ca_bundles: The same host CA files for persona-less entries,
-            from the deploy config itself. Resolved by the caller rather than
-            here, like the map above, because whether a file is on the host is
-            a filesystem read. ``()`` emits no mount.
         telemetry_vars_personas: ``{persona_name: names}`` for the personas
             whose telemetry block needs variables no fixed route delivers,
             resolved from disk by
@@ -1062,7 +1038,7 @@ def render_web_terminals(
     services = []
     for entry in resolved_users:
         user_ports = allocate_ports(base_ports, entry["index"])
-        launch_token_env_vars = _launch_token_env_vars(root, entry, launch_token_personas)
+        launch_token_env_vars = _launch_token_env_vars(entry, launch_token_personas)
         # Bound once because two keys below are anchored on it — the volume's
         # own mount target and the control-context directory nested inside it.
         # Resolving it twice would let one anchor be changed without the other.
@@ -1254,25 +1230,11 @@ def render_web_terminals(
                     for family, env_var in PANEL_ENV_VARS.items()
                 ],
                 # Whether this user's container gets the event dispatcher's
-                # bearer (see the `dispatcher_personas` arg). A persona-less
-                # roster entry — the no-persona path, where the web image
-                # IS the deploy project — is answered from this same config,
-                # with no disk read, so the determinism contract holds either
-                # way.
-                "wants_dispatcher": (
-                    entry["persona"] in (dispatcher_personas or set())
-                    if entry.get("persona")
-                    else config_needs_dispatcher_token(root)
-                ),
+                # bearer (see the `dispatcher_personas` arg).
+                "wants_dispatcher": entry["persona"] in (dispatcher_personas or set()),
                 # Whether this user's container gets the ARIEL Postgres password
-                # (see the `ariel_personas` arg). Persona-less entries are
-                # answered from this same config, with no disk read, exactly as
-                # above.
-                "wants_ariel_db": (
-                    entry["persona"] in (ariel_personas or set())
-                    if entry.get("persona")
-                    else config_needs_ariel_password(root)
-                ),
+                # (see the `ariel_personas` arg).
+                "wants_ariel_db": entry["persona"] in (ariel_personas or set()),
                 # Which plan lanes' launch tokens this user's container gets
                 # (see the `launch_token_personas` arg), and whether it gets any
                 # at all. Both derived from the one list, so the template's gate
@@ -1280,58 +1242,30 @@ def render_web_terminals(
                 "wants_launch_token": bool(launch_token_env_vars),
                 "launch_token_env_vars": launch_token_env_vars,
                 # Whether this user's container gets the graph store's Neo4j
-                # password (see the `graphdb_personas` arg). Persona-less
-                # entries are answered from this same config, with no disk read,
-                # exactly as above.
-                "wants_graphdb": (
-                    entry["persona"] in (graphdb_personas or set())
-                    if entry.get("persona")
-                    else config_needs_graphdb_password(root)
-                ),
+                # password (see the `graphdb_personas` arg).
+                "wants_graphdb": entry["persona"] in (graphdb_personas or set()),
                 # The NAMES of the variables this user's archiver connector
                 # authenticates with (see the `archiver_credential_personas`
-                # arg), or an empty tuple for no grant. Persona-less entries
-                # are answered from this same config, with no disk read,
-                # exactly as above.
-                "archiver_credential_envs": (
-                    (archiver_credential_personas or {}).get(entry["persona"], ())
-                    if entry.get("persona")
-                    else config_archiver_credential_envs(root)
+                # arg), or an empty tuple for no grant.
+                "archiver_credential_envs": (archiver_credential_personas or {}).get(
+                    entry["persona"], ()
                 ),
                 # The host CA files this user's archiver block names under
                 # `tls.ca_bundle` (see the `archiver_ca_bundle_personas` arg),
                 # each mounted read-only at the same path, or () for none.
-                # Persona-less entries read the caller-resolved
-                # `archiver_ca_bundles`, since the render reads no filesystem.
-                "ca_bundle_mounts": (
-                    (archiver_ca_bundle_personas or {}).get(entry["persona"], ())
-                    if entry.get("persona")
-                    else archiver_ca_bundles
-                ),
+                "ca_bundle_mounts": (archiver_ca_bundle_personas or {}).get(entry["persona"], ()),
                 # The NAMES of the variables this user's telemetry block needs
                 # (see the `telemetry_vars_personas` arg), or () for none.
-                # Persona-less entries are answered from this same config, with
-                # no disk read, exactly as above.
-                "telemetry_vars": (
-                    (telemetry_vars_personas or {}).get(entry["persona"], ())
-                    if entry.get("persona")
-                    else telemetry_delivered_vars(root)
-                ),
+                "telemetry_vars": (telemetry_vars_personas or {}).get(entry["persona"], ()),
                 # Where the deployment's knowledge bundle mounts inside THIS
                 # user's container, or None when the user is not entitled or the
                 # deployment configures no bundle. One key rather than a
                 # boolean + a shared path: personas differ in
                 # container_project_dir, so the target is per service and the
                 # template must not be able to emit a mount without one.
-                # Persona-less entries are answered from this same config with
-                # no disk read, exactly as the four grants above.
                 "container_bundle_dir": (
                     _container_bundle_dir(root, entry["container_project_dir"])
-                    if (
-                        entry["persona"] in (facility_bundle_personas or set())
-                        if entry.get("persona")
-                        else config_needs_facility_bundle(root)
-                    )
+                    if entry["persona"] in (facility_bundle_personas or set())
                     else None
                 ),
                 # Where the deployment's ARIEL qmd mirror mounts inside THIS
@@ -1341,24 +1275,14 @@ def render_web_terminals(
                 # cannot emit the mount without a target.
                 "container_mirror_dir": (
                     _container_mirror_dir(root, entry["container_project_dir"])
-                    if (
-                        entry["persona"] in (ariel_mirror_personas or set())
-                        if entry.get("persona")
-                        else config_needs_ariel_mirror(root)
-                    )
+                    if entry["persona"] in (ariel_mirror_personas or set())
                     else None
                 ),
                 # Whether this user's container carries PHOEBUS_REQUIRE_HANDLE=1,
                 # which makes the Phoebus MCP server refuse the implicit
-                # "active" display. Persona-less entries are answered from this
-                # same config with no disk read, exactly as the grants above.
-                # Not a credential: a switch the Phoebus MCP server reads from
-                # the environment it inherits.
-                "phoebus_require_handle": (
-                    entry["persona"] in (phoebus_handle_personas or set())
-                    if entry.get("persona")
-                    else config_needs_phoebus_handles(root)
-                ),
+                # "active" display. Not a credential: a switch the Phoebus MCP
+                # server reads from the environment it inherits.
+                "phoebus_require_handle": entry["persona"] in (phoebus_handle_personas or set()),
             }
         )
 
@@ -2167,12 +2091,8 @@ def _user_card(resolved_user: dict[str, Any], token_login_names: frozenset[str])
     every card has an answer to — an absent key would read as "no posture"
     rather than "signs in".
 
-    A ``sublabel`` key is added only when the entry resolved to a persona, so a
-    no-persona roster keeps producing exactly the same optional-key shape
-    landing.html.j2 rendered before.
-
-    One case drops the badge even though a persona is in effect: when the
-    persona name and the roster name are the same word. The badge exists to say
+    A ``sublabel`` key carries the persona name; the badge is present unless
+    the persona and roster names are the same word. The badge exists to say
     which tier a login belongs to, and a card reading ``ariel`` above a pill
     reading ``ARIEL`` says nothing the label did not — the common shape for a
     single-tenant service persona, where the roster entry and the persona are
@@ -2189,9 +2109,9 @@ def _user_card(resolved_user: dict[str, Any], token_login_names: frozenset[str])
             this deployment, membership in which is this card's ``token_login``.
 
     Returns:
-        ``{"label", "url", "token_login"}`` for a persona-less user, plus
-        ``"sublabel"`` (the persona name) when ``persona`` is a non-empty string
-        that differs from the user's own name.
+        ``{"label", "url", "token_login"}``, plus ``"sublabel"`` (the persona
+        name) when ``persona`` is a non-empty string that differs from the
+        user's own name.
     """
     from osprey.interfaces.common_middleware import url_mount_prefix
 
@@ -2224,10 +2144,8 @@ def _build_groups(
     no deploy-host needs baking into the landing cards themselves. When a user
     resolves to a persona (:func:`resolve_personas` returns a non-``None``
     ``persona``), that card also carries an optional ``sublabel`` holding the
-    persona name, shown as a secondary badge on the card; users with no persona
-    in effect (every bare-string roster) omit the key entirely, so
-    landing.html.j2's ``{% if item["sublabel"] %}`` guard renders them without
-    one. Every user card also carries ``token_login`` (see :func:`_user_card`),
+    persona name, shown as a secondary badge on the card (see :func:`_user_card`
+    for when it is omitted). Every user card also carries ``token_login`` (see :func:`_user_card`),
     the auth posture that user's terminal is entered under.
     ``{type: "links", label, links}`` passes ``links`` straight through as
     ``items`` (link cards carry neither a ``sublabel`` nor a posture). Unrecognized/malformed

@@ -266,10 +266,10 @@ BLUESKY_PANEL_ID = "bluesky"
 def config_declares_panel(config: Any, panel_id: str) -> bool:
     """True if ``config`` declares ``web.panels.<panel_id>`` and hasn't disabled it.
 
-    The one definition of "this project shows that panel", shared by the render
-    (for persona-less roster entries) and by :func:`personas_needing_dispatcher_token`
-    (for catalog personas), so the two cannot answer differently for the same
-    config — and read through the same predicate the web terminal and the
+    The one definition of "this project shows that panel", shared by the
+    persona-set predicates (:func:`personas_needing_dispatcher_token` and its
+    siblings) and the reach contract, so they cannot answer differently for the
+    same config — and read through the same predicate the web terminal and the
     health probe read a block with (:func:`panel_spec_enabled`). ``enabled:
     false`` counts as *not* declared: a panel switched off is one whose
     credential is not needed, and the build switches off every block a render
@@ -916,9 +916,7 @@ def _bluesky_panel_roster_grants(
     Entitlement is decided the way the web-terminal render decides every
     per-user grant: a user with a persona (their own, else
     ``default_persona``) by that persona's rendered ``config.yml``
-    (:func:`personas_declaring_bluesky_panel`); a persona-less user runs the
-    deployment's own project, so the deploy config answers for them. Roster
-    order, so the rendered compose is stable across runs.
+    (:func:`personas_declaring_bluesky_panel`). Roster order, so the rendered compose is stable across runs.
 
     Read off the personas' rendered ``config.yml`` files, like every other
     per-persona grant. The render that carries it is ``osprey build``'s — the
@@ -953,13 +951,11 @@ def _bluesky_panel_roster_grants(
     if not isinstance(default_persona, str) or not default_persona:
         default_persona = None
     entitled_personas = personas_declaring_bluesky_panel(config, project_root, persona_root)
-    deploy_declares = config_declares_bluesky_panel(config)
 
     grants: list[tuple[str, str]] = []
     for entry in normalize_users(raw_users):
         persona = refs.get(entry["name"]) or default_persona
-        entitled = persona in entitled_personas if persona else deploy_declares
-        if entitled:
+        if persona in entitled_personas:
             grants.append((entry["name"], terminal_secret_var(entry["name"])))
     return grants
 
@@ -3138,28 +3134,6 @@ def settings_json_is_rendered(project_dir: Any) -> bool:
     return settings_json_path(project_dir).is_file()
 
 
-def settings_json_denies_bash(project_dir: Any) -> bool:
-    """True if ``<project_dir>/.claude/settings.json`` denies ``Bash`` outright.
-
-    The one-tool case of :func:`settings_json_denies`, kept under its own name
-    because the Bash/launch-token guard asks exactly this question in four
-    places and reads better for saying so. Only the exact ``"Bash"`` entry
-    counts (see :data:`~osprey.agent_runner.tool_names.BASH_DENY_ENTRY`); every other property — reading the
-    shipped artifact rather than the config, and failing closed on one it
-    cannot parse — belongs to :func:`settings_json_denies` and is described
-    there.
-
-    Args:
-        project_dir: The rendered persona project directory (the one holding
-            ``config.yml`` and ``.claude/``).
-
-    Returns:
-        ``True`` only when the artifact was read, parsed, and lists ``"Bash"``
-        in ``permissions.deny``; ``False`` in every other case.
-    """
-    return settings_json_denies(project_dir, (BASH_DENY_ENTRY,))
-
-
 def personas_not_denying(config: Any, project_root: Any, tools: Iterable[str]) -> set[str]:
     """Names of referenced personas whose shipped settings do **not** deny *tools*.
 
@@ -3230,7 +3204,7 @@ def referenced_persona_project_dirs(config: Any, project_root: Any) -> dict[str,
 def personas_not_denying_bash(config: Any, project_root: Any) -> set[str]:
     """Names of referenced personas whose shipped settings do **not** deny ``Bash``.
 
-    The roster-shaped form of :func:`settings_json_denies_bash`, phrased as the
+    The roster-shaped form of :func:`settings_json_denies` for ``Bash``, phrased as the
     *unsafe* set so its caller can name every offending persona in one error
     rather than re-deriving them. A persona granted ``BLUESKY_LAUNCH_TOKEN``
     while its agent may also run a shell can read that token out of its own

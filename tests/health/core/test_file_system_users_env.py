@@ -95,12 +95,29 @@ _GATEWAY_TABLE_ENTRY = {
     "default_model": "h",
     "models": ["h", "s", "o"],
 }
+#: The terminals run the default persona's project, whose rendered config.yml
+#: (written by :func:`_render_gateway_persona`) names the gateway provider.
 _GATEWAY_CONFIG = {
     "facility": {},
     "system": {"timezone": "UTC"},
     "claude_code": {"provider": _GATEWAY},
-    "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
+    "modules": {
+        "web_terminals": {
+            "enabled": True,
+            "image_source": "local",
+            "default_persona": "assistant",
+            "personas": {"assistant": {"project": "demo-assistant", "project_path": "persona"}},
+        }
+    },
 }
+
+
+def _render_gateway_persona(root: Path) -> None:
+    """Render the default persona's project, whose agent runs on the gateway."""
+    (root / "persona").mkdir()
+    (root / "persona" / "config.yml").write_text(
+        f"claude_code:\n  provider: {_GATEWAY}\n", encoding="utf-8"
+    )
 
 
 def test_existing_file_missing_a_required_endpoint_is_an_error(
@@ -113,6 +130,7 @@ def test_existing_file_missing_a_required_endpoint_is_an_error(
     from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS
 
     monkeypatch.setitem(CLAUDE_CODE_PROVIDERS, _GATEWAY, _GATEWAY_TABLE_ENTRY)
+    _render_gateway_persona(tmp_path)
     _dotenv(tmp_path / ".env", {_GATEWAY_SECRET_VAR: "k"})
     _dotenv(tmp_path / ".env.users", {_GATEWAY_SECRET_VAR: "k"})
 
