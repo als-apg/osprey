@@ -5871,7 +5871,9 @@ def test_gchat_bridge_image_installs_the_gchat_extra_over_the_shared_deps_layer(
         .joinpath("templates/services/gchat_bridge/Dockerfile")
         .read_text(encoding="utf-8")
     )
-    deps_install = 'pip install ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION"'
+    deps_install = (
+        'uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework==$OSPREY_VERSION"'
+    )
     extras_install = 'pip install "osprey-framework[gchat]"'
     assert deps_install in dockerfile
     assert extras_install in dockerfile
@@ -6701,7 +6703,9 @@ def test_teams_bridge_image_installs_the_teams_extra_over_the_shared_deps_layer(
         .joinpath("templates/services/teams_bridge/Dockerfile")
         .read_text(encoding="utf-8")
     )
-    deps_install = 'pip install ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION"'
+    deps_install = (
+        'uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework==$OSPREY_VERSION"'
+    )
     extras_install = 'pip install "osprey-framework[teams]"'
     assert deps_install in dockerfile
     assert extras_install in dockerfile

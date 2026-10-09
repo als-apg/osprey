@@ -205,7 +205,7 @@ class TestLayerSplit:
     def test_pinned_primer_spec_present(self, service):
         deps = _deps_body(service)
         spec = PRIMER_SPEC[service]
-        assert f'pip install ${{OSPREY_PIP_PRE:+--pre}} "{spec}"' in deps, (
+        assert f'uv pip install ${{OSPREY_PIP_PRE:+--prerelease=allow}} "{spec}"' in deps, (
             f"{service}: pinned primer spec {spec!r} missing from deps layer"
         )
 
@@ -397,7 +397,7 @@ class TestPrereleasePin:
             tmp_path,
             {"OSPREY_VERSION": "2026.9.0b2", "OSPREY_PIP_PRE": "1"},
         )
-        assert "--pre" in argv, argv
+        assert "--prerelease=allow" in argv, argv
         assert any(a.endswith("==2026.9.0b2") for a in argv), argv
 
     def test_primer_stays_strict_for_a_stable_pin(self, dockerfile, tmp_path):
@@ -406,7 +406,7 @@ class TestPrereleasePin:
             tmp_path,
             {"OSPREY_VERSION": "2026.9.0", "OSPREY_PIP_PRE": ""},
         )
-        assert "--pre" not in argv, argv
+        assert "--prerelease=allow" not in argv, argv
 
 
 def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
@@ -430,6 +430,7 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
     for name, script in (
         ("apt-get", "#!/bin/sh\nexit 0\n"),
         ("pip", '#!/bin/sh\ncase " $* " in *" -r "*) exit 1 ;; *) exit 0 ;; esac\n'),
+        ("uv", '#!/bin/sh\n[ "$1" = pip ] && shift\nexec "$(dirname "$0")/pip" "$@"\n'),
     ):
         stub = stub_bin / name
         stub.write_text(script)

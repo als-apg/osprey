@@ -95,12 +95,21 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # images building side by side draw on one cache. The apt mounts are private
 # rather than locked: a lock would hold this whole RUN, pip install included,
 # against every other image building its own deps layer at the same time.
+#
+# The installs here run under uv rather than pip: uv resolves without pip's
+# one-candidate-at-a-time metadata crawl and downloads in parallel, which on a
+# slow index is most of this layer's time. It is installed with pip from the
+# same index (so a site mirror still applies), handed pip's settings (the
+# constraint file for runtime and build dependencies, the site indexes with
+# pip's consider-every-index strategy, bytecode compilation), and uninstalled
+# before the RUN ends, so no image ships it. Later layers install with pip.
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
 # OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
-# connectors ship as a pair from one tag, and pip never picks a pre-release
-# for a requirement that names none (the framework's own connectors
-# requirement), so the deps layer then resolves as a whole with --pre.
+# connectors ship as a pair from one tag, and an installer prefers a stable
+# release for a requirement that names none (the framework's own connectors
+# requirement), so the deps layer then resolves as a whole with
+# --prerelease=allow.
 ARG OSPREY_PIP_PRE=""
 # The three pip ARGs are the rest of the site build settings the compose build
 # hands this image (the same producer that passes OSPREY_SITE_CA above).
@@ -122,6 +131,7 @@ COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
 # pip's isolated build environments. Drop once a fixed release is out.
 RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/var/cache/apt,sharing=private \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=private \
     export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
@@ -129,18 +139,26 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
     && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_BUILD_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 \
+              UV_INDEX_STRATEGY=unsafe-best-match \
+    && { [ -z "$PIP_INDEX_URL" ] || export UV_DEFAULT_INDEX="$PIP_INDEX_URL"; } \
+    && { [ -z "$PIP_EXTRA_INDEX_URL" ] || export UV_INDEX="$PIP_EXTRA_INDEX_URL"; } \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
-    && { pip install ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION" \
+    && pip install "uv==0.12.21" \
+    && { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework==$OSPREY_VERSION" \
          || if [ "$OSPREY_DEV" = "1" ]; then \
                 echo "WARNING: pin unreleased, priming with latest" \
-                && pip install "osprey-framework" ; \
+                && uv pip install "osprey-framework" ; \
             else \
                 exit 1 ; \
             fi ; } \
     && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
-           pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+           uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
        fi \
+    && pip uninstall -y uv \
     && apt-get purge -y build-essential python3-dev \
     && apt-get autoremove -y \
     && rm -rf /tmp/deps-ctx

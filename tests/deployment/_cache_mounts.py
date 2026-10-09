@@ -13,6 +13,7 @@ from __future__ import annotations
 from tests.deployment._proxy_idiom import raw_run_instructions
 
 PIP_CACHE_MOUNT = "--mount=type=cache,target=/root/.cache/pip"
+UV_CACHE_MOUNT = "--mount=type=cache,target=/root/.cache/uv"
 APT_CACHE_MOUNTS = (
     "--mount=type=cache,target=/var/cache/apt,sharing=private",
     "--mount=type=cache,target=/var/lib/apt/lists,sharing=private",
@@ -24,7 +25,8 @@ def assert_build_caches_mounted(text: str, label: str) -> None:
     """Assert every installing RUN in *text* fetches through the shared caches.
 
     Four things hold together. Each pip RUN mounts pip's cache and does not
-    opt out of it with ``--no-cache-dir``. Each apt install mounts both apt
+    opt out of it with ``--no-cache-dir``; a RUN that installs with uv mounts
+    uv's cache too, and uninstalls uv before it ends so no image ships it. Each apt install mounts both apt
     caches, and no RUN deletes the lists, which live in the mount. The base
     image's docker-clean hook, which deletes every downloaded ``.deb``, is
     removed before the first install; with it gone, an install RUN without the
@@ -48,3 +50,6 @@ def assert_build_caches_mounted(text: str, label: str) -> None:
         if "pip install" in run:
             assert PIP_CACHE_MOUNT in run, f"{label}: pip install without its cache:\n{run}"
             assert "--no-cache-dir" not in run, f"{label}: pip opts out of its cache:\n{run}"
+        if "uv pip install" in run:
+            assert UV_CACHE_MOUNT in run, f"{label}: uv install without its cache:\n{run}"
+            assert "pip uninstall -y uv" in run, f"{label}: uv is left in the image:\n{run}"

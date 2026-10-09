@@ -339,7 +339,7 @@ class TestDockerfileContent:
         assert '[ "$OSPREY_DEV" = "1" ]' in deps, "fallback must be gated on OSPREY_DEV=1"
         assert "WARNING: pin unreleased, priming with latest" in deps
         # Fallback installs the unpinned package; non-dev path fails loudly.
-        assert "pip install osprey-framework" in deps
+        assert "uv pip install osprey-framework" in deps
         assert "exit 1" in deps
 
     def test_deps_run_admits_prereleases_when_the_pin_is_one(self, hello_project, tmp_path):
@@ -353,7 +353,7 @@ class TestDockerfileContent:
             tmp_path,
             {"OSPREY_PIP_SPEC": "osprey-framework==2026.9.0b2", "OSPREY_PIP_PRE": "1"},
         )
-        assert "--pre" in argv, argv
+        assert "--prerelease=allow" in argv, argv
         assert "osprey-framework==2026.9.0b2" in argv
 
     def test_deps_run_stays_strict_for_a_stable_pin(self, hello_project, tmp_path):
@@ -363,7 +363,7 @@ class TestDockerfileContent:
         argv = primer_pip_argv(
             deps, tmp_path, {"OSPREY_PIP_SPEC": "osprey-framework==2026.9.0", "OSPREY_PIP_PRE": ""}
         )
-        assert "--pre" not in argv, argv
+        assert "--prerelease=allow" not in argv, argv
 
     def test_deps_run_maps_the_bypass_list_only_when_it_is_set(self, hello_project):
         """An unset ``PIP_NO_PROXY`` leaves an inherited bypass list alone.
@@ -454,7 +454,9 @@ class TestDockerfileContent:
             flags=re.MULTILINE,
         )
         assert match, "missing the manifest COPY sibling idiom"
-        deps_pos = text.index('pip install ${OSPREY_PIP_PRE:+--pre} "$OSPREY_PIP_SPEC"')
+        deps_pos = text.index(
+            'uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "$OSPREY_PIP_SPEC"'
+        )
         assert match.start() < deps_pos, "manifest COPY must precede the deps RUN"
 
     def test_deps_run_installs_manifest_before_toolchain_purge(self, hello_project):
@@ -596,6 +598,7 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
     for name, script in (
         ("apt-get", "#!/bin/sh\nexit 0\n"),
         ("pip", '#!/bin/sh\ncase " $* " in *" -r "*) exit 1 ;; *) exit 0 ;; esac\n'),
+        ("uv", '#!/bin/sh\n[ "$1" = pip ] && shift\nexec "$(dirname "$0")/pip" "$@"\n'),
     ):
         stub = stub_bin / name
         stub.write_text(script)
