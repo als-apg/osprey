@@ -399,10 +399,9 @@ def _serve_from_roster(request: Request, answer: Callable[[], Any]) -> Any:
 
     The roster is read once, at lifespan, so a route only reads it off state
     here. Both routes that enumerate share what happens when there is nothing to
-    read — an app whose corpus could not be resolved keeps no roster, and one
-    whose corpus could not be parsed or holds no channel keeps the absence
-    saying so — so neither can drift into reporting the same unstaged
-    deployment differently.
+    read — an app whose facility file was not found, could not be read or
+    declares no channels keeps the absence saying so — so neither can drift
+    into reporting the same unstaged deployment differently.
 
     The gate is on the records, not on the absence: a source that enumerated
     its channels but cannot say which are settable carries both, and neither of
