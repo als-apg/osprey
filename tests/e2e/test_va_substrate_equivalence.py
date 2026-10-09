@@ -290,11 +290,9 @@ def _seed_nominal(repo: Path, address: str) -> float:
     """The value ``address`` starts at: its seed's ``nominal`` in the render's
     simulator view, the bytes the container serves; 0.0 when the seed names
     none, the zero of a float channel."""
-    from osprey_connectors.simulation.view import SEEDS_FILE, SimulatorView
+    from osprey_connectors.simulation.view import SimulatorView
 
-    seeds_json = SimulatorView.path_for_project(repo) / SEEDS_FILE
-    assert seeds_json.is_file(), f"the deployment at {repo} rendered no seeds at {seeds_json}"
-    seed = json.loads(seeds_json.read_text(encoding="utf-8"))["seeds"].get(address) or {}
+    seed = SimulatorView.of_project(repo).seed(address) or {}
     return float(seed.get("nominal") or 0.0)
 
 
@@ -318,10 +316,17 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
     """
     from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
+    from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
+    from osprey_connectors.simulation.view import TEXTURE
 
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
-    coupled = {str(record["address"]) for record in _orm_stack.physics_wiring(facility)}
+    coupled = {
+        str(entry["address"])
+        for model in facility.get("models") or []
+        if model.get("engine") != TEXTURE
+        for entry in simulator_wiring(facility, str(model["name"]))
+    }
     document = bluesky_document(facility)
     pairs = sorted(
         (entry["setpoint"], entry["readback"])
@@ -348,7 +353,9 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     """
     from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
+    from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
+    from osprey_connectors.simulation.view import TEXTURE, Binding
 
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
     readback_of = {
@@ -358,13 +365,17 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     }
     candidates = []
     for model in facility.get("models") or []:
-        wiring = _orm_stack.physics_wiring({"models": [model]})
-        wired = {str(record["address"]) for record in wiring}
-        for record in wiring:
-            setpoint = str(record["address"])
+        if model.get("engine") == TEXTURE:
+            continue
+        name = str(model["name"])
+        bindings = [Binding.from_record(name, entry) for entry in simulator_wiring(facility, name)]
+        wired = {binding.address for binding in bindings}
+        for binding in bindings:
+            setpoint = binding.address
             entry = limits.get(setpoint) or {}
             if (
-                _orm_stack.is_corrector(record)
+                binding.role == "setpoint"
+                and binding.plane is not None
                 and readback_of.get(setpoint) in wired
                 and "min_value" in entry
                 and "max_value" in entry
