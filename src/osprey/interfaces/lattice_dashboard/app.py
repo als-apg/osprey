@@ -30,7 +30,7 @@ from typing import Any
 import numpy as np
 import plotly.graph_objects as go
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
@@ -42,6 +42,21 @@ from osprey.interfaces.lattice_dashboard.catalog import (
     read_catalog,
 )
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
+from osprey.interfaces.lattice_dashboard.schema import (
+    BaselineResponse,
+    DataResponse,
+    FigureNotCurrent,
+    FigureResponse,
+    FigureUnavailable,
+    HealthResponse,
+    LaunchResponse,
+    ModelEntry,
+    SelectionModel,
+    SettingsResetResponse,
+    SettingsResponse,
+    StateResponse,
+    StatusResponse,
+)
 from osprey.interfaces.lattice_dashboard.state import (
     ALL_FIGURES,
     SINGLE_PASS_UNAVAILABLE,
@@ -202,6 +217,18 @@ class _SSEBroadcaster:
         for q in self._queues:
             with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait(data)
+
+
+# ── Response documentation ────────────────────────────────
+
+#: The body FastAPI gives an ``HTTPException``.
+_DETAIL: dict[str, Any] = {"description": "Not found"}
+
+#: A figure route's answers other than 200.
+_FIGURE_REFUSALS: dict[int | str, dict[str, Any]] = {
+    404: {"model": FigureNotCurrent, "description": "No figure for the inputs on screen"},
+    409: {"model": FigureUnavailable, "description": "The selected model cannot draw it"},
+}
 
 
 # ── Request models ────────────────────────────────────────
@@ -500,20 +527,20 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
 
     # ── Health ────────────────────────────────────────────
 
-    @app.get("/health")
+    @app.get("/health", response_model=HealthResponse)
     async def health() -> dict[str, Any]:
         return {"status": "ok", "service": "lattice_dashboard"}
 
     # ── State API ─────────────────────────────────────────
 
-    @app.get("/api/state")
+    @app.get("/api/state", response_model=StateResponse)
     async def get_state() -> dict[str, Any]:
         resolver.check()
         return state_payload()
 
     # ── Models API ────────────────────────────────────────
 
-    @app.get("/api/models")
+    @app.get("/api/models", response_model=list[ModelEntry])
     async def list_models() -> list[dict[str, Any]]:
         resolver.check()
         selected = state.selection.model
@@ -528,7 +555,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
             for model in (resolver.catalog.models if resolver.catalog is not None else ())
         ]
 
-    @app.post("/api/models/select")
+    @app.post("/api/models/select", response_model=SelectionModel, responses={404: _DETAIL})
     async def select_model(body: SelectModelRequest) -> dict[str, Any]:
         catalog = await resolver.current_catalog()
         if catalog.get(body.name) is None:
@@ -537,7 +564,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
         resolver.schedule(select=body.name)
         return selection_payload(state.selection)
 
-    @app.post("/api/state/param")
+    @app.post("/api/state/param", response_model=StateResponse, responses={404: _DETAIL})
     async def set_param(body: ParamRequest) -> dict[str, Any]:
         if body.family not in state.selection.families:
             raise HTTPException(
@@ -551,11 +578,15 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
 
     # ── Refresh API ───────────────────────────────────────
 
-    @app.post("/api/refresh")
+    @app.post("/api/refresh", response_model=LaunchResponse)
     async def refresh_fast() -> dict[str, Any]:
         return {"status": "ok", "launched": compute.refresh_fast()}
 
-    @app.post("/api/refresh/{figure}", response_model=None)
+    @app.post(
+        "/api/refresh/{figure}",
+        response_model=LaunchResponse,
+        responses={404: _DETAIL, 409: {"model": FigureUnavailable}},
+    )
     async def refresh_figure(figure: str) -> dict[str, Any] | JSONResponse:
         known(figure)
         refusal = unavailable(figure)
@@ -564,7 +595,9 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
         launched = [figure] if compute.refresh_one(figure) else []
         return {"status": "ok", "launched": launched}
 
-    @app.post("/api/verify", response_model=None)
+    @app.post(
+        "/api/verify", response_model=LaunchResponse, responses={409: {"model": FigureUnavailable}}
+    )
     async def verify() -> dict[str, Any] | JSONResponse:
         selection = state.selection
         if selection.ready and not selection.capabilities.verify:
@@ -576,7 +609,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
 
     # ── Figures API ───────────────────────────────────────
 
-    @app.get("/api/figures/{name}", response_model=None)
+    @app.get("/api/figures/{name}", response_model=FigureResponse, responses=_FIGURE_REFUSALS)
     async def get_figure(name: str) -> dict[str, Any] | JSONResponse:
         payload = current_figure(name)
         if isinstance(payload, JSONResponse):
@@ -585,7 +618,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
         figure = figure_to_dict(builder(payload["data"]))
         return {"status": "ready", "key": payload["key"], "figure": figure}
 
-    @app.get("/api/data/{name}", response_model=None)
+    @app.get("/api/data/{name}", response_model=DataResponse, responses=_FIGURE_REFUSALS)
     async def get_data(name: str) -> dict[str, Any] | JSONResponse:
         payload = current_figure(name)
         if isinstance(payload, JSONResponse):
@@ -594,13 +627,13 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
 
     # ── Baseline API ──────────────────────────────────────
 
-    @app.post("/api/baseline")
+    @app.post("/api/baseline", response_model=BaselineResponse)
     async def set_baseline() -> dict[str, Any]:
         result = state.set_baseline()
         broadcaster.broadcast({"type": "baseline_set", "summary": result.get("summary", {})})
         return result
 
-    @app.delete("/api/baseline")
+    @app.delete("/api/baseline", response_model=StatusResponse)
     async def clear_baseline() -> dict[str, str]:
         state.clear_baseline()
         broadcaster.broadcast({"type": "baseline_cleared"})
@@ -608,17 +641,17 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
 
     # ── Settings API ──────────────────────────────────────
 
-    @app.get("/api/settings")
+    @app.get("/api/settings", response_model=SettingsResponse)
     async def get_settings() -> dict[str, Any]:
         return state.get_settings()
 
-    @app.put("/api/settings")
+    @app.put("/api/settings", response_model=SettingsResponse)
     async def update_settings(body: SettingsRequest) -> dict[str, Any]:
         result = state.update_settings(body.settings)
         broadcaster.broadcast({"type": "settings_updated", "settings": result})
         return result
 
-    @app.delete("/api/settings")
+    @app.delete("/api/settings", response_model=SettingsResetResponse)
     async def reset_settings() -> dict[str, Any]:
         result = state.reset_settings()
         broadcaster.broadcast({"type": "settings_updated", "settings": result})
@@ -652,8 +685,8 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
 
     # ── Static files / SPA ────────────────────────────────
 
-    @app.get("/")
-    async def root(request: Request):
+    @app.get("/", response_class=HTMLResponse)
+    async def root(request: Request) -> HTMLResponse:
         return templates.TemplateResponse(request, "index.html", {})
 
     configure_interface_app(app, static_dir=STATIC_DIR)
