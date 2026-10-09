@@ -11,9 +11,6 @@ from .flat import ChannelDatabase as FlatChannelDatabase
 from .hierarchical import HierarchicalChannelDatabase
 from .middle_layer import MiddleLayerDatabase
 
-# Backward compatibility alias
-LegacyChannelDatabase = FlatChannelDatabase
-
 __all__ = [
     "FlatChannelDatabase",
     "HierarchicalChannelDatabase",
