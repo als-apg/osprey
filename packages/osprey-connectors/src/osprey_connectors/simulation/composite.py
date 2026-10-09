@@ -141,6 +141,7 @@ UDF = "udf"
 
 _ELLIPSIS = "…"
 _SETPOINT = "setpoint"
+_MONITOR = "monitor"
 _FAULT_SEPARATOR = "/"
 _MODEL_SEPARATOR = "/"
 _LOG_MODE = 0o664
@@ -323,15 +324,9 @@ class Composite(LUMEModel):
             if entry.get("direction") == "write" and str(entry["address"]) in owned
         )
         groups: dict[str, list[str]] = {}
-        for entry in wiring:
-            engine = entry.get("engine") or {}
-            if (
-                entry.get("direction") == "read"
-                and entry.get("element") is not None
-                and engine.get("axis") is not None
-                and engine.get("attribute") is None
-            ):
-                groups.setdefault(str(entry["element"]), []).append(str(entry["address"]))
+        for binding in source.bindings:
+            if binding.role == _MONITOR and binding.element is not None:
+                groups.setdefault(str(binding.element), []).append(binding.address)
         partners = {address: tuple(sorted(group)) for group in groups.values() for address in group}
         return _Child(
             name=name,

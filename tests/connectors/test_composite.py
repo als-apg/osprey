@@ -63,9 +63,9 @@ class StubModel(LUMEModel):
             else:
                 self._variables[address] = ScalarVariable(name=address, read_only=True)
                 self.truth[address] = float(entry.get("default", 0.0))
-                axis = (entry.get("engine") or {}).get("axis")
-                if axis is not None and entry.get("element") is not None:
-                    self.monitors.setdefault(str(entry["element"]), {})[axis] = address
+                plane = entry.get("plane") if entry.get("role") == "monitor" else None
+                if plane is not None and entry.get("element") is not None:
+                    self.monitors.setdefault(str(entry["element"]), {})[plane] = address
                     name = f"{address}/polarity"
                     self._defaults[name] = float(active.get(name, 1.0))
                     self._variables[name] = ScalarVariable(name=name, read_only=False)
@@ -172,10 +172,10 @@ def _wiring(*, waveform: bool = False) -> list[dict[str, Any]]:
         {"id": "2", "address": "M:STUCK:SP", "direction": "write", "default": 1.0}
         | _described("setpoint"),
         {"id": "3", "address": "M:BPM:X", "direction": "read", "element": "B1"}
-        | {"engine": {"axis": "x"}, "default": 0.25}
+        | {"default": 0.25}
         | _described("monitor", "x"),
         {"id": "4", "address": "M:BPM:Y", "direction": "read", "element": "B1"}
-        | {"engine": {"axis": "y"}, "default": -0.5}
+        | {"default": -0.5}
         | _described("monitor", "y"),
         {"id": "5", "address": "M:RB", "direction": "read", "default": 4.0}
         | _described("readback"),
@@ -396,6 +396,17 @@ def test_a_monitor_read_on_one_plane_reads_its_partner_through_the_readout(
 
     assert composite.get("M:BPM:Y") == both["M:BPM:Y"]
     assert composite.get("M:BPM:X") == both["M:BPM:X"]
+
+
+def test_partner_planes_group_by_monitor_role_without_an_engine_axis(tmp_path: Path) -> None:
+    view = _view(tmp_path)
+    document = json.loads((view / "variables.json").read_text(encoding="utf-8"))
+    monitors = [entry for entry in document["models"][0]["wiring"] if entry["role"] == "monitor"]
+    composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: T0)
+
+    assert sorted(entry["plane"] for entry in monitors) == ["x", "y"]
+    assert not any("axis" in (entry.get("engine") or {}) for entry in monitors)
+    assert composite.get("M:BPM:Y") == composite.get(["M:BPM:X", "M:BPM:Y"])["M:BPM:Y"]
 
 
 def test_a_texture_waveform_is_set_nested_and_reads_as_its_declared_array(
