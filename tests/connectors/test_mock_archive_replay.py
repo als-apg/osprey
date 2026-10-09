@@ -21,7 +21,7 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import series
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.composite import Composite
-from osprey_connectors.simulation.view import SCHEMAS
+from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -187,6 +187,31 @@ def test_an_address_outside_the_view_is_refused(tmp_path: Path, engine: SimpleNa
 
     with pytest.raises(KeyError, match="NOT:A:CHANNEL is not a channel of the simulator view"):
         archive.series("NOT:A:CHANNEL", HOUR)
+
+
+def test_an_opened_view_archives_as_its_path_does(tmp_path: Path, engine: SimpleNamespace) -> None:
+    del engine
+    view = _view(tmp_path)
+
+    opened = build(SimulatorView.open(view), [], anchor_s=T0)
+
+    assert opened.addresses == build(view, [], anchor_s=T0).addresses
+    assert opened.series("T:NOISY", HOUR[:5]) == build(view, [], anchor_s=T0).series(
+        "T:NOISY", HOUR[:5]
+    )
+
+
+def test_a_view_from_an_older_build_is_refused_with_rebuild(
+    tmp_path: Path, engine: SimpleNamespace
+) -> None:
+    del engine
+    view = _view(tmp_path)
+    path = view / "scenarios.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**document, "schema": None}), encoding="utf-8")
+
+    with pytest.raises(ViewSchemaError, match="rebuild"):
+        build(view, [])
 
 
 # -- the samples ---------------------------------------------------------------
