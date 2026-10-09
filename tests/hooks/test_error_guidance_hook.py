@@ -672,6 +672,8 @@ EXPECTED_ERROR_CLASSES = {
     "manager_not_idle": "Validation",
     "queue_request_rejected": "Validation",
     "invalid_item": "Validation",
+    "figure_not_current": "Validation",
+    "figure_unavailable": "Validation",
     # Data
     "not_found": "Data",
     "no_results": "Data",
