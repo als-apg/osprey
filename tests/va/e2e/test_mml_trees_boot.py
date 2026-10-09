@@ -79,6 +79,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -137,7 +138,12 @@ import pytest  # noqa: E402
 import yaml  # noqa: E402
 from click.testing import CliRunner  # noqa: E402
 
-from tests.e2e._orm_stack import physics_wiring  # noqa: E402
+from osprey_connectors.simulation.view import (  # noqa: E402
+    VIEW_RELPATH,
+    Binding,
+    Channel,
+    SimulatorView,
+)
 from tests.fixtures.mml._trees import names  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
@@ -226,19 +232,25 @@ RF_WRITE_FRACTION = 1e-6
 #: wrong by orders of magnitude, not by parts in a billion.
 READBACK_RTOL = 1e-9
 
-#: The kind of device a write wiring record drives, by the engine attribute it
-#: writes. The kinds are the reviewed mapping's own coupling kinds, so a served
-#: view and its mapping can be held against each other kind by kind.
-KIND_OF_ATTRIBUTE = {
-    "KickAngle": "kick",
-    "PolynomA": "strength",
-    "PolynomB": "strength",
-    "Frequency": "rf",
-    "energy": "energy",
-}
-
-#: The kind of a read wiring record that reads one axis of the orbit.
+#: The kind of a wiring record that reads one plane of the orbit: its role and
+#: its kind alike.
 MONITOR = "monitor"
+
+
+@cache
+def _describer(engine: str | None) -> Any:
+    """The ``describe`` of the engine plug-in named ``engine``, through its entry point.
+
+    The engine says what kind of device a wiring record drives or reads --
+    ``kick``, ``strength``, ``rf``, ``energy`` or ``monitor`` -- so a served
+    record and a mapping family are classified by one authority, never by
+    reading engine words here.
+    """
+    from importlib import metadata
+
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+
+    return metadata.entry_points(group=ENTRY_POINT_GROUP)[str(engine)].load().describe
 
 
 # ===================================================================
@@ -251,7 +263,7 @@ class Device:
     """One driven channel of the served view.
 
     Attributes:
-        kind: What the write drives, from :data:`KIND_OF_ATTRIBUTE`.
+        kind: What the record drives or reads, as its engine describes it.
         setpoint: The address a client writes.
         readback: The address the written field is read back on; the setpoint
             itself for a channel that pairs with no readback of its own.
@@ -269,7 +281,7 @@ class BuiltTree:
     Attributes:
         name: The fixture the export came from.
         repo: The deployment repo the recipe built.
-        view: The ``variables.json`` of the simulator view the build rendered.
+        view: The simulator view the build rendered.
         declared_kinds: The coupling kinds the reviewed mapping declares.
         stopped: What the first build printed to stderr before any remedy.
         remedied: The setpoints whose limits records the harvest widened, in
@@ -278,7 +290,7 @@ class BuiltTree:
 
     name: str
     repo: Path
-    view: dict[str, Any]
+    view: SimulatorView
     declared_kinds: frozenset[str]
     stopped: str
     remedied: tuple[str, ...]
@@ -291,18 +303,30 @@ class BuiltTree:
     @property
     def simulator_dir(self) -> Path:
         """The simulator view the container's composite serves."""
-        return self.data_root / "simulator"
+        return self.data_root / VIEW_RELPATH.name
 
-    def channel(self, address: str) -> dict[str, Any]:
+    def channel(self, address: str) -> Channel:
         """The view's record of ``address``."""
-        for channel in self.view["channels"]:
-            if channel["address"] == address:
-                return channel
-        raise AssertionError(f"{self.name}: the served view lists no channel {address}")
+        try:
+            return self.view.channel(address)
+        except KeyError:
+            raise AssertionError(
+                f"{self.name}: the served view lists no channel {address}"
+            ) from None
+
+    def bindings(self) -> tuple[Binding, ...]:
+        """Every wiring record of the view's physics models, model by name, then in wiring order."""
+        return self.view.bindings(served_only=False)
 
     def wired(self) -> list[str]:
         """Every address a physics model of the view wires, in wiring order."""
-        return list(dict.fromkeys(str(record["address"]) for record in physics_wiring(self.view)))
+        return list(dict.fromkeys(binding.address for binding in self.bindings()))
+
+    def kind(self, binding: Binding) -> str | None:
+        """The kind of device ``binding`` drives or reads, as its model's engine describes it."""
+        engine = self.view.model(binding.model).engine
+        kind: str | None = _describer(engine)(binding.record)["kind"]
+        return kind
 
     def devices(self, kind: str) -> tuple[Device, ...]:
         """The view's driven channels of one kind, in wiring order.
@@ -310,24 +334,24 @@ class BuiltTree:
         Wiring order is the facility file's record order, so a lane naming a
         slot names one device on every run against a given tree -- which is
         how two lanes driving the same tree are kept off each other's device.
-        A monitor is a reading rather than a write, so it is its own readback.
+        A monitor is a reading rather than a write, so it is its own readback;
+        every other kind is a setpoint, whose readback is its channel's pair.
         """
         devices: list[Device] = []
-        for record in physics_wiring(self.view):
-            address = str(record["address"])
-            engine = record.get("engine") or {}
-            if record.get("direction") == "read":
-                if kind == MONITOR and "axis" in engine and "attribute" not in engine:
-                    devices.append(Device(kind=MONITOR, setpoint=address, readback=address))
+        for binding in self.bindings():
+            if self.kind(binding) != kind:
                 continue
-            if KIND_OF_ATTRIBUTE.get(str(engine.get("attribute"))) == kind:
-                pair = self.channel(address).get("pair") or address
+            address = binding.address
+            if binding.role == MONITOR:
+                devices.append(Device(kind=MONITOR, setpoint=address, readback=address))
+            elif binding.direction == "write":
+                pair = self.channel(address).pair or address
                 devices.append(Device(kind=kind, setpoint=address, readback=str(pair)))
         return tuple(devices)
 
     def band(self, address: str) -> tuple[float, float]:
         """The drive band the served view gives ``address``."""
-        bounds = self.channel(address).get("value_range")
+        bounds = self.channel(address).value_range
         assert bounds is not None and None not in bounds, (
             f"{address} carries no write band in the served view"
         )
@@ -423,42 +447,47 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
         f"{name}: the build stopped on {sorted(remedied)}, and the tree plants {sorted(expected)}"
     )
 
-    view = json.loads(
-        (repo / "build" / "data" / "simulator" / "variables.json").read_text(encoding="utf-8")
-    )
+    view = SimulatorView.of_project(repo)
     return BuiltTree(
         name=name,
         repo=repo,
         view=view,
-        declared_kinds=_declared_kinds(repo / recipes.FACILITY_DIR / MAPPING_FILE),
+        declared_kinds=_declared_kinds(repo / recipes.FACILITY_DIR / MAPPING_FILE, view),
         stopped=stopped.stderr,
         remedied=remedied,
     )
 
 
-def _declared_kinds(mapping: Path) -> frozenset[str]:
+def _declared_kinds(mapping: Path, view: SimulatorView) -> frozenset[str]:
     """The kinds the reviewed mapping wires, over every model it names.
 
     Read from the copy the install left in the deployment rather than from the
     fixture beside the export, so this is the same document ``facility import
     mml`` wired from.
 
-    A wired family states what it is to the engine in the engine's own words:
-    the attribute a setpoint drives, or the axis a monitor reads. The kind
-    follows from those words by the same table the served view is read
-    through, so the two are held against each other kind by kind. A family
-    whose engine block is ``null`` is a slot nobody has decided, and a slot
-    binds nothing.
+    A wired family states what it is to the engine in the engine's own block,
+    and the field it wires carries the direction the mapping reviewed. Each
+    family is described as one record of it -- its engine block, that
+    direction, one of its elements -- by the ``describe`` of the engine its
+    model names in the served view, the same authority the served records are
+    classified by, so the two are held against each other kind by kind. A
+    family whose engine block is ``null`` is a slot nobody has decided, and a
+    slot binds nothing.
     """
     document = yaml.safe_load(mapping.read_text(encoding="utf-8"))
+    directions = document.get("directions") or {}
     kinds: set[str] = set()
     for model in document["models"].values():
-        for family in (model.get("wiring") or {}).values():
-            engine = family.get("engine") or {}
-            if "attribute" in engine:
-                kinds.add(KIND_OF_ATTRIBUTE[str(engine["attribute"])])
-            elif "axis" in engine:
-                kinds.add(MONITOR)
+        describe = _describer(view.model(str(model["name"])).engine)
+        for name, family in (model.get("wiring") or {}).items():
+            engine = family.get("engine")
+            if not engine:
+                continue
+            direction = directions[f"{name}.{family['element_field']}"]["direction"]
+            record = {"address": name, "direction": direction, "element": name, "engine": engine}
+            kind = describe(record)["kind"]
+            if kind is not None:
+                kinds.add(kind)
     return frozenset(kinds)
 
 
@@ -671,11 +700,7 @@ def _pairs_are_coherent(tree: BuiltTree, kinds: tuple[str, ...]) -> None:
     of the view wires as a reading: a readback the texture answered would
     echo the demand rather than report the field the model took.
     """
-    reads = {
-        str(record["address"])
-        for record in physics_wiring(tree.view)
-        if record.get("direction") == "read"
-    }
+    reads = {binding.address for binding in tree.bindings() if binding.direction == "read"}
     for kind in kinds:
         for device in tree.devices(kind):
             assert device.readback == device.setpoint or device.readback in reads, (
@@ -792,7 +817,7 @@ class TestTheServedTree:
         assert not missing, f"{served.tree.name}: served with no value: {missing}"
 
         setpoints = [
-            address for address in wired if served.tree.channel(address)["role"] == "setpoint"
+            address for address in wired if served.tree.channel(address).role == "setpoint"
         ]
         owed = served.owed(*setpoints)
         for address in setpoints:
