@@ -319,10 +319,10 @@ def _oracle_model(repo: Path) -> Any:
     state directory and no model log: the oracle reads the view at its
     baseline and writes nothing outside this process.
     """
-    from osprey.facility.views.simulator import simulator_view
     from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.view import SimulatorView
 
-    return Composite(simulator_view(repo), state_dir=None, model_log=False)
+    return Composite(SimulatorView.of_project(repo), state_dir=None, model_log=False)
 
 
 def _model_response_matrix(

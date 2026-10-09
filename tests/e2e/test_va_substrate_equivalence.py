@@ -290,9 +290,9 @@ def _seed_nominal(repo: Path, address: str) -> float:
     """The value ``address`` starts at: its seed's ``nominal`` in the render's
     simulator view, the bytes the container serves; 0.0 when the seed names
     none, the zero of a float channel."""
-    from osprey.facility.views.simulator import SEEDS_FILE, simulator_view
+    from osprey_connectors.simulation.view import SEEDS_FILE, SimulatorView
 
-    seeds_json = simulator_view(repo) / SEEDS_FILE
+    seeds_json = SimulatorView.path_for_project(repo) / SEEDS_FILE
     assert seeds_json.is_file(), f"the deployment at {repo} rendered no seeds at {seeds_json}"
     seed = json.loads(seeds_json.read_text(encoding="utf-8"))["seeds"].get(address) or {}
     return float(seed.get("nominal") or 0.0)
