@@ -4,6 +4,9 @@
 scan in :mod:`tests.facility.test_word_ratchet` and the agent-facing guard in
 :mod:`tests.mcp_server.test_channel_finder_tool_vocabulary` both match it.
 ``PROTOCOL_WORDS`` are the words the text an agent reads never names.
+``ENGINE_WORDS`` are the simulation engine's own words, which only the engine
+plug-ins, the importers and the facility definitions speak; the second scan in
+:mod:`tests.facility.test_word_ratchet` matches them.
 
 ``HARDCODED_VOCABULARY_TOKENS`` hold the facility-vocabulary rule: facility
 terminology has exactly one source of truth. For the graph paradigm that source
@@ -36,6 +39,11 @@ TextKey = tuple[str, str, str]
 #: capitalised camelCase part (``PyATRingModel``) is matched case-sensitively.
 #: A string, not a compiled pattern: ``git grep -P`` takes it as written.
 RATCHET_WORD = r"(?i:\bring\b|_ring\b|\bring_)|Ring(?=[A-Z_])"
+
+#: The pyAT attributes a corrector or a strength writes and the ``axis`` key a
+#: monitor reads. Code outside the engine's zones reads a binding's ``role``
+#: and ``plane`` instead. A string for ``git grep -P``, as ``RATCHET_WORD``.
+ENGINE_WORDS = r"\bKickAngle\b|\bPolynom[AB]\b|[\"']axis[\"']"
 
 # Case-sensitive on purpose: lowercase ``epics`` names a connector type in config
 # text, and the bare demo prefix ``SR`` without a colon is not a match.

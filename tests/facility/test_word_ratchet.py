@@ -1,4 +1,5 @@
-"""The ``ring`` word shrinks to nothing in the shipped code (lattice/deck instead).
+"""The ``ring`` word shrinks to nothing in the shipped code (lattice/deck instead),
+and the engine's own words stay inside the engine's zones.
 
 The scan runs ``git grep`` over the tracked text files under ``SCAN_PATHS``.
 Every file it reports must sit in ``ALLOWLIST``, whose tag names the stage that
@@ -9,6 +10,11 @@ file no longer matches (a stale entry). A new file never joins the list.
 
 A line quoting an outside format word for word carries ``QUOTE_MARKER`` and is
 not reported.
+
+The engine words (``ENGINE_WORDS``) are a second, permanent token: a file
+outside ``ENGINE_ZONES`` that names a pyAT attribute or the ``axis`` key is
+classifying a binding by the engine's words rather than by the ``role`` and
+``plane`` the simulator view states.
 """
 
 from __future__ import annotations
@@ -20,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from tests._vocabulary import RATCHET_WORD
+from tests._vocabulary import ENGINE_WORDS, RATCHET_WORD
 from tests.facility._batches import BATCHES, CURRENT_BATCH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -292,3 +298,73 @@ def test_ratchet_refuses_due_and_stale_entries() -> None:
 
 def test_the_word_only_survives_where_the_allowlist_says() -> None:
     assert violations(scan(REPO_ROOT), ALLOWLIST) == []
+
+
+# --- the engine words -------------------------------------------------------------
+
+#: The trees the engine-word scan reads, ``*.py`` only: a vendored minified
+#: script matches the token without classifying anything.
+ENGINE_SCAN_PATHS: tuple[str, ...] = (
+    "src",
+    "packages",
+    "scripts",
+    "tests/e2e",
+    "tests/va/e2e",
+    "tests/connectors",
+    "tests/interfaces",
+)
+
+#: Where the engine words belong, each with why.
+ENGINE_ZONES: dict[str, str] = {
+    "src/osprey/simulation/engines/**": "the engine plug-ins translate wiring into engine words",
+    "src/osprey/facility/layers/**": "the importers author a model's wiring in its engine's words",
+    "src/osprey/templates/**/data/**": "a shipped facility definition states its engine blocks",
+    "src/osprey/templates/facilities/**": "a shipped facility definition states its engine blocks",
+    "src/osprey/interfaces/lattice_dashboard/state.py": "walks the pyAT elements of a deck",
+    "src/osprey/interfaces/lattice_dashboard/workers/**": "walk the pyAT elements of a deck",
+    "src/osprey/mcp_server/phoebus/tools/databrowser_tools.py": "Phoebus's own plot axis key",
+}
+
+
+def engine_word_hits(root: Path, zones: Mapping[str, str] = ENGINE_ZONES) -> list[str]:
+    """Every ``path:line`` under ``root`` outside ``zones`` naming an engine word."""
+    includes = [f":(glob){path}/**/*.py" for path in ENGINE_SCAN_PATHS]
+    excludes = [f":(exclude,glob){glob}" for glob in zones]
+    result = subprocess.run(
+        ["git", "grep", "-I", "-n", "-P", "-e", ENGINE_WORDS, "--", *includes, *excludes],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode in (0, 1), result.stderr
+    return sorted(":".join(line.split(":", 2)[:2]) for line in result.stdout.splitlines() if line)
+
+
+@pytest.mark.parametrize("text", ["KickAngle", "PolynomA", "PolynomB", "'axis'", '"axis"'])
+def test_engine_words_pattern_finds_the_words(text: str) -> None:
+    assert re.search(ENGINE_WORDS, text) is not None
+
+
+@pytest.mark.parametrize("text", ["axis", "x_axis", "PolynomC", "KickAngles", "'axes'"])
+def test_engine_words_pattern_leaves_other_words(text: str) -> None:
+    assert re.search(ENGINE_WORDS, text) is None
+
+
+def test_a_planted_engine_word_under_the_connectors_is_flagged(tmp_path: Path) -> None:
+    line = "ATTRIBUTE = 'KickAngle'\n"
+    root = _planted_repo(
+        tmp_path,
+        {
+            "packages/osprey-connectors/src/osprey_connectors/simulation/planted.py": line,
+            "src/osprey/simulation/engines/planted.py": line,
+        },
+    )
+
+    assert engine_word_hits(root) == [
+        "packages/osprey-connectors/src/osprey_connectors/simulation/planted.py:1"
+    ]
+
+
+def test_engine_words_survive_only_in_their_zones() -> None:
+    assert engine_word_hits(REPO_ROOT) == []
