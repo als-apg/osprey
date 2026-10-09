@@ -1,6 +1,7 @@
 """Virtual accelerator entrypoint.
 
-Serves the simulator view a build writes under ``<data root>/simulator/``:
+Serves the simulator view a build writes under ``<data root>/simulator/``,
+opened through :class:`~osprey_connectors.simulation.view.SimulatorView`:
 one :class:`~osprey_connectors.simulation.composite.Composite` over the view,
 served on Channel Access and PVAccess by one
 :class:`~osprey.services.virtual_accelerator.serving.runner.ModelRunner`,
@@ -52,11 +53,18 @@ import signal
 from pathlib import Path
 from typing import Any
 
+from osprey_connectors.simulation.view import (
+    ADDRESSES_FILE,
+    SERVED_MODELS_FILE,
+    VARIABLES_FILE,
+    VIEW_RELPATH,
+    NoSimulatorView,
+    SimulatorView,
+    ViewSchemaError,
+)
+
 #: The data root the view is read under when ``VA_DATA_DIR`` is unset.
 DEFAULT_DATA_DIR = "/data"
-
-#: The view's directory under the data root.
-SIMULATOR_DIR = "simulator"
 
 #: The instances a process may serve as; the composite's own list names one
 #: more, ``inprocess``, which is never a served instance.
@@ -70,11 +78,6 @@ LOG_DIR = Path("/var/simulator")
 #: The health record the runner rewrites after every publishing pass: the one
 #: path the compose healthcheck reads. Container-local, never a bind mount.
 HEALTH_FILE = Path("/run/osprey-va/health.json")
-
-#: The view's documents this module reads.
-SERVED_MODELS_FILE = "served_models.json"
-ADDRESSES_FILE = "addresses.json"
-VARIABLES_FILE = "variables.json"
 
 # The line this process prints once the first publishing pass has published
 # every served channel, and the marker everything that waits on that boot
@@ -94,7 +97,7 @@ def _ready_line(channel_count: int) -> str:
 def view_dir() -> Path:
     """The simulator view this process serves: ``$VA_DATA_DIR/simulator``."""
     data_dir = os.environ.get("VA_DATA_DIR", "").strip() or DEFAULT_DATA_DIR
-    return Path(data_dir) / SIMULATOR_DIR
+    return Path(data_dir) / VIEW_RELPATH.name
 
 
 def _resolve_instance() -> str:
@@ -165,24 +168,31 @@ def _resolve_model_write_token() -> str | None:
     return raw if raw.strip() else None
 
 
-def _read_view_document(view: Path, name: str) -> dict[str, Any]:
-    """One JSON document of the view.
+def _open_view(path: Path) -> SimulatorView:
+    """Open the simulator view at ``path`` and read the documents this process serves.
 
     Raises:
-        SystemExit: The file is absent or is not JSON; the message names it.
+        SystemExit: A document is absent, is not JSON or is from another
+            schema; the message names the file and what to do.
     """
-    path = view / name
+    current = path / ADDRESSES_FILE
     try:
-        document: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
+        view = SimulatorView.open(path)
+        for name in (SERVED_MODELS_FILE, VARIABLES_FILE):
+            current = path / name
+            view.document(name)
+        view.models()
+    except (NoSimulatorView, FileNotFoundError):
         raise SystemExit(
-            f"FATAL: no simulator view file at {path}. Bind-mount the render's data "
+            f"FATAL: no simulator view file at {current}. Bind-mount the render's data "
             f"directory (<project>/build/data) to {DEFAULT_DATA_DIR}, or point "
             f"VA_DATA_DIR at it; `osprey build` writes the view."
         ) from None
+    except ViewSchemaError as exc:
+        raise SystemExit(f"FATAL: {exc}") from None
     except json.JSONDecodeError as exc:
-        raise SystemExit(f"FATAL: {path} is not JSON: {exc}") from None
-    return document
+        raise SystemExit(f"FATAL: {current} is not JSON: {exc}") from None
+    return view
 
 
 def _raise_keyboard_interrupt(signum: int, _frame: Any) -> None:
@@ -220,13 +230,11 @@ def main() -> None:
     tick_interval_s = _resolve_tick_interval()
     state_dir = _resolve_state_dir()
     model_write_token = _resolve_model_write_token()
-    view = view_dir()
-    served_models = _read_view_document(view, SERVED_MODELS_FILE)["models"]
-    addresses = _read_view_document(view, ADDRESSES_FILE)
-    variables = _read_view_document(view, VARIABLES_FILE)
+    view = _open_view(view_dir())
+    served_models = view.served()
 
     print(f"Instance: {instance}", flush=True)
-    print(f"Serving the simulator view at {view}", flush=True)
+    print(f"Serving the simulator view at {view.path}", flush=True)
     print(f"Serving models: {', '.join(served_models)}", flush=True)
     print(
         f"Active scenarios from {state_dir}"
@@ -254,8 +262,7 @@ def main() -> None:
 
     runner = ModelRunner(
         composite,
-        variables,
-        addresses,
+        view,
         model_write_token=model_write_token,
         tick_interval_s=tick_interval_s,
         instance=instance,
@@ -270,7 +277,7 @@ def main() -> None:
         raise SystemExit(f"FATAL: the first publishing pass failed: {error}")
 
     _install_shutdown_signals()
-    print(_ready_line(len(addresses["channels"])), flush=True)
+    print(_ready_line(len(view.channels())), flush=True)
 
     # `run()` blocks on the run loop and returns on a KeyboardInterrupt, which
     # the handlers above raise for SIGINT and SIGTERM alike; catching it here

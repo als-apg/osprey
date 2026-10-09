@@ -46,11 +46,13 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.services.virtual_accelerator.serving.health import ServingHealth
 from osprey.services.virtual_accelerator.serving.model_rpc import ModelRpcError
+from osprey_connectors.simulation.view import ADDRESSES_FILE
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.variables import Variable
 
     from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.view import SimulatorView
 
 #: The side a name is on, as the model RPC's ``info`` verb reports it in
 #: each entry's ``surface`` field.
@@ -94,7 +96,7 @@ class ModelSurface(ABC):
     def for_view(
         cls,
         composite: Composite,
-        addresses_json: Mapping[str, Any],
+        view: SimulatorView,
         *,
         instance: str,
         endpoint: str,
@@ -104,14 +106,15 @@ class ModelSurface(ABC):
     ) -> ModelSurface:
         """Answer for a composite, keyed on its simulator view's address set.
 
-        The served side is ``addresses_json``'s ``channels`` and ``status``;
+        The served side is the view's ``addresses.json`` ``channels`` and
+        ``status``;
         a physics model's own variables are reached as ``<model>/<name>``
         through ``composite.model_get`` and ``composite.model_set`` alone.
 
         Args:
             composite: the composite the runner serves. Read and written on
                 the calling thread, which must be the run loop's.
-            addresses_json: the view's ``addresses.json`` document.
+            view: the simulator view the composite was built over.
             instance: this server's instance name.
             endpoint: where this server is reached.
             model_write_token: the token ``set`` and ``reset`` require.
@@ -130,7 +133,7 @@ class ModelSurface(ABC):
         """
         return _ViewSurface(
             composite,
-            addresses_json,
+            view,
             instance=instance,
             endpoint=endpoint,
             model_write_token=model_write_token,
@@ -255,7 +258,7 @@ class _ViewSurface(ModelSurface):
     def __init__(
         self,
         composite: Composite,
-        addresses_json: Mapping[str, Any],
+        view: SimulatorView,
         *,
         instance: str,
         endpoint: str,
@@ -264,8 +267,9 @@ class _ViewSurface(ModelSurface):
         clock: Callable[[], float],
     ) -> None:
         self._composite = composite
-        self._channels = [str(address) for address in addresses_json.get("channels", [])]
-        self._served = [*self._channels, *(str(a) for a in addresses_json.get("status", []))]
+        self._channels = list(view.channels())
+        status = view.document(ADDRESSES_FILE)["status"]
+        self._served = [*self._channels, *(str(address) for address in status)]
         self._served_set = frozenset(self._served)
         self._start(
             instance=instance,

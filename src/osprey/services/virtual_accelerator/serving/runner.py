@@ -20,7 +20,6 @@ kept by the RPC handler,
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -38,11 +37,13 @@ from osprey.services.virtual_accelerator.serving.model_surface import ModelSurfa
 from osprey.services.virtual_accelerator.serving.runner_config import (
     HEALTH_KEYS,
     apply_safety,
-    chromaticity_addresses,
+    periodic_addresses,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.model import LUMEModel
+
+    from osprey_connectors.simulation.view import SimulatorView
 
 
 class ModelRunner(Runner):
@@ -51,8 +52,8 @@ class ModelRunner(Runner):
     The configuration is ``Runner.generate_config`` over the composite with
     the view's write safety applied
     (:func:`~osprey.services.virtual_accelerator.serving.runner_config.apply_safety`).
-    A write pass reads back every served channel except those wired to the
-    chromaticity output, which the next periodic pass publishes; a pass with
+    A write pass reads back every served channel except those the view says
+    refresh ``periodic``, which the next periodic pass publishes; a pass with
     no input values reads them all.
     A failed pass rolls the composite back to the state cached before it only
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
@@ -66,8 +67,7 @@ class ModelRunner(Runner):
     def __init__(
         self,
         composite: LUMEModel,
-        view: Mapping[str, Any],
-        addresses_json: Mapping[str, Any],
+        view: SimulatorView,
         *,
         model_write_token: str | None,
         tick_interval_s: float | None = None,
@@ -75,12 +75,11 @@ class ModelRunner(Runner):
         health_file: Path | None = None,
         failed_pass_tolerance: int | None = None,
     ) -> None:
-        """Serve ``composite``, built from the simulator view ``view`` describes.
+        """Serve ``composite``, built from the simulator view ``view``.
 
         Args:
             composite: the composite over the view.
-            view: the view's ``variables.json`` document.
-            addresses_json: the view's ``addresses.json`` document.
+            view: the simulator view.
             model_write_token: the secret a model RPC write must present, or
                 ``None`` to refuse every model write. Never logged.
             tick_interval_s: the period of the runner's own passes, or
@@ -95,11 +94,11 @@ class ModelRunner(Runner):
                 ``None`` for the default of
                 :data:`~osprey.services.virtual_accelerator.serving.runner_config.HEALTH_KEYS`.
         """
-        self._addresses_json = addresses_json
+        self._view = view
         self._instance = instance
         self._health_file = health_file
         self._model_write_token = model_write_token
-        self._chromaticity = chromaticity_addresses(view)
+        self._periodic = periodic_addresses(view)
         self._write_pass = False
         self._set_landed = False
         self._pass_started = False
@@ -153,12 +152,12 @@ class ModelRunner(Runner):
             write_document(self._health_file, document)
 
     def _cycle_output_names(self) -> list[str]:
-        """The roster read after ``model.set``; a write pass leaves the chromaticity out."""
+        """The roster read after ``model.set``; a write pass leaves the periodic addresses out."""
         self._set_landed = True
         roster: list[str] = super()._cycle_output_names()
         if not self._write_pass:
             return roster
-        return [name for name in roster if name not in self._chromaticity]
+        return [name for name in roster if name not in self._periodic]
 
     def _reset_to_cached_state(self) -> None:
         """Restore the cached state only when the pass failed after ``model.set`` succeeded."""
@@ -170,7 +169,7 @@ class ModelRunner(Runner):
         super()._create_model_info()
         self._surface = ModelSurface.for_view(
             self.model,
-            self._addresses_json,
+            self._view,
             instance=self._instance if self._instance is not None else instance_name(),
             endpoint=pva_endpoint(),
             model_write_token=self._model_write_token,

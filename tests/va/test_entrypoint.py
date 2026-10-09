@@ -21,6 +21,12 @@ import pytest
 
 from osprey.services.virtual_accelerator import entrypoint
 from osprey_connectors.simulation import DEFAULT_TICK_S
+from osprey_connectors.simulation.view import (
+    ADDRESSES_FILE,
+    SCHEMAS,
+    VARIABLES_FILE,
+    VIEW_RELPATH,
+)
 
 #: The documents of a minimal simulator view, by file name.
 VIEW: dict[str, dict[str, Any]] = {
@@ -45,10 +51,12 @@ class _Recorded:
 
 
 def _write_view(data_dir: Path) -> Path:
-    view = data_dir / entrypoint.SIMULATOR_DIR
+    view = data_dir / VIEW_RELPATH.name
     view.mkdir(parents=True)
     for name, document in VIEW.items():
-        (view / name).write_text(json.dumps(document), encoding="utf-8")
+        (view / name).write_text(
+            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+        )
     return view
 
 
@@ -62,13 +70,8 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> _Recorded:
             record.composite = {"view_dir": view_dir, **kwargs}
 
     class ModelRunner:
-        def __init__(self, composite: Any, view: Any, addresses_json: Any, **kwargs: Any) -> None:
-            record.runner = {
-                "composite": composite,
-                "view": view,
-                "addresses_json": addresses_json,
-                **kwargs,
-            }
+        def __init__(self, composite: Any, view: Any, **kwargs: Any) -> None:
+            record.runner = {"composite": composite, "view": view, **kwargs}
 
         def first_pass(self) -> str | None:
             record.events.append("first_pass")
@@ -131,9 +134,8 @@ class TestTheView:
     ) -> None:
         entrypoint.main()
 
-        assert recorded.composite["view_dir"] == served / "simulator"
-        assert recorded.runner["view"] == VIEW["variables.json"]
-        assert recorded.runner["addresses_json"] == VIEW["addresses.json"]
+        assert recorded.composite["view_dir"].path == served / VIEW_RELPATH.name
+        assert recorded.runner["view"].path == served / VIEW_RELPATH.name
         assert recorded.ran
 
     @pytest.mark.usefixtures("recorded")
@@ -143,8 +145,25 @@ class TestTheView:
         monkeypatch.setenv("VA_DATA_DIR", str(tmp_path))
         monkeypatch.setenv("VA_INSTANCE", "virtual_accelerator")
 
-        with pytest.raises(SystemExit, match=str(tmp_path / "simulator" / "served_models.json")):
+        with pytest.raises(SystemExit, match=str(tmp_path / VIEW_RELPATH.name / ADDRESSES_FILE)):
             entrypoint.main()
+
+    def test_a_version_one_view_exits_before_ready_naming_rebuild(
+        self, served: Path, recorded: _Recorded, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        variables = served / VIEW_RELPATH.name / VARIABLES_FILE
+        variables.write_text(
+            json.dumps({"schema": "osprey.facility.simulator/1", **VIEW[VARIABLES_FILE]}),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(SystemExit) as caught:
+            entrypoint.main()
+
+        assert str(caught.value.code).startswith("FATAL: ")
+        assert "rebuild" in str(caught.value.code)
+        assert entrypoint.READY_MARKER not in capsys.readouterr().out
+        assert recorded.events == []
 
     @pytest.mark.usefixtures("served", "recorded")
     def test_the_ready_line_counts_the_served_channels(
