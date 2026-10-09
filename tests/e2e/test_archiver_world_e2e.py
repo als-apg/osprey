@@ -561,8 +561,9 @@ def _await_recorder_transition(
 
 
 def _served_addresses(world: DeployedArchiverWorld) -> list[str]:
-    path = world.repo / "build" / "data" / "simulator" / "addresses.json"
-    return json.loads(path.read_text(encoding="utf-8"))["channels"]
+    from osprey_connectors.simulation.view import SimulatorView
+
+    return list(SimulatorView.of_project(world.repo).channels())
 
 
 # ---------------------------------------------------------------------------

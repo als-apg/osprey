@@ -43,6 +43,7 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors.simulation.view import TEXTURE, VIEW_RELPATH, Channel, SimulatorView
 from tests.va.e2e import conftest as e2e_conftest
 
 #: The image under test.
@@ -96,39 +97,30 @@ MIN_COLLECTED_TESTS = 3
 # ---------------------------------------------------------------------------
 
 
-def _wiring_defaults(view: Path) -> dict[str, float]:
+def _wiring_defaults(view: SimulatorView) -> dict[str, float]:
     """Every writable setpoint the view's wiring gives a default, with that default."""
-    document = json.loads((view / "variables.json").read_text(encoding="utf-8"))
-    writable = {
-        str(channel["address"])
-        for channel in document["channels"]
-        if channel.get("role") == "setpoint" and channel.get("writable") is True
-    }
     return {
-        str(entry["address"]): float(entry["default"])
-        for model in document["models"]
-        for entry in model.get("wiring") or []
-        if entry.get("direction") == "write"
-        and entry.get("default") is not None
-        and str(entry["address"]) in writable
+        binding.address: float(binding.record["default"])
+        for binding in view.bindings(served_only=False)
+        if binding.direction == "write"
+        and binding.record.get("default") is not None
+        and _writable_setpoint(view.channel(binding.address))
     }
 
 
-def _seed_nominals(view: Path) -> dict[str, float]:
+def _seed_nominals(view: SimulatorView) -> dict[str, float]:
     """Every writable texture setpoint whose seed states a nominal, with that nominal."""
-    document = json.loads((view / "variables.json").read_text(encoding="utf-8"))
-    seeds = json.loads((view / "seeds.json").read_text(encoding="utf-8"))["seeds"]
     nominals: dict[str, float] = {}
-    for channel in document["channels"]:
-        address = str(channel["address"])
-        if (
-            channel.get("role") == "setpoint"
-            and channel.get("writable") is True
-            and channel.get("owner") == "texture"
-            and (seeds.get(address) or {}).get("nominal") is not None
-        ):
-            nominals[address] = float(seeds[address]["nominal"])
+    for address in view.channels():
+        channel = view.channel(address)
+        nominal = (view.seed(address) or {}).get("nominal")
+        if _writable_setpoint(channel) and channel.owner == TEXTURE and nominal is not None:
+            nominals[address] = float(nominal)
     return nominals
+
+
+def _writable_setpoint(channel: Channel) -> bool:
+    return channel.role == "setpoint" and channel.writable
 
 
 def _plant_journal(state_dir: Path) -> Path:
@@ -169,7 +161,7 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> e2e_conftest.VaProject:
 @pytest.fixture(scope="module")
 def defaults(project: e2e_conftest.VaProject) -> dict[str, float]:
     """The start value of every writable setpoint the containers serve with one."""
-    view = project.data_dir / "simulator"
+    view = SimulatorView.open(project.data_dir / VIEW_RELPATH.name)
     wired = _wiring_defaults(view)
     textured = _seed_nominals(view)
     assert not wired.keys() & textured.keys(), "a setpoint is both wired and texture-owned"
@@ -339,7 +331,10 @@ async def test_the_mock_connector_replays_the_planted_journal(
     connector = MockConnector()
     with e2e_conftest.patched_config():
         await connector.connect(
-            {"simulator_view": str(project.data_dir / "simulator"), "response_delay_ms": 0}
+            {
+                "simulator_view": str(project.data_dir / VIEW_RELPATH.name),
+                "response_delay_ms": 0,
+            }
         )
         try:
             replayed = {

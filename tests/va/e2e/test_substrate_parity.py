@@ -155,6 +155,12 @@ import pytest  # noqa: E402
 
 from osprey_connectors.control_system.mock_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import decode_char_waveform  # noqa: E402
+from osprey_connectors.simulation.view import (  # noqa: E402
+    TEXTURE,
+    VIEW_RELPATH,
+    Channel,
+    SimulatorView,
+)
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -249,49 +255,56 @@ NOISE_CONTAINER = f"osprey-va-e2e-noise-{os.getpid()}"
 
 @dataclass(frozen=True)
 class View:
-    """A rendered simulator view, read once."""
+    """A rendered simulator view, opened once through its reader."""
 
-    path: Path
-    channels: dict[str, dict[str, Any]]
-    served: list[str]
-    status: list[str]
-    seeds: dict[str, dict[str, Any]]
+    reader: SimulatorView
 
     @classmethod
     def read(cls, path: Path) -> View:
-        variables = json.loads((path / "variables.json").read_text(encoding="utf-8"))
-        addresses = json.loads((path / "addresses.json").read_text(encoding="utf-8"))
-        seeds = json.loads((path / "seeds.json").read_text(encoding="utf-8"))["seeds"]
-        return cls(
-            path=path,
-            channels={str(channel["address"]): channel for channel in variables["channels"]},
-            served=list(addresses["channels"]),
-            status=list(addresses["status"]),
-            seeds=seeds,
-        )
+        return cls(reader=SimulatorView.open(path))
+
+    @property
+    def path(self) -> Path:
+        return self.reader.path
+
+    @property
+    def served(self) -> list[str]:
+        """Every channel address the view lists."""
+        return list(self.reader.channels())
+
+    @property
+    def status(self) -> list[str]:
+        """Every served physics model's status address."""
+        return list(self.reader.status_addresses().values())
 
     @property
     def addresses(self) -> list[str]:
         """Every address the view serves: its channels and its status addresses."""
         return [*self.served, *self.status]
 
+    def channel(self, address: str) -> Channel:
+        return self.reader.channel(address)
+
+    def seed(self, address: str) -> Mapping[str, Any]:
+        return self.reader.seed(address) or {}
+
     def moving(self, address: str) -> bool:
-        seed = self.seeds.get(address) or {}
+        seed = self.seed(address)
         return any(seed.get(key) for key in MOTION_KEYS)
 
     def motion_band(self, address: str, z: float) -> float:
         """How far a served read may sit from the held value: z noise sigmas plus the drift."""
-        seed = self.seeds.get(address) or {}
+        seed = self.seed(address)
         drift = seed.get("drift") or {}
         return z * float(seed.get("noise") or 0.0) + abs(float(drift.get("amplitude") or 0.0))
 
     def labels(self, address: str) -> list[str]:
-        return list(self.channels[address].get("options") or ("FALSE", "TRUE"))
+        return list(self.channel(address).options or ("FALSE", "TRUE"))
 
     def value_type(self, address: str) -> str:
         if address in self.status:
             return "string"
-        return str(self.channels[address].get("value_type") or "float")
+        return str(self.channel(address).value_type or "float")
 
 
 def _composite(view: View, state_dir: Path | None) -> Any:
@@ -398,7 +411,7 @@ def _to_nominal(project: e2e_conftest.VaProject) -> None:
 @pytest.fixture(scope="module")
 def session_view(va_container: e2e_conftest.VaProject) -> View:
     """The view the session container serves, monitors stilled."""
-    return View.read(va_container.data_dir / "simulator")
+    return View.read(va_container.data_dir / VIEW_RELPATH.name)
 
 
 @pytest.fixture(scope="module")
@@ -540,17 +553,17 @@ def test_a_scenario_switch_returns_every_paired_texture_setpoint_to_its_seed(
 ) -> None:
     view = session_view
     pairs = {
-        address: str(channel["pair"])
-        for address, channel in view.channels.items()
-        if channel.get("owner") == "texture"
-        and channel.get("role") == "setpoint"
-        and channel.get("pair") not in (None, address)
+        address: str(channel.pair)
+        for address in view.served
+        if (channel := view.channel(address)).owner == TEXTURE
+        and channel.role == "setpoint"
+        and channel.pair not in (None, address)
     }
-    seeds = {address: float(view.seeds[address]["nominal"]) for address in pairs}
+    seeds = {address: float(view.seed(address)["nominal"]) for address in pairs}
     written = {
         address: seed + 0.1 * abs(seed) + 1.0
         for address, seed in seeds.items()
-        if view.channels[address].get("writable")
+        if view.channel(address).writable
     }
     z = _family_z(len(view.addresses))
 
@@ -726,7 +739,7 @@ def noisy_va(tmp_path_factory: pytest.TempPathFactory) -> Iterator[NoisyVa]:
                     f"{logs.stdout}\n{logs.stderr}"
                 )
             time.sleep(0.5)
-        yield NoisyVa(port=port, view=View.read(root / "simulator"))
+        yield NoisyVa(port=port, view=View.read(root / VIEW_RELPATH.name))
     finally:
         _docker("rm", "-f", NOISE_CONTAINER)
 
