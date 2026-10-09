@@ -150,9 +150,9 @@ A facility that runs MML already holds its channel names, its device families, i
 units and its own descriptions. This chain moves them into the deployment. The agent
 types none of them.
 
-1. **Pull the exporter.** `osprey scaffold pull control-assistant:data/mml/mml_export.m`
-   lands `data/mml/mml_export.m`. Pull `control-assistant:data/mml/README.md` beside it:
-   that file is the user's copy of steps 2 and 3.
+1. **Print the exporter.** `osprey facility import mml --print-exporter > mml_export.m`
+   writes the script. `osprey facility import mml --help` is the user's copy of steps 2
+   and 3.
 2. **The user exports, once per sub-machine.** They copy the script onto the MATLAB path
    of the machine that runs the Middle Layer, run their usual MML setpath for one
    sub-machine, then `mml_export`. It writes `<machine>.<submachine>.ao.json` and

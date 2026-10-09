@@ -121,7 +121,7 @@ class TestFullReplacement:
         # Drop a distinctive bundle artifact from the profile's copy: if the
         # bundle tree were layered under (or merged into) the profile tree, it
         # would reappear in the rendered project.
-        shutil.rmtree(profile_dir / "data" / "mml")
+        shutil.rmtree(profile_dir / "data" / "channel_databases" / "examples")
         (profile_dir / "data" / "facility_marker.txt").write_text("profile tree\n")
 
         project_dir = _build(profile_path)
@@ -136,8 +136,8 @@ class TestFullReplacement:
         assert limits == limits_document(
             build_facility(facility_dir, project_name=project_dir.name)
         ), "the limits database is not the view of the profile tree's limits.yaml"
-        assert not (project_dir / "data" / "mml").exists(), (
-            "bundle mml/ leaked into a full-replacement build"
+        assert not (project_dir / "data" / "channel_databases" / "examples").exists(), (
+            "bundle channel_databases/examples/ leaked into a full-replacement build"
         )
 
     @pytest.mark.parametrize("bundle_data_at_top", [True, False])
