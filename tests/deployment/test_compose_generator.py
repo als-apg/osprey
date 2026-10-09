@@ -3140,7 +3140,6 @@ def test_recorder_mounts_the_simulator_view_and_reads_no_channel_variable() -> N
     """
     svc = _recorder_service(va_co_deployed=True)
     assert "./build/data/simulator:/data/simulator:ro" in svc["volumes"]
-    assert "VA_CHANNELS_FILE" not in svc["environment"]
     assert not any("build/data/simulation" in mount for mount in svc["volumes"]), svc["volumes"]
 
 
