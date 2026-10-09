@@ -97,6 +97,10 @@ OPTICS_AXES: dict[str, int] = {"x": 0, "y": 1}
 #: The plane each ``index`` 0 and 1 names, for a kick and for an optics output.
 _INDEX_PLANES: dict[int, str] = {0: "x", 1: "y"}
 
+#: The kind of device an element attribute drives, for the attributes that
+#: are not a strength's polynomial coefficient.
+_ATTRIBUTE_KINDS: dict[str, str] = {"KickAngle": "kick", "Frequency": "rf"}
+
 Deck = str | os.PathLike[str]
 
 _NOTHING_ACTIVE: Mapping[str, Any] = MappingProxyType({})
@@ -643,13 +647,19 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     ``periodic``, published by the periodic solve alone; every other record
     refreshes ``pass``, with each write's solve.
 
+    The ``kind`` is the device a setpoint or readback drives or reads back:
+    ``kick`` for ``KickAngle``, ``rf`` for ``Frequency``, ``energy`` for the
+    deck energy, ``strength`` for any other element attribute. A monitor's
+    kind is ``monitor``; an optics output has none.
+
     Args:
         wiring_record: One wiring record, read by key or by attribute.
 
     Returns:
-        ``{role, plane, refresh}``: ``role`` one of ``setpoint``,
+        ``{role, plane, refresh, kind}``: ``role`` one of ``setpoint``,
         ``readback``, ``monitor``, ``output``; ``plane`` ``x``, ``y`` or
-        ``None``; ``refresh`` ``pass`` or ``periodic``.
+        ``None``; ``refresh`` ``pass`` or ``periodic``; ``kind`` one of
+        ``kick``, ``strength``, ``rf``, ``energy``, ``monitor``, or ``None``.
 
     Raises:
         ValueError: naming the record's address, for a record none of the
@@ -658,25 +668,37 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     block = field(wiring_record, "engine")
     attribute = field(block, "attribute")
     if field(wiring_record, "direction") == "write":
-        return _description("setpoint", _steered_plane(block))
+        return _description("setpoint", _steered_plane(block), _setting_kind(wiring_record))
     if _names_element(wiring_record):
         if _is_monitor_reading(wiring_record):
             axis = field(block, "axis")
-            return _description("monitor", axis if axis in OPTICS_AXES else None)
+            return _description("monitor", axis if axis in OPTICS_AXES else None, "monitor")
         if attribute is not None:
-            return _description("readback", _steered_plane(block))
+            return _description("readback", _steered_plane(block), _setting_kind(wiring_record))
     elif attribute in DECK_PROPERTIES:
-        return _description("readback", None)
+        return _description("readback", None, _setting_kind(wiring_record))
     elif attribute in OPTICS_ATTRIBUTES:
         refresh = "periodic" if OPTICS_ATTRIBUTES[attribute] == "chromaticity" else "pass"
-        return _description("output", _output_plane(block), refresh)
+        return _description("output", _output_plane(block), None, refresh)
     raise ValueError(
         f"{field(wiring_record, 'address')} is no setpoint, monitor, readback or optics output"
     )
 
 
-def _description(role: str, plane: str | None, refresh: str = "pass") -> Mapping[str, Any]:
-    return {"role": role, "plane": plane, "refresh": refresh}
+def _description(
+    role: str, plane: str | None, kind: str | None, refresh: str = "pass"
+) -> Mapping[str, Any]:
+    return {"role": role, "plane": plane, "refresh": refresh, "kind": kind}
+
+
+def _setting_kind(record: Any) -> str:
+    """The device a setting record drives: a deck property by its name, else by attribute."""
+    attribute = field(field(record, "engine"), "attribute")
+    if not isinstance(attribute, str):
+        return "strength"
+    if attribute in DECK_PROPERTIES:
+        return attribute
+    return _ATTRIBUTE_KINDS.get(attribute, "strength")
 
 
 def _steered_plane(block: Any) -> str | None:
