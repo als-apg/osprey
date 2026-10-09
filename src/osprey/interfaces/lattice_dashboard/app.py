@@ -44,7 +44,6 @@ from osprey.interfaces.lattice_dashboard.state import (
     DEFAULT_SETTINGS,
     SINGLE_PASS,
     SINGLE_PASS_UNAVAILABLE,
-    UNSERVED_UNAVAILABLE,
     LatticeState,
     fast_figures,
     figure_available,
@@ -368,36 +367,27 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
             broadcaster.broadcast({"type": "state_updated"})
             refresh_fast_figures()
 
-    def selected_served(current: dict[str, Any]) -> bool:
-        """Return whether the render serves the selected model; True with none selected."""
-        model = loader.catalog().get(current.get("model") or "")
-        return model is None or model.served
-
     def optics_only_reason(current: dict[str, Any]) -> str | None:
         """Return why the selected model draws optics only, or None when it draws every figure."""
         if current.get("solve") == SINGLE_PASS:
             return SINGLE_PASS_UNAVAILABLE
-        if not selected_served(current):
-            return UNSERVED_UNAVAILABLE.format(model=current.get("model"))
         return None
 
     def refresh_fast_figures() -> list[str]:
-        return compute.refresh_fast(served=selected_served(state.load()))
+        return compute.refresh_fast()
 
     def state_payload() -> dict[str, Any]:
         s = state.load()
         if "settings" not in s:
             s["settings"] = copy.deepcopy(DEFAULT_SETTINGS)
         s.setdefault("model", None)
-        served = selected_served(s)
-        s["served"] = served
-        s["fast_figures"] = list(fast_figures(s.get("solve"), served=served))
+        s["fast_figures"] = list(fast_figures(s.get("solve")))
         s["notice"] = loader.catalog().notice()
         return s
 
     def refuse_unavailable(name: str) -> None:
         current = state.load()
-        if not figure_available(name, current.get("solve"), served=selected_served(current)):
+        if not figure_available(name, current.get("solve")):
             raise HTTPException(status_code=409, detail=optics_only_reason(current))
 
     app = FastAPI(

@@ -5,9 +5,9 @@
  * bar's rendering of the same choice is a contributed menu (see header.js);
  * both label an entry the same way, through modelLabel().
  *
- * The figure panels the selected model cannot draw: a single-pass or an
- * unserved model draws optics alone, and every other panel shows why in
- * place of its plot. The banner above the figures carries the state's
+ * The figure panels the selected model cannot draw: a single-pass model
+ * draws optics alone, and every other panel shows why in place of its plot.
+ * Whether the build serves a model is a mark on its label only. The banner above the figures carries the state's
  * notice when the build gives the dashboard nothing to load.
  *
  * Uses the createElement()/textContent DOM style — no innerHTML with
@@ -15,12 +15,12 @@
  */
 
 /** The mark an unserved model carries wherever it is listed. */
-export const UNSERVED_LABEL = 'not served: optics only';
+export const UNSERVED_LABEL = 'not served';
 
 /** The solve whose model draws optics alone. */
 const SINGLE_PASS = 'single_pass';
 
-/** The figures a single-pass or unserved model still draws. */
+/** The figures a single-pass model still draws. */
 const OPTICS_ONLY = ['optics'];
 
 /** Each panel's placeholder as the page first drew it, by figure name. */
@@ -81,7 +81,7 @@ export function bindModelSelect(onSelect) {
  * @returns {string[]}
  */
 export function unavailableFigures(state, figureNames) {
-  if (state.solve !== SINGLE_PASS && state.served !== false) return [];
+  if (state.solve !== SINGLE_PASS) return [];
   return figureNames.filter((name) => !OPTICS_ONLY.includes(name));
 }
 
@@ -117,9 +117,8 @@ function clearFigureUnavailable(name) {
 
 /**
  * Hide the panels the selected model cannot draw and restore the others. A
- * single-pass model's panels show the figure route's own refusal, which
- * fetchFigure hands to showFigureUnavailable; an unserved model's show
- * UNSERVED_LABEL.
+ * hidden panel shows the figure route's own refusal, which fetchFigure hands
+ * to showFigureUnavailable.
  * @param {any} state - the /api/state payload
  * @param {string[]} figureNames - the full figure catalog
  * @param {(name: string) => void} fetchFigure - fetches a figure and renders it or its refusal
@@ -134,7 +133,6 @@ export function syncAvailability(state, figureNames, fetchFigure) {
   const hidden = unavailableFigures(state, figureNames);
   for (const name of figureNames) {
     if (!hidden.includes(name)) clearFigureUnavailable(name);
-    else if (state.served === false) showFigureUnavailable(name, UNSERVED_LABEL);
     else fetchFigure(name);
   }
 }
