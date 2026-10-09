@@ -238,7 +238,11 @@ def _ground_truth(render: Path) -> dict:
 
     import at
 
-    lattice = at.load_lattice(render / "data" / "simulator" / "decks" / "SR.json")
+    from osprey_connectors.simulation.view import SimulatorView
+
+    deck = SimulatorView.of_render(render).model("SR").deck
+    assert deck is not None, f"the simulator view under {render} holds no deck for SR"
+    lattice = at.load_lattice(deck)
     ring4d = copy.deepcopy(lattice)
     ring4d.disable_6d()
     _, ringdata, elemdata = at.get_optics(ring4d, refpts=range(len(ring4d)))

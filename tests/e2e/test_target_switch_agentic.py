@@ -336,8 +336,10 @@ def _virtual_accelerator(port: int, repo: Path) -> Iterator[str]:
     ``simulator/addresses.json``, so the machine the agent reasons about and
     the machine it talks to are described by one tree.
     """
+    from osprey_connectors.simulation.view import SimulatorView
+
     data_dir = render_dir(repo) / "data"
-    assert (data_dir / "simulator" / "addresses.json").is_file(), (
+    assert SimulatorView.find(render_dir(repo)) is not None, (
         f"osprey build wrote no simulator view under {data_dir}; "
         "the virtual accelerator has nothing to serve and will refuse to boot"
     )
