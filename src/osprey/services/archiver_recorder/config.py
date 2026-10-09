@@ -36,7 +36,6 @@ disagreement is the bypass.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -54,6 +53,7 @@ from osprey.mcp_server.control_system.target_eligibility import endpoint_is_live
 # library and nothing else, no Channel Access stack, no PVA, no Mongo driver.
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.ipc.verification import derive_endpoints
+from osprey_connectors.simulation.view import ADDRESSES_FILE, NoSimulatorView, SimulatorView
 
 # Whose past the store holds, decided in one place for the recorder's compose
 # entry, this enablement gate and the deploy-time archive seed alike. A guard
@@ -66,9 +66,6 @@ from osprey_connectors.types import TARGET_STANDIN
 #: ``build/data/simulator``: the same directory the virtual accelerator serves
 #: from, so the recorder and the IOC read one ``addresses.json``.
 DEFAULT_DATA_DIR = "/data/simulator"
-
-#: The view's document listing the addresses the simulator serves.
-ADDRESSES_FILE = "addresses.json"
 
 #: Rendered-config subtree holding the connection keys (mirrors
 #: ``build_profile_archiver.CONNECTION_CONFIG_PREFIX``).
@@ -261,19 +258,19 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
     root = Path(data_dir) if data_dir is not None else Path(DEFAULT_DATA_DIR)
     path = root / ADDRESSES_FILE
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+        view = SimulatorView.open(root)
+    except (NoSimulatorView, OSError, ValueError) as exc:
         raise RecorderConfigError(
             f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) could not be "
             f"loaded: {exc}. `osprey build` writes it under build/data/simulator."
         ) from exc
-    channels = document.get("channels") if isinstance(document, dict) else None
-    if not isinstance(channels, list) or not all(isinstance(c, str) for c in channels):
+    channels = view.document(ADDRESSES_FILE).get("channels")
+    if not isinstance(channels, tuple) or not all(isinstance(c, str) for c in channels):
         raise RecorderConfigError(
             f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) holds no "
             f"`channels` list of addresses. Rebuild the project with `osprey build`."
         )
-    return list(channels)
+    return list(view.channels())
 
 
 # ---------------------------------------------------------------------------
