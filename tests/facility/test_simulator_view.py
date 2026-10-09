@@ -25,6 +25,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.facility import TEXTURE
+from osprey.facility.errors import FacilityBuildError
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.utils.workspace import BUILD_DIR_NAME
 
@@ -291,6 +292,75 @@ def test_the_demo_wiring_is_simulator_wiring_serialised(
         "deck": "decks/SR.json",
         "wiring": None,
     }
+
+
+DESCRIPTION_KEYS = ("role", "plane", "refresh")
+
+
+def test_every_wiring_entry_carries_the_engines_description(
+    built_control_assistant: BuiltProject,
+) -> None:
+    from osprey.simulation.engines import pyat
+
+    variables = _view(built_control_assistant.build_dir, VARIABLES)
+    (sr,) = [model for model in variables["models"] if model["name"] == "SR"]
+
+    roles = set()
+    for entry in sr["wiring"]:
+        record = {key: value for key, value in entry.items() if key not in DESCRIPTION_KEYS}
+        assert {key: entry[key] for key in DESCRIPTION_KEYS} == pyat.describe(record)
+        roles.add(entry["role"])
+    assert roles == {"setpoint", "readback", "monitor", "output"}
+    facility_sr = next(m for m in built_control_assistant.facility["models"] if m["name"] == "SR")
+    assert not set(DESCRIPTION_KEYS) & set(facility_sr["wiring"][0])
+
+
+def _render_stop(tmp_path: Path, built: BuiltProject) -> FacilityBuildError:
+    with pytest.raises(FacilityBuildError) as stop:
+        _render(tmp_path, built, {})
+    return stop.value
+
+
+def test_a_description_contradicting_the_facility_stops_the_build(
+    tmp_path: Path, built_control_assistant: BuiltProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.simulation.engines import pyat
+
+    describe = pyat.describe
+
+    def write_as_readback(record: Any) -> Any:
+        found = dict(describe(record))
+        if record.get("direction") == "write":
+            found["role"] = "readback"
+        return found
+
+    monkeypatch.setattr(pyat, "describe", write_as_readback)
+
+    stop = _render_stop(tmp_path, built_control_assistant)
+
+    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "SR", "model")
+    first_write = next(
+        record["address"]
+        for model in built_control_assistant.facility["models"]
+        if model["name"] == "SR"
+        for record in model["wiring"]
+        if record["direction"] == "write"
+    )
+    assert first_write in stop.detail
+    assert "setpoint" in stop.detail
+
+
+def test_an_engine_without_describe_stops_the_build(
+    tmp_path: Path, built_control_assistant: BuiltProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.simulation.engines import pyat
+
+    monkeypatch.delattr(pyat, "describe")
+
+    stop = _render_stop(tmp_path, built_control_assistant)
+
+    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "SR", "model")
+    assert stop.remedy == "add describe() to the engine plug-in"
 
 
 def test_a_model_without_wiring_records_has_empty_wiring(
