@@ -87,7 +87,7 @@ from osprey_connectors.simulation.texture import (
     channel_variable,
     is_float_channel,
 )
-from osprey_connectors.simulation.view_files import (
+from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     SCENARIOS_FILE,
     SEEDS_FILE,

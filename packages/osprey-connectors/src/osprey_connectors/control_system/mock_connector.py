@@ -64,7 +64,7 @@ from osprey_connectors.control_system.base import (
     values_match,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation.view_files import ADDRESSES_FILE, SEEDS_FILE, VARIABLES_FILE
+from osprey_connectors.simulation.view import ADDRESSES_FILE, SEEDS_FILE, VARIABLES_FILE
 
 if TYPE_CHECKING:
     from osprey_connectors.simulation.composite import Composite
