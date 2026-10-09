@@ -374,6 +374,22 @@ class TestSynthesizeDocuments:
             assert "SR:MOT:REC" not in document
         assert all(field_name(address) == address for address in ADDRESSES)
 
+    def test_a_channel_named_like_a_document_field_keeps_the_documents_own_fields(self, tmp_path):
+        """A channel named ``date`` or ``expireAt`` is stored escaped beside the
+        document's own instant, never over it."""
+        view = write_texture_view(
+            tmp_path,
+            {**CHANNELS, "date": {"nominal": 3.0}, "expireAt": {"nominal": 4.0}},
+        )
+        times, _ = seed_grid(SMALL, T0)
+
+        documents = synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times[:4])
+
+        for document in documents:
+            assert set(document) == {DATE_FIELD, *ADDRESSES, "%64ate", "%65xpireAt"}
+            assert isinstance(document[DATE_FIELD], datetime)
+            assert document["%64ate"] == pytest.approx(3.0)
+
 
 # ---------------------------------------------------------------------------
 # The manifest
