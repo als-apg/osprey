@@ -1178,31 +1178,6 @@ def _facility_name_deltas() -> tuple[Delta, ...]:
     )
 
 
-def _facility_ontology_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The ontology table path the presets no longer state.
-
-    The channel-finder terminology tables render from the build's facts, so no
-    preset names an ontology table and no document carries the key. The
-    fixtures were frozen while the presets still stated one.
-
-    Args:
-        documents: The rendered documents the cell emits, ``root`` plus one per
-            persona.
-
-    Returns:
-        One delta per document.
-    """
-    return tuple(
-        Delta(
-            document=document,
-            path="facility.ontology",
-            fixture="data/facility_ontology.json",
-            live=ABSENT,
-        )
-        for document in documents
-    )
-
-
 def _facility_prefix_deltas(*documents: str) -> tuple[Delta, ...]:
     """The container-name prefix the control-assistant preset no longer states.
 
@@ -1362,7 +1337,6 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _standalone_picker_deltas(),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
     + _facility_name_deltas()
-    + _facility_ontology_deltas("root")
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
     + _simulation_models_deltas("root")
@@ -1371,7 +1345,6 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _in_context_index_deltas("root"),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
     + _facility_name_deltas()
-    + _facility_ontology_deltas("root")
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
     + _simulation_models_deltas("root")
@@ -1380,7 +1353,6 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _hierarchical_index_deltas("root"),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
     + _facility_name_deltas()
-    + _facility_ontology_deltas("root")
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
     + _simulation_models_deltas("root")
@@ -1408,7 +1380,6 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
     + _devices_file_deltas()
-    + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1441,7 +1412,6 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
     + _devices_file_deltas()
-    + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1474,7 +1444,6 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
     + _devices_file_deltas()
-    + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1507,7 +1476,6 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
     + _devices_file_deltas()
-    + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)

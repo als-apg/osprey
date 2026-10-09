@@ -130,9 +130,8 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
 #: is produced today. The three ``claude_code.agent_models`` leaves are the
 #: helper-agent pins control-assistant carried; it pins none now, so every agent
 #: runs the deployment's main model, and no preset renders the key.
-#: ``facility.name`` and ``facility.ontology`` have no reader: the display name
-#: is the facility identity's and the terminology tables render from the build's
-#: facts, so no preset states either leaf. ``facility.prefix`` is deleted:
+#: ``facility.name`` has no reader: the display name is the facility identity's,
+#: so no preset states the leaf. ``facility.prefix`` is deleted:
 #: container names and persona projects come from the project name. The two
 #: ``simulation_file`` leaves are deleted: every connector serves the simulator
 #: view the build writes, so no connector block names a model file.
@@ -145,7 +144,6 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
         "claude_code.agent_models.facility-knowledge-graph",
         "claude_code.agent_models.logbook-deep-research",
         "facility.name",
-        "facility.ontology",
         "facility.prefix",
         "control_system.connector.mock.simulation_file",
         "control_system.connector.virtual_accelerator.simulation_file",
