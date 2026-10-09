@@ -234,6 +234,26 @@ def test_every_error_of_the_failing_stage_is_printed_sorted(repo: Path) -> None:
     ]
 
 
+def test_a_profile_without_a_project_name_is_refused_with_builds_line_to_add(repo: Path) -> None:
+    """The folder name is read nowhere after init: the verb refuses as ``osprey build`` does."""
+    profile = repo / "profile.yml"
+    lines = profile.read_text(encoding="utf-8").splitlines(keepends=True)
+    kept = [line for line in lines if not line.startswith("project_name:")]
+    assert len(kept) == len(lines) - 1
+    profile.write_text("".join(kept), encoding="utf-8")
+    before = _snapshot(repo)
+
+    result = _validate(repo)
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "✗ The profile does not resolve." in result.stderr
+    assert "profile.yml states no project_name" in result.stderr
+    assert "    project_name: demo\n" in result.stderr
+    assert "existing volumes keep their names" in result.stderr
+    assert _snapshot(repo) == before
+
+
 def test_validate_has_no_json_flag(repo: Path) -> None:
     result = CliRunner().invoke(cli, ["facility", "validate", "--json", "--repo", str(repo)])
 

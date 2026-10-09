@@ -229,10 +229,6 @@ _FOLDER_NAME_ALLOWED: dict[str, int] = {
     "cli/deploy_cmd.py": 1,
     "cli/deploy_scaffold.py": 1,
     "cli/deploy_scaffold_templates.py": 2,
-    # `osprey facility check` / `import mml` read a profile with no
-    # `project_name:` under the folder name: it folds the zero-source identity
-    # and leafs a scratch render, and names no host resource.
-    "cli/facility_cmd.py": 1,
     "cli/profile_expand.py": 1,
 }
 

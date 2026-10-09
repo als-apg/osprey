@@ -189,7 +189,9 @@ def run_chain(root: Path, config: Mapping[str, Any], *, passes: int = 2) -> Chai
     from osprey.facility.render import render_facility_outputs
 
     root.mkdir(parents=True, exist_ok=True)
-    (root / "profile.yml").write_text(f"name: {PROJECT}\ndata: data\n", encoding="utf-8")
+    (root / "profile.yml").write_text(
+        f"name: {PROJECT}\nproject_name: {PROJECT}\ndata: data\n", encoding="utf-8"
+    )
     facility = root / "data" / "facility"
     installed = facility / MAPPING_FILE
     installed.parent.mkdir(parents=True, exist_ok=True)
@@ -452,7 +454,9 @@ def _paired_import(root: Path, tree: str, edit: Any = None, deck: Path | None = 
     (ao,) = export_files(tree)
     stem = ao.name.removesuffix(".ao.json")
     root.mkdir(parents=True, exist_ok=True)
-    (root / "profile.yml").write_text(f"name: {PROJECT}\ndata: data\n", encoding="utf-8")
+    (root / "profile.yml").write_text(
+        f"name: {PROJECT}\nproject_name: {PROJECT}\ndata: data\n", encoding="utf-8"
+    )
     installed = root / "data" / "facility" / MAPPING_FILE
     installed.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(FIXTURES / tree / MAPPING_FILE, installed)

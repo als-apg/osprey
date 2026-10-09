@@ -75,7 +75,9 @@ def _repo(root: Path, tree: str) -> Path:
     widen(facility, WIDENED.get(tree, {}))
     if tree == "synthetic":
         widen(facility, SYNTHETIC_WIDENED)
-    (root / "profile.yml").write_text("name: scratch\ndata: data\n", encoding="utf-8")
+    (root / "profile.yml").write_text(
+        "name: scratch\nproject_name: scratch\ndata: data\n", encoding="utf-8"
+    )
     return root
 
 
