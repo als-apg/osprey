@@ -23,10 +23,11 @@ copy's path under ``data/simulator/`` or null, ``wiring`` is
 ``simulator_wiring`` of the model (empty for a model without wiring). Its
 ``channels`` are every channel, sorted by address, as ``{address, role, pair,
 value_type, options?, shape?, unit, description, writable, value_range,
-owner}``: ``role`` defaults to ``readback`` and ``value_type`` to ``float``
+owner, on}``: ``role`` defaults to ``readback`` and ``value_type`` to ``float``
 as in the facility file; ``pair`` is a setpoint's readback (itself when it names none) and
 null on any other role; ``owner`` is the model wiring the address, else
-``texture``. ``writable`` and ``value_range`` come from the channel's limits
+``texture``; ``on`` is the node the facility record puts the channel on,
+``{device: id}`` or ``{place: id}``, or null. ``writable`` and ``value_range`` come from the channel's limits
 record (``value_range`` = ``[min_value, max_value]`` when it states both, else
 null); a setpoint without a record is writable only when the simulated
 target's limits mode is ``optional``, and every other channel without a record
@@ -343,6 +344,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
             "writable": writable,
             "value_range": value_range,
             "owner": owners.get(address, TEXTURE),
+            "on": copy.deepcopy(record.get("on")),
         }
         for key in _CHANNEL_OPTIONAL_KEYS:
             if record.get(key) is not None:

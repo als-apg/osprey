@@ -233,6 +233,7 @@ CHANNEL_KEYS = {
     "writable",
     "value_range",
     "owner",
+    "on",
 }
 CHANNEL_OPTIONAL = {"options", "shape", "precision"}
 SCENARIO_SLOTS = ("description", "drivers", "couple", "noise")
@@ -398,6 +399,17 @@ def test_channel_owner_is_the_wiring_model_else_texture(
     for channel in variables["channels"]:
         assert channel["owner"] == wired.get(channel["address"], TEXTURE), channel["address"]
     assert {channel["owner"] for channel in variables["channels"]} == {"SR", TEXTURE}
+
+
+def test_channel_on_is_the_facility_records_on(built_control_assistant: BuiltProject) -> None:
+    variables = _view(built_control_assistant.build_dir, VARIABLES)
+    records = {
+        str(channel["id"]): channel for channel in built_control_assistant.facility["channels"]
+    }
+
+    for channel in variables["channels"]:
+        assert channel["on"] == records[channel["address"]].get("on"), channel["address"]
+    assert any(channel["on"] is not None for channel in variables["channels"])
 
 
 def test_channel_facts_come_from_the_facility_record(
