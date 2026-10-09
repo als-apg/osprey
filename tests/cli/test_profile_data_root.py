@@ -253,7 +253,7 @@ class TestBuildPipelineOrderingHolds:
             "cross_paradigm/ subtree reached the render from the profile-sourced tree"
         )
         assert not (project_dir / "data" / "channel_databases" / "tiers").exists(), (
-            "tiers/ subtree reached the render from the profile-sourced tree"
+            "the tiers subtree reached the render from the profile-sourced tree"
         )
         assert queries_src.exists(), "the profile's own tree was pruned"
 

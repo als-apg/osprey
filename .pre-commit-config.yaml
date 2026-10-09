@@ -31,7 +31,6 @@ repos:
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
-            src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/.*\.json|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
             tests/templates/render_defaults/.*|
@@ -42,7 +41,6 @@ repos:
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
-            src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/.*\.json|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
             tests/templates/render_defaults/.*|

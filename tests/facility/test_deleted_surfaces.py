@@ -90,7 +90,9 @@ DELETED_MODULES: tuple[str, ...] = (
 RETIRED_SOURCE_NAMES = (
     "SimulationEngine|CohostRunner|CohostDriver|derive_record_type|classify_channel|"
     "VA_LATTICE|VA_BPM_ERRORS|VA_CORR_GAIN|VA_STANDIN_BPM_ERRORS|VA_NOISE_LEVEL|"
-    "VA_ENTRYPOINT_MODULE|VA_CHANNELS_FILE|VA_STUCK_SETPOINTS|ordinalInFacility"
+    "VA_ENTRYPOINT_MODULE|VA_CHANNELS_FILE|VA_STUCK_SETPOINTS|ordinalInFacility|"
+    r"tier_dir|resolved_tier|TemplateChannelDatabase|_manifest_tier|ManifestPaths|"
+    r"databases\.template|from \.template import"
 )
 
 #: The stage whose close removes the last shipped spelling of those names.

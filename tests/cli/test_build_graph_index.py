@@ -59,7 +59,7 @@ def _graph_repo(
     personas: tuple[str, ...] = (),
     mode: str = "graph",
 ) -> Path:
-    """A graph-mode deployment repo with its OWN corpus and no ``tiers/``.
+    """A graph-mode deployment repo with its OWN corpus.
 
     The data tree carries the per-tree sources a build reads and no paradigm
     channel database at all, which is what a graph-mode facility looks like:
