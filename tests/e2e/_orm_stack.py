@@ -67,6 +67,8 @@ from tests.e2e.profile_edits import set_pairs
 if TYPE_CHECKING:
     from click.testing import CliRunner, Result
 
+    from osprey_connectors.simulation.view import SimulatorView
+
 #: What :func:`_keyed_by_address` keys -- a corrector ``(sp, rb)`` pair or a
 #: BPM address, both of which name their device by an address the selector
 #: reads off the item itself.
@@ -839,124 +841,67 @@ def restart_bridge(
     wait_for_health(f"{bridge_url}/health", health_timeout)
 
 
-#: The ``KickAngle`` component a corrector's wiring writes, in pyAT's
-#: ``(horizontal, vertical)`` order. A lane wanting one plane of corrector asks
-#: the wiring for the component, never the address text for a family name.
-KICK_HORIZONTAL = 0
-KICK_VERTICAL = 1
-
-#: The transverse axis a monitor's wiring reads.
-MONITOR_X = "x"
-MONITOR_Y = "y"
-
-#: The engine attribute a corrector's wiring writes.
-KICK_ATTRIBUTE = "KickAngle"
-
-#: The engine of the view's texture, which wires no channel.
-_TEXTURE_ENGINE = "texture"
-
-
 @cache
-def _view_of_resolved(path: Path) -> dict[str, Any]:
-    """The memoized read behind :func:`repo_view`, keyed on a resolved file."""
-    document = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(document, dict):
-        raise AssertionError(f"{path} is not a simulator view document: {document!r}")
-    return document
+def _view_of_resolved(path: Path) -> SimulatorView:
+    """The memoized open behind :func:`repo_view`, keyed on a resolved view directory."""
+    from osprey_connectors.simulation.view import SimulatorView
+
+    return SimulatorView.open(path)
 
 
-def repo_view(repo: Path) -> dict[str, Any]:
-    """The ``variables.json`` the build rendered into ``repo``'s simulator view.
+def repo_view(repo: Path) -> SimulatorView:
+    """The simulator view the build rendered into ``repo``.
 
     The one authority on which channels the accelerator model drives and what
-    each of them does to it: every wiring record of a served model names the
-    address, its direction, the element it reaches and the engine field it
-    writes or reads there. A lane choosing devices with a plane or a kind in
-    mind reads them from here.
+    each of them does to it: every binding of a served model names the
+    address, its role and the transverse plane it steers or reads. A lane
+    choosing devices with a plane or a role in mind reads them from here.
 
-    Read once per file per process, keyed on the resolved path: a lane that
-    rebuilds a repo already read here must build it under a fresh path to be
-    served the new view.
+    Opened once per view directory per process, keyed on the resolved path: a
+    lane that rebuilds a repo already read here must build it under a fresh
+    path to be served the new view.
 
     Lives HERE rather than in the product because choosing a physics-appropriate
     subset of a facility's channels is a harness concern: the staged view
     holds every channel and says which way each points, and which of them a
     given plan can do physics with is the lane's own question.
     """
-    from osprey_connectors.simulation.view import VARIABLES_FILE, SimulatorView
+    from osprey_connectors.simulation.view import SimulatorView
 
-    path = SimulatorView.path_for_project(repo) / VARIABLES_FILE
-    if not path.is_file():
+    path = SimulatorView.path_for_project(repo)
+    if not path.is_dir():
         raise AssertionError(f"the build rendered no simulator view at {path}")
     return _view_of_resolved(path.resolve())
 
 
-def physics_wiring(document: dict[str, Any]) -> list[dict[str, Any]]:
-    """Every wiring record of the document's physics models, in model then record order.
+def corrector_addresses(view: SimulatorView, *, plane: str | None = None) -> frozenset[str]:
+    """Every corrector setpoint the view's bindings serve, optionally of one plane.
 
-    ``document`` is a ``variables.json`` document, or anything carrying its
-    ``models`` list -- a built facility file's own models included.
-    """
-    return [
-        record
-        for model in document.get("models") or []
-        if model.get("engine") != _TEXTURE_ENGINE
-        for record in model.get("wiring") or []
-    ]
-
-
-def is_corrector(record: dict[str, Any]) -> bool:
-    """Whether a wiring record writes a corrector: a kick angle at one element."""
-    engine = record.get("engine") or {}
-    return (
-        record.get("direction") == "write"
-        and "element" in record
-        and engine.get("attribute") == KICK_ATTRIBUTE
-    )
-
-
-def is_monitor(record: dict[str, Any]) -> bool:
-    """Whether a wiring record reads a monitor: one axis of the orbit at one element."""
-    engine = record.get("engine") or {}
-    return (
-        record.get("direction") == "read"
-        and "element" in record
-        and "axis" in engine
-        and "attribute" not in engine
-    )
-
-
-def corrector_addresses(document: dict[str, Any], *, index: int | None = None) -> frozenset[str]:
-    """Every corrector setpoint the document wires, optionally of one kick component.
-
-    Grouping by what a record DOES -- a kick, a monitor reading -- rather than
-    by the family name its address spells is what keeps a lane's device choice
-    the same question on every facility.
+    A corrector is a setpoint binding that steers a transverse plane. Grouping
+    by what a binding DOES -- steer a plane, read one -- rather than by the
+    family name its address spells is what keeps a lane's device choice the
+    same question on every facility.
     """
     return frozenset(
-        str(record["address"])
-        for record in physics_wiring(document)
-        if is_corrector(record) and (index is None or record["engine"].get("index") == index)
+        binding.address
+        for binding in view.bindings(role="setpoint")
+        if binding.plane is not None and (plane is None or binding.plane == plane)
     )
 
 
-def monitor_addresses(document: dict[str, Any], *, axis: str | None = None) -> frozenset[str]:
-    """Every monitor reading the document wires, optionally of one axis."""
-    return frozenset(
-        str(record["address"])
-        for record in physics_wiring(document)
-        if is_monitor(record) and (axis is None or record["engine"]["axis"] == axis)
-    )
+def monitor_addresses(view: SimulatorView, *, plane: str | None = None) -> frozenset[str]:
+    """Every monitor reading the view's bindings serve, optionally of one plane."""
+    return frozenset(binding.address for binding in view.bindings(role="monitor", plane=plane))
 
 
-def claimed_addresses(document: dict[str, Any]) -> frozenset[str]:
-    """Every corrector setpoint and monitor reading the document wires.
+def claimed_addresses(view: SimulatorView) -> frozenset[str]:
+    """Every corrector setpoint and monitor reading the view's bindings serve.
 
     The single spelling of the channels a corrector-sweeping plan can do
     physics with, so a lane narrowing the staged devices and a lane selecting
     them read the rule from here.
     """
-    return corrector_addresses(document) | monitor_addresses(document)
+    return corrector_addresses(view) | monitor_addresses(view)
 
 
 def _keyed_by_address(
@@ -994,9 +939,9 @@ def select_correctors(
     build staged for ``repo`` (:func:`staged_devices`), never a hardcoded
     preset channel.
 
-    A corrector is a setpoint the repo's simulator view wires as one
-    (:func:`repo_view`, :func:`is_corrector`): a write to it steers the beam by
-    changing an element's kick angle through the lattice model. The ORM plan
+    A corrector is a setpoint the repo's simulator view binds as one
+    (:func:`repo_view`, :func:`corrector_addresses`): a write to it steers the
+    beam in one transverse plane through the lattice model. The ORM plan
     sweeps correctors specifically, so a writable channel no model wires -- a
     physics-free software echo -- is the wrong device class for it, and the
     kind is the same question on any facility where the address text is not.
@@ -1027,7 +972,7 @@ def select_bpms(repo: Path, count: int | None = DEFAULT_BPM_COUNT) -> dict[str, 
     :func:`select_correctors`.
 
     A beam-position readback is a reading the repo's simulator view wires as a
-    monitor (:func:`is_monitor`): a reading the lattice model solves for, which
+    monitor (:func:`monitor_addresses`): a reading the lattice model solves for, which
     moves when a corrector is swept. A readable no model wires is static noise
     and would sit still through any sweep.
 

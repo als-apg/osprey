@@ -192,6 +192,7 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from osprey_connectors.simulation.view import VIEW_RELPATH
     from tests.e2e._monitor_motion import still_monitor_motion
 
     with tempfile.TemporaryDirectory(prefix="osprey-va-e2e-facility-") as scratch:
@@ -257,7 +258,7 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
             still_monitor_motion(Path(scratch))
         doc = build_facility(facility, project_name="control_assistant")
         write_simulator_view(
-            root / "simulator",
+            root / VIEW_RELPATH.name,
             ViewInputs(
                 doc=doc,
                 rendered_config=VIEW_CONFIG,
@@ -792,17 +793,17 @@ def corrector_at_slot(slot: int) -> Corrector:
             requires, or if the corrector at ``slot`` is served with no
             readback of its own.
     """
-    from osprey.facility.views.simulator import VARIABLES_FILE
-    from tests.e2e._orm_stack import is_corrector, physics_wiring
+    from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 
-    view = json.loads((demo_data_dir() / "simulator" / VARIABLES_FILE).read_text(encoding="utf-8"))
-    pairs = {str(channel["address"]): channel.get("pair") for channel in view["channels"]}
-    kicks = [str(record["address"]) for record in physics_wiring(view) if is_corrector(record)]
+    view = SimulatorView.open(demo_data_dir() / VIEW_RELPATH.name)
+    kicks = [
+        binding.address for binding in view.bindings(role="setpoint") if binding.plane is not None
+    ]
     assert len(kicks) > slot, (
         f"the served view wires {len(kicks)} correctors, too few for a lane's slot {slot}"
     )
     setpoint = kicks[slot]
-    readback = pairs.get(setpoint)
+    readback = view.channel(setpoint).pair
     assert readback is not None and readback != setpoint, (
         f"{setpoint} is served with no readback of its own, so a "
         f"lane cannot tell a magnet's reading from the demand written to it"
