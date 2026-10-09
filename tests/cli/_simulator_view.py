@@ -21,6 +21,7 @@ from lume.variables import ScalarVariable, Variable
 
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import ENGINE_GROUP
+from osprey_connectors.simulation.view import SCHEMAS
 from tests._simulator_view import write_scenarios_view
 
 #: The rendered config of a mock deployment serving the view.
@@ -103,6 +104,7 @@ def _channel(address: str, owner: str, role: str) -> dict[str, Any]:
         "writable": False,
         "value_range": None,
         "owner": owner,
+        "on": None,
     }
 
 
@@ -134,7 +136,16 @@ def write_simulator_view(
                     "served": True,
                     "settings": {},
                     "deck": None,
-                    "wiring": [{"id": "0", "address": _BPM, "direction": "read"}],
+                    "wiring": [
+                        {
+                            "id": "0",
+                            "address": _BPM,
+                            "direction": "read",
+                            "role": "monitor",
+                            "plane": "x",
+                            "refresh": "pass",
+                        }
+                    ],
                 },
                 {
                     "name": "texture",
@@ -152,7 +163,9 @@ def write_simulator_view(
     view = build / "data" / "simulator"
     view.mkdir(parents=True, exist_ok=True)
     for name, document in documents.items():
-        (view / name).write_text(json.dumps(document), encoding="utf-8")
+        (view / name).write_text(
+            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+        )
     write_scenarios_view(
         build, {str(s["name"]): {k: v for k, v in s.items() if k != "name"} for s in scenarios}
     )

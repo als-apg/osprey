@@ -30,6 +30,7 @@ from osprey.services.virtual_accelerator.serving.model_surface import (
 )
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
+from osprey_connectors.simulation.view import SCHEMAS
 
 TOKEN = "s3cret"
 STATUS = "T:SIM:M:STATUS"
@@ -104,6 +105,7 @@ def _channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, A
         "writable": fields.pop("writable", False),
         "value_range": fields.pop("value_range", None),
         "owner": owner,
+        "on": None,
     }
 
 
@@ -128,8 +130,10 @@ def _view(path: Path, settings: Mapping[str, Any] | None = None) -> tuple[Path, 
                     "settings": dict(settings or {}),
                     "deck": None,
                     "wiring": [
-                        {"id": "1", "address": "M:SP", "direction": "write", "default": 2.0},
-                        {"id": "2", "address": "M:BPM:X", "direction": "read", "default": 0.5},
+                        {"id": "1", "address": "M:SP", "direction": "write", "default": 2.0}
+                        | {"role": "setpoint", "plane": None, "refresh": "pass"},
+                        {"id": "2", "address": "M:BPM:X", "direction": "read", "default": 0.5}
+                        | {"role": "monitor", "plane": "x", "refresh": "pass"},
                     ],
                 },
                 {
@@ -149,7 +153,9 @@ def _view(path: Path, settings: Mapping[str, Any] | None = None) -> tuple[Path, 
     view = path / "simulator"
     view.mkdir(parents=True, exist_ok=True)
     for name, document in documents.items():
-        (view / name).write_text(json.dumps(document), encoding="utf-8")
+        (view / name).write_text(
+            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+        )
     return view, addresses
 
 

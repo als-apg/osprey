@@ -274,12 +274,20 @@ def _stub_channel(address: str, owner: str, **fields: Any) -> dict[str, Any]:
         "writable": role == "setpoint",
         "value_range": fields.pop("value_range", None),
         "owner": owner,
+        "on": None,
         **fields,
     }
 
 
+#: The description a build stamps on a stub setpoint and a stub readback.
+_DESCRIBED_SETPOINT = {"role": "setpoint", "plane": None, "refresh": "pass"}
+_DESCRIBED_READBACK = {"role": "readback", "plane": None, "refresh": "pass"}
+
+
 def _write_stub_view(root: Path) -> Path:
     """A view of two stub children and the texture; returns its directory."""
+    from osprey_connectors.simulation.view import SCHEMAS
+
     channels = [
         _stub_channel(STUB_RANGE, "M", value_range=[0.0, 1.0], precision=STUB_PRECISION),
         _stub_channel(STUB_SETPOINT, "M", role="setpoint", value_range=[-10.0, 10.0]),
@@ -297,15 +305,16 @@ def _write_stub_view(root: Path) -> Path:
                     "address": STUB_SETPOINT,
                     "direction": "write",
                     "default": STUB_SETPOINT_START,
+                    **_DESCRIBED_SETPOINT,
                 },
-                {"id": "2", "address": STUB_RANGE, "direction": "read"},
+                {"id": "2", "address": STUB_RANGE, "direction": "read", **_DESCRIBED_READBACK},
             ],
         },
         "F": {
             "settings": {"fail": "the stub has no deck"},
             "wiring": [
-                {"id": "3", "address": STUB_FLAG, "direction": "read"},
-                {"id": "4", "address": STUB_MODE, "direction": "read"},
+                {"id": "3", "address": STUB_FLAG, "direction": "read", **_DESCRIBED_READBACK},
+                {"id": "4", "address": STUB_MODE, "direction": "read", **_DESCRIBED_READBACK},
             ],
         },
     }
@@ -345,7 +354,9 @@ def _write_stub_view(root: Path) -> Path:
     view = root / "data" / "simulator"
     view.mkdir(parents=True)
     for name, document in documents.items():
-        (view / name).write_text(json.dumps(document), encoding="utf-8")
+        (view / name).write_text(
+            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+        )
     return view
 
 
