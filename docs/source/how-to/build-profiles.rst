@@ -87,7 +87,7 @@ What ``osprey init`` writes
 
    my-facility/
      profile.yml     the full configuration — edit freely
-     data/           facility content: channel databases, knowledge, lattice
+     data/           the facility tree (data/facility/) and the agent's other data
      .env.example    every variable the agent reads, documented, no values
      .env.shared     shared, committed defaults — no secrets
      .env            your values and secrets (only when your shell had keys to seed)
@@ -109,13 +109,50 @@ the profile ships its ``deploy:`` block commented out, so there are no
 coordinates to render one from. Fill the block in and ``osprey scaffold ci``
 writes the pipeline — see :doc:`deploy-a-facility`.
 
-A preset with a simulated machine carries its model under ``data/simulation/``
-and its scenarios under ``data/facility/scenarios/``, one ``<name>.yaml`` each.
-What a scenario file holds is in :doc:`/how-to/run-scenarios`.
-
 Directories for your own artifacts (``rules/``, ``skills/``, and the rest) are
 **not** created up front. Create the ones you need; a directory you never create
 simply means the profile contributes nothing of that kind.
+
+The facility tree
+-----------------
+
+``data/facility/`` holds every source of the facility file. A
+``control-assistant`` deployment starts with these authored files:
+
+.. code-block:: text
+
+   data/facility/
+     identity.yaml          the facility's code and display name
+     records/               places.yaml, devices.yaml, channels.yaml, groups.yaml
+     models.yaml            each simulated model, its engine and its wiring
+     decks/<model>.json     the deck a model runs
+     measurement/<model>.yaml  the measurement kinds a model offers
+     limits.yaml            the write limits, one record per channel
+     seeds.yaml             each simulated channel's nominal value and noise
+     scenarios/<name>.yaml  one simulation scenario each
+     knowledge/             the Markdown knowledge bundle
+
+An importer writes its own layer under ``imported/<layer>/``:
+``osprey facility import mml`` writes ``data/facility/imported/mml/``, beside
+the ``mapping.yaml`` you review there (see :doc:`/how-to/import-mml-export`).
+Edit the authored files; an import rewrites its own directory.
+
+``osprey build`` reads the tree and writes the facility file and its views into
+the render, never back into ``data/facility/``:
+
+.. code-block:: text
+
+   build/
+     facility.json                    the facility file
+     data/channel_limits.json         the limits view
+     data/facility_facts.json         the facts view
+     data/simulator/                  the simulator view and its decks
+     data/graph/facility.ttl          the graph view
+     data/channel_finder/<mode>.json  the channel-finder view the profile selects
+     data/bluesky_devices.yml         the device view, when Bluesky is configured
+
+``osprey facility show`` prints the facility the tree builds and each view's
+path. What a scenario file holds is in :doc:`/how-to/run-scenarios`.
 
 
 Convention directories

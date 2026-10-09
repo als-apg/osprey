@@ -6,8 +6,7 @@ edit them freely.
 
 ## Directory Structure
 
-The channel-finder indexes are not here: each is a view the build writes from
-`facility/` into the render. As shipped by the preset:
+As shipped by the preset:
 
 ```
 data/
@@ -18,10 +17,31 @@ data/
 ├── ariel/
 │   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
 │   └── README.md                         # Vocabulary format walkthrough
-├── facility/                              # The facility's authored sources
-│   ├── knowledge/                         # Markdown knowledge bundle
-│   └── scenarios/                         # Simulation scenarios
+├── landing/
+│   └── working-safely.md                 # A notice on the web terminal's landing page
+└── facility/                             # The facility's authored sources
+    ├── identity.yaml                     # The facility's code and display name
+    ├── records/                          # places, devices, channels, groups
+    ├── models.yaml                       # Each simulated model, its engine and wiring
+    ├── decks/                            # The deck each model runs
+    ├── measurement/                      # The measurement kinds each model offers
+    ├── limits.yaml                       # Write limits, one record per channel
+    ├── seeds.yaml                        # Simulated channels' nominal values and noise
+    ├── scenarios/                        # Simulation scenarios, one YAML file each
+    └── knowledge/                        # Markdown knowledge bundle
 ```
+
+An importer writes its own layer under `facility/imported/<layer>/`:
+`osprey facility import mml` writes `facility/imported/mml/`. Edit the
+authored files; an import rewrites its own directory.
+
+`osprey build` reads `facility/` and writes the facility file and its views
+into the render, never back here: `facility.json` at the render root, and under
+its `data/` the limits view `channel_limits.json`, the facts view
+`facility_facts.json`, the simulator view `simulator/`, the graph view
+`graph/facility.ttl` and the channel-finder view `channel_finder/<mode>.json`.
+`osprey facility show` prints the facility the tree builds and each view's
+path.
 
 `osprey build` copies the benchmark query file matching `channel_finder_mode`
 to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
