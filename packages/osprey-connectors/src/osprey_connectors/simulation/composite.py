@@ -87,30 +87,17 @@ from osprey_connectors.simulation.texture import (
     channel_variable,
     is_float_channel,
 )
-from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    SCENARIOS_FILE,
-    SEEDS_FILE,
-    SERVED_MODELS_FILE,
-    VARIABLES_FILE,
-    Model,
-    SimulatorView,
-)
+from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, Model, SimulatorView
 from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
 
 __all__ = [
-    "ADDRESSES_FILE",
     "ENGINE_GROUP",
     "INSTANCES",
     "LOG_RECORD_MAX_BYTES",
-    "SCENARIOS_FILE",
-    "SEEDS_FILE",
-    "SERVED_MODELS_FILE",
     "STATUS_MAX_BYTES",
     "STATUS_OK",
     "STUCK",
     "UDF",
-    "VARIABLES_FILE",
     "Composite",
     "cap_status",
     "log_dir",
