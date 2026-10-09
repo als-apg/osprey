@@ -22,7 +22,7 @@ from osprey.interfaces.lattice_dashboard.state import LatticeState
 @pytest.fixture
 def ws(tmp_path, monkeypatch):
     """Workspace root plus a client, with compute launches neutralized."""
-    monkeypatch.setattr(ComputeManager, "refresh_fast", lambda self, served: ["optics"])
+    monkeypatch.setattr(ComputeManager, "refresh_fast", lambda self: ["optics"])
     monkeypatch.setattr(ComputeManager, "refresh_verification", lambda self: ["da", "lma"])
     monkeypatch.setattr(ComputeManager, "refresh_one", lambda self, name: None)
     app = create_app(workspace_root=tmp_path, render_root=tmp_path)

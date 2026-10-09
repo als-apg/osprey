@@ -153,7 +153,7 @@ describe('model selector', () => {
     expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
       'main',
       'transfer',
-      'spare (not served: optics only)',
+      'spare (not served)',
     ]);
     expect(select.value).toBe('main');
   });
@@ -180,7 +180,7 @@ describe('model selector', () => {
     expect(menu.items).toEqual([
       { id: 'main', label: 'main', checked: true },
       { id: 'transfer', label: 'transfer', checked: false },
-      { id: 'spare', label: 'spare (not served: optics only)', checked: false },
+      { id: 'spare', label: 'spare (not served)', checked: false },
     ]);
   });
 
@@ -263,12 +263,6 @@ describe('figures the selected model cannot draw', () => {
     ]);
   });
 
-  test('an unserved model hides every figure but optics', () => {
-    const state = { ...PERIODIC_STATE, model: 'spare', served: false };
-    expect(unavailableFigures(state, ALL_FIGURES)).toEqual([
-      'resonance', 'chromaticity', 'footprint', 'da', 'lma',
-    ]);
-  });
 
   test("a figure route's 409 reaches the panel as its detail, not as a failure", async () => {
     stubFetch({ '/api/figures/resonance': response(SINGLE_PASS_409, 409) });
@@ -305,21 +299,23 @@ describe('figures the selected model cannot draw', () => {
     expect(fetch).not.toHaveBeenCalledWith('/api/figures/optics', expect.anything());
   });
 
-  test('an unserved model labels each hidden panel not served: optics only', () => {
+  test('an unserved model hides no figure', () => {
     const fetchFigure = vi.fn();
     const state = { ...PERIODIC_STATE, model: 'spare', served: false };
 
     syncAvailability(state, ALL_FIGURES, fetchFigure);
 
-    for (const name of ['resonance', 'chromaticity', 'footprint', 'da', 'lma']) {
-      expect(panelText(name)).toBe('not served: optics only');
+    expect(unavailableFigures(state, ALL_FIGURES)).toEqual([]);
+    for (const name of ALL_FIGURES) {
+      expect(byId(`plot-${name}`).querySelector('.figure-unavailable')).toBeNull();
+      expect(panelText(name)).toBe('Waiting for lattice...');
     }
-    expect(panelText('optics')).toBe('Waiting for lattice...');
     expect(fetchFigure).not.toHaveBeenCalled();
   });
 
-  test('switching back to a periodic, served model restores the hidden panels', () => {
-    syncAvailability({ ...PERIODIC_STATE, served: false }, ALL_FIGURES, vi.fn());
+  test('switching back to a periodic model restores the hidden panels', () => {
+    syncAvailability({ ...PERIODIC_STATE, solve: 'single_pass' }, ALL_FIGURES, (name) =>
+      showFigureUnavailable(name, 'not available for a single-pass model'));
 
     syncAvailability(PERIODIC_STATE, ALL_FIGURES, vi.fn());
 
