@@ -1,5 +1,4 @@
-A connector-host child that exits on its own is reported with the exit code it
-exited with, where a start error could say "exit code 255" for a child that
-exited 3. Putting a child down no longer reaps it behind asyncio's child
-watcher: the supervisor signals only a child that is still running and leaves
-an exited one for the watcher to reap.
+Putting a connector-host child down sends no signal to a child that has
+already exited or already been reaped. A pid that asyncio's child watcher
+thread had reaped could otherwise still be signalled, and by then it may
+belong to another process.
