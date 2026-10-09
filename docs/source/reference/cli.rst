@@ -1060,53 +1060,77 @@ osprey ariel
 
 Manage the ARIEL logbook search service.
 
-``quickstart [--source PATH]`` -- Full setup: migrate, then ingest
-``--source`` or the configured ingestion source; with neither, seed
-``ariel.demo_narrative`` into an empty logbook and run the enhancement modules
-over it.
+``osprey ariel quickstart [--source PATH]``
+   Full setup: migrate, then ingest ``--source`` or the configured ingestion
+   source; with neither, seed ``ariel.demo_narrative`` into an empty logbook
+   and run the enhancement modules over it.
 
-``status [--json]`` -- Show service status.
+``osprey ariel status [--json]``
+   Show the database connection, embedding tables and enhancement counts.
 
-``migrate`` -- Create or update database tables.
+``osprey ariel migrate``
+   Create or update the database tables the enabled modules need.
 
-``sync [--limit N]`` -- Idempotent migrate + incremental ingest + enhance.
-Safe to run on every build; on a fresh database, runs a full ingest.
+``osprey ariel sync [--limit N] [--watch]``
+   Idempotent migrate + incremental ingest + enhance. Safe to run on every
+   build; on a fresh database, runs a full ingest. ``--watch`` keeps polling
+   the source after the sync.
 
-``ingest --source PATH [--adapter TYPE] [--since DATE] [--limit N] [--dry-run]``
+``osprey ariel ingest --source PATH [--adapter TYPE] [--since DATE] [--limit N] [--dry-run]``
    Ingest logbook entries from file or URL.
 
-``watch [--source] [--once] [--interval N] [--dry-run]`` -- Poll for new entries.
+``osprey ariel watch [--source PATH] [--adapter TYPE] [--once] [--interval N] [--dry-run]``
+   Poll the source for new entries and ingest them. ``--once`` runs a single
+   poll cycle. Nothing is ingested until one earlier ``ingest`` has run,
+   unless ``ingestion.watch.require_initial_ingest`` is false.
 
-``enhance [--module NAME] [--force] [--limit N]`` -- Run enhancement modules.
+``osprey ariel enhance [--module NAME] [--force] [--limit N] [--retry-failed]``
+   Run the enhancement modules over entries not yet enhanced. ``--force``
+   re-runs the text modules; ``--retry-failed`` retries what ``--module``
+   gave up on.
 
-``qmd-resync [--rebuild]``
+``osprey ariel qmd-resync [--rebuild]``
    Re-export entries the qmd markdown mirror never saw --- entries created in
    the web interface, attachment uploads, and entries written through the
    logbook write service. ``--rebuild`` wipes the mirror and re-exports
    everything, which is what to run after ``purge``.
    ``ingest`` and ``watch`` already do this pass on their own.
 
-``models`` -- List embedding models and tables.
+``osprey ariel models``
+   List the embedding models and their tables.
 
-``search QUERY [--mode keyword|semantic|hybrid] [--limit N] [--json]``
+``osprey ariel search QUERY [--mode keyword|semantic|hybrid] [--limit N] [--json]``
    Execute a search query. Without ``--mode``, the deployment's
    ``ariel.default_search_mode`` decides.
 
-``vocab-check [PATH] [--json]``
+``osprey ariel vocab-check [PATH] [--json]``
    Validate a facility vocabulary file --- the shorthand-to-prose mapping that
    query expansion uses. Checks ``PATH``, or the file named by
    ``ariel.vocabulary.path`` when no path is given. Needs no database. Exits 1
    and lists every error when the file is broken; warnings never fail it.
 
-``reembed --model NAME --dimension N [--batch-size N] [--force]``
+``osprey ariel reembed --model NAME --dimension N [--batch-size N] [--dry-run] [--force]``
    Re-embed entries with a different model.
 
-``web [--port N] [--host ADDR] [--reload]``
+``osprey ariel web [--port N] [--host ADDR] [--reload]``
    Launch the web interface on the host and port ``ariel.web`` names (default
    ``127.0.0.1`` and the layout's ARIEL port); ``--host`` and ``--port`` override
    them.
 
-``purge [--yes] [--embeddings-only]`` -- Delete all ARIEL data.
+``osprey ariel purge [--yes] [--embeddings-only]``
+   Delete all ARIEL data. ``--embeddings-only`` keeps the entries and clears
+   the embedding tables.
+
+``osprey ariel attachments``
+   Group for the attachment copy commands.
+
+``osprey ariel attachments backfill [--limit N] [--dry-run] [--probe N] [--wait] [--retry-decoder-failed]``
+   Record and copy the pictures of every stored entry, newest first, and
+   render stored originals that have no rendition. ``--dry-run`` counts what
+   would be fetched; ``--probe N`` also requests N sampled pictures and prints
+   an estimate. ``--wait`` waits for a copy running in another process.
+   ``--retry-decoder-failed`` renders again the pictures the decoder could not
+   read.
 
 .. code-block:: bash
 
