@@ -1,4 +1,4 @@
-"""The pyat engine's deck-only plug-in contract: locate, prepare, start_values, plane."""
+"""The pyat engine's deck-only plug-in contract: locate, prepare, start_values, describe."""
 
 from __future__ import annotations
 
@@ -477,18 +477,102 @@ class TestPrepare:
         np.testing.assert_array_equal(prepared.twiss_in["closed_orbit"], np.zeros(6))
 
 
-class TestPlane:
+def _describe_record(direction: str, block: dict[str, Any], **where: Any) -> dict[str, Any]:
+    return {"id": "M/LINE:A", "address": "LINE:A", "direction": direction, "engine": block, **where}
+
+
+class TestDescribe:
     @pytest.mark.parametrize(
-        ("block", "expected"),
+        ("record", "expected"),
         [
-            ({"attribute": "KickAngle", "index": 0}, "x"),
-            ({"attribute": "KickAngle", "index": 1}, "y"),
-            ({"attribute": "PolynomB", "index": 0}, "x"),
-            ({"attribute": "PolynomA", "index": 0}, "y"),
-            ({"attribute": "PolynomB", "index": 1}, None),
-            ({"attribute": "Frequency"}, None),
-            ({"axis": "x"}, None),
+            (
+                _describe_record("write", {"attribute": "KickAngle", "index": 0}, element="E"),
+                ("setpoint", "x", "pass"),
+            ),
+            (
+                _describe_record("write", {"attribute": "KickAngle", "index": 1}, element="E"),
+                ("setpoint", "y", "pass"),
+            ),
+            (
+                _describe_record("write", {"attribute": "PolynomB", "index": 0}, element="E"),
+                ("setpoint", None, "pass"),
+            ),
+            (
+                _describe_record("write", {"attribute": "PolynomB", "index": 1}, element="E"),
+                ("setpoint", None, "pass"),
+            ),
+            (
+                _describe_record("read", {"axis": "x"}, element="BPM1"),
+                ("monitor", "x", "pass"),
+            ),
+            (
+                _describe_record("read", {"axis": "y"}, slices=[{"element": "BPM1"}]),
+                ("monitor", "y", "pass"),
+            ),
+            (
+                _describe_record("read", {"attribute": "KickAngle", "index": 1}, element="E"),
+                ("readback", "y", "pass"),
+            ),
+            (
+                _describe_record("read", {"attribute": "PolynomB", "index": 1}, element="E"),
+                ("readback", None, "pass"),
+            ),
+            (_describe_record("read", {"attribute": "energy"}), ("readback", None, "pass")),
+            (
+                _describe_record("read", {"attribute": "tune", "axis": "y"}),
+                ("output", "y", "pass"),
+            ),
+            (
+                _describe_record("read", {"attribute": "tune", "index": 0}),
+                ("output", "x", "pass"),
+            ),
+            (
+                _describe_record("read", {"attribute": "tune", "index": 2}),
+                ("output", None, "pass"),
+            ),
+            (
+                _describe_record("read", {"attribute": "chromaticity", "axis": "x"}),
+                ("output", "x", "periodic"),
+            ),
+            (
+                _describe_record("read", {"attribute": "tune"}, value_type="waveform"),
+                ("output", None, "pass"),
+            ),
+        ],
+        ids=[
+            "setpoint-kick-x",
+            "setpoint-kick-y",
+            "setpoint-polynomb-0",
+            "setpoint-polynomb-1",
+            "monitor-x",
+            "monitor-y-slices",
+            "readback-kick-y",
+            "readback-element",
+            "readback-energy",
+            "tune-by-axis",
+            "tune-by-index-0",
+            "tune-by-index-2",
+            "chromaticity-periodic",
+            "whole-output-waveform",
         ],
     )
-    def test_plane(self, block: dict[str, Any], expected: str | None):
-        assert engine.plane(Wiring("M/A", "A", element="E", engine=block)) == expected
+    def test_describe(self, record: dict[str, Any], expected: tuple[str, str | None, str]):
+        described = engine.describe(record)
+        assert (described["role"], described["plane"], described["refresh"]) == expected
+        assert set(described) == {"role", "plane", "refresh"}
+
+    def test_a_wiring_object_reads_like_a_mapping(self):
+        record = Wiring("M/A", "A", element="BPM1", engine={"axis": "x"})
+        assert engine.describe(record) == {"role": "monitor", "plane": "x", "refresh": "pass"}
+
+    @pytest.mark.parametrize(
+        "record",
+        [
+            _describe_record("read", {"attribute": "Frequency"}),
+            _describe_record("read", {}, element="E"),
+        ],
+        ids=["element-free-unknown", "element-without-attribute-or-axis"],
+    )
+    def test_an_unknown_record_names_its_address(self, record: dict[str, Any]):
+        with pytest.raises(ValueError, match="LINE:A"):
+            engine.describe(record)
