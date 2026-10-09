@@ -53,6 +53,12 @@ walks you through a guided conversation and produces the deployment repository â
 repository whose `profile.yml` is the source of truth. From inside it, `osprey build`
 renders the ready-to-run deployment into `build/`.
 
+The facility lives in `data/facility/` of the deployment repository: the records,
+limits, models, scenarios and knowledge you author, and under `imported/<layer>/`
+what an importer such as `osprey facility import mml` writes. `osprey build`
+turns that tree into the facility file and its views under `build/`;
+`osprey facility show` prints the result.
+
 ## Key features
 
 - **Agent-driven orchestration** â€” Skills, MCP tools, and explicit dependency declarations
