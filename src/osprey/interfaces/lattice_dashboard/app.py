@@ -3,9 +3,11 @@
 Serves the dashboard SPA, REST API for lattice state management,
 and SSE stream for live figure updates.
 
-The lattice comes from the render's simulator view: the dashboard loads the
-first served deck-bearing model's deck on the first ``/api/state`` or
-``/api/models`` request, and ``POST /api/models/select`` switches to another.
+The lattice comes from the render's simulator view. One task resolves the
+selection off the request path: at startup, on ``POST /api/models/select``,
+and when a request sees the view or the selected deck change. A request never
+loads a deck itself; it answers the current selection, ``loading`` while a
+resolve runs.
 
 Usage::
 
@@ -17,11 +19,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import copy
+import dataclasses
 import hashlib
 import json
 import logging
-import threading
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -29,13 +30,13 @@ from typing import Any
 import numpy as np
 import plotly.graph_objects as go
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.lattice_dashboard.catalog import (
-    DashboardModel,
     ModelCatalog,
     catalog_sources,
     read_catalog,
@@ -43,12 +44,11 @@ from osprey.interfaces.lattice_dashboard.catalog import (
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
 from osprey.interfaces.lattice_dashboard.state import (
     ALL_FIGURES,
-    DEFAULT_SETTINGS,
-    SINGLE_PASS,
     SINGLE_PASS_UNAVAILABLE,
     LatticeState,
-    fast_figures,
-    figure_available,
+    Selection,
+    capabilities_for,
+    describe_deck,
 )
 from osprey.interfaces.lattice_dashboard.workers._base import figure_to_dict
 from osprey.interfaces.lattice_dashboard.workers.chromaticity import (
@@ -220,10 +220,12 @@ class SelectModelRequest(BaseModel):
     name: str
 
 
-# ── Model loading ─────────────────────────────────────────
+# ── Selection ─────────────────────────────────────────────
 
 
-def _file_signature(path: Path) -> tuple[int, int] | None:
+def _file_signature(path: Path | None) -> tuple[int, int] | None:
+    if path is None:
+        return None
     try:
         stat = path.stat()
     except OSError:
@@ -231,95 +233,158 @@ def _file_signature(path: Path) -> tuple[int, int] | None:
     return stat.st_mtime_ns, stat.st_size
 
 
-class _ModelLoader:
-    """Keeps the dashboard state on the selected model's deck.
+def resolve_selection(catalog: ModelCatalog, wanted: str | None) -> Selection:
+    """Resolve the model *wanted*, or the catalog's default when None.
 
-    The catalog is re-read when ``variables.json`` changes, and a deck's digest when the deck file changes, so a rebuilt
-    render is picked up without re-reading it on every request.
+    Loads the deck, so it is called off the event loop. Never raises: a model
+    the engine or the deck stops on resolves to ``failed`` with the reason,
+    and a model the catalog no longer lists resolves to ``none``, never to
+    the deck it had before.
+    """
+    model = catalog.default() if wanted is None else catalog.get(wanted)
+    if model is None:
+        return Selection(status="none")
+    if model.prepared is None:
+        return Selection(model=model.name, status="failed", error=model.error)
+    try:
+        digest = hashlib.sha256(model.deck.read_bytes()).hexdigest()
+        families, summary = describe_deck(model.deck)
+    except Exception as exc:
+        logger.exception("Failed to load the deck of model %s", model.name)
+        return Selection(model=model.name, status="failed", error=f"{type(exc).__name__}: {exc}")
+    return Selection(
+        model=model.name,
+        status="ready",
+        deck=model.deck,
+        deck_sha256=digest,
+        prepared=model.prepared,
+        capabilities=capabilities_for(model.prepared.solve),
+        families=families,
+        summary=summary,
+    )
+
+
+class _Resolver:
+    """Keeps the state's selection on the render's view, one resolve at a time.
 
     Args:
         state: The dashboard state.
-        compute: The figure workers, stopped when the model is switched.
+        compute: The figure workers; a changed selection recomputes its fast
+            figures.
+        broadcaster: Told after each resolve that the state changed.
         render_root: The render to read the simulator view from, or None.
     """
 
     def __init__(
-        self, state: LatticeState, compute: ComputeManager, render_root: Path | None
+        self,
+        state: LatticeState,
+        compute: ComputeManager,
+        broadcaster: _SSEBroadcaster,
+        render_root: Path | None,
     ) -> None:
         self._state = state
         self._compute = compute
+        self._broadcaster = broadcaster
         self._render_root = render_root
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
+        self._catalog_lock = asyncio.Lock()
+        self._task: asyncio.Task[None] | None = None
+        self._again = False
+        self._select = False
         self._catalog: ModelCatalog | None = None
-        self._catalog_key: tuple[Any, ...] | None = None
-        self._digests: dict[Path, tuple[tuple[int, int] | None, str]] = {}
+        self._catalog_signature: tuple[Any, ...] | None = None
+        self._deck_signature: tuple[int, int] | None = None
+        self._resolved = False
 
-    def catalog(self) -> ModelCatalog:
-        """Return the render's switchable models."""
-        root = self._render_root
-        key = (
-            None
-            if root is None
-            else tuple(_file_signature(source) for source in catalog_sources(root))
-        )
-        if self._catalog is None or key != self._catalog_key:
-            self._catalog = read_catalog(root)
-            self._catalog_key = key
+    @property
+    def catalog(self) -> ModelCatalog | None:
+        """The catalog last read, or None until one has been."""
         return self._catalog
 
-    def _digest(self, deck: Path) -> str:
-        signature = _file_signature(deck)
-        cached = self._digests.get(deck)
-        if cached is not None and cached[0] == signature:
-            return cached[1]
-        digest = hashlib.sha256(deck.read_bytes()).hexdigest()
-        self._digests[deck] = (signature, digest)
-        return digest
+    def _view_signature(self) -> tuple[Any, ...] | None:
+        root = self._render_root
+        return None if root is None else tuple(map(_file_signature, catalog_sources(root)))
 
-    def _load(self, model: DashboardModel, digest: str) -> dict[str, Any]:
-        if model.error is not None:
-            raise ValueError(model.error)
-        return self._state.initialize(
-            str(model.deck),
-            model=model.name,
-            prepared=model.prepared,
-            deck_sha256=digest,
-        )
+    def check(self) -> None:
+        """Schedule a resolve when the view or the selected deck changed since the last one.
 
-    def sync(self) -> bool:
-        """Load the selected model's deck, else the default model's, when stale.
-
-        Returns:
-            True when the state was (re)initialised from a deck.
+        A change seen while a resolve runs is checked again once it ends.
         """
-        with self._lock:
-            catalog = self.catalog()
-            current = self._state.load()
-            model = catalog.get(current.get("model") or "") or catalog.default()
-            if model is None:
-                return False
-            digest = self._digest(model.deck)
-            if current.get("model") == model.name and current.get("deck_sha256") == digest:
-                return False
-            self._load(model, digest)
-            return True
+        if self._task is not None and not self._task.done():
+            return
+        if (
+            not self._resolved
+            or self._view_signature() != self._catalog_signature
+            or _file_signature(self._state.selection.deck) != self._deck_signature
+        ):
+            self.schedule()
 
-    def select(self, name: str) -> DashboardModel | None:
-        """Initialise the state from model *name*'s deck.
+    def schedule(self, *, select: str | None = None) -> None:
+        """Mark the selection loading and run a resolve on the event loop.
 
-        Overrides and the old baseline are dropped; settings are kept. Every
-        figure is removed first, so no figure of the previous model is served.
-
-        Returns:
-            The model loaded, or None when the catalog has no model *name*.
+        Args:
+            select: The model the operator just picked; its what-if inputs
+                are reset even when it is the model already selected.
         """
-        with self._lock:
-            model = self.catalog().get(name)
-            if model is None:
-                return None
-            self._state.clear_figures()
-            self._load(model, self._digest(model.deck))
-            return model
+        if select is not None:
+            self._select = True
+            self._state.selection = Selection(model=select, status="loading")
+        elif self._state.selection.status != "loading":
+            self._state.selection = dataclasses.replace(self._state.selection, status="loading")
+        if self._task is None or self._task.done():
+            self._task = asyncio.get_running_loop().create_task(self._run())
+        else:
+            self._again = True
+
+    async def current_catalog(self) -> ModelCatalog:
+        """Return the view's catalog, read off the loop when the view changed.
+
+        Waits only for another catalog read, never for a running resolve.
+        """
+        async with self._catalog_lock:
+            signature = self._view_signature()
+            if self._catalog is None or signature != self._catalog_signature:
+                self._catalog = await asyncio.to_thread(read_catalog, self._render_root)
+                self._catalog_signature = signature
+            return self._catalog
+
+    async def stop(self) -> None:
+        """Cancel a running resolve."""
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+
+    def _wanted(self, catalog: ModelCatalog) -> str | None:
+        """The operator's pick; with none, the model drawn last while the build still lists it."""
+        wanted = self._state.wanted()
+        if wanted is not None:
+            return wanted
+        last = self._state.last_model()
+        return last if last is not None and catalog.get(last) is not None else None
+
+    async def _run(self) -> None:
+        while True:
+            self._again = False
+            select, self._select = self._select, False
+            try:
+                catalog = await self.current_catalog()
+                async with self._lock:
+                    selection = await asyncio.to_thread(
+                        resolve_selection, catalog, self._wanted(catalog)
+                    )
+            except Exception as exc:
+                logger.exception("Failed to resolve the selected model")
+                selection = Selection(status="failed", error=f"{type(exc).__name__}: {exc}")
+            if self._again:
+                continue
+            self._deck_signature = _file_signature(selection.deck)
+            self._resolved = True
+            reset = self._state.adopt(selection, reset=select)
+            self._broadcaster.broadcast({"type": "state_updated"})
+            if reset:
+                self._compute.refresh_fast()
+            return
 
 
 # ── App factory ───────────────────────────────────────────
@@ -328,9 +393,9 @@ class _ModelLoader:
 def create_app(workspace_root: Path | None = None, render_root: Path | None = None) -> FastAPI:
     """Create the Lattice Dashboard FastAPI application.
 
-    Constructing the app loads no deck and starts no worker: the state is
-    initialised on the first ``/api/state`` or ``/api/models`` request. Every
-    worker is put down when the app shuts down.
+    Constructing the app loads no deck and starts no worker: the selection is
+    resolved once the app starts. Every worker is put down when it shuts
+    down.
 
     Args:
         workspace_root: Agent-data root (e.g. ``<repo>/var/agent_data``). The
@@ -344,54 +409,84 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
             loaded; with no config loaded there is no simulator view.
     """
     ws_root = Path(workspace_root) if workspace_root else resolve_shared_data_root()
-    state_dir = ws_root / "lattice"
     if render_root is None:
         render_root = Path(p).parent if (p := default_config_path()) else None
 
-    state = LatticeState(state_dir)
+    state = LatticeState(ws_root / "lattice")
     broadcaster = _SSEBroadcaster()
     compute = ComputeManager(state, broadcaster)
-    loader = _ModelLoader(state, compute, Path(render_root) if render_root is not None else None)
+    resolver = _Resolver(
+        state, compute, broadcaster, Path(render_root) if render_root is not None else None
+    )
 
-    def sync_model() -> None:
-        try:
-            loaded = loader.sync()
-        except Exception as exc:
-            logger.exception("Failed to load the selected model's deck")
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        if loaded:
-            broadcaster.broadcast({"type": "state_updated"})
-            refresh_fast_figures()
-
-    def optics_only_reason(current: dict[str, Any]) -> str | None:
-        """Return why the selected model draws optics only, or None when it draws every figure."""
-        if current.get("solve") == SINGLE_PASS:
-            return SINGLE_PASS_UNAVAILABLE
-        return None
-
-    def refresh_fast_figures() -> list[str]:
-        return compute.refresh_fast()
+    def selection_payload(selection: Selection) -> dict[str, Any]:
+        capabilities = selection.capabilities
+        return {
+            "model": selection.model,
+            "deck_sha256": selection.deck_sha256,
+            "status": selection.status,
+            "error": selection.error,
+            "capabilities": {
+                "figures": list(capabilities.figures),
+                "fast_figures": list(capabilities.fast_figures),
+                "verify": capabilities.verify,
+            },
+        }
 
     def state_payload() -> dict[str, Any]:
-        s = state.load()
-        if "settings" not in s:
-            s["settings"] = copy.deepcopy(DEFAULT_SETTINGS)
-        s.setdefault("model", None)
-        s["fast_figures"] = list(fast_figures(s.get("solve")))
-        s["notice"] = loader.catalog().notice()
-        return s
+        selection = state.selection
+        return {
+            "selection": selection_payload(selection),
+            "families": selection.families,
+            "overrides": state.overrides,
+            "summary": state.summary(),
+            "figures": {name: compute.figure_status(name) for name in ALL_FIGURES},
+            "baseline": state.get_baseline(),
+            "settings": state.get_settings(),
+            "notice": None if resolver.catalog is None else resolver.catalog.notice(),
+        }
 
-    def refuse_unavailable(name: str) -> None:
-        current = state.load()
-        if not figure_available(name, current.get("solve")):
-            raise HTTPException(status_code=409, detail=optics_only_reason(current))
+    def unavailable(name: str) -> JSONResponse | None:
+        """The refusal for a figure the selected model cannot draw, or None."""
+        selection = state.selection
+        if selection.ready and name not in selection.capabilities.figures:
+            return JSONResponse(
+                status_code=409,
+                content={"status": "unavailable", "reason": SINGLE_PASS_UNAVAILABLE},
+            )
+        return None
+
+    def known(name: str) -> None:
+        if name not in ALL_FIGURES:
+            raise HTTPException(status_code=404, detail=f"Unknown figure: {name}")
+
+    def current_figure(name: str) -> dict[str, Any] | JSONResponse:
+        """Return figure *name*'s stored payload, or the response saying why there is none."""
+        known(name)
+        refusal = unavailable(name)
+        if refusal is not None:
+            return refusal
+        status = compute.figure_status(name)
+        payload = state.read_figure(name) if status["status"] == "ready" else None
+        if payload is None:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "not_computed" if status["status"] == "ready" else status["status"],
+                    "key": status["key"],
+                    "error": status["error"],
+                },
+            )
+        return payload
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        resolver.schedule()
         # No worker outlives the app.
         try:
             yield
         finally:
+            await resolver.stop()
             await compute.stop_all()
 
     app = FastAPI(
@@ -400,6 +495,8 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
         version="1.0.0",
         lifespan=lifespan,
     )
+    app.state.lattice = state
+    app.state.compute = compute
 
     # ── Health ────────────────────────────────────────────
 
@@ -411,15 +508,15 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
 
     @app.get("/api/state")
     async def get_state() -> dict[str, Any]:
-        sync_model()
+        resolver.check()
         return state_payload()
 
     # ── Models API ────────────────────────────────────────
 
     @app.get("/api/models")
     async def list_models() -> list[dict[str, Any]]:
-        sync_model()
-        selected = state.load().get("model")
+        resolver.check()
+        selected = state.selection.model
         return [
             {
                 "name": model.name,
@@ -428,92 +525,72 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
                 "selected": model.name == selected,
                 "error": model.error,
             }
-            for model in loader.catalog().models
+            for model in (resolver.catalog.models if resolver.catalog is not None else ())
         ]
 
     @app.post("/api/models/select")
     async def select_model(body: SelectModelRequest) -> dict[str, Any]:
-        try:
-            model = loader.select(body.name)
-        except Exception as exc:
-            logger.exception("Failed to load model %s", body.name)
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if model is None:
+        catalog = await resolver.current_catalog()
+        if catalog.get(body.name) is None:
             raise HTTPException(status_code=404, detail=f"Unknown model: {body.name}")
-
-        broadcaster.broadcast({"type": "state_updated"})
-        refresh_fast_figures()
-        return state_payload()
+        state.set_wanted(body.name)
+        resolver.schedule(select=body.name)
+        return selection_payload(state.selection)
 
     @app.post("/api/state/param")
     async def set_param(body: ParamRequest) -> dict[str, Any]:
-        current = state.load()
-        if body.family not in current.get("families", {}):
+        if body.family not in state.selection.families:
             raise HTTPException(
                 status_code=404,
                 detail=f"Unknown family: {body.family}",
             )
 
-        result = state.set_param(body.family, body.value)
+        state.set_param(body.family, body.value)
         broadcaster.broadcast({"type": "state_updated"})
-        return result
+        return state_payload()
 
     # ── Refresh API ───────────────────────────────────────
 
     @app.post("/api/refresh")
     async def refresh_fast() -> dict[str, Any]:
-        launched = refresh_fast_figures()
+        return {"status": "ok", "launched": compute.refresh_fast()}
+
+    @app.post("/api/refresh/{figure}", response_model=None)
+    async def refresh_figure(figure: str) -> dict[str, Any] | JSONResponse:
+        known(figure)
+        refusal = unavailable(figure)
+        if refusal is not None:
+            return refusal
+        launched = [figure] if compute.refresh_one(figure) else []
         return {"status": "ok", "launched": launched}
 
-    @app.post("/api/refresh/{figure}")
-    async def refresh_figure(figure: str) -> dict[str, Any]:
-        if figure not in ALL_FIGURES:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Unknown figure: {figure}",
+    @app.post("/api/verify", response_model=None)
+    async def verify() -> dict[str, Any] | JSONResponse:
+        selection = state.selection
+        if selection.ready and not selection.capabilities.verify:
+            return JSONResponse(
+                status_code=409,
+                content={"status": "unavailable", "reason": SINGLE_PASS_UNAVAILABLE},
             )
-        refuse_unavailable(figure)
-        compute.refresh_one(figure)
-        return {"status": "ok", "launched": [figure]}
-
-    @app.post("/api/verify")
-    async def verify() -> dict[str, Any]:
-        reason = optics_only_reason(state.load())
-        if reason is not None:
-            raise HTTPException(status_code=409, detail=reason)
-        launched = compute.refresh_verification()
-        return {"status": "ok", "launched": launched}
+        return {"status": "ok", "launched": compute.refresh_verification()}
 
     # ── Figures API ───────────────────────────────────────
 
-    @app.get("/api/figures/{name}")
-    async def get_figure(name: str) -> Any:
-        if name not in ALL_FIGURES:
-            raise HTTPException(status_code=404, detail=f"Unknown figure: {name}")
-        refuse_unavailable(name)
+    @app.get("/api/figures/{name}", response_model=None)
+    async def get_figure(name: str) -> dict[str, Any] | JSONResponse:
+        payload = current_figure(name)
+        if isinstance(payload, JSONResponse):
+            return payload
+        builder = FIGURE_BUILDERS[name]
+        figure = figure_to_dict(builder(payload["data"]))
+        return {"status": "ready", "key": payload["key"], "figure": figure}
 
-        fig_path = state.figures_dir / f"{name}.json"
-        if not fig_path.exists():
-            raise HTTPException(status_code=404, detail=f"Figure not yet computed: {name}")
-
-        raw = json.loads(fig_path.read_text())
-        builder = FIGURE_BUILDERS.get(name)
-        if builder is None:
-            return raw  # fallback for unknown figure types
-        fig = builder(raw)
-        return figure_to_dict(fig)
-
-    @app.get("/api/data/{name}")
-    async def get_data(name: str) -> Any:
-        if name not in ALL_FIGURES:
-            raise HTTPException(status_code=404, detail=f"Unknown figure: {name}")
-        refuse_unavailable(name)
-
-        fig_path = state.figures_dir / f"{name}.json"
-        if not fig_path.exists():
-            raise HTTPException(status_code=404, detail=f"Data not yet computed: {name}")
-
-        return json.loads(fig_path.read_text())
+    @app.get("/api/data/{name}", response_model=None)
+    async def get_data(name: str) -> dict[str, Any] | JSONResponse:
+        payload = current_figure(name)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return {"status": "ready", "key": payload["key"], "data": payload["data"]}
 
     # ── Baseline API ──────────────────────────────────────
 

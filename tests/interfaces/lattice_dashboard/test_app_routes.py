@@ -1,42 +1,45 @@
 """Tests for the Lattice Dashboard FastAPI routes.
 
-Exercises the REST surface with a TestClient.  Subprocess-spawning compute
-calls are monkeypatched so no worker processes are launched, and figure
-endpoints read pre-seeded raw JSON to drive the real figure adapters.
+Exercises the REST surface with a TestClient over a synthetic render whose SR
+model is selected at startup. Compute launches are monkeypatched so no worker
+process runs, and figure endpoints read raw JSON seeded under the current key
+to drive the real figure adapters.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.interfaces.lattice_dashboard.test_app import _write_render, settle
 
 from osprey.interfaces.lattice_dashboard.app import _SSEBroadcaster, create_app
 from osprey.interfaces.lattice_dashboard.compute import ComputeManager
-from osprey.interfaces.lattice_dashboard.state import LatticeState
+from osprey.interfaces.lattice_dashboard.workers._base import save_data
 from osprey_connectors.process import ExitCause
 
 
 @pytest.fixture
 def ws(tmp_path, monkeypatch):
-    """Workspace root plus a client, with compute launches neutralized."""
+    """Workspace root plus a client over a render serving SR, with compute launches neutralized."""
     monkeypatch.setattr(ComputeManager, "refresh_fast", lambda self: ["optics"])
     monkeypatch.setattr(ComputeManager, "refresh_verification", lambda self: ["da", "lma"])
-    monkeypatch.setattr(ComputeManager, "refresh_one", lambda self, name: None)
-    app = create_app(workspace_root=tmp_path, render_root=tmp_path)
-    return tmp_path, TestClient(app)
+    monkeypatch.setattr(ComputeManager, "refresh_one", lambda self, name: True)
+    render = _write_render(tmp_path / "render", served=["SR"], models={"SR": {"solve": "periodic"}})
+    with TestClient(create_app(workspace_root=tmp_path, render_root=render)) as client:
+        settle(client)
+        yield tmp_path, client
 
 
-def _seed_state_with_families(root):
-    state = LatticeState(root / "lattice")
-    s = LatticeState._empty_state()
-    s["base_lattice"] = "/fake.mat"
-    s["families"] = {"QF": {"type": "quadrupole", "param": "K", "value": 1.0}}
-    state.save(s)
-    return state
+def _seed(client, name, raw):
+    """Store *raw* as figure *name* under the key of the inputs on screen."""
+    state = client.app.state.lattice
+    key = state.figure_key(name)
+    job = {"key": key, "job_id": 0, "deck_sha256": state.selection.deck_sha256}
+    save_data(job, raw, state.figure_path(name, key))
+    return key
 
 
 class TestHealthAndState:
@@ -60,8 +63,7 @@ class TestParam:
         assert r.status_code == 404
 
     def test_set_param_success(self, ws):
-        root, client = ws
-        _seed_state_with_families(root)
+        _, client = ws
         r = client.post("/api/state/param", json={"family": "QF", "value": 2.3})
         assert r.status_code == 200
         assert r.json()["overrides"]["QF"] == 2.3
@@ -147,27 +149,29 @@ class TestFigures:
         _, client = ws
         r = client.get("/api/figures/optics")
         assert r.status_code == 404
+        assert r.json()["status"] == "not_computed"
 
     @pytest.mark.parametrize("name", list(RAW_FIXTURES))
     def test_figure_builds_from_raw(self, ws, name):
-        root, client = ws
-        state = LatticeState(root / "lattice")
-        (state.figures_dir / f"{name}.json").write_text(json.dumps(RAW_FIXTURES[name]))
+        _, client = ws
+        key = _seed(client, name, RAW_FIXTURES[name])
 
         r = client.get(f"/api/figures/{name}")
         assert r.status_code == 200
         payload = r.json()
+        assert payload["status"] == "ready"
+        assert payload["key"] == key
         # Adapter → build_figure → figure_to_dict yields a Plotly figure dict
-        assert "data" in payload
-        assert "layout" in payload
+        assert "data" in payload["figure"]
+        assert "layout" in payload["figure"]
 
     def test_get_data_returns_raw(self, ws):
-        root, client = ws
-        state = LatticeState(root / "lattice")
-        (state.figures_dir / "optics.json").write_text(json.dumps(RAW_FIXTURES["optics"]))
+        _, client = ws
+        key = _seed(client, "optics", RAW_FIXTURES["optics"])
         r = client.get("/api/data/optics")
         assert r.status_code == 200
-        assert r.json()["s_pos"] == [0.0, 1.0, 2.0]
+        assert r.json()["key"] == key
+        assert r.json()["data"]["s_pos"] == [0.0, 1.0, 2.0]
 
     def test_get_data_unknown_404(self, ws):
         _, client = ws
@@ -179,62 +183,62 @@ class TestFigures:
 
 
 class TestSummaryFreshness:
-    """The stat chips' numbers must follow the magnet overrides.
+    """The stat chips' numbers follow the magnet overrides.
 
     The optics worker recomputes them on the ring it actually tracked, and
-    the compute manager merges that into the served state.
+    the state's summary reads them from the optics figure of the current key.
     """
 
     def test_state_summary_reflects_worker_recompute(self, ws, fake_slots):
-        root, client = ws
-        state = _seed_state_with_families(root)
-        seeded = state.load()
-        seeded["summary"] = {"tunes": [0.30, 0.20], "chromaticity": [1.0, 1.5]}
-        state.save(seeded)
+        _, client = ws
+        state = client.app.state.lattice
+        _seed(
+            client, "optics", {**RAW_FIXTURES["optics"], "summary_updates": {"tunes": [0.3, 0.2]}}
+        )
+        assert client.get("/api/state").json()["summary"]["tunes"] == [0.3, 0.2]
 
         client.post("/api/state/param", json={"family": "QF", "value": 2.3})
-        assert client.get("/api/state").json()["summary"]["tunes"] == [0.30, 0.20]
+        assert "tunes" not in client.get("/api/state").json()["summary"]
 
         # The optics worker finishes on the override-applied ring
-        output = state.figures_dir / "optics.json"
-
         async def recompute():
-            ComputeManager(state, _SSEBroadcaster())._launch("optics")
-            await asyncio.sleep(0)
-            output.write_text(
-                json.dumps(
-                    {
-                        **RAW_FIXTURES["optics"],
-                        "summary_updates": {
-                            "tunes": [0.4412, 0.3107],
-                            "chromaticity": [-2.4, -1.8],
-                            "beta_max": [14.0, 9.0],
-                        },
-                    }
-                )
+            manager = ComputeManager(state, _SSEBroadcaster(), fake_slots)
+            manager._launch("optics")
+            job = fake_slots.current("optics")
+            spec = state.job_spec("optics")
+            save_data(
+                spec,
+                {
+                    **RAW_FIXTURES["optics"],
+                    "summary_updates": {
+                        "tunes": [0.4412, 0.3107],
+                        "chromaticity": [-2.4, -1.8],
+                        "beta_max": [14.0, 9.0],
+                    },
+                },
+                state.figure_path("optics", spec["key"]),
             )
-            fake_slots.jobs[-1].finish(ExitCause.COMPLETED)
+            job.finish(ExitCause.COMPLETED)
             for _ in range(5):
                 await asyncio.sleep(0)
+            return manager.figure_status("optics")
 
-        asyncio.run(recompute())
+        assert client.portal.call(recompute)["status"] == "ready"
 
         summary = client.get("/api/state").json()["summary"]
         assert summary["tunes"] == [0.4412, 0.3107]
         assert summary["chromaticity"] == [-2.4, -1.8]
         assert summary["beta_max"] == [14.0, 9.0]
+        assert summary["energy_gev"] == pytest.approx(2.0)
 
     def test_extra_key_does_not_disturb_the_figure(self, ws):
-        """The figure adapter ignores the summary block the manager consumes."""
-        root, client = ws
-        state = LatticeState(root / "lattice")
-        (state.figures_dir / "optics.json").write_text(
-            json.dumps({**RAW_FIXTURES["optics"], "summary_updates": {"tunes": [0.44, 0.31]}})
-        )
+        """The figure adapter ignores the summary block the summary reads."""
+        _, client = ws
+        _seed(client, "optics", {**RAW_FIXTURES["optics"], "summary_updates": {"tunes": [0.44]}})
 
         r = client.get("/api/figures/optics")
         assert r.status_code == 200
-        assert "data" in r.json()
+        assert "data" in r.json()["figure"]
 
 
 class TestBaselineAndSettings:

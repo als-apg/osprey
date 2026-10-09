@@ -68,7 +68,6 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/interfaces/health/static/dashboard.css": "rename:12",
     "src/osprey/interfaces/health/static/index.html": "rename:12",
     "src/osprey/interfaces/health/static/js/dashboard.js": "rename:12",
-    "src/osprey/interfaces/lattice_dashboard/compute.py": "rename:12",
     "src/osprey/interfaces/lattice_dashboard/state.py": "rename:12",
     "src/osprey/interfaces/lattice_dashboard/static/dashboard.css": "rename:12",
     "src/osprey/interfaces/lattice_dashboard/static/js/render.js": "rename:12",

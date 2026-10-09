@@ -1,30 +1,31 @@
-"""Tests for LatticeState.initialize() — empty refpts crash (GH bug).
+"""Tests for the lattice dashboard's deck description and figure keys.
 
-Reproduces the ValueError when at.get_optics() returns an empty ld.beta
-array (shape (0, 2)), which happens on the ALSU AR lattice when refpts
-is not explicitly passed.
+``describe_deck`` reads a deck's magnet families and its own summary numbers
+without solving its optics; ``figure_key`` names one figure's inputs.
 """
 
 from __future__ import annotations
 
+import os
 import sys
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-from osprey.interfaces.lattice_dashboard.state import LatticeState
+from osprey.interfaces.lattice_dashboard.state import (
+    DEFAULT_SESSION,
+    LatticeState,
+    Selection,
+    capabilities_for,
+    describe_deck,
+    figure_key,
+    prepared_lists,
+)
 from osprey.simulation.engines.pyat import Prepared
 
 
-@pytest.fixture
-def state(tmp_path):
-    return LatticeState(tmp_path / "lattice")
-
-
-def _make_mock_ring(n_elements: int = 10, energy: float = 2e9):
-    """Create a mock AT ring with n_elements."""
+def _make_mock_deck(n_elements: int = 10, energy: float = 2e9):
     ring = MagicMock()
     ring.__len__ = lambda self: n_elements
     ring.energy = energy
@@ -33,108 +34,120 @@ def _make_mock_ring(n_elements: int = 10, energy: float = 2e9):
     return ring
 
 
-def _make_lindata(n_refpts: int):
-    """Create a mock lindata object with n_refpts rows."""
-    if n_refpts == 0:
-        beta = np.empty((0, 2))
-    else:
-        beta = np.random.default_rng(42).uniform(1, 30, size=(n_refpts, 2))
-    return SimpleNamespace(beta=beta)
-
-
-def _make_mock_at(ring, rd, ld):
-    """Create a mock 'at' module with load_lattice and get_optics."""
-    mock_at = MagicMock()
-    mock_at.load_lattice.return_value = ring
-    mock_at.get_optics.return_value = (None, rd, ld)
-    return mock_at
-
-
-class TestInitializeRefpts:
-    """Verify that initialize() passes explicit refpts to get_optics."""
-
-    def test_empty_beta_no_crash(self, state):
-        """An empty beta array must not raise ValueError from np.max."""
-        ring = _make_mock_ring()
-        ld_empty = _make_lindata(0)
-        rd = SimpleNamespace(tune=np.array([0.3, 0.2]), chromaticity=np.array([1.0, 1.5]))
-        mock_at = _make_mock_at(ring, rd, ld_empty)
+class TestDescribeDeck:
+    def test_summary_is_the_decks_own_numbers(self):
+        mock_at = MagicMock()
+        mock_at.load_lattice.return_value = _make_mock_deck()
 
         with patch.dict(sys.modules, {"at": mock_at}):
-            result = state.initialize("/fake/lattice.m")
+            families, summary = describe_deck("/fake/lattice.json")
 
-        assert result["summary"]["beta_max"] == [0.0, 0.0]
-
-    def test_normal_beta(self, state):
-        """Normal case: non-empty beta array produces correct max values."""
-        n_elements = 10
-        ring = _make_mock_ring(n_elements)
-        ld = _make_lindata(n_elements + 1)
-        rd = SimpleNamespace(tune=np.array([0.3, 0.2]), chromaticity=np.array([1.0, 1.5]))
-        mock_at = _make_mock_at(ring, rd, ld)
-
-        with patch.dict(sys.modules, {"at": mock_at}):
-            result = state.initialize("/fake/lattice.m")
-
-        expected_bx = float(np.max(ld.beta[:, 0]))
-        expected_by = float(np.max(ld.beta[:, 1]))
-        assert result["summary"]["beta_max"] == pytest.approx([expected_bx, expected_by])
-
-    def test_refpts_passed_to_get_optics(self, state):
-        """Verify that initialize() passes refpts=range(len(ring)+1)."""
-        n_elements = 10
-        ring = _make_mock_ring(n_elements)
-        ld = _make_lindata(n_elements + 1)
-        rd = SimpleNamespace(tune=np.array([0.3, 0.2]), chromaticity=np.array([1.0, 1.5]))
-        mock_at = _make_mock_at(ring, rd, ld)
-
-        with patch.dict(sys.modules, {"at": mock_at}):
-            state.initialize("/fake/lattice.m")
-
-        call_kwargs = mock_at.get_optics.call_args
-        assert call_kwargs.kwargs.get("refpts") == range(n_elements + 1)
-        assert call_kwargs.kwargs.get("get_chrom") is True
+        assert families == {}
+        assert summary == {
+            "energy_gev": 2.0,
+            "circumference_m": 100.0,
+            "periodicity": 1,
+            "num_elements": 10,
+        }
+        mock_at.get_optics.assert_not_called()
 
 
-class TestInitializeSinglePass:
-    """A ``single_pass`` deck's optics start from the model's ``twiss_in``."""
+_PREPARED = Prepared(solve="periodic", twiss_in=None, rest_mass_gev=0.000511, length_m=8.0)
 
-    TWISS_IN = {"beta": [10.0, 5.0], "alpha": [0.5, -0.5]}
 
-    def _initialize(self, state):
-        n_elements = 10
-        ring = _make_mock_ring(n_elements)
-        ld = _make_lindata(n_elements + 1)
-        mock_at = _make_mock_at(ring, SimpleNamespace(), ld)
-        with patch.dict(sys.modules, {"at": mock_at}):
-            result = state.initialize(
-                "/fake/line.json",
-                model="LINE",
-                prepared=Prepared(
-                    solve="single_pass",
-                    twiss_in={key: np.asarray(v) for key, v in self.TWISS_IN.items()},
-                    rest_mass_gev=0.000511,
-                    length_m=10.0,
-                ),
-                deck_sha256="abc",
-            )
-        return result, mock_at
+def _key(**changes):
+    inputs = {
+        "deck_sha256": "d" * 64,
+        "prepared": prepared_lists(_PREPARED),
+        "settings": None,
+        "overrides": {},
+        "baseline_overrides": None,
+    }
+    inputs.update(changes)
+    return figure_key("optics", **inputs)
 
-    def test_twiss_in_passed_to_get_optics(self, state):
-        _, mock_at = self._initialize(state)
 
-        kwargs = mock_at.get_optics.call_args.kwargs
-        assert "get_chrom" not in kwargs
-        twiss_in = kwargs["twiss_in"]
-        assert twiss_in["beta"].tolist() == [10.0, 5.0]
-        assert twiss_in["alpha"].tolist() == [0.5, -0.5]
+class TestFigureKey:
+    def test_the_same_inputs_give_the_same_key(self):
+        assert _key(overrides={"QF": 1.0, "QD": -1.0}) == _key(overrides={"QD": -1.0, "QF": 1.0})
 
-    def test_summary_has_no_tune_or_chromaticity(self, state):
-        result, _ = self._initialize(state)
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"deck_sha256": "e" * 64},
+            {"settings": {"n_steps": 5}},
+            {"overrides": {"QF": 1.0}},
+            {"baseline_overrides": {}},
+            {"prepared": {**prepared_lists(_PREPARED), "rest_mass_gev": 0.938}},
+        ],
+    )
+    def test_any_input_changes_the_key(self, change):
+        assert _key(**change) != _key()
 
-        assert "tunes" not in result["summary"]
-        assert "chromaticity" not in result["summary"]
-        assert result["model"] == "LINE"
-        assert result["solve"] == "single_pass"
-        assert result["twiss_in"] == self.TWISS_IN
-        assert result["deck_sha256"] == "abc"
+    def test_twiss_in_is_serialised_as_lists(self):
+        prepared = Prepared(
+            solve="single_pass",
+            twiss_in={"beta": np.array([7.0, 3.0])},
+            rest_mass_gev=0.000511,
+            length_m=8.0,
+        )
+        assert prepared_lists(prepared)["twiss_in"] == {"beta": [7.0, 3.0]}
+
+
+class TestStore:
+    @pytest.fixture
+    def state(self, tmp_path):
+        state = LatticeState(tmp_path / "lattice")
+        state.adopt(
+            Selection(
+                model="SR",
+                status="ready",
+                deck=tmp_path / "SR.json",
+                deck_sha256="d" * 64,
+                prepared=_PREPARED,
+                capabilities=capabilities_for("periodic"),
+                summary={"energy_gev": 2.0},
+            ),
+            reset=False,
+        )
+        return state
+
+    def test_constructing_writes_no_file(self, tmp_path):
+        LatticeState(tmp_path / "lattice")
+        assert not (tmp_path / "lattice").exists()
+
+    def test_the_unmodified_deck_is_stored_shared(self, state, tmp_path):
+        key = state.figure_key("optics")
+        assert state.figure_path("optics", key) == (
+            tmp_path / "lattice" / "figures" / "shared" / "optics" / f"{key}.json"
+        )
+
+    def test_a_what_if_is_stored_in_the_session(self, state, tmp_path):
+        state.set_param("QF", 1.1)
+        key = state.figure_key("optics")
+        assert state.figure_path("optics", key) == (
+            tmp_path
+            / "lattice"
+            / "sessions"
+            / DEFAULT_SESSION
+            / "figures"
+            / "optics"
+            / f"{key}.json"
+        )
+
+    def test_prune_keeps_the_newest_keys(self, state):
+        directory = state.figure_path("optics", "x").parent
+        directory.mkdir(parents=True)
+        for n in range(10):
+            path = directory / f"{n}.json"
+            path.write_text("{}")
+            stamp = 1_000_000_000 + n
+            os.utime(path, (stamp, stamp))
+
+        state.prune("optics", kept=8)
+
+        assert sorted(p.stem for p in directory.iterdir()) == [str(n) for n in range(2, 10)]
+
+    def test_an_adopted_selection_sets_the_baseline_to_the_deck(self, state):
+        assert state.get_baseline()["overrides"] == {}
+        assert state.get_baseline()["summary"] == {"energy_gev": 2.0}
