@@ -51,12 +51,14 @@ EXCLUDED: tuple[str, ...] = ("changelog.d/", "CHANGELOG.md")
 #: Files that spell retired tokens as data.
 SELF_EXEMPT: tuple[str, ...] = (
     "src/osprey/profiles/config_key_manifest.yml",
-    "tests/build_pipeline/test_tier_completion.py",
     "tests/config/test_facility_keys_retired.py",
     "tests/config/test_simulation_keys_retired.py",
     "tests/connectors/test_limits_mode.py",
     "tests/docs/test_environment_variable_page.py",
     "tests/docs/test_mml_converter_retired.py",
+    "tests/facility/golden/cf_index_pre_line/MANIFEST.json",
+    "tests/facility/golden/demo_fingerprint.json",
+    "tests/facility/golden/in_context_size.json",
     "tests/facility/test_deleted_surfaces.py",
     "tests/facility/test_no_retired_shapes.py",
     "tests/simulation/test_apply_imports.py",
@@ -94,6 +96,7 @@ RETIRED: dict[str, str] = {
     "als_u_ar": "7d2",
     "assign_readbacks": "2",
     "build_tiers": "4a",
+    "channel_databases/tiers": "7e",
     "derive_bands": "7a0",
     "engine_from_connector_config": "7a",
     "facility_ontology.json": "3a",
@@ -104,6 +107,7 @@ RETIRED: dict[str, str] = {
     "osprey.channel_roster.database": "2",
     "osprey.channel_roster.graph": "5",
     "osprey.connectors.channel_taxonomy": "7d2",
+    "osprey.services.channel_finder.databases.template": "7e",
     "osprey.services.channel_finder.naming": "7d2",
     "osprey.services.channel_finder.tools.generate_from_spec": "7d2",
     "osprey.services.virtual_accelerator.manifest.standin_defaults": "7d2",
@@ -129,6 +133,7 @@ RETIRED: dict[str, str] = {
     "read_direction_source": "5",
     "read_graph_roster": "5",
     "resolve_facility_name": "3a",
+    "resolved_tier": "7e",
     "ringDescription": "7e",
     "scripts/facility_demo/_limits.py": "7d2",
     "scripts/facility_demo/_measurement.py": "5",
@@ -152,6 +157,7 @@ RETIRED: dict[str, str] = {
     "tests/templates/test_boot_band_invariant.py": "7a0",
     "tests/templates/test_channel_limits_va.py": "7a0",
     "tests/va/test_derive_bands_floor.py": "7a0",
+    "tier_dir": "7e",
     "tier_mode_conflict": "4a",
     "va_graph_deferred": "2",
 }
@@ -238,11 +244,18 @@ def stale_exemptions(root: Path, exempt: Iterable[str] = SELF_EXEMPT) -> list[st
         "osprey.channel_roster.database",
         "src/osprey/channel_roster/pairing.py",
         "os.environ['OLD_ENV_NAME']",
+        "data/channel_databases/tiers/tier3/hierarchical.json",
     ],
 )
 def test_pattern_finds_a_whole_name(text: str) -> None:
     pattern = token_pattern(
-        ["assign_readbacks", "osprey.channel_roster.database", "pairing.py", "OLD_ENV_NAME"]
+        [
+            "assign_readbacks",
+            "osprey.channel_roster.database",
+            "pairing.py",
+            "OLD_ENV_NAME",
+            "channel_databases/tiers",
+        ]
     )
     assert pattern is not None
     assert re.search(pattern, text) is not None
