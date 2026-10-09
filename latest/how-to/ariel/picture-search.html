@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 08, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 09, 2026"/>
   </head>
   
   
@@ -547,10 +547,14 @@ on.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">entry_open</span></code> shows an entry to the operator: it brings the ARIEL panel
 forward with the entry’s detail card open, and with an <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> it
 also opens that picture enlarged. The main agent calls it itself, with the
-entry id a logbook subagent reported. When the conversation is about one of
-the entry’s pictures, the agent passes that picture’s <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> too,
-even when the operator asks only for “the entry”. The same view is a link,
-<code class="docutils literal notranslate"><span class="pre">#entry?id=&lt;entry_id&gt;&amp;attachment=&lt;attachment_id&gt;</span></code>, on the ARIEL web page.
+ids a logbook subagent reported: a subagent hands back the entry id and
+<code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> of every picture it viewed. <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> is required
+and may be null: whenever the conversation holds the id of one of the
+entry’s pictures, the agent passes it, even when the operator asks only for
+“the entry”. Opened without one, the result lists the entry’s viewable pictures, so the
+agent can repeat the call with the picture under discussion. The same view
+is a link, <code class="docutils literal notranslate"><span class="pre">#entry?id=&lt;entry_id&gt;&amp;attachment=&lt;attachment_id&gt;</span></code>, on the ARIEL
+web page.
 Its lightbox also links the stored original at full resolution
 (“Open original”).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">attachment_to_artifact</span></code> keeps one picture: it copies the picture’s stored
