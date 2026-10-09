@@ -47,6 +47,17 @@ wires. The container's ready line prints how many channels it serves, so the
 count is read off the running service rather than kept in prose that would
 rot.
 
+The entrypoint, the runner and the model surface read the view through
+``osprey_connectors.simulation.view.SimulatorView``, the one reader every
+consumer of a view opens it with. Each wiring record of ``variables.json``
+states what its engine's ``describe()`` said of it at build time: its ``role``
+(``setpoint``, ``readback``, ``monitor`` or ``output``), the transverse
+``plane`` it steers or reads (``x``, ``y`` or none) and its ``refresh``. A
+write's pass publishes every served channel except those whose binding
+refreshes ``periodic``, which the next periodic pass publishes. Each channel
+also names the node it is ``on``. A view an older OSPREY wrote is refused
+before the ready line, with a message asking for ``osprey build``.
+
 Two transports, one write path
 ==============================
 
