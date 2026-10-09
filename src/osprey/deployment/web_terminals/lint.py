@@ -3026,10 +3026,7 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
         One finding naming every offender and what each is missing, or none.
     """
     from osprey.agent_runner.tool_names import OPEN_MODE_EGRESS_TOOLS
-    from osprey.deployment.web_terminals.artifacts import (
-        NO_PERSONA_OFFENDER,
-        open_mode_missing_by_persona,
-    )
+    from osprey.deployment.web_terminals.artifacts import open_mode_missing_by_persona
 
     missing = open_mode_missing_by_persona(root, project_root or Path("."))
     if not missing:
@@ -3043,13 +3040,6 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
             else f"{persona!r} has no rendered .claude/settings.json on this host"
         )
         for persona, tools in sorted(missing.items())
-    )
-    no_persona_note = (
-        f". {NO_PERSONA_OFFENDER!r} stands for the roster entries that run no persona "
-        "at all: they run the deploy project itself, so the settings.json read for them "
-        "is the deploy project's own .claude/settings.json"
-        if NO_PERSONA_OFFENDER in missing
-        else ""
     )
     return [
         Finding(
@@ -3065,7 +3055,7 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
                 f"or unparseable settings.json counts the same). Set auth.method to "
                 f"'token' to keep the magic-link wall, or restore those deny entries, "
                 f"render with `osprey build` and rebuild the images this deployment "
-                f"runs{no_persona_note}"
+                "runs"
             ),
         )
     ]

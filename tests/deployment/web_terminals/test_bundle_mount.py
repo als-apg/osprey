@@ -43,14 +43,19 @@ from .test_golden_render import EXAMPLE_CONFIG
 BUNDLE_PATH = "data/facility/knowledge"
 BUNDLE_SOURCE = f"./{BUNDLE_PATH}"
 
+#: The reference roster's one persona, entitled to the bundle.
+DEFAULT_ENTITLED = {"assistant"}
+
 
 def _config(*, bundle_path: str | None = BUNDLE_PATH, personas: bool = False) -> dict:
-    """The reference roster, optionally persona-backed and bundle-configured."""
+    """The reference roster on its default persona, or on two personas,
+    optionally bundle-configured."""
     config = copy.deepcopy(EXAMPLE_CONFIG)
     if bundle_path is not None:
         config["facility_knowledge"] = {"bundle_path": bundle_path}
     if personas:
         web_terminals = config["modules"]["web_terminals"]
+        web_terminals["default_persona"] = "operator"
         web_terminals["personas"] = {
             "operator": {"project": "dls-operator", "project_path": "../dls-operator"},
             "physicist": {"project": "dls-physicist", "project_path": "../dls-physicist"},
@@ -90,17 +95,9 @@ def _bundle_mounts(config: dict, **kwargs) -> dict[str, list[str]]:
 def test_no_bundle_configured_mounts_nothing():
     """A deployment that names no bundle path has no directory to hand out, and
     must render exactly what it rendered before this feature existed."""
-    assert _bundle_mounts(_config(bundle_path=None)) == {"web-alice": [], "web-bob": []}
-
-
-def test_every_persona_less_user_gets_the_bundle():
-    """The no-persona roster: no persona catalog, so entitlement is answered
-    from this same config, and both users read the one deployment bundle."""
-    mounts = _bundle_mounts(_config())
-
-    assert mounts == {
-        "web-alice": [f"{BUNDLE_SOURCE}:/app/dls_controls-assistant/{BUNDLE_PATH}"],
-        "web-bob": [f"{BUNDLE_SOURCE}:/app/dls_controls-assistant/{BUNDLE_PATH}"],
+    assert _bundle_mounts(_config(bundle_path=None), facility_bundle_personas=DEFAULT_ENTITLED) == {
+        "web-alice": [],
+        "web-bob": [],
     }
 
 
@@ -152,7 +149,7 @@ def test_no_entitled_personas_mounts_nothing():
 def test_mount_is_read_write():
     """The agent drafts concepts into the bundle; only the qmd sidecar's mount of
     the same directory is read-only."""
-    mounts = _bundle_mounts(_config())["web-alice"]
+    mounts = _bundle_mounts(_config(), facility_bundle_personas=DEFAULT_ENTITLED)["web-alice"]
 
     assert mounts == [f"{BUNDLE_SOURCE}:/app/dls_controls-assistant/{BUNDLE_PATH}"]
     assert not mounts[0].endswith(":ro")
@@ -162,19 +159,27 @@ def test_absolute_bundle_path_is_not_re_anchored():
     """An absolute path names the same absolute path on both sides — the same
     distinction the agent-data mount makes, and the reason the join happens in
     Python rather than as a template concatenation."""
-    mounts = _volumes(_config(bundle_path="/srv/shared/knowledge"))["web-alice"]
+    mounts = _volumes(
+        _config(bundle_path="/srv/shared/knowledge"), facility_bundle_personas=DEFAULT_ENTITLED
+    )["web-alice"]
 
     assert "/srv/shared/knowledge:/srv/shared/knowledge" in mounts
 
 
 def test_blank_bundle_path_is_treated_as_unset():
-    assert _bundle_mounts(_config(bundle_path="   ")) == {"web-alice": [], "web-bob": []}
+    assert _bundle_mounts(
+        _config(bundle_path="   "), facility_bundle_personas=DEFAULT_ENTITLED
+    ) == {"web-alice": [], "web-bob": []}
 
 
 def test_overlay_still_parses_with_the_mount_present():
     """The mount is emitted inside a Jinja conditional between two other volume
     lines; a whitespace slip there produces YAML compose cannot read."""
-    compose = yaml.safe_load(render_web_terminals(_config())["docker-compose.web.yml"])
+    compose = yaml.safe_load(
+        render_web_terminals(_config(), facility_bundle_personas=DEFAULT_ENTITLED)[
+            "docker-compose.web.yml"
+        ]
+    )
 
     assert set(compose["services"]) == {"nginx", "web-alice", "web-bob"}
 
@@ -202,7 +207,9 @@ def test_entitled_services_join_the_bundles_group():
     and discards this grant; the membership that reaches the process actually
     SERVING requests there comes from the entrypoint's own `/etc/group` join,
     asserted separately in tests/deployment/test_entrypoint_script.py."""
-    services = _services(_config(), facility_bundle_gid=20)
+    services = _services(
+        _config(), facility_bundle_personas=DEFAULT_ENTITLED, facility_bundle_gid=20
+    )
 
     assert services["web-alice"]["group_add"] == ["20"]
     assert services["web-bob"]["group_add"] == ["20"]
@@ -223,7 +230,9 @@ def test_no_gid_emits_no_group_add():
     """An unprovisioned bundle directory has no group to join yet. Emitting a
     guessed one would be worse than emitting none: the mount still works
     wherever the container's own uid already has access."""
-    services = _services(_config(), facility_bundle_gid=None)
+    services = _services(
+        _config(), facility_bundle_personas=DEFAULT_ENTITLED, facility_bundle_gid=None
+    )
 
     assert "group_add" not in services["web-alice"]
 
@@ -231,7 +240,9 @@ def test_no_gid_emits_no_group_add():
 def test_gid_is_quoted_so_compose_reads_it_as_a_group():
     """Numeric group ids and group names share the field, so the value is
     rendered as a string rather than a bare YAML integer."""
-    rendered = render_web_terminals(_config(), facility_bundle_gid=20)["docker-compose.web.yml"]
+    rendered = render_web_terminals(
+        _config(), facility_bundle_personas=DEFAULT_ENTITLED, facility_bundle_gid=20
+    )["docker-compose.web.yml"]
 
     assert '      - "20"' in rendered
 
@@ -255,7 +266,9 @@ def test_shadowing_is_documented_in_the_rendered_artifact():
     confusion the feature produces, so the reason must be readable in the file an
     operator on the deploy host actually opens — a Jinja comment would be
     stripped from the render and never reach them."""
-    rendered = render_web_terminals(_config())["docker-compose.web.yml"]
+    rendered = render_web_terminals(_config(), facility_bundle_personas=DEFAULT_ENTITLED)[
+        "docker-compose.web.yml"
+    ]
 
     assert "SHADOWS the copy baked into the persona image" in rendered
 
@@ -263,7 +276,9 @@ def test_shadowing_is_documented_in_the_rendered_artifact():
 def test_no_shadowing_note_without_a_mount_to_explain():
     """The note travels with the mount; a deployment that mounts nothing must
     render byte-identically to what it rendered before this feature."""
-    rendered = render_web_terminals(_config(bundle_path=None))["docker-compose.web.yml"]
+    rendered = render_web_terminals(
+        _config(bundle_path=None), facility_bundle_personas=DEFAULT_ENTITLED
+    )["docker-compose.web.yml"]
 
     assert "SHADOWS" not in rendered
 
@@ -273,7 +288,9 @@ def test_sharing_strategy_is_stated_in_the_rendered_artifact():
     the operator debugging "alice's concept is invisible to bob" is reading the
     rendered compose file on the deploy host, so both the mechanism and its
     umask limit have to be legible there."""
-    rendered = render_web_terminals(_config(), facility_bundle_gid=20)["docker-compose.web.yml"]
+    rendered = render_web_terminals(
+        _config(), facility_bundle_personas=DEFAULT_ENTITLED, facility_bundle_gid=20
+    )["docker-compose.web.yml"]
 
     assert "SHARING:" in rendered
     assert "setgid" in rendered and "group_add" in rendered

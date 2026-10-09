@@ -31,9 +31,13 @@ from .test_golden_render import EXAMPLE_CONFIG
 MIRROR_PATH = "var/ariel_mirror"
 MIRROR_SOURCE = f"./{MIRROR_PATH}"
 
+#: The reference roster's one persona, entitled to the mirror.
+DEFAULT_ENTITLED = {"assistant"}
+
 
 def _config(*, mirror: bool = True, personas: bool = False, via_settings: bool = True) -> dict:
-    """The reference roster, optionally persona-backed and running a qmd export."""
+    """The reference roster on its default persona, or on two personas, running a
+    qmd export."""
     config = copy.deepcopy(EXAMPLE_CONFIG)
     if mirror:
         export: dict = {"enabled": True}
@@ -44,6 +48,7 @@ def _config(*, mirror: bool = True, personas: bool = False, via_settings: bool =
         config["ariel"] = {"enhancement_modules": {"qmd_export": export}}
     if personas:
         web_terminals = config["modules"]["web_terminals"]
+        web_terminals["default_persona"] = "operator"
         web_terminals["personas"] = {
             "operator": {"project": "dls-operator", "project_path": "../dls-operator"},
             "physicist": {"project": "dls-physicist", "project_path": "../dls-physicist"},
@@ -80,19 +85,10 @@ def test_no_qmd_export_mounts_no_mirror():
     assert _mirror_mounts(_config(mirror=False)) == {"web-alice": [], "web-bob": []}
 
 
-def test_every_persona_less_user_gets_the_mirror():
-    """With no catalog the deploy config is every user's config, so its own
-    export entitles everyone — answered with no disk read."""
-    assert _mirror_mounts(_config()) == {
-        "web-alice": [f"{MIRROR_SOURCE}:/app/dls_controls-assistant/{MIRROR_PATH}"],
-        "web-bob": [f"{MIRROR_SOURCE}:/app/dls_controls-assistant/{MIRROR_PATH}"],
-    }
-
-
 def test_mirror_path_on_the_module_block_is_honoured_too():
     """``settings.mirror_path`` wins when present; the bare key is read otherwise —
     the exporter's own merge rule, followed here so the mount lands where it writes."""
-    assert _mirror_mounts(_config(via_settings=False)) == {
+    assert _mirror_mounts(_config(via_settings=False), ariel_mirror_personas=DEFAULT_ENTITLED) == {
         "web-alice": [f"{MIRROR_SOURCE}:/app/dls_controls-assistant/{MIRROR_PATH}"],
         "web-bob": [f"{MIRROR_SOURCE}:/app/dls_controls-assistant/{MIRROR_PATH}"],
     }
@@ -121,19 +117,22 @@ def test_no_entitled_personas_mounts_no_mirror():
 def test_disabled_export_mounts_nothing():
     config = _config()
     config["ariel"]["enhancement_modules"]["qmd_export"]["enabled"] = False
-    assert _mirror_mounts(config) == {"web-alice": [], "web-bob": []}
+    assert _mirror_mounts(config, ariel_mirror_personas=DEFAULT_ENTITLED) == {
+        "web-alice": [],
+        "web-bob": [],
+    }
 
 
 def test_absolute_mirror_path_is_not_re_anchored():
     config = _config()
     config["ariel"]["enhancement_modules"]["qmd_export"]["settings"]["mirror_path"] = "/srv/mirror"
-    volumes = _volumes(config)["web-alice"]
+    volumes = _volumes(config, ariel_mirror_personas=DEFAULT_ENTITLED)["web-alice"]
     assert "/srv/mirror:/srv/mirror" in volumes
 
 
 def test_mirror_mount_is_read_write():
     """The container's exporter writes here; only the sidecar mounts it ``:ro``."""
-    (mount,) = _mirror_mounts(_config())["web-alice"]
+    (mount,) = _mirror_mounts(_config(), ariel_mirror_personas=DEFAULT_ENTITLED)["web-alice"]
     assert not mount.endswith(":ro")
 
 
@@ -155,9 +154,13 @@ def test_each_distinct_gid_is_listed_once():
     share a group; a list that repeats it would read like two groups."""
     config = _config()
     config["facility_knowledge"] = {"bundle_path": "data/facility/knowledge"}
-    groups = _group_add(config, facility_bundle_gid=20, ariel_mirror_gid=20)
+    entitled = {
+        "facility_bundle_personas": DEFAULT_ENTITLED,
+        "ariel_mirror_personas": DEFAULT_ENTITLED,
+    }
+    groups = _group_add(config, facility_bundle_gid=20, ariel_mirror_gid=20, **entitled)
     assert groups == {"web-alice": ["20"], "web-bob": ["20"]}
-    groups = _group_add(config, facility_bundle_gid=20, ariel_mirror_gid=21)
+    groups = _group_add(config, facility_bundle_gid=20, ariel_mirror_gid=21, **entitled)
     assert groups == {"web-alice": ["20", "21"], "web-bob": ["20", "21"]}
 
 
@@ -281,7 +284,7 @@ def test_mirror_reader_is_shared_with_the_sidecar_corpus_list(tmp_path):
     corpora = {c["collection"]: c for c in _resolve_qmd_corpora(config, str(tmp_path))}
     assert corpora["ariel"]["source"] == MIRROR_SOURCE
     assert resolve_ariel_mirror_dir(config, tmp_path) == tmp_path / MIRROR_PATH
-    (mount,) = _mirror_mounts(config)["web-alice"]
+    (mount,) = _mirror_mounts(config, ariel_mirror_personas=DEFAULT_ENTITLED)["web-alice"]
     assert mount.split(":")[0] == corpora["ariel"]["source"]
 
 

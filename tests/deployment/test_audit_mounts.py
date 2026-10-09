@@ -95,6 +95,7 @@ def _web_config(
             }
         }
     if personas:
+        web_terminals["default_persona"] = "operator"
         web_terminals["personas"] = {
             "operator": {"project": "dls-operator", "project_path": "../dls-operator"},
             "physicist": {"project": "dls-physicist", "project_path": "../dls-physicist"},
@@ -107,8 +108,17 @@ def _web_config(
 
 
 def _web_services(**kwargs) -> dict:
-    """The parsed ``services:`` mapping of a rendered web overlay."""
-    rendered = render_web_terminals(_web_config(**kwargs))["docker-compose.web.yml"]
+    """The parsed ``services:`` mapping of a rendered web overlay.
+
+    The reference roster's default persona is entitled to the bundle and the
+    mirror whenever the config carries them.
+    """
+    entitled = {"assistant"}
+    rendered = render_web_terminals(
+        _web_config(**kwargs),
+        facility_bundle_personas=entitled if kwargs.get("bundle") else None,
+        ariel_mirror_personas=entitled if kwargs.get("mirror") else None,
+    )["docker-compose.web.yml"]
     return yaml.safe_load(rendered)["services"]
 
 

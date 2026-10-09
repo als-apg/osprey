@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from osprey.agent_runner.tool_names import BASH_DENY_ENTRY
 from osprey.deployment.web_terminals import personas as personas_module
 from osprey.deployment.web_terminals.personas import (
     CONTROL_IDENTITY_COLLISION_CODE,
@@ -47,7 +48,7 @@ from osprey.deployment.web_terminals.personas import (
     resolve_access_principals,
     resolve_authorization_roles,
     resolve_personas,
-    settings_json_denies_bash,
+    settings_json_denies,
     shared_card_privileged_problems,
 )
 from osprey.registry.mcp import FRAMEWORK_SERVERS
@@ -2711,7 +2712,7 @@ def _write_settings_json(tmp_path, name: str, body: Any) -> str:
     return name
 
 
-def test_settings_json_denies_bash_reads_the_shipped_deny_list(tmp_path) -> None:
+def test_settings_json_denies_for_bash_reads_the_shipped_deny_list(tmp_path) -> None:
     """The happy path: `Bash` listed in permissions.deny is a deny."""
     # Arrange
     _write_settings_json(
@@ -2719,10 +2720,10 @@ def test_settings_json_denies_bash_reads_the_shipped_deny_list(tmp_path) -> None
     )
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "locked") is True
+    assert settings_json_denies(tmp_path / "locked", (BASH_DENY_ENTRY,)) is True
 
 
-def test_settings_json_denies_bash_false_when_bash_absent_from_a_well_formed_deny(
+def test_settings_json_denies_for_bash_false_when_bash_absent_from_a_well_formed_deny(
     tmp_path,
 ) -> None:
     """A readable artifact that simply doesn't deny the shell -- the `remove_deny`
@@ -2733,62 +2734,62 @@ def test_settings_json_denies_bash_false_when_bash_absent_from_a_well_formed_den
     )
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "open") is False
+    assert settings_json_denies(tmp_path / "open", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_ignores_a_scoped_bash_deny(tmp_path) -> None:
+def test_settings_json_denies_for_bash_ignores_a_scoped_bash_deny(tmp_path) -> None:
     """`Bash(rm:*)` constrains one command family and leaves the shell usable, so it
     is not a wholesale deny -- only the exact literal counts."""
     # Arrange
     _write_settings_json(tmp_path, "scoped", {"permissions": {"deny": ["Bash(rm:*)"]}})
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "scoped") is False
+    assert settings_json_denies(tmp_path / "scoped", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_on_a_missing_file(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_on_a_missing_file(tmp_path) -> None:
     """An unrendered project proves nothing about its permissions."""
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "never-rendered") is False
+    assert settings_json_denies(tmp_path / "never-rendered", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_on_invalid_json(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_on_invalid_json(tmp_path) -> None:
     """A truncated or hand-mangled artifact is unreadable, not safe."""
     # Arrange
     _write_settings_json(tmp_path, "broken", '{"permissions": {"deny": ["Bash"')
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "broken") is False
+    assert settings_json_denies(tmp_path / "broken", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_on_a_non_object_document(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_on_a_non_object_document(tmp_path) -> None:
     """Valid JSON that isn't an object carries no permissions at all."""
     # Arrange
     _write_settings_json(tmp_path, "listy", ["Bash"])
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "listy") is False
+    assert settings_json_denies(tmp_path / "listy", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_when_permissions_is_missing(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_when_permissions_is_missing(tmp_path) -> None:
     """No permissions block means nothing has been denied."""
     # Arrange
     _write_settings_json(tmp_path, "bare", {"hooks": {}})
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "bare") is False
+    assert settings_json_denies(tmp_path / "bare", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_when_deny_is_missing(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_when_deny_is_missing(tmp_path) -> None:
     """A permissions block with an allow list but no deny list denies nothing."""
     # Arrange
     _write_settings_json(tmp_path, "allow-only", {"permissions": {"allow": ["Read(/x/**)"]}})
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "allow-only") is False
+    assert settings_json_denies(tmp_path / "allow-only", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_when_deny_is_not_a_list(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_when_deny_is_not_a_list(tmp_path) -> None:
     """A malformed deny value is unreadable, so it proves no deny -- including the
     string "Bash", which must not be read as a one-element list."""
     # Arrange
@@ -2796,17 +2797,17 @@ def test_settings_json_denies_bash_fails_closed_when_deny_is_not_a_list(tmp_path
     _write_settings_json(tmp_path, "nully", {"permissions": {"deny": None}})
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "stringly") is False
-    assert settings_json_denies_bash(tmp_path / "nully") is False
+    assert settings_json_denies(tmp_path / "stringly", (BASH_DENY_ENTRY,)) is False
+    assert settings_json_denies(tmp_path / "nully", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_ignores_non_string_deny_entries(tmp_path) -> None:
+def test_settings_json_denies_for_bash_ignores_non_string_deny_entries(tmp_path) -> None:
     """Junk entries alongside a real deny neither raise nor suppress the deny."""
     # Arrange
     _write_settings_json(tmp_path, "mixed", {"permissions": {"deny": [None, 7, {}, "Bash"]}})
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "mixed") is True
+    assert settings_json_denies(tmp_path / "mixed", (BASH_DENY_ENTRY,)) is True
 
 
 def test_personas_not_denying_bash_reports_only_the_permissive_persona(tmp_path) -> None:
@@ -2947,7 +2948,7 @@ def test_personas_not_denying_bash_reads_the_artifact_not_the_config(tmp_path) -
     assert result == {"intent-safe"}
 
 
-def test_settings_json_denies_bash_reads_an_artifact_written_with_a_bom(tmp_path) -> None:
+def test_settings_json_denies_for_bash_reads_an_artifact_written_with_a_bom(tmp_path) -> None:
     """`json.load` does not strip a UTF-8 BOM, so a hand-edited artifact saved with one
     would fail to parse and a genuinely Bash-denying persona would read as permissive --
     an opaque deploy refusal. The file is opened as utf-8-sig so the deny is seen."""
@@ -2955,7 +2956,7 @@ def test_settings_json_denies_bash_reads_an_artifact_written_with_a_bom(tmp_path
     _write_settings_json(tmp_path, "bommed", '﻿{"permissions": {"deny": ["Bash", "Edit"]}}')
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "bommed") is True
+    assert settings_json_denies(tmp_path / "bommed", (BASH_DENY_ENTRY,)) is True
 
 
 # ---------------------------------------------------------------------------

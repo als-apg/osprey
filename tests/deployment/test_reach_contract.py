@@ -33,7 +33,6 @@ from osprey.bluesky_bridge_connection import (
     SECOND_LANE_KEYS,
     lane_env_prefix,
 )
-from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.host_binding import BUNDLED_HOST_BINDINGS
 from osprey.deployment.reach import (
     REACH_CONTRACTS,
@@ -515,7 +514,6 @@ def entries(host_config: dict) -> list[dict]:
     return resolve_personas(
         host_config["modules"]["web_terminals"],
         host_config.get("registry") or {},
-        resolve_project_name(host_config),
         strict=True,
     )
 
@@ -980,10 +978,10 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
 
 
 def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
-    """The roster grant is per USER: a persona user by their persona's rendered
-    config, a persona-less user by the deploy config they run (the same rule
-    the web-terminal render grants every other credential by), in roster
-    order."""
+    """The roster grant is per USER, by the rendered config of the persona that
+    user runs (their own, else the default), in roster order — the same rule the
+    web-terminal render grants every other credential by. The deploy config's
+    own panels grant nobody."""
     from osprey.deployment.web_terminals.personas import bluesky_panel_secret_env_vars
     from osprey.deployment.web_terminals.render import terminal_secret_env_var
 
@@ -998,27 +996,33 @@ def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
         "web": {"panels": {"bluesky": {"url": "http://localhost:10071"}}},
         "modules": {
             "web_terminals": {
+                "default_persona": "viewer",
                 "personas": {
-                    "viewer": {"project_path": "build/demo-viewer"},
-                    "operator": {"project_path": "build/demo-operator"},
+                    "viewer": {"project": "demo-viewer", "project_path": "build/demo-viewer"},
+                    "operator": {"project": "demo-operator", "project_path": "build/demo-operator"},
                 },
                 # Object entries carry the frozen `index` every materialized
                 # roster has; a bare string is the legacy spelling.
                 "users": [
                     {"name": "alice", "index": 0, "persona": "operator"},
                     {"name": "bob", "index": 1, "persona": "viewer"},
-                    "carol",  # no persona: runs the deploy config, which shows the tab
+                    "carol",  # the default persona, which hides the tab
                 ],
             }
         },
     }
 
+    assert bluesky_panel_secret_env_vars(config, tmp_path) == [terminal_secret_env_var("alice")]
+
+    config["modules"]["web_terminals"]["default_persona"] = "operator"
     assert bluesky_panel_secret_env_vars(config, tmp_path) == [
         terminal_secret_env_var("alice"),
         terminal_secret_env_var("carol"),
     ]
 
-    config["web"]["panels"] = {}
+    # A user with no persona at all (a roster the render refuses) is entitled
+    # to nothing, whatever the deploy config shows.
+    del config["modules"]["web_terminals"]["default_persona"]
     assert bluesky_panel_secret_env_vars(config, tmp_path) == [terminal_secret_env_var("alice")]
 
 
