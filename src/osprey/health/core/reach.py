@@ -98,23 +98,24 @@ def reach(
 
 
 def _targets(cfg: Mapping[str, Any]) -> list[_Target]:
-    """One target per service with a live consumer.
+    """One target per service endpoint with a live consumer.
 
-    Consumers of one service dial through one resolver (hybrid search and the
-    OKF panel both ask :func:`osprey.deployment.qmd_service.resolve_qmd_service_config`),
-    so a service is knocked on once and its row names every consumer that
-    depends on the answer.
+    Consumers of one endpoint dial through one resolver, so an endpoint is
+    knocked on once and its row names every consumer that depends on the
+    answer. A service that runs several endpoints (one qmd sidecar per corpus)
+    gets a row per endpoint its consumers dial.
     """
-    by_service: dict[str, _Target] = {}
+    by_endpoint: dict[tuple[str, str | None], _Target] = {}
     for contract, consumer, dial in reach_dials(cfg):
-        target = by_service.get(contract.service)
+        key = (contract.service, consumer.endpoint)
+        target = by_endpoint.get(key)
         if target is None:
-            by_service[contract.service] = _Target(contract, (consumer,), dial)
+            by_endpoint[key] = _Target(contract, (consumer,), dial)
         else:
-            by_service[contract.service] = target._replace(
+            by_endpoint[key] = target._replace(
                 consumers=(*target.consumers, consumer), dial=target.dial or dial
             )
-    return list(by_service.values())
+    return list(by_endpoint.values())
 
 
 async def _tcp_knock(host: str, port: int) -> None:
@@ -129,8 +130,9 @@ async def _tcp_knock(host: str, port: int) -> None:
 async def _probe(target: _Target, knock: Knock) -> CheckResult:
     """Knock on one target and turn the outcome into a row."""
     # `<category>.<service>`: the dashboard's fmtName() strips the leading
-    # category segment, so the row reads "Qmd" / "Postgresql" / "Bluesky".
-    name = f"{CATEGORY}.{target.contract.service}"
+    # category segment, so the row reads "Qmd-okf" / "Postgresql" / "Bluesky".
+    endpoint = target.consumers[0].endpoint
+    name = f"{CATEGORY}.{target.contract.service}" + (f"-{endpoint}" if endpoint else "")
     who = " / ".join(consumer.name for consumer in target.consumers)
     switches = ", ".join(consumer.switch_key for consumer in target.consumers)
     keys = ", ".join(projected.key for projected in target.contract.projected) or (

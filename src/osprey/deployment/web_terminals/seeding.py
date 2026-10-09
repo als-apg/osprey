@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.cli.phase_reporter import report_step as _report_step
-from osprey.deployment.compose_generator import resolve_repo_root
+from osprey.deployment.compose_generator import resolve_project_name, resolve_repo_root
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.personas import as_dict, normalize_users, resolve_personas
@@ -271,13 +271,16 @@ def seed_user_containers(
     runtime = get_runtime_command(config)[0]
     run_env = env if env is not None else runtime_env(config, ignore_orphans=True)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
+    project_name = resolve_project_name(config)
     registry_cfg = as_dict(config.get("registry"))
     # strict=True: an unresolvable persona reference is a misconfiguration, not a
     # per-user issue, so it raises here — before any container is touched — same
     # as the base.md check below.
     resolved_by_name = {
         entry["name"]: entry
-        for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
+        for entry in resolve_personas(
+            web_terminals, registry_cfg, facility_prefix, project_name=project_name, strict=True
+        )
     }
 
     # base.md is required only when at least one to-be-seeded user's persona
@@ -313,7 +316,7 @@ def seed_user_containers(
         outcome = _seed_one_user(
             runtime,
             entry["name"],
-            facility_prefix,
+            project_name,
             base_content,
             project_skills_dir,
             context_dir,
@@ -351,7 +354,7 @@ def seed_user_containers(
 def _seed_one_user(
     runtime: str,
     user: str,
-    facility_prefix: str,
+    project_name: str,
     base_content: str,
     project_skills_dir: str,
     context_dir: Path,
@@ -361,6 +364,8 @@ def _seed_one_user(
 ) -> bool | None:
     """Seed one user's container; never raise.
 
+    ``project_name`` is the deployment's compose project, which names the
+    user's container (:func:`~osprey.deployment.web_terminals.naming.web_container_name`).
     ``context_dir`` is the resolved overlay root (:func:`_context_dir`) this
     user's ``extra.md`` and ``skills/`` are read from.
 
@@ -375,7 +380,7 @@ def _seed_one_user(
         the caller's systemic-failure check); ``True`` if the seed succeeded;
         ``False`` if the container was ready but the seed failed.
     """
-    container = web_container_name(facility_prefix, user)
+    container = web_container_name(project_name, user)
     if not _container_exists(runtime, container, env=env):
         logger.debug(f"  (skipped {user}: container not ready)")
         return None

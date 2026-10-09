@@ -62,7 +62,7 @@ from osprey.deployment.host_ports import (
     format_conflict_report,
     parse_host_port_bindings,
 )
-from osprey.deployment.qmd_service import preflight_qmd_models_dir
+from osprey.deployment.qmd_service import preflight_qmd_corpora, preflight_qmd_models_dir
 from osprey.deployment.runtime_helper import (
     PODMAN_COMPOSE_PROVIDER_REMEDY,
     ComposeProvider,
@@ -4631,6 +4631,82 @@ def _report_port_conflicts(conflicts):
     logger.key_info(report)
 
 
+def _ownership_probe(config: dict) -> Any:
+    """The runtime seam the foreign-checkout check reads the host through.
+
+    Imported here, not at module scope: :mod:`osprey.deployment.reset` imports
+    THIS module, so a top-level import would close a cycle. ``subprocess.run``
+    is resolved at call time so the probe runs whatever this module runs.
+    """
+    from osprey.deployment.reset import RuntimeProbe
+
+    return RuntimeProbe(
+        get_runtime_command(config)[0],
+        env=runtime_env(config, dict(os.environ)),
+        run=subprocess.run,
+    )
+
+
+def _own_name_recipe(project: str) -> str:
+    """The second way out of a foreign-checkout refusal: give this copy a name of its own.
+
+    An overlay that only this host selects renames the instance without
+    touching the tracked profile, so the other copy keeps its name and its data.
+    """
+    from osprey.cli.variant_selection import (
+        VARIANT_DIRNAME,
+        VARIANT_SETTING_FILENAME,
+        VARIANT_SETTING_KEY,
+    )
+
+    overlay = f"{VARIANT_DIRNAME}/scratch.yml:"
+    setting = f"{VARIANT_SETTING_FILENAME}:"
+    width = max(len(overlay), len(setting)) + 2
+    return (
+        "give this copy its own name:\n"
+        f"       {overlay:<{width}}project_name: {project}-scratch\n"
+        f"       {setting:<{width}}{VARIANT_SETTING_KEY}=scratch\n"
+        "     then `osprey build` and start again."
+    )
+
+
+def _refuse_foreign_checkout(config: dict, repo_root: Path | str) -> None:
+    """Refuse to start while another copy of this repo holds the project name.
+
+    Two checkouts that declare one ``project_name`` are one compose project:
+    starting the second recreates the first's containers as its own, over the
+    same volumes. Containers carry the checkout identity that tells them apart
+    (:func:`~osprey.deployment.container_ownership.host_claim`); an unlabelled
+    container of this project counts as ours, so a deployment that predates the
+    label starts as it always did.
+
+    Read-only, and best-effort in one direction only: a runtime that cannot be
+    asked is not a refusal, since every later step meets the same runtime and
+    reports it in its own words.
+
+    Args:
+        config: The as-built config of the deployment about to start.
+        repo_root: The checkout the start runs from.
+
+    Raises:
+        ForeignCheckoutError: When another checkout's containers hold the name.
+    """
+    from osprey.deployment.container_ownership import START_REFUSAL, host_claim
+
+    project = resolve_project_name(config)
+    try:
+        claim = host_claim(project, repo_identity(Path(repo_root)), probe=_ownership_probe(config))
+    except Exception as exc:  # an unanswerable runtime is reported by the start itself
+        logger.debug("Skipped the other-checkout check: %s", exc)
+        return
+    if claim.held_elsewhere:
+        # A copy that is gone from this host leaves containers to remove, not a
+        # name to share: renaming this copy would strand the volumes it means
+        # to keep, so the rename is offered only while the other copy exists.
+        rename = None if claim.other_copy_gone else _own_name_recipe(project)
+        raise claim.refusal(START_REFUSAL, extra_remedy=rename)
+
+
 def _reconcile_orphan_terminals(config):
     """Remove this deployment's terminal containers whose user left the roster.
 
@@ -5415,7 +5491,7 @@ def _seed_progress_reporter():
 def _archiver_store_connection(config: dict, project_dir: Path) -> dict | None:
     """Connection parameters for the store this deploy is bringing up.
 
-    Delegates to :func:`~osprey.simulation.apply.archiver_store_config` so the
+    Delegates to :func:`~osprey.simulation.apply.archiver_store_connection` so the
     deploy-time seeder and ``osprey sim apply`` open one store the same way, then
     fills in the one difference between the two callers. ``sim apply`` reads the
     password from the project ``.env`` and never from the ambient environment,
@@ -5429,9 +5505,9 @@ def _archiver_store_connection(config: dict, project_dir: Path) -> dict | None:
         block for the store it deploys — nothing can be seeded, and saying so is
         better than guessing a host.
     """
-    from osprey.simulation.apply import archiver_store_config
+    from osprey.simulation.apply import archiver_store_connection
 
-    store = archiver_store_config(config, project_dir)
+    store = archiver_store_connection(config, project_dir)
     if store is None:
         return None
     if not store["password"]:
@@ -5440,7 +5516,14 @@ def _archiver_store_connection(config: dict, project_dir: Path) -> dict | None:
 
 
 def _stage_archiver_store(
-    config, compose_files, env, project_dir, *, keep_base=False, provider=None
+    config,
+    compose_files,
+    env,
+    project_dir,
+    *,
+    keep_base=False,
+    provider=None,
+    scenarios_activated=False,
 ) -> None:
     """Start the archiver store on its own and seed its base history.
 
@@ -5460,6 +5543,10 @@ def _stage_archiver_store(
       what the profile asks for. Report what changed, then rebuild — unless
       ``keep_base`` says to leave it alone.
 
+    Whatever the base, the active scenarios' event windows are re-applied onto a
+    rebuilt one, and onto a matching one when this deploy has just activated the
+    machine's default scenarios (which that base has never seen).
+
     Both rebuild paths quiesce the recorder first. It is one operation — stop the
     writer, drop the collection, rebuild it, re-apply the active scenarios — and
     splitting it by state would leave the mismatch path stopping a writer the
@@ -5475,6 +5562,8 @@ def _stage_archiver_store(
     :param provider: The compose provider this deploy resolved, so the staging
         invocation is shaped like the ``up`` that follows it. ``None`` is the
         docker shape.
+    :param scenarios_activated: Whether this deploy just activated the machine's
+        default scenarios (see :func:`_activate_default_scenarios`).
     :raises RuntimeError: if the store cannot be reached or authenticated.
     """
     from osprey.simulation.apply import archiver_collection
@@ -5549,6 +5638,10 @@ def _stage_archiver_store(
 
         if comparison.state is SeedState.MATCH:
             _report_step("archive already seeded, skipping the base seed")
+            if scenarios_activated:
+                # Rare enough (once per deployment) that holding this idle
+                # client across the rewrite costs nothing worth restructuring for.
+                _reapply_active_scenarios(config, project_dir, engine)
             return
 
         if comparison.state is SeedState.MISMATCH:
@@ -5721,7 +5814,9 @@ def _migrate_ariel_store(ariel_config: dict) -> None:
     asyncio.run(run_migrate(ariel_config))
 
 
-def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None) -> None:
+def _stage_ariel_store(
+    config, compose_files, env, project_dir, *, provider=None, scenarios_activated=()
+) -> None:
     """Start ARIEL's store, create its schema, and seed a first narrative.
 
     The logbook counterpart of :func:`_stage_archiver_store`, and staged ahead of
@@ -5753,6 +5848,10 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
     :param provider: The compose provider this deploy resolved, so the staging
         invocation is shaped like the ``up`` that follows it. ``None`` is the
         docker shape.
+    :param scenarios_activated: The scenario set this deploy just activated as
+        the machine's default, empty when it activated none. A logbook that
+        already holds entries keeps them, and the warning names the command that
+        brings in that set's narrative.
     """
     if not _ariel_store_deployed(config):
         return
@@ -5802,6 +5901,43 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
         return
     if seeded:
         _report_step(f"logbook seeded: {seeded} entries")
+    elif scenarios_activated:
+        from osprey.simulation.engine import DEFAULT_SCENARIO
+
+        faults = " ".join(name for name in scenarios_activated if name != DEFAULT_SCENARIO)
+        logger.warning(
+            f"This deploy activated the default scenarios {list(scenarios_activated)!r}, but "
+            f"the logbook already holds entries, so their narrative was not added. Run "
+            f"`osprey sim apply {faults}` from {project_dir} to reseed it."
+        )
+
+
+def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, ...]:
+    """Activate the machine's default scenarios when the deployment never chose a set.
+
+    Run before the archiver and ARIEL stages, which then seed the history and the
+    narrative of the set written here. Never fatal: a deployment whose defaults
+    cannot be activated still comes up on ``nominal``, and the warning names the
+    command that activates them.
+
+    :param config: Raw deploy config.
+    :param project_dir: The deployment repo root.
+    :returns: The activated set, or ``()`` when nothing was activated.
+    """
+    from osprey.simulation.apply import activate_default_scenarios
+
+    try:
+        active = activate_default_scenarios(config, project_dir)
+    except Exception as exc:  # reported, never fatal (see docstring)
+        logger.warning(
+            f"The machine's default scenarios could not be activated, so this deployment "
+            f"runs `nominal` only. Run `osprey sim apply <names>` from {project_dir} to "
+            f"choose a set. Cause: {exc}"
+        )
+        return ()
+    if active:
+        _report_step(f"scenarios active by default: {', '.join(active)}")
+    return active
 
 
 # ---------------------------------------------------------------------------
@@ -6566,6 +6702,7 @@ def _start_stack(
     # on a host that was configured this way because it has no route out. Checked
     # here, before the build the setting is meant to shorten.
     preflight_qmd_models_dir(config)
+    preflight_qmd_corpora(config, repo_root)
     _preflight_legacy_ariel_mirror(config, Path(repo_root))
 
     # And the same shape once more for the graph store: a `graphdb` in
@@ -6588,6 +6725,11 @@ def _start_stack(
     # on. Ahead of every container-touching command below, so the refusal
     # leaves the host untouched.
     _preflight_bluesky_network_backend(config)
+
+    # Another copy of this repo holding the project name is refused before the
+    # first container-touching step: every step below would act on that copy's
+    # containers as if they were this one's.
+    _refuse_foreign_checkout(config, repo_root)
 
     # Reconcile the web slice's orphans FIRST: a terminal whose user was renamed
     # or dropped from the roster keeps running on the host network, holding
@@ -6806,6 +6948,11 @@ def _start_stack(
     # No-op unless this project deploys the store itself. Anchored on the repo
     # root: the single root `.env` is the secret store the seeder authenticates
     # from, and every compose invocation on this path reads it with --env-file.
+    # A deployment that never chose a scenario set starts in the one its machine
+    # model names, activated before the two stages below so the archive and the
+    # logbook are seeded with that set's history and narrative.
+    activated = _activate_default_scenarios(config, Path(repo_root))
+
     if _archiver_store_deployed(config):
         _stage_archiver_store(
             config,
@@ -6814,6 +6961,7 @@ def _start_stack(
             Path(repo_root),
             keep_base=keep_archiver_base,
             provider=provider,
+            scenarios_activated=bool(activated),
         )
 
     # Same placement and the same reason for ARIEL's store: the schema has to
@@ -6821,7 +6969,14 @@ def _start_stack(
     # it. Ordered AFTER the archiver so the logbook is seeded against a machine
     # whose history is already in place — the two halves of one narrative, in the
     # order they document each other.
-    _stage_ariel_store(config, compose_files, env, Path(repo_root), provider=provider)
+    _stage_ariel_store(
+        config,
+        compose_files,
+        env,
+        Path(repo_root),
+        provider=provider,
+        scenarios_activated=activated,
+    )
 
     # And the graph store, on the same placement and for the same reason: the
     # corpus has to be in the graph before the surfaces that query it start, and
@@ -7760,9 +7915,8 @@ def down_deployment(repo_root: Path | str) -> None:
     Order matters, and it is web-stack-first. A web-terminal deployment runs two
     compose invocations against one project, so the services ``down`` does not
     carry ``docker-compose.web.yml`` in its ``-f`` list and would leave the web
-    containers running — holding the host-global container names
-    (``<prefix>-nginx``, ``<prefix>-web-<user>``) that the next web deploy on
-    this host, from any project, then collides with.
+    containers running beside a stopped services stack, still holding their
+    host-global names (``<project>-nginx``, ``<project>-web-<user>``) and ports.
 
     Volumes are never removed, on either path. Per-user terminal state, the
     databases, the artifact store: all of it survives a ``down`` and is
@@ -7889,10 +8043,16 @@ def restart_deployment(
     Raises:
         NoRenderedBuildError: When ``build/`` holds nothing to start. Nothing is
             stopped.
+        ForeignCheckoutError: When another copy of this repo's containers hold
+            the project name. Nothing is stopped.
         RuntimeError: From the preflights or from the stop itself.
     """
     repo_root = Path(repo_root)
     config, compose_files, exposed = _resolve_as_built_inputs(repo_root, dev_mode=dev_mode)
+
+    # Before the stop: a `down` from here would stop another copy's containers
+    # on the way to a start that is refused anyway.
+    _refuse_foreign_checkout(config, repo_root)
 
     # BEFORE the stop, unlike every other start path, and that ordering is the
     # whole point: `down` removes the store containers, and a removed container

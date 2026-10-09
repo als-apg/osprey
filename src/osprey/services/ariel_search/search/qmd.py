@@ -51,16 +51,25 @@ rerank fails degrades to the non-reranked ordering rather than failing.
 from __future__ import annotations
 
 import asyncio
+import math
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 
+from osprey.services.ariel_search.database.search_fts import MIN_TERM_COVERAGE, coverage_terms
 from osprey.services.ariel_search.enhancement.qmd_export.writer import entry_id_from_path
 from osprey.services.ariel_search.exceptions import SearchConfigurationError
-from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
+from osprey.services.ariel_search.models import (
+    END_BOUND_DESCRIPTION,
+    START_BOUND_DESCRIPTION,
+    DiagnosticLevel,
+    SearchDiagnostic,
+    TimeBoundText,
+)
+from osprey.services.ariel_search.search import fusion
 from osprey.services.ariel_search.search.base import (
     ModuleOutput,
     ParameterDescriptor,
@@ -79,11 +88,10 @@ if TYPE_CHECKING:
 
 logger = get_logger("ariel")
 
-#: qmd collection the ARIEL mirror is indexed under. One sidecar serves several
-#: corpora side by side and the collection filter is what keeps them apart:
-#: without it, OKF concept hits would come back here and fail hydration. Not a
-#: config key — it is fixed by the sidecar's rendered index, not chosen per
-#: deployment, exactly as ``OKF_COLLECTION`` is on the facility-knowledge side.
+#: qmd corpus the ARIEL mirror is indexed as: the name its sidecar's port is
+#: resolved by and the collection its one index holds. Not a config key — it is
+#: fixed by the deployment's corpus derivation, not chosen per deployment,
+#: exactly as ``OKF_COLLECTION`` is on the facility-knowledge side.
 ARIEL_COLLECTION = "ariel"
 
 #: Whether the reranker runs when config says nothing. Matches qmd's own default.
@@ -195,10 +203,12 @@ def _default_client() -> QMDClient:
     global _cached_client
     with _client_lock:
         if _cached_client is None:
-            from osprey.deployment.qmd_service import resolve_qmd_service_config
+            from osprey.deployment.qmd_service import resolve_qmd_corpus_config
             from osprey.utils.workspace import load_osprey_config
 
-            _cached_client = QMDClient(resolve_qmd_service_config(load_osprey_config()))
+            _cached_client = QMDClient(
+                resolve_qmd_corpus_config(load_osprey_config(), ARIEL_COLLECTION)
+            )
         return _cached_client
 
 
@@ -250,6 +260,7 @@ async def hybrid_search(
     candidate_limit: int | None = None,
     client: QMDClient | None = None,
     query_expansion: QueryExpansion | None = None,
+    include_images: bool | None = None,
     **kwargs: Any,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Execute a hybrid keyword+semantic search against the qmd sidecar.
@@ -257,11 +268,23 @@ async def hybrid_search(
     The sidecar ranks; Postgres answers. Hits are decoded back to ``entry_id``s,
     hydrated by primary key, filtered, and returned in qmd's ranking order.
 
+    With picture search on, the picture lane runs concurrently with the text
+    lane and the two rankings are fused: entries whose nearest picture is close
+    to the query move up, and up to ``ceil(max_results / 3)`` entries matched
+    only through a picture join the result. Each fused entry carries
+    ``_matched_via`` (a sorted subset of ``{"image", "text"}``) and, when a
+    picture matched, that picture's id at the end of
+    ``_matched_attachment_ids``. A picture lane that fails or is cooling down
+    leaves the text result exactly as it would be with the lane off, plus a
+    "Picture search unavailable" diagnostic.
+
     Args:
         query: Natural-language or keyword query.
         repository: ARIEL database repository, used to hydrate hits.
         config: ARIEL configuration, read for the module's query knobs.
-        max_results: Maximum entries to return (default: 10).
+        max_results: Maximum text-lane entries to return (default: 10).
+            Image-only entries are counted separately, at most
+            ``ceil(max_results / 3)`` of them.
         start_date: Keep entries at or after this time.
         end_date: Keep entries at or before this time.
         author: Keep entries whose author contains this text, case-insensitively.
@@ -277,16 +300,22 @@ async def hybrid_search(
             whole query is the matching text here, and it is never truncated.
             The expanded text is what the sidecar's reranker sees, which is why
             a deployment whose reranked ordering degrades drops ``hybrid`` from
-            ``ariel.vocabulary.expand_modes``.
+            ``ariel.vocabulary.expand_modes``. The picture lane always sees the
+            original `query`.
+        include_images: Whether the picture lane runs. ``None`` means on
+            exactly when ``image_embedding`` is enabled.
 
     Returns:
         Without `query_expansion`: a list of ``(entry, score, snippets)`` tuples
         in descending relevance order — the bare-list contract every direct
         caller relies on today, returned unchanged. ``score`` is qmd's 0-1
         relevance, which is an **ordering signal, not a calibrated
-        probability** — do not threshold it. ``snippets`` carries qmd's
-        line-numbered, match-centered excerpt, or is empty when the sidecar
-        supplied none.
+        probability** — do not threshold it. When a picture match survived
+        fusion, ``score`` is instead the fused reciprocal-rank score divided by
+        the best one, so the top entry scores 1.0; it orders this result only
+        and is no more comparable across queries than qmd's. ``snippets``
+        carries qmd's line-numbered, match-centered excerpt, or is empty when
+        the sidecar supplied none or the entry matched only through a picture.
 
         With `query_expansion`: a `ModuleOutput` carrying those same tuples as
         `entries` and the applied expansion groups as `expansion`. The shape is
@@ -294,13 +323,15 @@ async def hybrid_search(
         always received; the service unwraps either form.
 
         A `ModuleOutput` is also returned — with or without an expansion —
-        when the query produced a diagnostic, which today means the reranked
-        query failed and the results come from the unreranked retry.
+        when the query produced a diagnostic: the reranked query failed and the
+        results come from the unreranked retry, the picture lane failed, or
+        the sidecar is down and the results are picture matches only.
 
     Raises:
         QMDUnavailableError: If no sidecar is configured, or the configured one
-            is not answering. This is deliberately not an empty result: "search
-            is down" and "nothing matched" must not look alike to the agent.
+            is not answering, and the picture lane matched nothing (or did not
+            run). This is deliberately not an empty result: "search is down"
+            and "nothing matched" must not look alike to the agent.
         QMDClientError: If the sidecar was reached but could not answer. A
             reranked query that fails is retried once without the reranker, so
             what surfaces here is the retry's failure, not the first attempt's.
@@ -322,20 +353,130 @@ async def hybrid_search(
     effective_rerank = settings.rerank if rerank is None else bool(rerank)
     effective_candidates = settings.candidate_limit if candidate_limit is None else candidate_limit
 
-    qmd, available = await asyncio.to_thread(_resolve_client, client)
-    if not available:
-        raise QMDUnavailableError(
-            "no qmd sidecar is configured for this deployment"
-            if not qmd.is_configured
-            else f"the qmd sidecar at {qmd.base_url} is not answering"
-        )
-
     filters = _Filters(start_date, end_date, author, source_system)
     fetch_limit = _fetch_limit(max_results, filters.any_active)
 
+    lane_on = (
+        config.is_enhancement_module_enabled("image_embedding")
+        if include_images is None
+        else bool(include_images)
+    )
+    # Started before the sidecar is resolved so the two lanes overlap; the
+    # picture lane sees the typed query, never a vocabulary expansion.
+    img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None = None
+    if lane_on:
+        # Imported here: the lane's dependencies import the config module,
+        # which imports this package.
+        from osprey.services.ariel_search.search import image_lane
+
+        img_task = asyncio.create_task(
+            image_lane.search_images(query, repository, config, fetch_limit=fetch_limit)
+        )
+    try:
+        return await _ranked_search(
+            query,
+            repository,
+            config,
+            settings=settings,
+            filters=filters,
+            fetch_limit=fetch_limit,
+            max_results=max_results,
+            rerank=effective_rerank,
+            candidate_limit=effective_candidates,
+            client=client,
+            query_expansion=query_expansion,
+            img_task=img_task,
+        )
+    finally:
+        if img_task is not None:
+            if not img_task.done():
+                img_task.cancel()
+            await asyncio.gather(img_task, return_exceptions=True)
+
+
+#: Message of the diagnostic a failed or cooling-down picture lane adds.
+PICTURE_UNAVAILABLE_MESSAGE = (
+    "Picture search unavailable — results are matched on text only, so entries "
+    "known only by their pictures are missing."
+)
+
+#: Opening of the diagnostic an image-only answer to a sidecar outage carries;
+#: :func:`_text_unavailable_message` completes it with the sidecar dialled.
+TEXT_UNAVAILABLE_MESSAGE = "Text ranking unavailable — picture matches only"
+
+
+def _sidecar_cause(qmd: QMDClient) -> str:
+    """Why *qmd* cannot rank text: no sidecar configured, or the one dialled is silent.
+
+    The URL is the one this process dialled, which inside a container is not
+    the address the config block publishes, so it is named rather than implied.
+    """
+    if not qmd.is_configured:
+        return "no qmd sidecar is configured for this deployment"
+    return f"the qmd sidecar at {qmd.base_url} is not answering"
+
+
+def _text_unavailable_message(qmd: QMDClient) -> str:
+    """The picture-only diagnostic, naming why the text lane is missing."""
+    return (
+        f"{TEXT_UNAVAILABLE_MESSAGE}; {_sidecar_cause(qmd)}, "
+        "so entries matching on text are missing."
+    )
+
+
+async def _ranked_search(
+    query: str,
+    repository: ARIELRepository,
+    config: ARIELConfig,
+    *,
+    settings: HybridSearchSettings,
+    filters: _Filters,
+    fetch_limit: int,
+    max_results: int,
+    rerank: bool,
+    candidate_limit: int | None,
+    client: QMDClient | None,
+    query_expansion: QueryExpansion | None,
+    img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None,
+) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
+    """Run the text lane, join the picture lane when it ran, and shape the result.
+
+    See :func:`hybrid_search`; `img_task` is the running picture lane, or
+    ``None`` when picture search is off for this call.
+    """
+    qmd, available = await asyncio.to_thread(_resolve_client, client)
+    if not available:
+        image_hits = await img_task if img_task is not None else None
+        if image_hits:
+            results = await _fused_results(
+                [],
+                image_hits,
+                repository,
+                config,
+                filters=filters,
+                max_results=max_results,
+                query=query,
+                query_expansion=query_expansion,
+            )
+            logger.info(f"hybrid_search: sidecar down, returning {len(results)} picture matches")
+            return ModuleOutput(
+                entries=results,
+                diagnostics=(
+                    SearchDiagnostic(
+                        level=DiagnosticLevel.WARNING,
+                        source="hybrid",
+                        message=_text_unavailable_message(qmd),
+                        category="text_ranking",
+                    ),
+                ),
+                expansion=query_expansion.groups if query_expansion else (),
+            )
+        raise QMDUnavailableError(_sidecar_cause(qmd))
+
     logger.info(
         f"hybrid_search: query={query!r}, max_results={max_results}, fetch_limit={fetch_limit}, "
-        f"rerank={effective_rerank}, candidate_limit={effective_candidates}"
+        f"rerank={rerank}, candidate_limit={candidate_limit}, "
+        f"picture_lane={img_task is not None}"
     )
 
     hits, diagnostics = await _fetch_hits(
@@ -343,9 +484,21 @@ async def hybrid_search(
         settings.collection,
         query_expansion.flattened_text if query_expansion else query,
         limit=fetch_limit,
-        rerank=effective_rerank,
-        candidate_limit=effective_candidates,
+        rerank=rerank,
+        candidate_limit=candidate_limit,
     )
+
+    image_hits = await img_task if img_task is not None else None
+    if img_task is not None and image_hits is None:
+        diagnostics = (
+            *diagnostics,
+            SearchDiagnostic(
+                level=DiagnosticLevel.WARNING,
+                source="hybrid",
+                message=PICTURE_UNAVAILABLE_MESSAGE,
+                category="picture_search",
+            ),
+        )
 
     def shaped(
         entries: list[tuple[EnhancedLogbookEntry, float, list[str]]],
@@ -365,6 +518,21 @@ async def hybrid_search(
         )
 
     ranked = _decode_hits(hits)
+
+    if image_hits is not None:
+        results = await _fused_results(
+            ranked,
+            image_hits,
+            repository,
+            config,
+            filters=filters,
+            max_results=max_results,
+            query=query,
+            query_expansion=query_expansion,
+        )
+        logger.info(f"hybrid_search: returning {len(results)} fused results")
+        return shaped(results)
+
     if not ranked:
         logger.info("hybrid_search: returning 0 results")
         return shaped([])
@@ -372,7 +540,7 @@ async def hybrid_search(
     entries = await repository.get_entries_by_ids([entry_id for entry_id, _ in ranked])
     by_id = {entry["entry_id"]: entry for entry in entries}
 
-    results: list[tuple[EnhancedLogbookEntry, float, list[str]]] = []
+    results = []
     for entry_id, hit in ranked:
         entry = by_id.get(entry_id)
         if entry is None:
@@ -385,8 +553,140 @@ async def hybrid_search(
         if len(results) >= max_results:
             break
 
+    if results:
+        await _attach_caption_matches(
+            results,
+            repository,
+            config,
+            terms=coverage_terms(query, query_expansion),
+        )
+
     logger.info(f"hybrid_search: returning {len(results)} results")
     return shaped(results)
+
+
+async def _fused_results(
+    ranked: list[tuple[str, QMDSearchResult]],
+    image_hits: dict[str, fusion.ImageHit],
+    repository: ARIELRepository,
+    config: ARIELConfig,
+    *,
+    filters: _Filters,
+    max_results: int,
+    query: str,
+    query_expansion: QueryExpansion | None,
+) -> list[tuple[EnhancedLogbookEntry, float, list[str]]]:
+    """Hydrate both lanes in one read, fuse them, and keep the page.
+
+    Every filter-accepted text hit takes part in the fusion. The result keeps
+    at most `max_results` text-lane entries and, counted separately, at most
+    ``ceil(max_results / 3)`` image-only entries, so a picture match never
+    pushes a fetched text hit out. Each kept entry is marked ``_matched_via``;
+    an entry whose picture matched gets that picture's id after its caption
+    ids in ``_matched_attachment_ids``.
+    """
+    text_ids = [entry_id for entry_id, _ in ranked]
+    seen = set(text_ids)
+    ids = text_ids + [entry_id for entry_id in image_hits if entry_id not in seen]
+    if not ids:
+        return []
+    entries = await repository.get_entries_by_ids(ids)
+    by_id = {entry["entry_id"]: entry for entry in entries}
+
+    text_hits: list[tuple[str, float]] = []
+    snippets: dict[str, list[str]] = {}
+    for entry_id, hit in ranked:
+        entry = by_id.get(entry_id)
+        if entry is None:
+            logger.debug(f"hybrid_search: no row for mirrored entry {entry_id!r}, dropping hit")
+            continue
+        if not filters.accepts(entry):
+            continue
+        text_hits.append((entry_id, hit.score))
+        snippets[entry_id] = [hit.snippet] if hit.snippet else []
+
+    accepted_images = {
+        entry_id: hit
+        for entry_id, hit in image_hits.items()
+        if entry_id in by_id and filters.accepts(by_id[entry_id])
+    }
+    image_cap = math.ceil(max_results / 3)
+    fused = fusion.fuse_lanes(text_hits, accepted_images, cap=image_cap)
+
+    kept: list[fusion.FusedHit] = []
+    text_kept = image_kept = 0
+    for fused_hit in fused:
+        if fused_hit.matched_via == ["image"]:
+            if image_kept >= image_cap:
+                continue
+            image_kept += 1
+        else:
+            if text_kept >= max_results:
+                continue
+            text_kept += 1
+        kept.append(fused_hit)
+
+    results: list[tuple[EnhancedLogbookEntry, float, list[str]]] = []
+    for fused_hit in kept:
+        entry = by_id[fused_hit.entry_id]
+        cast("dict[str, Any]", entry)["_matched_via"] = list(fused_hit.matched_via)
+        results.append((entry, fused_hit.score, snippets.get(fused_hit.entry_id, [])))
+
+    if results:
+        await _attach_caption_matches(
+            results,
+            repository,
+            config,
+            terms=coverage_terms(query, query_expansion),
+        )
+    for fused_hit, (entry, _score, _snippets) in zip(kept, results, strict=True):
+        if fused_hit.attachment_id is None:
+            continue
+        row = cast("dict[str, Any]", entry)
+        matched = list(row.get("_matched_attachment_ids") or ())
+        if fused_hit.attachment_id not in matched:
+            matched.append(fused_hit.attachment_id)
+        row["_matched_attachment_ids"] = matched
+    return results
+
+
+async def _attach_caption_matches(
+    results: list[tuple[EnhancedLogbookEntry, float, list[str]]],
+    repository: ARIELRepository,
+    config: ARIELConfig,
+    *,
+    terms: list[tuple[str, tuple[str, ...]]],
+) -> None:
+    """Mark each result with the ids of its attachments whose caption matched.
+
+    One ``caption_matches`` call over the result ids in its coverage form: a
+    caption matches when it holds at least :data:`MIN_TERM_COVERAGE` of the
+    query's words (`terms`), a word holding when it or one of its vocabulary
+    alternatives does. A result whose captions matched
+    gets ``_matched_attachment_ids``; ordering and scores are untouched. The
+    ids are supplementary evidence: a timeout or database failure logs one
+    WARNING and marks nothing, so it never fails a search the sidecar answered.
+    """
+    from osprey.services.ariel_search.attachments.compose import caption_model_id
+    from osprey.services.ariel_search.exceptions import (
+        DatabaseQueryError,
+        SearchTimeoutError,
+    )
+
+    try:
+        matched = await repository.caption_matches(
+            [entry["entry_id"] for entry, _score, _highlights in results],
+            caption_model_id(config),
+            terms=terms,
+            min_fraction=MIN_TERM_COVERAGE,
+        )
+    except (SearchTimeoutError, DatabaseQueryError) as e:
+        logger.warning(f"hybrid_search: caption matching skipped: {e}")
+        return
+    for entry, _score, _highlights in results:
+        ids = matched.get(entry["entry_id"])
+        if ids:
+            cast("dict[str, Any]", entry)["_matched_attachment_ids"] = list(ids)
 
 
 async def _fetch_hits(
@@ -667,14 +967,8 @@ class HybridSearchInput(BaseModel):
         le=50,
         description="Maximum results to return",
     )
-    start_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created after this time (inclusive)",
-    )
-    end_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created before this time (inclusive)",
-    )
+    start_date: TimeBoundText = Field(default=None, description=START_BOUND_DESCRIPTION)
+    end_date: TimeBoundText = Field(default=None, description=END_BOUND_DESCRIPTION)
     expand_query: bool | None = Field(
         default=None,
         description=(
@@ -734,7 +1028,7 @@ def get_parameter_descriptors(config: ARIELConfig | None = None) -> list[Paramet
     except ValueError:
         settings = HybridSearchSettings()
 
-    return [
+    descriptors = [
         ParameterDescriptor(
             name="rerank",
             label="Rerank Results",
@@ -761,6 +1055,26 @@ def get_parameter_descriptors(config: ARIELConfig | None = None) -> list[Paramet
             section="Retrieval",
         ),
     ]
+    # Offered only where picture search can actually run: a knob that could
+    # only ever no-op would invite an operator to believe it did something.
+    if (
+        config is not None
+        and config.is_search_module_enabled("hybrid")
+        and config.is_enhancement_module_enabled("image_embedding")
+    ):
+        descriptors.append(
+            ParameterDescriptor(
+                name="include_images",
+                label="Search Pictures",
+                description=(
+                    "Also match entries by what their attached plots, screenshots and photos show."
+                ),
+                param_type="bool",
+                default=True,
+                section="Retrieval",
+            )
+        )
+    return descriptors
 
 
 def get_tool_descriptor() -> SearchToolDescriptor:
@@ -777,4 +1091,5 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         execute=hybrid_search,
         format_result=format_qmd_result,
         accepts_expansion=True,
+        accepts_include_images=True,
     )

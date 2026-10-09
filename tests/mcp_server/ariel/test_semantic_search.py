@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
-from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
+from tests.mcp_server.ariel.conftest import (
+    attach_fake_attachment_reader,
+    get_tool_fn,
+    make_mock_entry,
+)
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
@@ -50,6 +54,7 @@ async def test_semantic_search_basic(tmp_path, monkeypatch):
     mock_result = _make_search_result(entries, reasoning="Semantic: 1 result")
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
     with patch(
@@ -72,6 +77,7 @@ async def test_semantic_search_similarity_threshold(tmp_path, monkeypatch):
 
     mock_result = _make_search_result([])
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
     with patch(
@@ -96,6 +102,7 @@ async def test_semantic_search_exclude_entry_ids(tmp_path, monkeypatch):
     mock_result = _make_search_result(entries)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
     with patch(
@@ -135,6 +142,7 @@ async def test_semantic_search_degraded_returns_non_error(tmp_path, monkeypatch)
     )
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
     with patch(
@@ -155,6 +163,7 @@ async def test_semantic_search_service_error(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.side_effect = RuntimeError("Embedding service down")
 
     with patch(
@@ -176,6 +185,7 @@ async def test_vocabulary_error_names_config_key_and_remedy(tmp_path, monkeypatc
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.side_effect = VocabularyError(
         ["vocabulary.yml: duplicate term 'ts'"],
     )
@@ -205,6 +215,7 @@ TS_GROUP = {"original": "ts", "alternatives": ["troubleshoot", "timing system"]}
 def _service_returning(mock_result):
     """An ARIEL service mock whose search returns *mock_result*."""
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
     return mock_service
 

@@ -664,11 +664,16 @@ def test_data_tree_is_byte_identical_to_the_bundle(
 
     The sole exception is build exhaust the wheel does not ship either
     (``_EXCLUDED_DATA_SUBTREES``), so that a source checkout which has run the
-    benchmarks materializes the same tree a wheel install does.
+    benchmarks materializes the same tree a wheel install does. The files a
+    bundle takes from another one (``shared_data.yml``) arrive unchanged too,
+    where it declares them.
     """
+    from pathlib import PurePath
+
     from osprey.cli.build_cmd import _profile_data_bundle
     from osprey.cli.profile_cmd import _EXCLUDED_DATA_SUBTREES
     from osprey.cli.templates.manager import TemplateManager
+    from osprey.cli.templates.shared_data import shared_data_files
 
     target = tmp_path / "p-facility"
     assert _new(runner, target, preset).exit_code == 0
@@ -679,15 +684,19 @@ def test_data_tree_is_byte_identical_to_the_bundle(
     bundle = _profile_data_bundle(resolved)
     source = TemplateManager().template_root / "apps" / bundle / "data"
 
+    shared = {Path(rel): src for rel, src in shared_data_files(source.parent).items()}
+
     copied = sorted(p.relative_to(target / "data") for p in (target / "data").rglob("*"))
-    original = sorted(
+    own = {
         rel
         for rel in (p.relative_to(source) for p in source.rglob("*"))
         if not any(rel.parts[: len(excluded)] == excluded for excluded in _EXCLUDED_DATA_SUBTREES)
-    )
+    }
+    shared_dirs = {Path(parent) for rel in shared for parent in PurePath(rel).parents}
+    original = sorted(own | set(shared) | (shared_dirs - {Path(".")}))
     assert copied == original
     for rel in original:
-        src, dst = source / rel, target / "data" / rel
+        src, dst = shared.get(rel, source / rel), target / "data" / rel
         if src.is_file():
             assert src.read_bytes() == dst.read_bytes(), rel
 
@@ -1411,6 +1420,10 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     for stamped in ("name", "requires_osprey_version", "data"):
         d_preset.pop(stamped)
         d_new.pop(stamped)
+    # A preset names no deployment; the materialized profile names the one it
+    # deploys, after the directory it was materialized into.
+    assert d_preset.pop("project_name") is None
+    assert d_new.pop("project_name") == target.name
 
     preset_triggers = _take_dispatch_triggers(d_preset)
     # Rewritten to the profile's own copy wherever the preset declares dispatch.
@@ -1423,19 +1436,11 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     assert new_config == preset_config
     # Rewritten to this repo's own deltas and build zone for a profile that
     # deploys the stack; untouched for one that only inherits the catalog with
-    # the module off. `project` must equal `project_path`'s basename — the
-    # invariant the persona render relies on to land where the catalog mounts it.
+    # the module off. An entry that names a build_profile spells no
+    # `project`/`project_path`: the persona's profile is where those come from.
     rewrites = emits_persona_profiles(from_preset.config)
     assert new_personas == {
-        name: (
-            {
-                "build_profile": f"personas/{name}.yml",
-                "project": f"{target.name}-{name}",
-                "project_path": f"build/{target.name}-{name}",
-            }
-            if rewrites
-            else value
-        )
+        name: ({"build_profile": f"personas/{name}.yml"} if rewrites else value)
         for name, value in preset_personas.items()
     }
     assert d_new == d_preset

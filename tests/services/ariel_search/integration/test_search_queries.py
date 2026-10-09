@@ -7,7 +7,7 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -30,6 +30,16 @@ SEMANTIC_PREFIX = "semantic-"
 
 #: The single row the source-filtered time-range query is asserted over.
 SOURCE_PREFIX = "search-source-"
+
+#: Rows for the partial-match fallback: a short entry whose numbers live in its
+#: picture caption, its twin a day later, and a same-day entry sharing two words.
+PARTIAL_PREFIX = "search-partial-"
+
+#: The field query: most of its words are in the entry, ``oct`` and ``6`` are not.
+FIELD_QUERY = "laser energy Channel A HP prep Oct 6 pulses"
+
+#: Caption text of the entry's picture, as the caption pipeline stores it.
+FIELD_CAPTION = "Laser energy 3.683 J, 178 total pulses on Channel A, std dev 0.012 J"
 
 
 @pytest.fixture
@@ -184,6 +194,204 @@ class TestKeywordQuerySyntax:
         assert "search-kw-002" not in entry_ids
 
 
+@pytest.fixture
+async def partial_repository(repository, seed_entry_factory, seeded_prefixes):
+    """Repository seeded with the rows the partial-match fallback is judged on.
+
+    ``search-partial-001`` is the field entry: two words of text, the rest of its
+    vocabulary in ``attachment_text``, stamped mid-afternoon facility time on
+    2025-10-06. ``-002`` is the same entry one day later, outside a one-day
+    window. ``-003`` shares only ``laser energy`` with the field query, on the
+    same day. ``-004`` to ``-007``, on 2025-11-03, hold the vocabulary and
+    hyphen cases: one or two words of ``rf trip beam loss`` (``rf`` written as
+    ``radio frequency``) and of ``rf-cavity trip vacuum``.
+
+    Returns:
+        The repository, with the seven entries upserted.
+    """
+    from osprey.utils.config import localize_facility
+
+    day = localize_facility(datetime(2025, 10, 6, 15, 30))
+    other_day = localize_facility(datetime(2025, 11, 3, 10, 0))
+    rows = [
+        (f"{PARTIAL_PREFIX}001", day, "#HP Prep", FIELD_CAPTION),
+        (f"{PARTIAL_PREFIX}002", day + timedelta(days=1), "#HP Prep", FIELD_CAPTION),
+        (f"{PARTIAL_PREFIX}003", day, "Laser energy logbook check", None),
+        (f"{PARTIAL_PREFIX}004", other_day, "Radio frequency", None),
+        (f"{PARTIAL_PREFIX}005", other_day, "Radio frequency trip", None),
+        (f"{PARTIAL_PREFIX}006", other_day, "Cavity fault", None),
+        (f"{PARTIAL_PREFIX}007", other_day, "RF cavity", None),
+    ]
+    seeded_prefixes.add(PARTIAL_PREFIX)
+    for entry_id, timestamp, raw_text, caption in rows:
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id=entry_id, timestamp=timestamp, raw_text=raw_text)
+        )
+        async with repository.pool.connection() as conn:
+            await conn.execute(
+                "UPDATE enhanced_entries SET attachment_text = %s WHERE entry_id = %s",
+                (caption, entry_id),
+            )
+    return repository
+
+
+class TestKeywordPartialMatch:
+    """Keyword search when no entry holds every plain word of the query."""
+
+    @staticmethod
+    async def run(
+        repository, config, query: str, start: str | None, end: str | None, expansion=None
+    ):
+        from osprey.mcp_server.ariel.server import parse_date_filters
+        from osprey.services.ariel_search.search.keyword import (
+            keyword_search,
+            parse_keyword_query,
+        )
+
+        start_date, end_date = parse_date_filters(start, end)
+        return await keyword_search(
+            query,
+            repository,
+            config,
+            max_results=100,
+            start_date=start_date,
+            end_date=end_date,
+            parsed=parse_keyword_query(query),
+            query_expansion=expansion,
+        )
+
+    @staticmethod
+    def partial_note(output):
+        [note] = [d for d in output.diagnostics if d.category == "partial"]
+        return note.message
+
+    async def test_field_query_in_its_window_returns_the_entry_naming_the_absent_words(
+        self, partial_repository, integration_ariel_config
+    ):
+        """The field query finds the entry, with ``oct`` and ``6`` reported missing."""
+        output = await self.run(
+            partial_repository, integration_ariel_config, FIELD_QUERY, "2025-10-06", "2025-10-06"
+        )
+
+        by_id = {entry["entry_id"]: entry for entry, _score, _highlights in output.entries}
+        assert f"{PARTIAL_PREFIX}001" in by_id
+        assert f"{PARTIAL_PREFIX}002" not in by_id
+        hit = by_id[f"{PARTIAL_PREFIX}001"]
+        assert hit["_missing_terms"] == ["oct", "6"]
+        assert set(hit["_matched_terms"]) >= {"laser", "energy", "channel", "hp", "prep"}
+        assert [e["entry_id"] for e, _s, _h in output.entries][0] == f"{PARTIAL_PREFIX}001"
+
+        partial = [d for d in output.diagnostics if d.category == "partial"]
+        assert len(partial) == 1
+        assert partial[0].message.endswith("terms found in no hit: oct, 6")
+
+    async def test_an_exact_query_returns_only_entries_holding_every_word(
+        self, partial_repository, integration_ariel_config
+    ):
+        """When some entry has every word, entries with fewer are not relaxed in."""
+        output = await self.run(
+            partial_repository,
+            integration_ariel_config,
+            "laser energy pulses",
+            "2025-10-06",
+            "2025-10-06",
+        )
+
+        ids = [entry["entry_id"] for entry, _score, _highlights in output.entries]
+        assert ids == [f"{PARTIAL_PREFIX}001"]
+        assert "_missing_terms" not in output.entries[0][0]
+        assert not [d for d in output.diagnostics if d.category == "partial"]
+
+    async def test_the_note_states_the_rule_every_hit_meets(
+        self, partial_repository, integration_ariel_config
+    ):
+        """ "at least k of n" is the admission rule: n counted words, every hit holds k."""
+        output = await self.run(
+            partial_repository, integration_ariel_config, FIELD_QUERY, "2025-10-06", "2025-10-06"
+        )
+
+        # ``a`` is a stop word, so eight of the nine typed words count.
+        assert "showing entries with at least 4 of 8;" in self.partial_note(output)
+        for entry, _score, _highlights in output.entries:
+            assert len(entry["_matched_terms"]) >= 4
+            assert len(entry["_matched_terms"]) + len(entry["_missing_terms"]) == 8
+
+    async def test_a_multi_word_alternative_counts_as_the_one_word_it_expands(
+        self, partial_repository, integration_ariel_config
+    ):
+        """``radio frequency`` stands for ``rf`` alone: one word of four, not two."""
+        from osprey.services.ariel_search.search.base import ExpansionGroup, QueryExpansion
+
+        expansion = QueryExpansion(
+            groups=(ExpansionGroup(original="rf", alternatives=("radio frequency",)),),
+            flattened_text="rf radio frequency trip beam loss",
+        )
+        output = await self.run(
+            partial_repository,
+            integration_ariel_config,
+            "rf trip beam loss",
+            "2025-11-03",
+            "2025-11-03",
+            expansion,
+        )
+
+        by_id = {entry["entry_id"]: entry for entry, _score, _highlights in output.entries}
+        assert f"{PARTIAL_PREFIX}004" not in by_id
+        assert by_id[f"{PARTIAL_PREFIX}005"]["_matched_terms"] == ["rf", "trip"]
+        assert by_id[f"{PARTIAL_PREFIX}005"]["_missing_terms"] == ["beam", "loss"]
+        assert "at least 2 of 4;" in self.partial_note(output)
+
+    async def test_a_hyphenated_word_counts_as_the_words_it_joins(
+        self, partial_repository, integration_ariel_config
+    ):
+        """``rf-cavity`` is the two words ``rf`` and ``cavity`` of four."""
+        output = await self.run(
+            partial_repository,
+            integration_ariel_config,
+            "rf-cavity trip vacuum",
+            "2025-11-03",
+            "2025-11-03",
+        )
+
+        by_id = {entry["entry_id"]: entry for entry, _score, _highlights in output.entries}
+        assert by_id[f"{PARTIAL_PREFIX}007"]["_matched_terms"] == ["rf", "cavity"]
+        assert f"{PARTIAL_PREFIX}006" not in by_id
+        assert "at least 2 of 4;" in self.partial_note(output)
+
+    async def test_the_partial_statement_runs_in_the_timeout_envelope(
+        self, partial_repository, integration_ariel_config
+    ):
+        """The relaxed statement parses each document once, under statement_timeout."""
+        from .conftest import RecordingPool
+
+        pool = RecordingPool(partial_repository.pool)
+        partial_repository.pool = pool
+        output = await self.run(
+            partial_repository, integration_ariel_config, FIELD_QUERY, "2025-10-06", "2025-10-06"
+        )
+
+        assert output.entries
+        [index] = [
+            i
+            for i, (kind, text, _params) in enumerate(pool.log)
+            if kind == "cursor.execute" and "AS doc OFFSET 0" in text
+        ]
+        assert pool.log[index - 1][0] == "statement_timeout_inside"
+        assert pool.log[index - 1][1] == "10s"
+
+    async def test_a_bare_end_date_includes_its_own_day(
+        self, partial_repository, integration_ariel_config
+    ):
+        """``end_date`` "2025-10-06" keeps an entry written that afternoon."""
+        output = await self.run(
+            partial_repository, integration_ariel_config, "HP prep", None, "2025-10-06"
+        )
+
+        ids = [entry["entry_id"] for entry, _score, _highlights in output.entries]
+        assert f"{PARTIAL_PREFIX}001" in ids
+        assert f"{PARTIAL_PREFIX}002" not in ids
+
+
 # ==============================================================================
 # Semantic Search Tests with Real Embeddings (TEST-M005 / INT-003)
 # ==============================================================================
@@ -239,9 +447,9 @@ class TestSemanticSearchWithRealEmbeddings:
         if not is_ollama_available():
             pytest.skip("Ollama not available - run 'ollama pull nomic-embed-text'")
 
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+        from tests.services.ariel_search.fake_providers import ollama_text_embedder
 
-        embedder = OllamaEmbeddingProvider()
+        embedder = ollama_text_embedder()
 
         # Create entries about different topics
         entries = [
@@ -286,10 +494,10 @@ class TestSemanticSearchWithRealEmbeddings:
         self, seeded_repository_with_embeddings, integration_ariel_config
     ):
         """Semantic search finds entries with similar meaning."""
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
         from osprey.services.ariel_search.search.semantic import semantic_search
+        from tests.services.ariel_search.fake_providers import ollama_text_embedder
 
-        embedder = OllamaEmbeddingProvider()
+        embedder = ollama_text_embedder()
 
         # Query about beam instability - should match beam loss entries
         results = await semantic_search(
@@ -309,10 +517,10 @@ class TestSemanticSearchWithRealEmbeddings:
         self, seeded_repository_with_embeddings, integration_ariel_config
     ):
         """Unrelated entries have lower similarity scores."""
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
         from osprey.services.ariel_search.search.semantic import semantic_search
+        from tests.services.ariel_search.fake_providers import ollama_text_embedder
 
-        embedder = OllamaEmbeddingProvider()
+        embedder = ollama_text_embedder()
 
         # Query specifically about beam loss
         results = await semantic_search(
@@ -381,3 +589,359 @@ class TestSearchQueryStructure:
         # This tests the query structure even if filtering isn't implemented
         results = await repository.search_by_time_range(limit=10)
         assert isinstance(results, list)
+
+
+# ==============================================================================
+# The has_v2_fts schema fact on real stores
+# ==============================================================================
+
+
+def _raw_text_config(scratch_config):
+    """`scratch_config` with semantic_processor off, so keyword search runs on raw_text."""
+    from dataclasses import replace
+
+    from osprey.services.ariel_search.config import EnhancementModuleConfig
+
+    modules = dict(scratch_config.enhancement_modules)
+    modules["semantic_processor"] = EnhancementModuleConfig(enabled=False)
+    return replace(scratch_config, enhancement_modules=modules)
+
+
+async def _insert(conn, entry_id: str, raw_text: str, attachment_text: str | None = None):
+    columns = (
+        "entry_id, source_system, timestamp, author, raw_text, attachments, metadata, "
+        "enhancement_status"
+    )
+    values = "%s, 'test', NOW(), 'tester', %s, '[]'::jsonb, '{}'::jsonb, '{}'::jsonb"
+    params: list[object] = [entry_id, raw_text]
+    if attachment_text is not None:
+        columns += ", attachment_text"
+        values += ", %s"
+        params.append(attachment_text)
+    await conn.execute(f"INSERT INTO enhanced_entries ({columns}) VALUES ({values})", params)
+
+
+class TestSchemaFactOnRealStores:
+    """Search SQL follows the probed ``has_v2_fts`` fact, never the code's expectations."""
+
+    @pytest.fixture
+    async def schema_behind_store(self, scratch_config):
+        """A store as B1 left it: no attachment_text column, no copy state, no V2 index.
+
+        Migrated to today's schema, then rolled back by dropping what the newer
+        migrations added, so any statement naming ``attachment_text`` fails.
+        """
+        from osprey.services.ariel_search.database import create_connection_pool, run_migrations
+        from osprey.services.ariel_search.database.repository import ARIELRepository
+
+        config = _raw_text_config(scratch_config)
+        pool = await create_connection_pool(config.database)
+        try:
+            await run_migrations(pool, config)
+            async with pool.connection() as conn:
+                await conn.execute(
+                    "ALTER TABLE enhanced_entries "
+                    "DROP COLUMN attachment_text CASCADE, "
+                    "DROP COLUMN IF EXISTS attachment_captions CASCADE"
+                )
+                await conn.execute(
+                    "ALTER TABLE attachment_files DROP COLUMN IF EXISTS copy_status CASCADE"
+                )
+                await _insert(conn, "behind-001", "QX-772 tripped on the north magnet string.")
+                await _insert(conn, "behind-002", "Klystron forty one fault cleared by operator.")
+            yield ARIELRepository(pool, config), config
+        finally:
+            await pool.close()
+
+    @pytest.fixture
+    async def migrated_store(self, scratch_config):
+        """A store migrated to today's schema, raw_text keyword search."""
+        from osprey.services.ariel_search.database import create_connection_pool, run_migrations
+        from osprey.services.ariel_search.database.repository import ARIELRepository
+
+        config = _raw_text_config(scratch_config)
+        pool = await create_connection_pool(config.database)
+        try:
+            await run_migrations(pool, config)
+            yield ARIELRepository(pool, config), config, pool
+        finally:
+            await pool.close()
+
+    async def test_schema_behind_store_answers_pattern_and_fuzzy_with_the_diagnostic(
+        self, schema_behind_store
+    ):
+        from osprey.services.ariel_search.database.repository import (
+            SCHEMA_BEHIND_SEARCH_MESSAGE,
+            SchemaFacts,
+            schema_behind_diagnostics,
+        )
+        from osprey.services.ariel_search.models import DiagnosticLevel
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        repository, config = schema_behind_store
+
+        assert await repository.schema_facts() == SchemaFacts(False, False)
+
+        pattern_hits = await keyword_search("QX-77*", repository, config, max_results=10)
+        assert [entry["entry_id"] for entry, _s, _h in pattern_hits] == ["behind-001"]
+
+        fuzzy_hits = await keyword_search(
+            "Klystron forty one fault clearde", repository, config, max_results=10
+        )
+        assert [entry["entry_id"] for entry, _s, _h in fuzzy_hits] == ["behind-002"]
+
+        (diagnostic,) = await schema_behind_diagnostics(repository)
+        assert diagnostic.level is DiagnosticLevel.WARNING
+        assert diagnostic.message == SCHEMA_BEHIND_SEARCH_MESSAGE
+
+    async def test_fuzzy_raw_text_match_survives_a_long_attachment_text_caption(
+        self, migrated_store
+    ):
+        """GREATEST over both texts: a long caption never dilutes a raw_text match."""
+        repository, _config, pool = migrated_store
+        raw_text = "Klystron forty one fault cleared by operator"
+        async with pool.connection() as conn:
+            await _insert(conn, "fuzzy-001", raw_text)
+
+        assert (await repository.schema_facts()).has_v2_fts
+        before = await repository.fuzzy_search(raw_text, threshold=0.5, v2=True)
+        assert [entry["entry_id"] for entry, _s, _h in before] == ["fuzzy-001"]
+
+        caption = " ".join(f"[picture p{i}.png] scope trace channel {i} nominal" for i in range(80))
+        async with pool.connection() as conn:
+            await conn.execute(
+                "UPDATE enhanced_entries SET attachment_text = %s WHERE entry_id = 'fuzzy-001'",
+                [caption],
+            )
+
+        after = await repository.fuzzy_search(raw_text, threshold=0.5, v2=True)
+        assert [entry["entry_id"] for entry, _s, _h in after] == ["fuzzy-001"]
+        assert after[0][1] == pytest.approx(before[0][1])
+
+    async def test_attachment_text_pattern_matches_on_a_migrated_store(self, migrated_store):
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        repository, config, pool = migrated_store
+        async with pool.connection() as conn:
+            await _insert(conn, "caption-001", "Scope capture attached.", "[picture] QX-779 trace")
+
+        hits = await keyword_search("QX-77*", repository, config, max_results=10)
+
+        assert [entry["entry_id"] for entry, _s, _h in hits] == ["caption-001"]
+
+    async def test_attachment_text_keyword_search_uses_the_v2_index(
+        self, migrated_store, monkeypatch
+    ):
+        """EXPLAIN of the statement ``keyword_search`` actually ran picks a ``_v2`` index."""
+        import psycopg
+
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        repository, config, pool = migrated_store
+        async with pool.connection() as conn:
+            for i in range(200):
+                await _insert(
+                    conn,
+                    f"explain-{i:04d}",
+                    f"shift note {i} vacuum gauge reading",
+                    f"[picture p{i}.png] klystron trace {i}" if i % 3 else None,
+                )
+
+        statements: list[tuple[str, list]] = []
+        original = psycopg.AsyncCursor.execute
+
+        async def recording_execute(self, query, params=None, **kwargs):
+            if isinstance(query, str) and "ts_rank" in query:
+                statements.append((query, list(params or [])))
+            return await original(self, query, params, **kwargs)
+
+        monkeypatch.setattr(psycopg.AsyncCursor, "execute", recording_execute)
+        hits = await keyword_search("klystron", repository, config, fuzzy_fallback=False)
+        monkeypatch.undo()
+
+        assert hits
+        ((sql, params),) = statements
+        async with pool.connection() as conn:
+            await conn.execute("ANALYZE enhanced_entries")
+            async with conn.transaction():
+                await conn.execute("SET LOCAL enable_seqscan = off")
+                cursor = psycopg.AsyncClientCursor(conn)
+                try:
+                    await cursor.execute(f"EXPLAIN {sql}", params)
+                    plan = "\n".join(row[0] for row in await cursor.fetchall())
+                finally:
+                    await cursor.close()
+
+        assert "idx_entries_raw_text_fts_v2" in plan, plan
+
+
+# ==============================================================================
+# Requirement 3: caption-only mentions are keyword-searchable
+# ==============================================================================
+
+
+def _caption_only_config(scratch_config):
+    """Raw-text keyword search with the ``image_caption`` module off."""
+    from dataclasses import replace
+
+    from osprey.services.ariel_search.config import EnhancementModuleConfig
+
+    config = _raw_text_config(scratch_config)
+    modules = dict(config.enhancement_modules)
+    modules["image_caption"] = EnhancementModuleConfig(enabled=False)
+    return replace(config, enhancement_modules=modules)
+
+
+def _picture(entry_id: str, filename: str, caption: str) -> tuple[dict, str]:
+    """An upstream attachment item with a caption, and its ``attachment_files`` id."""
+    from osprey.services.ariel_search.attachments import attachment_id_for
+
+    item = {"url": f"https://elog.example/files/{entry_id}/{filename}", "filename": filename}
+    item["caption"] = caption
+    attachment_id = attachment_id_for(entry_id, item)
+    assert attachment_id is not None
+    return item, attachment_id
+
+
+async def _insert_captioned(conn, entry_id: str, raw_text: str, item: dict, attachment_id: str):
+    """Insert an entry whose picture caption is folded into ``attachment_text``, as ingest does."""
+    import json
+
+    from osprey.services.ariel_search.attachments.compose import compose_attachment_text
+
+    await conn.execute(
+        """
+        INSERT INTO enhanced_entries (
+            entry_id, source_system, timestamp, author, raw_text, attachments, metadata,
+            enhancement_status, attachment_text
+        ) VALUES (%s, 'test', NOW(), 'tester', %s, %s::jsonb, '{}'::jsonb, '{}'::jsonb, %s)
+        """,
+        [
+            entry_id,
+            raw_text,
+            json.dumps([item]),
+            compose_attachment_text(entry_id, [item], None, None),
+        ],
+    )
+    await conn.execute(
+        """
+        INSERT INTO attachment_files (attachment_id, entry_id, filename, source_url, copy_status)
+        VALUES (%s, %s, %s, %s, 'pending')
+        """,
+        [attachment_id, entry_id, item["filename"], item["url"]],
+    )
+
+
+class TestRequirement3CaptionSearch:
+    """A mention only inside a picture caption finds the entry and names the picture."""
+
+    @pytest.fixture
+    async def captioned_store(self, scratch_config):
+        """A migrated store holding caption-only entries and a raw-text-only control."""
+        from osprey.services.ariel_search.database import create_connection_pool, run_migrations
+        from osprey.services.ariel_search.database.repository import ARIELRepository
+
+        config = _caption_only_config(scratch_config)
+        pool = await create_connection_pool(config.database)
+        try:
+            await run_migrations(pool, config)
+            plot, plot_id = _picture(
+                "req3-bpm", "orbit.png", "Orbit plot from SR:C07 BPM readbacks"
+            )
+            magnet, magnet_id = _picture("req3-qx", "scope.png", "Scope trace of QX-772 current")
+            async with pool.connection() as conn:
+                await _insert_captioned(
+                    conn, "req3-bpm", "Orbit correction applied, plot attached.", plot, plot_id
+                )
+                await _insert_captioned(
+                    conn,
+                    "req3-qx",
+                    "Magnet string tripped, scope trace attached.",
+                    magnet,
+                    magnet_id,
+                )
+                await _insert(conn, "req3-control", "Klystron forty one fault cleared.")
+            yield ARIELRepository(pool, config), config, {"bpm": plot_id, "qx": magnet_id}
+        finally:
+            await pool.close()
+
+    async def test_requirement_3_caption_only_bpm_mention_is_found_with_its_id(
+        self, captioned_store
+    ):
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        repository, config, ids = captioned_store
+
+        hits = await keyword_search("SR:C07 BPM", repository, config, max_results=10)
+
+        assert [entry["entry_id"] for entry, _s, _h in hits] == ["req3-bpm"]
+        assert hits[0][0]["_matched_attachment_ids"] == [ids["bpm"]]
+
+    async def test_requirement_3_glob_finds_a_caption_only_entry_and_its_id(self, captioned_store):
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        repository, config, ids = captioned_store
+
+        hits = await keyword_search("QX-77*", repository, config, max_results=10)
+
+        assert [entry["entry_id"] for entry, _s, _h in hits] == ["req3-qx"]
+        assert hits[0][0]["_matched_attachment_ids"] == [ids["qx"]]
+
+    async def test_requirement_3_b1_row_with_upstream_caption_is_found_after_migrate(
+        self, scratch_config
+    ):
+        """A row written before the upgrade becomes caption-searchable through ``migrate``."""
+        import json
+
+        from osprey.services.ariel_search.database import create_connection_pool, run_migrations
+        from osprey.services.ariel_search.database.attachment_migration import (
+            AttachmentFilesCopyStateMigration,
+        )
+        from osprey.services.ariel_search.database.attachment_text_migration import (
+            AttachmentTextColumnsMigration,
+            AttachmentTextUpstreamFoldMigration,
+            RawTextFtsIndexV2Migration,
+        )
+        from osprey.services.ariel_search.database.repository import ARIELRepository
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        config = _caption_only_config(scratch_config)
+        assert not config.is_enhancement_module_enabled("image_caption")
+        item, _attachment_id = _picture("req3-b1", "beamline.png", "Upstream caption QX-418 hutch")
+
+        pool = await create_connection_pool(config.database)
+        try:
+            await run_migrations(pool, config)
+            # Roll back to the B1 schema: no text columns, no fold, no V2 index,
+            # no copy state.
+            for migration in (
+                RawTextFtsIndexV2Migration(),
+                AttachmentTextUpstreamFoldMigration(),
+                AttachmentTextColumnsMigration(),
+                AttachmentFilesCopyStateMigration(),
+            ):
+                async with pool.connection() as conn, conn.transaction():
+                    await migration.down(conn)
+                    await conn.execute(
+                        "DELETE FROM ariel_migrations WHERE name = %s", (migration.name,)
+                    )
+            async with pool.connection() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO enhanced_entries (
+                        entry_id, source_system, timestamp, author, raw_text, attachments,
+                        metadata, enhancement_status
+                    ) VALUES ('req3-b1', 'test', NOW(), 'tester', 'Hutch survey done.',
+                              %s::jsonb, '{}'::jsonb, '{}'::jsonb)
+                    """,
+                    [json.dumps([item])],
+                )
+
+            await run_migrations(pool, config)
+
+            repository = ARIELRepository(pool, config)
+            assert (await repository.schema_facts()).has_v2_fts
+            hits = await keyword_search("QX-418", repository, config, max_results=10)
+            assert [entry["entry_id"] for entry, _s, _h in hits] == ["req3-b1"]
+        finally:
+            await pool.close()

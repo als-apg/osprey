@@ -66,6 +66,7 @@ def _hello_world(**overrides: Any) -> dict[str, Any]:
     """A profile that builds: the smallest bundle, with a named provider."""
     return {
         "name": "Demo Facility",
+        "project_name": "demo-facility",
         "extends": "hello-world",
         "data": "data",
         "provider": "anthropic",

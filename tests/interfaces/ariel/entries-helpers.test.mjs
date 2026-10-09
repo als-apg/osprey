@@ -8,31 +8,9 @@
 import { test, expect } from 'vitest';
 
 import {
-  isImageAttachment,
   formatFileSize,
   parseEntryText,
 } from '../../../src/osprey/interfaces/ariel/static/js/entries-helpers.js';
-
-test('isImageAttachment trusts an image/* type over filename', () => {
-  expect(isImageAttachment({ type: 'image/png' })).toBe(true);
-  expect(isImageAttachment({ type: 'image/png', filename: 'notes.pdf' })).toBe(true);
-  expect(isImageAttachment({ type: 'application/pdf' })).toBe(false);
-});
-
-test('isImageAttachment falls back to filename extension when type is missing', () => {
-  expect(isImageAttachment({ filename: 'photo.jpg' })).toBe(true);
-  expect(isImageAttachment({ filename: 'photo.JPEG' })).toBe(true);
-  expect(isImageAttachment({ filename: 'scan.PNG' })).toBe(true);
-  expect(isImageAttachment({ filename: 'diagram.svg' })).toBe(true);
-  expect(isImageAttachment({ filename: 'report.pdf' })).toBe(false);
-});
-
-test('isImageAttachment handles edge cases with neither/empty type nor filename', () => {
-  expect(isImageAttachment({})).toBe(false);
-  expect(isImageAttachment({ filename: '' })).toBe(false);
-  expect(isImageAttachment({ filename: 'noextension' })).toBe(false);
-  expect(isImageAttachment({ type: '' })).toBe(false);
-});
 
 test('formatFileSize renders bytes below 1024 as B', () => {
   expect(formatFileSize(0)).toBe('0 B');

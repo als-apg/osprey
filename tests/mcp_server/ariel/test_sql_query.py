@@ -282,3 +282,26 @@ async def test_sql_query_falls_back_to_the_ingestion_pool(tmp_path, monkeypatch)
         await fn(sql="SELECT entry_id FROM enhanced_entries")
 
     assert mock_sql.call_args.args[0] is mock_service.pool
+
+
+async def test_sql_query_binary_table_refusal_hints_at_text_columns():
+    """The tool-level hint names the attachment text columns an agent may query instead."""
+    fn = _get_sql_query()
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(sql="SELECT data FROM attachment_files")
+
+    data = _exc_ctx["envelope"]
+    assert "attachment_files" in data["error_message"]
+    hints = " ".join(data["suggestions"])
+    assert "binary tables are not queryable" in hints.lower()
+    assert "attachment_text" in hints
+
+
+def test_sql_query_docstring_lists_attachment_text_columns():
+    """The agent reads the docstring as the schema; the attachment text columns are in it."""
+    from osprey.mcp_server.ariel.tools.sql_query import sql_query
+
+    doc = get_tool_fn(sql_query).__doc__ or ""
+    assert "attachment_text (text)" in doc
+    assert "attachment_captions (jsonb)" in doc
+    assert "attachment_files" in doc

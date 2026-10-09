@@ -7,9 +7,107 @@ straight from the parsed bundles (no DB), so a misfiled entry or a malformed
 relative timestamp is caught here rather than in the expensive e2e judge layer.
 """
 
+import io
+import json
+import struct
+from datetime import datetime
 from datetime import time as dtime
+from zoneinfo import ZoneInfo
 
-from osprey.utils.relative_time import RelativeTimestamp
+import pytest
+from PIL import Image
+
+from osprey.simulation.machine import PlotSpec, ScenarioLogEntry, parse_machine
+from osprey.simulation.plots import render_plot_spec
+from osprey.utils.relative_time import RelativeTimestamp, resolve_relative_timestamp
+from tests.simulation.conftest import TEMPLATE_SIM
+
+#: Upper bound on a picture: a shipped one travels in every wheel and image, and
+#: a drawn one is stored in the logbook for every seeded entry.
+_MAX_PICTURE_BYTES = 80 * 1024
+
+#: The anchor a drawn picture is checked at; any instant draws the same size.
+_ANCHOR = datetime(2026, 9, 28, 9, 30, tzinfo=ZoneInfo("America/Los_Angeles"))
+
+
+def _shipped_entries() -> dict[str, ScenarioLogEntry]:
+    """Entry id -> entry, for every shipped entry that carries pictures."""
+    machine_path = TEMPLATE_SIM / "machine.json"
+    parsed = parse_machine(json.loads(machine_path.read_text()), machine_path)
+    return {
+        entry.entry_id: entry
+        for scenario in parsed.scenarios.values()
+        for entry in scenario.logbook
+        if entry.attachments
+    }
+
+
+def _picture_bytes(entry: ScenarioLogEntry) -> list[tuple[str, bytes]]:
+    """``(file name, PNG bytes)`` of each picture, drawing plot specs as seeding does."""
+    pictures = []
+    for item in entry.attachments:
+        if isinstance(item, PlotSpec):
+            end = resolve_relative_timestamp(entry.when, _ANCHOR)
+            pictures.append((item.filename, render_plot_spec(item, end)))
+        else:
+            pictures.append((item.name, item.read_bytes()))
+    return pictures
+
+
+def _png_chunk_types(data: bytes) -> list[bytes]:
+    chunks, offset = [], 8
+    while offset < len(data):
+        (length,) = struct.unpack(">I", data[offset : offset + 4])
+        chunks.append(data[offset + 4 : offset + 8])
+        offset += 12 + length
+    return chunks
+
+
+class TestShippedPictures:
+    def test_the_pictured_entries(self):
+        entries = _shipped_entries()
+        assert {
+            entry_id: [
+                item.filename if isinstance(item, PlotSpec) else item.name
+                for item in entry.attachments
+            ]
+            for entry_id, entry in entries.items()
+        } == {
+            "DEMO-011": ["orbit_rms.png"],
+            "DEMO-027": ["cavity_temperatures.png"],
+            "DEMO-031": ["corrector_bump_test.png"],
+        }
+        # The two time series are drawn at seed time so they carry the entry's
+        # dates; the bump test has no time axis and ships as a file.
+        kinds = {
+            entry_id: [isinstance(item, PlotSpec) for item in entry.attachments]
+            for entry_id, entry in entries.items()
+        }
+        assert kinds == {"DEMO-011": [True], "DEMO-027": [True], "DEMO-031": [False]}
+
+    @pytest.mark.parametrize("entry_id", ["DEMO-011", "DEMO-027", "DEMO-031"])
+    def test_each_picture_is_a_small_clean_png(self, entry_id):
+        for name, data in _picture_bytes(_shipped_entries()[entry_id]):
+            assert len(data) < _MAX_PICTURE_BYTES, f"{name} is {len(data)} bytes"
+            with Image.open(io.BytesIO(data)) as image:
+                image.verify()
+                assert image.format == "PNG"
+            text_chunks = {b"tEXt", b"iTXt", b"zTXt", b"tIME"} & set(_png_chunk_types(data))
+            assert not text_chunks, f"{name} carries metadata chunks {text_chunks}"
+
+    def test_the_reversed_bpm_is_named_only_in_the_picture(self):
+        spec = json.loads((TEMPLATE_SIM / "scenarios/bpm-polarity/scenario.json").read_text())
+        reversed_bpms = [
+            name for name, err in spec["physics"]["bpm_errors"].items() if err["polarity"] == -1
+        ]
+        entries = json.loads((TEMPLATE_SIM / "scenarios/bpm-polarity/logbook.json").read_text())
+        for entry in entries:
+            words = " ".join([entry["title"], entry["text"], *entry["tags"]]).upper()
+            for name in reversed_bpms:
+                number = name.removeprefix("BPM")
+                assert name not in words.replace(" ", "")
+                assert f"BPM {number}" not in words
+                assert f"BPM {int(number)}" not in words
 
 
 class TestLogbookOwnership:

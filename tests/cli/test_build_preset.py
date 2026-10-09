@@ -198,6 +198,61 @@ def test_preset_ariel_standalone_renders_logbook_persona(runner: CliRunner, tmp_
     assert manifest["creation"]["claude_md_template"] == "CLAUDE.ariel.md.j2"
 
 
+def test_ariel_standalone_narrates_every_control_assistant_scenario(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """The standalone logbook is the control-assistant scenarios' narrative, by construction.
+
+    The packaged ariel_standalone template ships no logbook and no machine
+    corpus of its own (its data/ holds only a README); its ``shared_data.yml`` takes both from the
+    control-assistant template. So what a standalone deploy seeds is read off
+    the same files the control-assistant scenarios carry, and this pins that
+    it is ALL of them: every scenario's entries, in nominal-first order, each
+    with the very picture bytes the scenario attaches.
+    """
+    import osprey
+    from osprey.simulation.apply import demo_narrative_logbook
+    from osprey.simulation.machine import parse_machine, read_machine_json
+
+    templates = pathlib.Path(osprey.__file__).parent / "templates" / "apps"
+    own = sorted(
+        p.relative_to(templates / "ariel_standalone" / "data").as_posix()
+        for p in (templates / "ariel_standalone" / "data").rglob("*")
+    )
+    assert own == ["README.md"], (
+        "ariel_standalone ships data of its own again -- one copy of each file lives "
+        "in control_assistant and is taken through shared_data.yml"
+    )
+
+    result = _materialize(runner, str(tmp_path), "smoke", "ariel-standalone")
+    assert result.exit_code == 0, result.output
+    render = _project(tmp_path, "smoke")
+    ariel = _config_yaml(render)["ariel"]
+    assert "ingestion" not in ariel, "the demo narrative replaces the demo ingest"
+    seeded = demo_narrative_logbook(ariel, render)
+
+    machine_path = templates / "control_assistant" / "data" / "simulation" / "machine.json"
+    scenarios = parse_machine(read_machine_json(machine_path), machine_path).scenarios
+    order = sorted(scenarios, key=lambda name: (name != "nominal", name))
+    expected = [entry for name in order for entry in scenarios[name].logbook]
+
+    assert [e.entry_id for e in seeded] == [e.entry_id for e in expected]
+    assert [(e.title, e.text, e.when) for e in seeded] == [
+        (e.title, e.text, e.when) for e in expected
+    ]
+
+    def _pictures(entry):
+        """A shipped picture by its bytes, a plot spec by its parsed contents."""
+        return [item.read_bytes() if isinstance(item, pathlib.Path) else item for item in entry]
+
+    for got, want in zip(seeded, expected, strict=True):
+        assert _pictures(got.attachments) == _pictures(want.attachments), got.entry_id
+    assert sum(len(e.attachments) for e in seeded) == 3
+
+    corpus = templates / "control_assistant" / "data" / "demo_machine.ttl"
+    assert (render / "data" / "demo_machine.ttl").read_bytes() == corpus.read_bytes()
+
+
 def test_preset_control_assistant_ships_live_openobserve_telemetry(
     runner: CliRunner, tmp_path: Path
 ) -> None:
@@ -561,6 +616,7 @@ def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Pa
     _facility_data(profile.parent)
     profile.write_text(
         "name: McpTest\n"
+        "project_name: repo\n"
         "extends: hello-world\n"
         "data: data\n"
         "provider: anthropic\n"
@@ -655,6 +711,7 @@ def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Pat
     _facility_data(profile.parent)
     profile.write_text(
         "name: CatTest\n"
+        "project_name: repo\n"
         "extends: hello-world\n"
         "data: data\n"
         "provider: anthropic\n"
@@ -685,7 +742,8 @@ def test_profile_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
     _facility_data(profile_dir)
     profile = profile_dir / "profile.yml"
     profile.write_text(
-        "extends: hello-world\nname: ConventionTest\ndata: data\nprovider: anthropic\n"
+        "extends: hello-world\nname: ConventionTest\nproject_name: repo\ndata: data\n"
+        "provider: anthropic\n"
     )
     result = _render_from(runner, str(profile))
     assert result.exit_code == 0, result.output
@@ -898,8 +956,9 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     (``control_system.connector.mock``). The mock archiver derives its own copy
     from there, so a second declaration would be a divergence waiting to
     happen. No ``active_scenarios`` state file ships in ``data/``: the active
-    set is runtime state under ``_agent_data/simulation/``, and its absence
-    already means "nominal only".
+    set is runtime state under ``_agent_data/simulation/``, and the first deploy
+    writes it from the machine's ``default_scenarios`` (``rf-thermal``, the
+    incident the getting-started tutorial walks through).
     """
     import json
 
@@ -913,12 +972,15 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     machine = json.loads(machine_path.read_text(encoding="utf-8"))
     assert "channels" in machine
     assert "scenarios" not in machine, "scenarios moved to bundle tree, not the machine file"
+    assert machine["default_scenarios"] == ["rf-thermal"]
 
     # Self-contained scenario bundles (telemetry + optional logbook).
     for name in ("nominal", "vacuum-burst", "rf-thermal"):
         assert (sim_dir / "scenarios" / name / "scenario.json").exists(), f"{name} bundle missing"
     assert (sim_dir / "scenarios" / "nominal" / "logbook.json").exists()
     assert (sim_dir / "scenarios" / "rf-thermal" / "logbook.json").exists()
+    # The pictures and plot specs logbook entries attach ship with their bundles.
+    assert (sim_dir / "scenarios" / "rf-thermal" / "plots" / "cavity_temperatures.json").exists()
     # vacuum-burst is telemetry-only by design (no logbook narrative).
     assert not (sim_dir / "scenarios" / "vacuum-burst" / "logbook.json").exists()
 
@@ -1041,7 +1103,7 @@ class TestMirroredLogbookSeedNotMutated:
         )
         profile = profile_dir / "profile.yml"
         profile.write_text(
-            "extends: hello-world\nname: SeedVerbatim\ndata: data\n"
+            "extends: hello-world\nname: SeedVerbatim\nproject_name: repo\ndata: data\n"
             "provider: anthropic\nmodel: claude-haiku-4-5\n"
         )
 
@@ -1076,6 +1138,7 @@ class TestDeployServicesKnob:
     # the "nothing here is a service this render would run" assertion below.
     _PROFILE = (
         "name: Attachment Test\n"
+        "project_name: smoke\n"
         "extends: control-assistant\n"
         "data: data\n"
         "va_archiver: null\n"
@@ -1244,7 +1307,8 @@ def test_persona_delta_build_resolves_from_the_profile_root(
     )
     (root / "data" / "FACILITY_MARKER.txt").write_text("from the root\n")
     (root / "profile.yml").write_text(
-        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: claude-sonnet-5\ndata: data\n"
+        "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
+        "model: claude-sonnet-5\ndata: data\n"
     )
     (root / "personas" / "readonly.yml").write_text("name: ReadOnly\nmodel: claude-haiku-4-5\n")
 
@@ -1302,7 +1366,8 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
         "---\ndescription: profile-shipped namespaced command\n---\n\nBody.\n"
     )
     (root / "profile.yml").write_text(
-        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: claude-sonnet-5\ndata: data\n"
+        "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
+        "model: claude-sonnet-5\ndata: data\n"
     )
     (root / "personas" / "narrow.yml").write_text(
         "name: Narrow\n"
@@ -1361,6 +1426,7 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
     (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
+        "project_name: prof\n"
         "data: data\n"
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
@@ -1418,6 +1484,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
     (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
+        "project_name: prof\n"
         "data: data\n"
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"

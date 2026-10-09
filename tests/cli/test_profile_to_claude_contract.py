@@ -346,10 +346,12 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
         "tools": [
             "mcp__ariel__keyword_search",
             "mcp__ariel__semantic_search",
+            "mcp__ariel__hybrid_search",
             "mcp__ariel__browse",
             "mcp__ariel__filter_options",
             "mcp__ariel__entry_get",
             "mcp__ariel__capabilities",
+            "mcp__ariel__attachment_view",
             "mcp__osprey_workspace__submit_response",
         ],
         "disallowedTools": [
@@ -371,12 +373,14 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
         "tools": [
             "mcp__ariel__keyword_search",
             "mcp__ariel__semantic_search",
+            "mcp__ariel__hybrid_search",
             "mcp__ariel__browse",
             "mcp__ariel__filter_options",
             "mcp__ariel__entry_get",
             "mcp__ariel__capabilities",
             "mcp__ariel__sql_query",
             "mcp__ariel__entries_by_ids",
+            "mcp__ariel__attachment_view",
             "mcp__osprey_workspace__submit_response",
         ],
         "disallowedTools": [
@@ -1068,6 +1072,7 @@ def test_build_command_fails_on_violation(tmp_path, caplog):
         yaml.dump(
             {
                 "name": "Broken Profile",
+                "project_name": "broken-deployment",
                 # The preset carries the posture floor and the bundle; only the
                 # unbacked agent tool below is what this build should die on.
                 "extends": "hello-world",

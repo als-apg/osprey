@@ -72,13 +72,15 @@ def machine_file(tmp_path):
     return path
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def state_dir(tmp_path, monkeypatch):
-    """Per-test scenario-state directory, standing in for ``_agent_data/simulation/``.
+    """Per-test scenario-state directory, standing in for ``var/agent_data/simulation/``.
 
-    Connectors resolve it from the ambient config, which under pytest would be
-    the repo checkout; point it at ``tmp_path`` so activating a scenario here
-    cannot write into the working tree.
+    Autouse: without it the engine resolves ``default_state_dir()`` from the
+    current directory, so every engine-backed test here would read (and a
+    scenario test would write) the checkout's scenario state. Pointing it at
+    ``tmp_path`` keeps a developer's active ``osprey sim`` scenario out of the
+    results and the working tree untouched.
     """
     from osprey.simulation import engine as engine_module
 

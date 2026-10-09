@@ -19,6 +19,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from osprey.services.ariel_search.enhancement.image_caption.module import (
+    ImageCaptionModule,
+)
+from osprey.services.ariel_search.enhancement.image_embedding.module import (
+    ImageEmbeddingModule,
+)
 from osprey.services.ariel_search.enhancement.qmd_export.exporter import (
     QmdExportModule,
 )
@@ -30,11 +36,13 @@ from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
 )
 from tests import _litellm_callbacks
 from tests._container_support import is_docker_available, start_or_skip, stop_quietly
+from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from concurrent.futures import ThreadPoolExecutor
 
+    from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
 
@@ -72,6 +80,13 @@ def _build_ariel_mock_registry():
     registry.get_ariel_search_module.side_effect = _search_modules.get
 
     # --- Enhancement modules ---
+    ic_reg = ArielEnhancementModuleRegistration(
+        name="image_caption",
+        module_path="osprey.services.ariel_search.enhancement.image_caption.module",
+        class_name="ImageCaptionModule",
+        description="Image caption",
+        execution_order=5,
+    )
     sp_reg = ArielEnhancementModuleRegistration(
         name="semantic_processor",
         module_path="osprey.services.ariel_search.enhancement.semantic_processor.processor",
@@ -86,6 +101,13 @@ def _build_ariel_mock_registry():
         description="Text embedding",
         execution_order=20,
     )
+    ie_reg = ArielEnhancementModuleRegistration(
+        name="image_embedding",
+        module_path="osprey.services.ariel_search.enhancement.image_embedding.module",
+        class_name="ImageEmbeddingModule",
+        description="Image embedding",
+        execution_order=25,
+    )
     qe_reg = ArielEnhancementModuleRegistration(
         name="qmd_export",
         module_path="osprey.services.ariel_search.enhancement.qmd_export.exporter",
@@ -94,13 +116,17 @@ def _build_ariel_mock_registry():
         execution_order=30,
     )
     _enhancement_modules = {
+        "image_caption": (ImageCaptionModule, ic_reg),
         "semantic_processor": (SemanticProcessorModule, sp_reg),
         "text_embedding": (TextEmbeddingModule, te_reg),
+        "image_embedding": (ImageEmbeddingModule, ie_reg),
         "qmd_export": (QmdExportModule, qe_reg),
     }
     registry.list_ariel_enhancement_modules.return_value = [
+        "image_caption",
         "semantic_processor",
         "text_embedding",
+        "image_embedding",
         "qmd_export",
     ]
     registry.get_ariel_enhancement_module.side_effect = _enhancement_modules.get
@@ -161,6 +187,58 @@ def _mock_ariel_registry():
     registry = _build_ariel_mock_registry()
     with patch("osprey.registry.get_registry", return_value=registry):
         yield
+
+
+def reset_image_lane_state() -> None:
+    """Forget the picture lane's breaker, reason, verdict and settings, and what they rest on.
+
+    Clears the lane's own state, the shared local-server resolution cache and
+    the availability tracker, so no test sees a breaker or a reason another
+    test on the same worker left behind.
+    """
+    from osprey.models.providers import _local_server
+    from osprey.services.ariel_search.enhancement import availability
+    from osprey.services.ariel_search.search import image_lane
+
+    image_lane._reset_state()
+    _local_server.reset_cache()
+    availability.reset_availability()
+
+
+@pytest.fixture(autouse=True)
+def _reset_image_lane():
+    """Every ARIEL service test starts and ends with a closed, reason-free picture lane."""
+    reset_image_lane_state()
+    yield
+    reset_image_lane_state()
+
+
+@pytest.fixture
+def llama_stub(monkeypatch):
+    """Start :class:`~tests.services.ariel_search.llama_stub.LlamaStub` servers on 127.0.0.1.
+
+    Calling the fixture starts one stub and returns it; every stub is stopped at
+    teardown. ``LLAMA_CPP_HOST`` is removed and the container fallbacks emptied,
+    so the adapter's reachability walk only ever probes the stub's own URL, and
+    the shared local-server cache is cleared before and after.
+    """
+    from osprey.models.providers import _local_server
+    from tests.services.ariel_search.llama_stub import LlamaStub
+
+    monkeypatch.delenv("LLAMA_CPP_HOST", raising=False)
+    monkeypatch.setattr(_local_server, "container_fallback_urls", lambda base_url, default_port: [])
+    _local_server.reset_cache()
+    started: list[LlamaStub] = []
+
+    def _start() -> LlamaStub:
+        stub = LlamaStub()
+        started.append(stub)
+        return stub
+
+    yield _start
+    for stub in started:
+        stub.stop()
+    _local_server.reset_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -233,6 +311,22 @@ def is_dev_database_available() -> tuple[bool, str]:
 # ============================================================================
 
 
+def database_required() -> bool:
+    """Whether ``ARIEL_TEST_REQUIRE_DB=1`` asks for a missing database to fail.
+
+    A gate that runs an integration file sets it, so the gate cannot pass with
+    every database test skipped.
+    """
+    return os.environ.get("ARIEL_TEST_REQUIRE_DB") == "1"
+
+
+def skip_or_fail(reason: str) -> None:
+    """Skip for want of a database -- or fail, when one is required."""
+    if database_required():
+        pytest.fail(f"{reason} (ARIEL_TEST_REQUIRE_DB=1)")
+    pytest.skip(reason)
+
+
 @pytest.fixture(scope="session")
 def database_url(request: pytest.FixtureRequest) -> str:
     """Get database connection URL for tests.
@@ -256,7 +350,8 @@ def database_url(request: pytest.FixtureRequest) -> str:
         PostgreSQL connection URL
 
     Skips:
-        If no database is available
+        If no database is available -- or fails instead under
+        ``ARIEL_TEST_REQUIRE_DB=1``.
     """
     # 1. Check for explicit env var
     env_url = os.environ.get("ARIEL_TEST_DATABASE_URL")
@@ -272,7 +367,7 @@ def database_url(request: pytest.FixtureRequest) -> str:
 
     # 3. Fall back to testcontainers
     if not is_docker_available():
-        pytest.skip(
+        skip_or_fail(
             "No database available - either start docker-compose "
             "(docker compose -f docker/ariel-dev.yml up -d) or install Docker"
         )
@@ -281,18 +376,23 @@ def database_url(request: pytest.FixtureRequest) -> str:
     try:
         from testcontainers.postgres import PostgresContainer
     except ImportError:
-        pytest.skip("testcontainers[postgres] not installed")
+        skip_or_fail("testcontainers[postgres] not installed")
 
     # Use pgvector image for vector search support
-    container = start_or_skip(
-        lambda: PostgresContainer(
-            image="ankane/pgvector:latest",
-            username="ariel",
-            password="ariel",
-            dbname="ariel_test",
-        ),
-        label="postgres",
-    )
+    try:
+        container = start_or_skip(
+            lambda: PostgresContainer(
+                image="pgvector/pgvector:pg16",
+                username="ariel",
+                password="ariel",
+                dbname="ariel_test",
+            ),
+            label="postgres",
+        )
+    except pytest.skip.Exception as skipped:
+        if database_required():
+            pytest.fail(f"{skipped.msg} (ARIEL_TEST_REQUIRE_DB=1)")
+        raise
 
     request.addfinalizer(lambda: stop_quietly(container))
 
@@ -643,6 +743,7 @@ class _FakePool:
         self.recorder = _SQLRecorder(results, rows_for)
         self.conn = _FakeConnection(self.recorder, error=error)
         self.close_calls = 0
+        self.connection_timeouts: list[float | None] = []
 
     @property
     def calls(self) -> list[tuple[str, Any]]:
@@ -663,74 +764,12 @@ class _FakePool:
         """Recorded calls whose SQL contains `pattern`, ignoring whitespace."""
         return self.recorder.matching(pattern)
 
-    def connection(self) -> _FakeConnection:
+    def connection(self, timeout: float | None = None) -> _FakeConnection:
+        self.connection_timeouts.append(timeout)
         return self.conn
 
     async def close(self) -> None:
         self.close_calls += 1
-
-
-class _FakeEmbeddingProvider:
-    """Stand-in for the ``BaseEmbeddingProvider`` that ``get_embedding_provider`` returns.
-
-    ``execute_embedding`` is synchronous, matching the real provider: ARIEL
-    calls it from async code without awaiting. It returns one `dimension`-long
-    vector per text (or the scripted `vectors`) and appends every call to
-    ``calls``; pass `error` to make it raise, which is how the
-    embedding-failure branches are reached.
-    """
-
-    name = "fake"
-
-    def __init__(
-        self,
-        dimension: int = 4,
-        default_base_url: str = "http://fake-embeddings.invalid:11434",
-        default_model_id: str = "nomic-embed-text",
-        vectors: list[list[float]] | None = None,
-        error: Exception | None = None,
-        healthy: tuple[bool, str] = (True, "ok"),
-    ) -> None:
-        self.dimension = dimension
-        self.default_base_url = default_base_url
-        self.default_model_id = default_model_id
-        self.vectors = vectors
-        self.error = error
-        self.healthy = healthy
-        self.calls: list[dict[str, Any]] = []
-
-    def execute_embedding(
-        self,
-        texts: list[str],
-        model_id: str | None = None,
-        api_key: str | None = None,
-        base_url: str | None = None,
-        **kwargs: Any,
-    ) -> list[list[float]]:
-        self.calls.append(
-            {
-                "texts": list(texts),
-                "model_id": model_id,
-                "api_key": api_key,
-                "base_url": base_url,
-                **kwargs,
-            }
-        )
-        if self.error is not None:
-            raise self.error
-        if self.vectors is not None:
-            return [list(vector) for vector in self.vectors]
-        return [[0.1] * self.dimension for _ in texts]
-
-    def check_health(
-        self,
-        api_key: str | None = None,
-        base_url: str | None = None,
-        model_id: str | None = None,  # noqa: ARG002 - the provider health probe signature
-        timeout: float = 10.0,  # noqa: ARG002 - the provider health probe signature
-    ) -> tuple[bool, str]:
-        self.calls.append({"check_health": True, "api_key": api_key, "base_url": base_url})
-        return self.healthy
 
 
 @pytest.fixture
@@ -773,9 +812,9 @@ def ddl_conn() -> _FakeConnection:
 
 
 @pytest.fixture
-def fake_embedding_provider() -> _FakeEmbeddingProvider:
-    """Default :class:`_FakeEmbeddingProvider` (4-dimensional vectors)."""
-    return _FakeEmbeddingProvider()
+def fake_embedding_provider() -> BaseProvider:
+    """An instance of a fresh ``make_fake_embedding_provider()`` class (4-d vectors)."""
+    return make_fake_embedding_provider()()
 
 
 @pytest.fixture
@@ -802,11 +841,16 @@ def mock_repository() -> MagicMock:
         MagicMock with common repository methods stubbed
     """
     from osprey.services.ariel_search.config import ARIELConfig, DatabaseConfig
+    from osprey.services.ariel_search.database.repository import SchemaFacts
 
     config = ARIELConfig(database=DatabaseConfig(uri="postgresql://mock/test"))
     repo = MagicMock()
     repo.config = config
     repo.pool = _FakePool()
+    # A store without the copy state: ``ingest_one`` takes its plain-upsert
+    # branch, so ingest callers' counts match ``upsert_entry`` calls one to one.
+    repo.schema_facts = AsyncMock(return_value=SchemaFacts(has_v2_fts=False, has_copy_state=False))
+    repo.get_copy_retry_candidates = AsyncMock(return_value=[])
     repo.get_entry = AsyncMock(return_value=None)
     repo.upsert_entry = AsyncMock()
     repo.keyword_search = AsyncMock(return_value=[])
@@ -870,3 +914,106 @@ def litellm_callback_pool() -> Iterator[ThreadPoolExecutor]:
     """
     with _litellm_callbacks.litellm_callback_pool() as pool:
         yield pool
+
+
+# -- attachment fetch fake ------------------------------------------------------
+
+
+class AttachmentFetchFake:
+    """Stands in for ``fetch_attachment_bytes`` at every consumer's reference.
+
+    The copy path classifies and absorbs fetch failures, so a fetch a test did
+    not expect would otherwise pass silently. Every call is recorded; a test
+    that has not opted in by calling :meth:`respond` has its calls collected in
+    :attr:`unopted`, answered with a transient outcome, and fails at fixture
+    teardown.
+
+    Attributes:
+        calls: Every call, as a dict of the arguments it was given.
+        unopted: The calls made before the test opted in.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.unopted: list[dict[str, Any]] = []
+        self._handler: Any = None
+
+    def respond(self, answer: Any) -> None:
+        """Opt in: answer every later call with ``answer``.
+
+        Args:
+            answer: A ``FetchOutcome`` returned as is, or a callable taking the
+                fetcher's arguments and returning one (sync or async).
+        """
+        self._handler = answer
+
+    async def __call__(
+        self,
+        url: str,
+        cap: int,
+        origins: frozenset,
+        adapter: Any,
+        method: str = "GET",
+        **kwargs: Any,
+    ) -> Any:
+        import inspect
+
+        from osprey.services.ariel_search.attachments.fetch import FetchOutcome
+
+        call = {
+            "url": url,
+            "cap": cap,
+            "origins": origins,
+            "adapter": adapter,
+            "method": method,
+            **kwargs,
+        }
+        self.calls.append(call)
+        if self._handler is None:
+            self.unopted.append(call)
+            return FetchOutcome(transient=True)
+        if isinstance(self._handler, FetchOutcome):
+            return self._handler
+        out = self._handler(url, cap, origins, adapter, method, **kwargs)
+        return await out if inspect.isawaitable(out) else out
+
+    def verify(self) -> None:
+        """Fail the running test when any call came before it opted in."""
+        if self.unopted:
+            calls = [(c["method"], c["url"]) for c in self.unopted]
+            pytest.fail(f"unopted attachment fetch: {calls}")
+
+
+def install_attachment_fetch_fake(request: pytest.FixtureRequest, monkeypatch: Any) -> Any:
+    """Patch the consumers' fetcher references with a fresh fake, or not at all.
+
+    The consumers bind the fetcher at module level, so the fake replaces the
+    ``attachments.copy`` and ``ingestion.metadata_attachment`` attributes and
+    leaves ``fetch.fetch_attachment_bytes`` itself real. A test marked
+    ``real_fetch`` gets no fake.
+
+    Returns:
+        The installed :class:`AttachmentFetchFake`, or ``None`` under ``real_fetch``.
+    """
+    if request.node.get_closest_marker("real_fetch"):
+        return None
+    from osprey.services.ariel_search.attachments import copy as copy_mod
+    from osprey.services.ariel_search.ingestion import metadata_attachment as metadata_mod
+
+    fake = AttachmentFetchFake()
+    monkeypatch.setattr(copy_mod, "fetch_attachment_bytes", fake)
+    monkeypatch.setattr(metadata_mod, "fetch_attachment_bytes", fake)
+    return fake
+
+
+@pytest.fixture(autouse=True)
+def attachment_fetch(request, monkeypatch) -> Iterator[AttachmentFetchFake | None]:
+    """No ARIEL test reaches a real attachment source unless it opts in.
+
+    Yields the :class:`AttachmentFetchFake`; a test opts in to fetching by
+    calling its ``respond``, or to the real fetcher with ``real_fetch``.
+    """
+    fake = install_attachment_fetch_fake(request, monkeypatch)
+    yield fake
+    if fake is not None:
+        fake.verify()

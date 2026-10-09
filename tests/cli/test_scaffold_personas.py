@@ -316,14 +316,15 @@ def test_repoint_takes_the_names_the_emission_reported(adopting_repo: Path) -> N
     assert repoint_persona_catalog(adopting_repo, report.names) == len(PERSONA_NAMES)
 
 
-def test_repoint_keys_the_render_off_the_repo_directory(adopting_repo: Path) -> None:
-    """``project`` and ``project_path`` name the deployment, not the preset —
-    neither is knowable until the repo has a directory name."""
+def test_repoint_writes_only_the_source(adopting_repo: Path) -> None:
+    """``project`` and ``project_path`` are the build's to derive from
+    ``project_name``, so the repoint names each delta and nothing else."""
     repoint_persona_catalog(adopting_repo, list(PERSONA_NAMES))
 
     catalog = loaded_catalog(adopting_repo)
-    assert catalog["readonly"]["project"] == f"{adopting_repo.name}-readonly"
-    assert catalog["readonly"]["project_path"] == f"build/{adopting_repo.name}-readonly"
+    assert catalog["readonly"]["build_profile"] == "personas/readonly.yml"
+    assert "project" not in catalog["readonly"]
+    assert "project_path" not in catalog["readonly"]
 
 
 def test_repoint_is_idempotent(adopting_repo: Path) -> None:

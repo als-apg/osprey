@@ -35,7 +35,8 @@ CONTAINER-OPS SAFETY (every runtime-mutating call in this file honors this)
 Every container/volume this test creates is exact-named off the fixture's
 ``project_name: osprey-e2e-mus-p3`` / ``facility.prefix: e2e``:
 
-  * containers: ``e2e-web-<alice|bob|carol|dave|erin>``, ``e2e-nginx``,
+  * containers: ``osprey-e2e-mus-p3-web-<alice|bob|carol|dave|erin>``,
+    ``osprey-e2e-mus-p3-nginx``,
     plus the test's own ``osprey-e2e-mus-p3-registry`` helper container
     (not part of the deployed stack — a throwaway local image registry).
   * volumes: ``osprey-e2e-mus-p3_<user>-claude-config`` /
@@ -136,11 +137,11 @@ REGISTRY_READY_TIMEOUT_SEC = 30.0
 
 
 def _web_container(user: str) -> str:
-    return f"{FACILITY_PREFIX}-web-{user}"
+    return f"{PROJECT_NAME}-web-{user}"
 
 
 def _nginx_container() -> str:
-    return f"{FACILITY_PREFIX}-nginx"
+    return f"{PROJECT_NAME}-nginx"
 
 
 def _volume_names(user: str) -> tuple[str, str]:
@@ -838,11 +839,11 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         assert up_b.returncode == 0, _fmt("osprey up (project B)", up_b)
 
         for user in USERS_A:
-            assert _container_id(f"{PREFIX_A}-web-{user}") is not None, (
+            assert _container_id(f"{PROJECT_NAME_A}-web-{user}") is not None, (
                 f"project A user {user!r} container not created by 'osprey up'"
             )
         for user in USERS_B:
-            assert _container_id(f"{PREFIX_B}-web-{user}") is not None, (
+            assert _container_id(f"{PROJECT_NAME_B}-web-{user}") is not None, (
                 f"project B user {user!r} container not created by 'osprey up'"
             )
 
@@ -867,7 +868,7 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         plan = prune_dry.stdout
         assert "orphan" in plan, f"A's own orphan not mentioned in the dry-run plan:\n{plan}"
         assert PROJECT_NAME_B not in plan, f"A's users prune --dry-run named B's project:\n{plan}"
-        assert f"{PREFIX_B}-web-orphan" not in plan, (
+        assert f"{PROJECT_NAME_B}-web-orphan" not in plan, (
             f"A's users prune --dry-run named B's orphan container:\n{plan}"
         )
         b_orphan_volumes = resolve_user_volume_names({"project_name": PROJECT_NAME_B}, "orphan")
@@ -875,8 +876,8 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
             f"A's users prune --dry-run named one of B's volumes:\n{plan}"
         )
         # Dry-run is a true no-op: both sides' orphans are untouched.
-        assert _container_id(f"{PREFIX_A}-web-orphan") is not None
-        assert _container_id(f"{PREFIX_B}-web-orphan") is not None
+        assert _container_id(f"{PROJECT_NAME_A}-web-orphan") is not None
+        assert _container_id(f"{PROJECT_NAME_B}-web-orphan") is not None
 
         # --------------------------------------------------------------
         # Isolation 2 — A's users remove must never name B's resources.
@@ -886,10 +887,10 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         assert PROJECT_NAME_B not in decomm.stdout, (
             f"A's users remove named B's project:\n{decomm.stdout}"
         )
-        assert f"{PREFIX_B}-web-" not in decomm.stdout, (
+        assert f"{PROJECT_NAME_B}-web-" not in decomm.stdout, (
             f"A's users remove named a B container:\n{decomm.stdout}"
         )
-        assert _container_id(f"{PREFIX_A}-web-second") is None
+        assert _container_id(f"{PROJECT_NAME_A}-web-second") is None
 
         # --------------------------------------------------------------
         # Isolation 3 — A's reset removes exactly A's own label-verified
@@ -964,13 +965,13 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
             "project — the com.osprey.project label verification did not hold"
         )
 
-        assert _container_id(f"{PREFIX_A}-web-keeper") is None
-        assert _container_id(f"{PREFIX_A}-nginx") is None
+        assert _container_id(f"{PROJECT_NAME_A}-web-keeper") is None
+        assert _container_id(f"{PROJECT_NAME_A}-nginx") is None
 
-        assert _container_id(f"{PREFIX_B}-web-main") is not None, (
+        assert _container_id(f"{PROJECT_NAME_B}-web-main") is not None, (
             "A's reset tore down a container belonging to project B"
         )
-        assert _container_id(f"{PREFIX_B}-nginx") is not None, (
+        assert _container_id(f"{PROJECT_NAME_B}-nginx") is not None, (
             "A's reset tore down project B's nginx container"
         )
         b_main_volumes = resolve_user_volume_names({"project_name": PROJECT_NAME_B}, "main")
@@ -982,10 +983,10 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         # Exact-named sweep of every resource either project could have
         # created — mirrors _teardown_all_project_resources's shape, just
         # over two rosters/projects/image tags instead of one.
-        for prefix, users in ((PREFIX_A, USERS_A), (PREFIX_B, USERS_B)):
+        for project, users in ((PROJECT_NAME_A, USERS_A), (PROJECT_NAME_B, USERS_B)):
             for user in users:
-                _runtime_cli("rm", "-f", f"{prefix}-web-{user}")
-            _runtime_cli("rm", "-f", f"{prefix}-nginx")
+                _runtime_cli("rm", "-f", f"{project}-web-{user}")
+            _runtime_cli("rm", "-f", f"{project}-nginx")
         for project in (PROJECT_NAME_A, PROJECT_NAME_B):
             _runtime_cli("compose", "-p", project, "down", timeout=60)
         for project, users in ((PROJECT_NAME_A, USERS_A), (PROJECT_NAME_B, USERS_B)):
@@ -1301,10 +1302,10 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
     repo = _make_hetero_repo(tmp_path)
     users_env_path = repo / ".env.users"
 
-    alice_c = f"{HETERO_PREFIX}-web-alice"
-    bob_c = f"{HETERO_PREFIX}-web-bob"
-    carol_c = f"{HETERO_PREFIX}-web-carol"
-    nginx_c = f"{HETERO_PREFIX}-nginx"
+    alice_c = f"{HETERO_PROJECT_NAME}-web-alice"
+    bob_c = f"{HETERO_PROJECT_NAME}-web-bob"
+    carol_c = f"{HETERO_PROJECT_NAME}-web-carol"
+    nginx_c = f"{HETERO_PROJECT_NAME}-nginx"
 
     try:
         # Precondition: exactly the "checkout with only a .env" shape.
@@ -1547,7 +1548,7 @@ def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image:
 # image-dependent test here means marking it the same way.
 #
 # Same container-ops safety guardrail as the rest of this file: the sidecar is
-# exact-named `osprey-e2e-mus-p3-qmd`, removed by that name, and its stack goes
+# exact-named `osprey-e2e-mus-p3-qmd-okf`, removed by that name, and its stack goes
 # down with the project-scoped `compose -p <project> down` the module already
 # uses. No prune, no `-a`, no wildcard, no `-v`.
 
@@ -1556,9 +1557,10 @@ def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image:
 #: the two-project isolation test, 20280-20600 the heterogeneous tests).
 QMD_PORT = 19085
 
-#: Exact container name the sidecar fragment declares -- `<project>-qmd`, the
-#: same namespacing rule the shipped service template applies.
-QMD_CONTAINER = f"{PROJECT_NAME}-qmd"
+#: Exact container name the sidecar fragment declares for the OKF corpus --
+#: `<project>-qmd-<corpus>`, the same namespacing rule the shipped service
+#: template applies.
+QMD_CONTAINER = f"{PROJECT_NAME}-qmd-{QMD_OKF_COLLECTION}"
 
 #: The sidecar image, honouring `OSPREY_QMD_IMAGE`. Never built by this file.
 QMD_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-validate"
@@ -1646,8 +1648,8 @@ def _write_qmd_service_render(repo: Path) -> None:
       that happened to land.
 
     What the test asserts on is spelled exactly as the template spells it: the
-    published loopback port, the ``:ro`` corpus mount at
-    ``/corpus/<collection>``, the collection name, and the entrypoint's
+    published loopback port, the ``qmd-<corpus>`` service, the ``:ro`` corpus
+    mount at ``/corpus/<corpus>``, the collection name, and the entrypoint's
     ``OSPREY_QMD_*`` contract. The rendered template itself is covered
     independently by ``tests/deployment/test_qmd_compose_fragment.py``, so this
     copy is not the only thing standing behind that fragment.
@@ -1655,21 +1657,11 @@ def _write_qmd_service_render(repo: Path) -> None:
     service_dir = repo / BUILD_DIRNAME / "services" / "qmd"
     service_dir.mkdir(parents=True, exist_ok=True)
 
-    # One collection per mounted corpus, at the mount target below. The
-    # entrypoint copies this into its state directory on every start.
-    (service_dir / "index.yml").write_text(
-        f"collections:\n"
-        f"  {QMD_OKF_COLLECTION}:\n"
-        f"    path: {SIDECAR_CORPUS_TARGET}\n"
-        f'    pattern: "**/*.md"\n',
-        encoding="utf-8",
-    )
-
     # Every relative path resolves against the pinned compose project
     # directory, which is the repo root -- never this file's own subdir.
     (service_dir / "docker-compose.yml").write_text(
         f"""services:
-  qmd:
+  qmd-{QMD_OKF_COLLECTION}:
     image: {QMD_IMAGE}
     container_name: {QMD_CONTAINER}
     restart: unless-stopped
@@ -1680,9 +1672,10 @@ def _write_qmd_service_render(repo: Path) -> None:
       OSPREY_QMD_UPDATE_INTERVAL: "300"
       OSPREY_QMD_MARKER_POLL_INTERVAL: "{QMD_MARKER_POLL_SEC}"
       OSPREY_QMD_STATE_DIR: "/var/lib/qmd"
-      OSPREY_QMD_INDEX_CONFIG: "/etc/qmd/index.yml"
+      OSPREY_QMD_CORPUS: "{QMD_OKF_COLLECTION}"
+      OSPREY_QMD_CORPUS_PATH: "{SIDECAR_CORPUS_TARGET}"
+      OSPREY_QMD_INDEX_MODE: "managed"
     volumes:
-      - ./{BUILD_DIRNAME}/services/qmd/index.yml:/etc/qmd/index.yml:ro
       # collection `{QMD_OKF_COLLECTION}` -- READ-ONLY on purpose: the sidecar
       # indexes this tree, and every process that writes it (the web terminals)
       # is outside this container.

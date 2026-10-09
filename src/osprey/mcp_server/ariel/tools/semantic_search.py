@@ -18,10 +18,11 @@ from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.tools.search_envelope import (
     ResultWindow,
     advanced_params,
-    diagnostics,
+    envelope_diagnostics,
     raise_for_fault_exception,
     raise_for_vocabulary_error,
     raise_on_statement_fault,
+    serialize_page,
     success_envelope,
 )
 from osprey.services.ariel_search.exceptions import (
@@ -54,7 +55,8 @@ async def semantic_search(
         query: Natural language description of what to find.
         max_results: Maximum number of results (1-100, default 10).
         start_date: Filter entries after this ISO-8601 date (e.g. "2024-01-15").
-        end_date: Filter entries before this ISO-8601 date.
+        end_date: Filter entries up to this ISO-8601 date or time; a bare date
+            includes that whole day.
         author: Filter by author name (partial match).
         source_system: Filter by source system (exact match).
         similarity_threshold: Minimum similarity score (0-1). Higher = stricter.
@@ -97,8 +99,15 @@ async def semantic_search(
 
         raise_on_statement_fault(result, "semantic")
 
-        response = success_envelope(query, "semantic", result, window.select(result.entries))
-        response["diagnostics"] = diagnostics(result)
+        config = registry.config
+        entries = await serialize_page(
+            window.select(result.entries),
+            config,
+            service.repository,
+            text_limit=config.entry_text.listing_chars,
+        )
+        response = success_envelope(query, "semantic", result, entries)
+        response["diagnostics"] = await envelope_diagnostics(result, service.repository)
 
         return json.dumps(response, default=str)
 

@@ -19,10 +19,11 @@ from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.tools.search_envelope import (
     ResultWindow,
     advanced_params,
-    diagnostics,
+    envelope_diagnostics,
     raise_for_fault_exception,
     raise_for_vocabulary_error,
     raise_on_statement_fault,
+    serialize_page,
     success_envelope,
 )
 from osprey.services.ariel_search.exceptions import (
@@ -56,6 +57,7 @@ async def hybrid_search(
     exclude_entry_ids: list[str] | None = None,
     expand_query: bool | None = None,
     rerank: bool | None = None,
+    include_images: bool | None = None,
 ) -> str:
     """Search the ARIEL logbook using hybrid keyword + semantic ranking.
 
@@ -77,7 +79,8 @@ async def hybrid_search(
         query: Natural language description or keywords describing what to find.
         max_results: Maximum number of results (1-100, default 10).
         start_date: Filter entries after this ISO-8601 date (e.g. "2024-01-15").
-        end_date: Filter entries before this ISO-8601 date.
+        end_date: Filter entries up to this ISO-8601 date or time; a bare date
+            includes that whole day.
         author: Filter by author name (partial match).
         source_system: Filter by source system (exact match).
         exclude_entry_ids: Entry IDs to exclude from results (for iterative search).
@@ -88,6 +91,8 @@ async def hybrid_search(
             which entries come back and how they are ordered but is much
             slower, so pass rerank=false and judge relevance yourself when
             speed matters.
+        include_images: Also match entries by what their attached pictures show.
+            None = on when capabilities().attachments.picture_search.
 
     Returns:
         JSON with matching entries and relevance scores, the vocabulary
@@ -120,6 +125,7 @@ async def hybrid_search(
                 source_system=source_system,
                 expand_query=expand_query,
                 rerank=rerank,
+                include_images=include_images,
             ),
         )
 
@@ -142,8 +148,17 @@ async def hybrid_search(
                 "service_unavailable", f"ARIEL hybrid search is unavailable: {fault}", _hints()
             )
 
-        response = success_envelope(query, "hybrid", result, window.select(result.entries))
-        response["diagnostics"] = diagnostics(result)
+        config = registry.config
+        selected = window.select(result.entries)
+        entries = await serialize_page(
+            selected, config, service.repository, text_limit=config.entry_text.listing_chars
+        )
+        response = success_envelope(query, "hybrid", result, entries)
+        if any("_matched_via" in entry for entry in selected):
+            # A fused result may hold more entries than the page shows; the
+            # sources name exactly the entries returned.
+            response["sources"] = [entry["entry_id"] for entry in selected]
+        response["diagnostics"] = await envelope_diagnostics(result, service.repository)
 
         return json.dumps(response, default=str)
 
@@ -325,10 +340,10 @@ def _hints() -> list[str]:
     """
     base_url = None
     try:
-        from osprey.deployment.qmd_service import resolve_qmd_service_config
+        from osprey.deployment.qmd_service import ARIEL_CORPUS, resolve_qmd_corpus_config
         from osprey.utils.workspace import load_osprey_config
 
-        qmd_config = resolve_qmd_service_config(load_osprey_config())
+        qmd_config = resolve_qmd_corpus_config(load_osprey_config(), ARIEL_CORPUS)
         base_url = qmd_config.base_url if qmd_config is not None else None
     except Exception:  # a config fault must not replace the real error.
         logger.debug("could not resolve services.qmd while building hybrid_search hints")

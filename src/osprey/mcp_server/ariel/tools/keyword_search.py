@@ -18,10 +18,11 @@ from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.ariel.tools.search_envelope import (
     ResultWindow,
     advanced_params,
-    diagnostics,
+    envelope_diagnostics,
     raise_for_fault_exception,
     raise_for_vocabulary_error,
     raise_on_statement_fault,
+    serialize_page,
     success_envelope,
 )
 from osprey.services.ariel_search.exceptions import (
@@ -46,14 +47,20 @@ async def keyword_search(
 ) -> str:
     """Search the ARIEL logbook using PostgreSQL full-text keyword search.
 
-    Fast, exact-matching search. Supports quoted phrases and AND/OR/NOT operators.
-    Best for specific terms, equipment names, PV names, or known phrases.
+    Fast full-text search. Best for specific terms, equipment names, PV names,
+    or known phrases. Plain words must all appear in an entry; only when no
+    entry has them all does it return the entries holding most of them,
+    ranked, each with `matched_terms` and `missing_terms` and an INFO
+    diagnostic naming the words no hit holds. Quoted phrases are always
+    required; `OR` widens (`laser OR rf`), `AND`/`NOT` narrow. Dates and
+    authors go in start_date/end_date/author, never in the query text.
 
     Args:
-        query: Search terms. Supports phrases in quotes, AND/OR/NOT operators.
+        query: Search terms: plain words, quoted phrases, AND/OR/NOT.
         max_results: Maximum number of results (1-100, default 10).
-        start_date: Filter entries after this ISO-8601 date (e.g. "2024-01-15").
-        end_date: Filter entries before this ISO-8601 date.
+        start_date: Filter entries from this ISO-8601 date or time (e.g. "2024-01-15").
+        end_date: Filter entries up to this ISO-8601 date or time; a bare date
+            includes that whole day.
         author: Filter by author name (partial match).
         source_system: Filter by source system (exact match).
         exclude_entry_ids: Entry IDs to exclude from results (for iterative search).
@@ -92,8 +99,15 @@ async def keyword_search(
 
         raise_on_statement_fault(result, "keyword")
 
-        response = success_envelope(query, "keyword", result, window.select(result.entries))
-        response["diagnostics"] = diagnostics(result)
+        config = registry.config
+        entries = await serialize_page(
+            window.select(result.entries),
+            config,
+            service.repository,
+            text_limit=config.entry_text.listing_chars,
+        )
+        response = success_envelope(query, "keyword", result, entries)
+        response["diagnostics"] = await envelope_diagnostics(result, service.repository)
 
         return json.dumps(response, default=str)
 

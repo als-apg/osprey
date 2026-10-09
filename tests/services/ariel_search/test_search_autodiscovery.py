@@ -171,6 +171,18 @@ class TestFormatKeywordResult:
         result = format_keyword_result(entry, 0.5, [])
         assert result["title"] is None
 
+    def test_format_keyword_result_partial_hit_terms(self):
+        """A partial hit's matched and missing words reach the formatted result."""
+        entry = {**_make_entry(), "_matched_terms": ["beam"], "_missing_terms": ["oct"]}
+        result = format_keyword_result(entry, 0.5, [])
+        assert result["matched_terms"] == ["beam"]
+        assert result["missing_terms"] == ["oct"]
+
+    def test_format_keyword_result_strict_hit_has_no_terms(self):
+        """An all-words hit carries neither key."""
+        result = format_keyword_result(_make_entry(), 0.5, [])
+        assert "matched_terms" not in result and "missing_terms" not in result
+
 
 class TestFormatSemanticResult:
     """Tests for format_semantic_result."""

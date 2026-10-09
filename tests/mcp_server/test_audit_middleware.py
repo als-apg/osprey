@@ -1798,3 +1798,67 @@ class TestToolCallRecord:
         assert record["result_ref"]["artifact_id"] == "art-1"
         assert record["result_ref"]["size"] > 4096
         assert tool_call_module.SURFACE_TOOL_CALL == "tool_call"
+
+
+class TestToolCallImageSpill:
+    @staticmethod
+    def _image_result(raw: bytes):
+        import base64
+
+        from fastmcp.tools.base import ToolResult
+        from mcp.types import ImageContent, TextContent
+
+        return ToolResult(
+            content=[
+                TextContent(type="text", text="shot"),
+                ImageContent(
+                    type="image", data=base64.b64encode(raw).decode(), mimeType="image/png"
+                ),
+            ],
+            structured_content=None,
+        )
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_the_call_site_names_the_spill(self, project, monkeypatch):
+        seen: list[dict] = []
+
+        def save_or_touch(sha256, *, origin, save_kwargs):
+            assert len(sha256) == 64
+            assert origin == "tool_call"
+            seen.append(save_kwargs)
+            return SimpleNamespace(id="art-img")
+
+        monkeypatch.setattr(
+            "osprey.stores.artifact_store.get_artifact_store",
+            lambda: SimpleNamespace(save_or_touch_by_sha256=save_or_touch),
+        )
+        await _call(
+            am.AuditMiddleware(),
+            "channel_read",
+            meta=_TOOL_USE_META,
+            result=self._image_result(b"p" * 9000),
+        )
+        (record,) = _full(project)
+        image = record["result"]["content"][1]
+        assert image["artifact_id"] == "art-img"
+        assert "data" not in image
+        (kwargs,) = seen
+        assert kwargs["filename"].startswith("toolu_01abc-")
+        assert "mcp__controls__channel_read" in kwargs["title"]
+
+    @pytest.mark.usefixtures("full_record")
+    async def test_a_raising_store_still_files_the_record(self, project, monkeypatch):
+        def broken():
+            raise RuntimeError("store gone")
+
+        monkeypatch.setattr("osprey.stores.artifact_store.get_artifact_store", broken)
+        returned, _ = await _call(
+            am.AuditMiddleware(), "channel_read", result=self._image_result(b"p" * 9000)
+        )
+
+        assert returned.content[1].data  # the caller's result is untouched
+        (record,) = _full(project)
+        image = record["result"]["content"][1]
+        assert image["artifact_id"] is None
+        assert image["artifact_error"] == "RuntimeError"
+        assert "data" not in image

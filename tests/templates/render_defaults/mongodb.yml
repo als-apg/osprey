@@ -112,8 +112,6 @@ services:
 
 volumes:
   archiver_mongodb_data:
-    labels:
-      com.osprey.repo-id: "0123456789ab"
 
 networks:
   osprey-network:

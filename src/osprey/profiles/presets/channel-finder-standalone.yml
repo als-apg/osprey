@@ -101,8 +101,9 @@ config:
   # Display name woven into the agent prompts and the web landing page. Keep it
   # in sync with .claude/rules/facility.md.
   facility.name: Example Research Facility
-  # Short prefix for container names (`<prefix>-nginx`, `<prefix>-web-<user>`).
-  # Only the multi-user web-terminal stack reads it.
+  # Short facility token. It keys the facility graph's identifiers and names
+  # the web-terminal directory `/app/<prefix>-assistant`. Container names come
+  # from the top-level `project_name:` instead.
   # facility.prefix: ex
   # This facility's compiled ontology table, the JSON `osprey knowledge
   # compile-ontology` writes, relative to the project root. It is the one

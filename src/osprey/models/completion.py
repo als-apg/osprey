@@ -28,6 +28,7 @@ from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.models.messages import ChatCompletionRequest
+    from osprey.models.providers.base import BaseProvider
 
 logger = get_logger("completion")
 
@@ -63,6 +64,28 @@ def _convert_typed_dict_to_pydantic(typed_dict_cls) -> type[BaseModel]:
     return pydantic_model
 
 
+def _chat_provider_class(provider: str) -> type[BaseProvider]:
+    """Return the adapter class for a provider that serves chat.
+
+    Answered from the provider registry alone, so a refusal needs no
+    ``config.yml``.
+
+    :param provider: Provider name
+    :raises ValueError: If the provider serves embeddings only, or is unknown
+    :return: The provider's adapter class
+    """
+    # Lightweight registry (no RegistryManager dependency)
+    from osprey.models.provider_registry import get_provider_registry
+
+    registry = get_provider_registry()
+    if not registry.is_chat(provider):
+        raise ValueError(f"{provider} serves embeddings only")
+    provider_class = registry.get_provider(provider)
+    if not provider_class:
+        raise ValueError(f"Unknown provider: {provider}")
+    return provider_class
+
+
 def get_chat_completion(
     message: str = "",
     max_tokens: int = 1024,
@@ -78,6 +101,8 @@ def get_chat_completion(
     chat_request: ChatCompletionRequest | None = None,
     tools: list[dict] | None = None,
     tool_choice: str | dict | None = None,
+    timeout: float | None = None,
+    num_retries: int | None = None,
 ) -> str | BaseModel | list:
     """Execute direct chat completion requests across multiple AI providers via LiteLLM.
 
@@ -97,7 +122,10 @@ def get_chat_completion(
     :param provider_config: Optional provider configuration dict with api_key, base_url,
         extra_body, etc.
     :param temperature: Sampling temperature (0.0-2.0)
-    :raises ValueError: If required provider, model_id, api_key, or base_url are missing
+    :param timeout: Seconds the request may take; ``None`` leaves the provider's own bound
+    :param num_retries: Retries on a transient failure; ``None`` keeps the default of two
+    :raises ValueError: If required provider, model_id, api_key, or base_url are missing,
+        if the provider is unknown, or if it serves embeddings only
     :return: Model response (str, Pydantic model, or list of content blocks for thinking)
 
     Examples:
@@ -145,6 +173,7 @@ def get_chat_completion(
         provider = model_config.get("provider", provider)
         if not provider:
             raise ValueError("Provider must be specified either directly or via model_config")
+        provider_class = _chat_provider_class(provider)
         model_id = model_config.get("model_id", model_id)
         max_tokens = model_config.get("max_tokens", max_tokens)
         if provider_config is None:
@@ -154,6 +183,7 @@ def get_chat_completion(
     else:
         if not provider:
             raise ValueError("Provider must be specified either directly or via model_config")
+        provider_class = _chat_provider_class(provider)
         if provider_config is None:
             provider_config = get_provider_config(provider)
         if not model_id:
@@ -161,14 +191,6 @@ def get_chat_completion(
         if base_url is None:
             base_url = provider_config.get("base_url")
         api_key = provider_config.get("api_key")
-
-    # Get provider from lightweight registry (no RegistryManager dependency)
-    from osprey.models.provider_registry import get_provider_registry
-
-    provider_class = get_provider_registry().get_provider(provider)
-
-    if not provider_class:
-        raise ValueError(f"Unknown provider: {provider}")
 
     # Resolve before validating: a provider may supply its own endpoint from an
     # env override or its declared default_base_url, and rejecting the call for a
@@ -198,6 +220,10 @@ def get_chat_completion(
         "tools": tools,
         "tool_choice": tool_choice,
     }
+    if timeout is not None:
+        completion_kwargs["timeout"] = timeout
+    if num_retries is not None:
+        completion_kwargs["num_retries"] = num_retries
     if provider_config and isinstance(provider_config.get("extra_body"), dict):
         completion_kwargs["extra_body"] = dict(provider_config["extra_body"])
 

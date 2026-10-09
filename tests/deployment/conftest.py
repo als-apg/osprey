@@ -116,3 +116,26 @@ def no_prebuilt_switch_in_the_environment(monkeypatch):
     the environment is restored afterwards either way.
     """
     monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
+
+
+class _EmptyHost:
+    """A runtime probe that lists no container and no volume for any project."""
+
+    runtime = "docker"
+
+    def containers_for_project(self, project, *, include_stopped=True):  # noqa: ARG002 - RuntimeProbe's signature
+        return []
+
+    def volumes_for_project(self, project):  # noqa: ARG002 - RuntimeProbe's signature
+        return []
+
+
+@pytest.fixture(autouse=True)
+def _empty_host_for_the_ownership_check(monkeypatch):
+    """The start sequence asks the host who owns the project's containers before touching it.
+
+    Tests that record every runtime call need that answer to be "an empty host".
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.container_lifecycle._ownership_probe", lambda config: _EmptyHost()
+    )

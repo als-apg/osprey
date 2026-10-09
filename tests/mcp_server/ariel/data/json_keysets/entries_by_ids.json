@@ -1,0 +1,16 @@
+{
+  "$": "dict",
+  "entries": "list",
+  "entries[]": "dict",
+  "entries[].author": "str",
+  "entries[].entry_id": "str",
+  "entries[].entry_url": "str",
+  "entries[].raw_text": "str",
+  "entries[].raw_text_length": "int",
+  "entries[].raw_text_truncated": "bool",
+  "entries[].source_system": "str",
+  "entries[].summary": "str",
+  "entries[].timestamp": "str",
+  "found": "int",
+  "requested": "int"
+}

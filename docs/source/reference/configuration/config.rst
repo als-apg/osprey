@@ -43,12 +43,16 @@ what the agent thinks your devices are called.
      - Display name woven into the agent's prompts and the web-terminal landing
        page. With no value set, the project name is used.
    * - ``facility.prefix``
-     - Short abbreviation the multi-user web stack puts in front of its
-       container names. Nothing else reads it.
+     - The facility's short token. The facility graph embeds it in every
+       identifier it mints (``osprey knowledge build-ttl --facility``
+       defaults to it), and a multi-user deployment without a ``personas``
+       catalog runs its terminals from ``/app/<prefix>-assistant`` inside the
+       container. It names no container, volume or image; those come from the
+       profile's ``project_name:`` (:ref:`reference-profile`).
    * - ``facility.ontology``
      - Path — relative to the project root — to this facility's **compiled
        ontology table**, the JSON that ``osprey knowledge compile-ontology``
-       writes. See below.
+       writes.
 
 ``facility.ontology`` is the deployment's device vocabulary: the class names
 your facility uses, the everyday words operators say for each one, and the
@@ -912,6 +916,23 @@ Both keys are read once per MCP server process, so a change lands after
 and those artifacts hold values: treat them with the access you give the
 control system's own data. The fields are listed in
 :ref:`audit-trail-tool-call`.
+
+.. _config-ariel-demo-narrative:
+
+``ariel.demo_narrative`` — a demo logbook for a deployment with no simulation
+-----------------------------------------------------------------------------
+
+``ariel.demo_narrative`` names a directory of scenario narratives: one
+subdirectory per scenario, each holding a ``logbook.json`` in the
+scenario-bundle format (:ref:`simulation-bundle-logbook`) and the pictures its
+entries attach. A relative path resolves against the project root. On a
+deployment with no simulation, ``osprey up`` seeds every narrative in it
+(``nominal`` first, then the rest by name) into an empty logbook, pictures
+included, and ``osprey ariel quickstart`` does the same and then runs the
+enhancement modules. A logbook that already holds entries is never touched.
+The ``ariel-standalone`` preset sets it to ``data/logbook_seed``, which
+``osprey init`` fills from the control-assistant scenario bundles. Unset, no
+demo logbook is seeded.
 
 .. _config-ariel-entry-url:
 

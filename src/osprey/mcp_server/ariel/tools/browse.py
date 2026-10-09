@@ -10,8 +10,9 @@ import logging
 
 from fastmcp.exceptions import ToolError
 
-from osprey.mcp_server.ariel.server import make_error, mcp, parse_date_filters, serialize_entry
+from osprey.mcp_server.ariel.server import make_error, mcp, parse_date_filters
 from osprey.mcp_server.ariel.server_context import get_ariel_context
+from osprey.mcp_server.ariel.tools.search_envelope import serialize_page
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.browse")
 
@@ -33,7 +34,8 @@ async def browse(
     Args:
         page_size: Number of entries to return (default 20, max 100).
         start_date: Filter entries after this ISO-8601 date.
-        end_date: Filter entries before this ISO-8601 date.
+        end_date: Filter entries up to this ISO-8601 date or time; a bare date
+            includes that whole day.
         author: Filter by author name (exact match — use ``filter_options``
             for the spelling).
         source_system: Filter by source system (exact match).
@@ -68,10 +70,10 @@ async def browse(
             source_system=source_system,
         )
 
-        # TypedDict entries -- use dict access, not attribute access
-        entries_out = [
-            serialize_entry(e, text_limit=registry.config.entry_text.listing_chars) for e in entries
-        ]
+        config = registry.config
+        entries_out = await serialize_page(
+            entries, config, service.repository, text_limit=config.entry_text.listing_chars
+        )
 
         return json.dumps(
             {

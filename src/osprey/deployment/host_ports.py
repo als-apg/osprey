@@ -47,7 +47,13 @@ from pathlib import Path
 
 import yaml
 
-from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity, resolve_repo_root
+from osprey.deployment.compose_generator import (
+    REPO_ID_LABEL,
+    _resolve_qmd_corpora,
+    repo_identity,
+    resolve_repo_root,
+)
+from osprey.deployment.container_ownership import claims_row
 from osprey.deployment.graphdb_service import (
     CONTAINER_BOLT_PORT,
     CONTAINER_HTTP_PORT,
@@ -57,7 +63,7 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.deployment.host_binding import host_binding_of
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
-from osprey.deployment.qmd_service import dial_host
+from osprey.deployment.qmd_service import QMD_SERVICE_NAME, QMD_SERVICE_PREFIX, dial_host
 from osprey.deployment.runtime_helper import get_ps_command, runtime_env
 from osprey.deployment.web_terminals.personas import normalize_users
 from osprey.deployment.web_terminals.ports import allocate_ports, base_ports_from_config
@@ -326,17 +332,20 @@ def _generic_service(service):
     """Return a service name with the worker index stripped.
 
     Workers are rendered one container per index (``dispatch-worker-1``, ``-2``,
-    …) and share one config key and one layout band, so every lookup keyed on a
-    service name asks about the un-indexed spelling.
+    …) and qmd sidecars one per corpus (``qmd-okf``, ``qmd-ariel``, …); each
+    family shares one config key and one layout band, so every lookup keyed on
+    a service name asks about the un-indexed spelling.
 
     Args:
         service: Compose service name.
 
     Returns:
-        ``"dispatch-worker"`` for any indexed worker, otherwise ``service``.
+        ``"dispatch-worker"`` for any indexed worker, ``"qmd"`` for any corpus
+        sidecar, otherwise ``service``.
     """
-    if service.startswith(f"{_WORKER_SERVICE_PREFIX}-"):
-        return _WORKER_SERVICE_PREFIX
+    for prefix in (_WORKER_SERVICE_PREFIX, QMD_SERVICE_PREFIX):
+        if service.startswith(f"{prefix}-"):
+            return prefix
     return service
 
 
@@ -569,6 +578,7 @@ def derive_host_network_bindings(config):
     - worker ``i`` (1-based) binds
       ``worker_port_base + (i - 1) * worker_port_stride``, one port per
       ``worker_count``;
+    - the qmd sidecars bind one port of the qmd family each, one per corpus;
     - the graph store binds BOTH ``services.graphdb.port_host`` (bolt) and
       ``services.graphdb.http_port_host`` (Browser and health probe) on
       loopback, which is where its host-mode template points Neo4j's listen
@@ -658,11 +668,32 @@ def derive_host_network_bindings(config):
                 )
             )
 
+    qmd = _service_block(config, QMD_SERVICE_NAME)
+    if _on_host_network(qmd):
+        # One sidecar per corpus, each on its own port of the qmd family: the
+        # same derivation the compose fragment renders them from.
+        for corpus in _resolve_qmd_corpora(config, None):
+            bindings.append(
+                HostPortBinding(
+                    service=corpus["service"],
+                    host_ip=_HOST_NETWORK_BIND,
+                    host_port=corpus["port"],
+                    container_port=corpus["port"],
+                    compose_file=_DERIVED_SOURCE,
+                    host_network=True,
+                )
+            )
+
     services = config.get("services") if isinstance(config, dict) else None
     if isinstance(services, dict):
         for name, block in services.items():
-            if name in ("event_dispatcher", "dispatch_worker", GRAPHDB_SERVICE_NAME):
-                continue  # specialized above (bind override / fan-out / two ports)
+            if name in (
+                "event_dispatcher",
+                "dispatch_worker",
+                GRAPHDB_SERVICE_NAME,
+                QMD_SERVICE_NAME,
+            ):
+                continue  # specialized above (bind override / fan-out / several ports)
             block = block if isinstance(block, dict) else {}
             if not _on_host_network(block):
                 continue
@@ -697,8 +728,8 @@ def derive_host_network_bindings(config):
 def _web_terminal_service(user):
     """Return the binding label of one user's terminal.
 
-    ``web-<user>`` is the container name (``<facility_prefix>-web-<user>``,
-    see :mod:`osprey.deployment.web_terminals.naming`) with the facility prefix
+    ``web-<user>`` is the container name (``<project>-web-<user>``, see
+    :mod:`osprey.deployment.web_terminals.naming`) with the project name
     dropped, which is exactly the suffix :func:`_runs_service` matches a running
     container's name against — so this deployment's own terminal, still up from
     the previous deploy, is read as the idempotent redeploy it is.
@@ -987,17 +1018,12 @@ def _deployment_identity(config):
 def _holder_is_ours(record, project_name, repo_id):
     """Whether a running container belongs to THIS deployment.
 
-    The repo-id label strengthens the older compose-project check without
-    replacing it, because the two answer different questions and only one of
-    them is always available:
-
-    * both this checkout and the container carry a repo-id: the labels decide,
-      outright. A container of ANOTHER checkout of the same repo shares this
-      deployment's compose project name, so the project check alone would call
-      a real collision an idempotent redeploy and wave it through.
-    * the container carries none (an older OSPREY created it, or it is not
-      OSPREY's at all): fall back to the compose project name, which is what
-      this check has always used.
+    The parsed row read through the one ownership rule,
+    :func:`~osprey.deployment.container_ownership.claims_row`: when both this
+    checkout and the container carry a repo-id the ids decide, because another
+    checkout of the same repo shares this deployment's compose project name and
+    the project alone would call a real collision an idempotent redeploy;
+    otherwise the compose project name decides.
 
     Args:
         record: One parsed ``ps`` row.
@@ -1007,9 +1033,12 @@ def _holder_is_ours(record, project_name, repo_id):
     Returns:
         ``True`` when the container is this deployment's own.
     """
-    if record.repo_id and repo_id:
-        return record.repo_id == repo_id
-    return bool(record.project) and record.project == project_name
+    return claims_row(
+        row_repo_id=record.repo_id,
+        row_project=record.project,
+        project=project_name,
+        repo_id=repo_id,
+    )
 
 
 def _runs_service(records, project_name, repo_id, service):

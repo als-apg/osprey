@@ -8,6 +8,13 @@ one seam that makes that true: the child's stdout and stderr go to
 ``<repo>/var/logs/<spool_name>-<timestamp>.log`` as a single merged stream, and
 the file is named on the failure path so nothing is lost.
 
+A captured child owns no terminal: its stdin is the null device, so a prompt it
+prints reads EOF and takes its own default instead of waiting for an answer
+nobody can see. Compose does this for a named volume whose labels no longer
+match the compose file: it keeps the volume and exits 0. Because that success
+is silent, every captured run's spool is scanned for it and a warning names the
+volume.
+
 Under the global ``--verbose`` flag the helper is a pass-through: the child
 inherits this process's stdio and streams straight to the terminal, with no
 redirection kwargs at all. Verbosity is read from the reporter's module-level
@@ -21,6 +28,7 @@ is the safe default, and the spool path is reported on failure either way.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -38,6 +46,11 @@ SPOOL_DIR = Path("var") / "logs"
 #: How many spool files survive a prune. Older ones are removed at entry, so a
 #: long-lived deployment repo keeps the recent runs without growing unbounded.
 SPOOL_RETENTION = 20
+
+#: What compose prints for a named volume whose labels differ from the compose
+#: file. With stdin at EOF it answers its own "Recreate?" prompt No.
+_VOLUME_MISMATCH_MARKER = "exists but doesn't match configuration"
+_QUOTED = re.compile(r'"([^"]+)"')
 
 
 class CapturedProcess(subprocess.CompletedProcess[bytes]):
@@ -101,6 +114,48 @@ def _spool_path(spool_dir: Path, spool_name: str) -> Path:
         suffix += 1
         candidate = spool_dir / f"{spool_name}-{stamp}-{suffix}.log"
     return candidate
+
+
+def _mismatched_volumes(text: str) -> list[str]:
+    """Names of the volumes compose reported as not matching the compose file.
+
+    Each name appears once, in the order compose first reported it. Only lines
+    carrying the mismatch marker are read, so other quoted text in the output
+    never counts.
+    """
+    names: list[str] = []
+    for line in text.splitlines():
+        if _VOLUME_MISMATCH_MARKER not in line:
+            continue
+        for name in _QUOTED.findall(line):
+            if name not in names:
+                names.append(name)
+    return names
+
+
+def _warn_on_kept_volumes(spool_path: Path) -> None:
+    """Warn once when a run's spool shows compose keeping a mismatched volume.
+
+    Compose answers its own "Recreate?" prompt No when stdin is at EOF, keeps
+    the volume and exits 0, so neither the exit code nor any failure diagnoser
+    would otherwise surface it. Best-effort: an unreadable spool is skipped.
+    """
+    try:
+        text = spool_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:  # pragma: no cover - depends on filesystem state
+        logger.debug("Could not scan spool %s: %s", spool_path, exc)
+        return
+    volumes = _mismatched_volumes(text)
+    if not volumes:
+        return
+    logger.warning(
+        "Compose kept the existing volume(s) %s unchanged although they do not match "
+        "the compose file (see %s). This is expected once after an OSPREY upgrade "
+        "that changed volume labels; if it persists, `osprey status` shows the "
+        "deployment's volumes.",
+        ", ".join(volumes),
+        spool_path,
+    )
 
 
 def run_captured(
@@ -169,10 +224,17 @@ def run_captured(
             # stderr into the same handle, not a second file — a build's errors
             # are only legible interleaved with the step they interrupted.
             completed = subprocess.run(
-                cmd, env=env, cwd=cwd, stdout=spool, stderr=subprocess.STDOUT
+                cmd,
+                env=env,
+                cwd=cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=spool,
+                stderr=subprocess.STDOUT,
             )
         else:
             completed = _run_teeing(cmd, env=env, cwd=cwd, spool=spool, on_line=on_line)
+
+    _warn_on_kept_volumes(spool_path)
 
     if check and completed.returncode != 0:
         raise CapturedProcessError(cmd, completed.returncode, spool_path)
@@ -203,7 +265,12 @@ def _run_teeing(
     chokes on costs that line's step at debug level, not every step after it.
     """
     with subprocess.Popen(
-        cmd, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        cmd,
+        env=env,
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     ) as process:
         assert process.stdout is not None  # PIPE above guarantees it
         for raw in process.stdout:

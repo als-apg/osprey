@@ -92,7 +92,12 @@ def _mark_abandoned(thread: threading.Thread) -> None:
         _abandoned_threads.append(thread)
 
 
-async def run_sync(fn: Callable[..., T], *args: Any, timeout_s: float) -> T:
+async def run_sync(
+    fn: Callable[..., T],
+    *args: Any,
+    timeout_s: float | None,
+    on_abandon: Callable[[threading.Thread], None] = _mark_abandoned,
+) -> T:
     """Run a synchronous callable on a daemon thread, bridged to the running loop.
 
     The callable executes on a freshly spawned ``daemon=True`` thread. Its result or
@@ -102,7 +107,13 @@ async def run_sync(fn: Callable[..., T], *args: Any, timeout_s: float) -> T:
     Args:
         fn: The synchronous callable to run off the event loop.
         *args: Positional arguments forwarded to ``fn``.
-        timeout_s: Maximum seconds to await a result before abandoning the thread.
+        timeout_s: Maximum seconds to await a result before abandoning the thread;
+            None awaits without a limit (the thread is then abandoned only when
+            the await is cancelled).
+        on_abandon: Called with the worker thread when its await times out or is
+            cancelled. The default records it in this module's abandoned-thread
+            accounting; a caller with its own bookkeeping passes its own, so its
+            threads never enter that accounting.
 
     Returns:
         The value returned by ``fn``.
@@ -110,7 +121,7 @@ async def run_sync(fn: Callable[..., T], *args: Any, timeout_s: float) -> T:
     Raises:
         TimeoutError: If ``fn`` does not complete within ``timeout_s``. The worker
             thread is abandoned (it keeps running but, being a daemon, never blocks
-            process exit) and :func:`abandoned_count` is incremented.
+            process exit) and ``on_abandon`` is called with it.
         asyncio.CancelledError: If the awaiting task is cancelled while ``fn`` is
             still running. The worker thread is abandoned the same way before the
             cancellation propagates, so a hung thread is never left uncounted.
@@ -159,5 +170,5 @@ async def run_sync(fn: Callable[..., T], *args: Any, timeout_s: float) -> T:
         # Timeout or an externally-cancelled await (e.g. the runner backstop) both
         # leave the worker running; abandon it before re-raising so the daemon never
         # blocks exit and never escapes the abandoned-thread accounting.
-        _mark_abandoned(thread)
+        on_abandon(thread)
         raise

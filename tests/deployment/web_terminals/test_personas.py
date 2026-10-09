@@ -456,7 +456,7 @@ def test_resolve_personas_no_catalog_resolves_to_todays_values() -> None:
     web_terminals = {"users": ["alice", "bob"]}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result == [
@@ -509,7 +509,7 @@ def test_resolve_personas_no_catalog_empty_registry_url_matches_template_concat(
     web_terminals = {"users": ["alice"]}
 
     # Act
-    result = resolve_personas(web_terminals, {}, "als")
+    result = resolve_personas(web_terminals, {}, "als", project_name="als")
 
     # Assert
     assert result[0]["image"] == "/web-terminal:latest"
@@ -528,7 +528,7 @@ def test_resolve_personas_default_persona_keeps_unsuffixed_registry_image() -> N
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result == [
@@ -558,7 +558,7 @@ def test_resolve_personas_default_persona_container_dir_follows_its_project() ->
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["project"] == "control-room"
@@ -580,7 +580,7 @@ def test_resolve_personas_non_default_persona_registry_mode_suffixes_image() -> 
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result == [
@@ -613,7 +613,7 @@ def test_resolve_personas_local_mode_tags_every_persona_by_render_including_defa
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     images = {entry["name"]: entry["image"] for entry in result}
@@ -641,11 +641,53 @@ def test_resolve_personas_local_mode_entry_without_project_keeps_suffixed_tag() 
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["image"] == "als-assistant-bare:local"
     assert result[0]["project"] == "als-assistant"
+
+
+def test_resolve_personas_legacy_image_follows_the_project_dir_follows_the_prefix() -> None:
+    """With no render of its own, the image is named on the deployment's compose
+    project while the in-container directory stays on ``facility.prefix``: Claude
+    Code state in the persisted config volume is keyed by that directory."""
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "bare"}],
+        "default_persona": "bare",
+        "image_source": "local",
+        "personas": {"bare": {"project_path": "profiles/bare"}},
+    }
+
+    (entry,) = resolve_personas(web_terminals, _REGISTRY, "als", project_name="site")
+
+    assert entry["image"] == "site-assistant-bare:local"
+    assert entry["project"] == "site-assistant"
+    assert entry["container_project_dir"] == "/app/als-assistant"
+
+
+def test_resolve_personas_zero_migration_project_follows_the_project_name() -> None:
+    """A roster with no persona system names its project on the compose project
+    and keeps the facility-prefix directory."""
+    (entry,) = resolve_personas({"users": ["alice"]}, _REGISTRY, "als", project_name="site")
+
+    assert entry["project"] == "site-assistant"
+    assert entry["container_project_dir"] == "/app/als-assistant"
+
+
+def test_resolve_personas_own_project_ignores_both_names() -> None:
+    """A persona with its own render is named and placed by that render alone."""
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "cli"}],
+        "default_persona": "cli",
+        "image_source": "local",
+        "personas": {"cli": {"project": "site-cli", "project_path": "build/site-cli"}},
+    }
+
+    (entry,) = resolve_personas(web_terminals, _REGISTRY, "als", project_name="site")
+
+    assert entry["image"] == "site-cli:local"
+    assert entry["container_project_dir"] == "/app/site-cli"
 
 
 def test_resolve_personas_entry_without_persona_key_inherits_default_persona() -> None:
@@ -659,7 +701,7 @@ def test_resolve_personas_entry_without_persona_key_inherits_default_persona() -
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["persona"] == "cli"
@@ -673,7 +715,7 @@ def test_resolve_personas_local_mode_without_catalog_strict_raises() -> None:
 
     # Act / Assert
     with pytest.raises(ValueError, match="local"):
-        resolve_personas(web_terminals, _REGISTRY, "als", strict=True)
+        resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=True)
 
 
 def test_resolve_personas_local_mode_without_catalog_lenient_degrades() -> None:
@@ -684,7 +726,7 @@ def test_resolve_personas_local_mode_without_catalog_lenient_degrades() -> None:
     web_terminals = {"users": ["alice"], "image_source": "local"}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", strict=False)
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=False)
 
     # Assert
     assert result == [
@@ -712,7 +754,7 @@ def test_resolve_personas_unknown_persona_ref_strict_raises() -> None:
 
     # Act / Assert
     with pytest.raises(ValueError, match="ghost"):
-        resolve_personas(web_terminals, _REGISTRY, "als", strict=True)
+        resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=True)
 
 
 def test_resolve_personas_unknown_persona_ref_lenient_degrades() -> None:
@@ -725,7 +767,7 @@ def test_resolve_personas_unknown_persona_ref_lenient_degrades() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", strict=False)
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=False)
 
     # Assert
     assert result == [
@@ -752,7 +794,7 @@ def test_resolve_personas_preserves_normalize_users_index_freezing() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["index"] == 5
@@ -765,7 +807,7 @@ def test_resolve_personas_exposes_display_name_when_set() -> None:
     web_terminals = {"users": [{"name": "alice", "index": 0, "display_name": "Operations"}]}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result == [
@@ -799,7 +841,7 @@ def test_resolve_personas_display_name_threads_through_persona_branch() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["persona"] == "gui"
@@ -820,7 +862,7 @@ def test_resolve_personas_omits_display_name_key_when_unset_or_empty() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert — no entry carries a display_name key
     assert all("display_name" not in entry for entry in result)
@@ -833,7 +875,7 @@ def test_resolve_personas_exposes_theme_when_set() -> None:
     web_terminals = {"users": [{"name": "alice", "index": 0, "theme": "desy-light"}]}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result == [
@@ -863,7 +905,7 @@ def test_resolve_personas_exposes_tour_when_set() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["tour"] == "always"
@@ -884,7 +926,7 @@ def test_resolve_personas_theme_threads_through_persona_branch() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["persona"] == "gui"
@@ -904,7 +946,7 @@ def test_resolve_personas_omits_theme_key_when_unset_or_empty() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert — no entry carries a theme key
     assert all("theme" not in entry for entry in result)
@@ -913,15 +955,15 @@ def test_resolve_personas_omits_theme_key_when_unset_or_empty() -> None:
 def test_resolve_personas_empty_users_returns_empty_list() -> None:
     """An empty/missing roster resolves to an empty list regardless of catalog."""
     # Act / Assert
-    assert resolve_personas({}, _REGISTRY, "als") == []
-    assert resolve_personas({"users": []}, _REGISTRY, "als") == []
+    assert resolve_personas({}, _REGISTRY, "als", project_name="als") == []
+    assert resolve_personas({"users": []}, _REGISTRY, "als", project_name="als") == []
 
 
 def test_resolve_personas_registry_cfg_missing_url_defaults_to_empty_string() -> None:
     """A registry section with no `url` key must not raise — it degrades to the
     same empty-prefix behavior as an entirely absent registry section."""
     # Act
-    result = resolve_personas({"users": ["alice"]}, {}, "als")
+    result = resolve_personas({"users": ["alice"]}, {}, "als", project_name="als")
 
     # Assert
     assert result[0]["image"] == "/web-terminal:latest"
@@ -946,7 +988,7 @@ def test_resolve_personas_reads_extra_mounts_from_catalog_entry() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["extra_mounts"] == [
@@ -966,7 +1008,7 @@ def test_resolve_personas_default_persona_also_carries_extra_mounts() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["extra_mounts"] == ["/data:/app/data:ro"]
@@ -979,7 +1021,7 @@ def test_resolve_personas_no_persona_defaults_extra_mounts_to_empty_list() -> No
     web_terminals = {"users": ["alice"]}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["extra_mounts"] == []
@@ -995,7 +1037,7 @@ def test_resolve_personas_catalog_entry_without_extra_mounts_defaults_to_empty_l
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["extra_mounts"] == []
@@ -1020,7 +1062,7 @@ def test_resolve_personas_extra_mounts_defensive_reads() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     by_name = {entry["name"]: entry["extra_mounts"] for entry in result}
@@ -1038,7 +1080,7 @@ def test_resolve_personas_lenient_degrade_extra_mounts_empty() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", strict=False)
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=False)
 
     # Assert
     assert result[0]["extra_mounts"] == []
@@ -1055,7 +1097,7 @@ def test_resolve_personas_image_tag_defaults_to_latest() -> None:
     web_terminals = {"users": ["alice"]}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["image"] == "registry.example.org/osprey/web-terminal:latest"
@@ -1076,7 +1118,7 @@ def test_resolve_personas_image_tag_explicit_literal_is_emitted_verbatim() -> No
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     images = {entry["name"]: entry["image"] for entry in result}
@@ -1094,7 +1136,7 @@ def test_resolve_personas_image_tag_expands_env_var_at_render_time(monkeypatch) 
     web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}"}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["image"] == "registry.example.org/osprey/web-terminal:v9.9.9"
@@ -1108,7 +1150,7 @@ def test_resolve_personas_image_tag_unset_env_var_expands_to_empty(monkeypatch) 
     web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}"}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["image"] == "registry.example.org/osprey/web-terminal:"
@@ -1128,7 +1170,7 @@ def test_resolve_personas_seed_base_defaults_true_for_catalog_entry() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["seed_base"] is True
@@ -1143,7 +1185,7 @@ def test_resolve_personas_seed_base_false_is_carried_through() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["seed_base"] is False
@@ -1159,7 +1201,7 @@ def test_resolve_personas_seed_base_non_bool_coerces_to_true() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["seed_base"] is True
@@ -1169,7 +1211,7 @@ def test_resolve_personas_no_persona_entry_is_seed_base_true() -> None:
     """The zero-migration path (no persona in effect) always keeps the base
     prepend — seed_base is only opt-out-able through a catalog entry."""
     # Act
-    result = resolve_personas({"users": ["alice"]}, _REGISTRY, "als")
+    result = resolve_personas({"users": ["alice"]}, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["seed_base"] is True
@@ -1282,7 +1324,10 @@ def test_resolve_personas_carries_no_login_marker() -> None:
     retired key ride through onto a resolved entry."""
     # Act
     zero_migration = resolve_personas(
-        {"users": [{"name": "ariel", "index": 0, "login": False}]}, _REGISTRY, "als"
+        {"users": [{"name": "ariel", "index": 0, "login": False}]},
+        _REGISTRY,
+        "als",
+        project_name="als",
     )
     persona_branch = resolve_personas(
         {
@@ -1291,6 +1336,7 @@ def test_resolve_personas_carries_no_login_marker() -> None:
         },
         _REGISTRY,
         "als",
+        project_name="als",
     )
 
     # Assert
@@ -1733,7 +1779,10 @@ def test_resolve_personas_threads_access_any_through_both_branches() -> None:
     the persona-catalog path alike, and stays absent when never declared."""
     # Act
     zero_migration = resolve_personas(
-        {"users": [{"name": "control", "index": 0, "access": "any"}]}, _REGISTRY, "als"
+        {"users": [{"name": "control", "index": 0, "access": "any"}]},
+        _REGISTRY,
+        "als",
+        project_name="als",
     )
     persona_branch = resolve_personas(
         {
@@ -1742,8 +1791,9 @@ def test_resolve_personas_threads_access_any_through_both_branches() -> None:
         },
         _REGISTRY,
         "als",
+        project_name="als",
     )
-    undeclared = resolve_personas({"users": ["alice"]}, _REGISTRY, "als")
+    undeclared = resolve_personas({"users": ["alice"]}, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert zero_migration[0]["access"] == "any"
@@ -1761,7 +1811,10 @@ def test_resolve_personas_preserves_the_resolved_principal_set() -> None:
 
     # Act
     zero_migration = resolve_personas(
-        {"users": [{"name": "control", "index": 0, "access": authored}]}, _REGISTRY, "als"
+        {"users": [{"name": "control", "index": 0, "access": authored}]},
+        _REGISTRY,
+        "als",
+        project_name="als",
     )
     persona_branch = resolve_personas(
         {
@@ -1770,6 +1823,7 @@ def test_resolve_personas_preserves_the_resolved_principal_set() -> None:
         },
         _REGISTRY,
         "als",
+        project_name="als",
     )
 
     # Assert — carried verbatim, and still resolving to the same principals
@@ -1800,6 +1854,7 @@ def test_resolve_personas_shows_a_domain_card_to_the_shared_card_guard() -> None
         },
         _REGISTRY,
         "als",
+        project_name="als",
     )
 
     # Assert
@@ -1818,12 +1873,12 @@ def test_resolve_personas_lenient_drops_an_entry_with_an_unreadable_access() -> 
     }
 
     # Act
-    lenient = resolve_personas(web_terminals, _REGISTRY, "als", strict=False)
+    lenient = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=False)
 
     # Assert
     assert [entry["name"] for entry in lenient] == ["bob"]
     with pytest.raises(ValueError, match="'control'"):
-        resolve_personas(web_terminals, _REGISTRY, "als")
+        resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
 
 def test_freeze_user_indices_refuses_an_unreadable_access_rather_than_shortening() -> None:
@@ -1866,7 +1921,7 @@ def test_resolve_personas_exposes_oidc_subject_when_set() -> None:
     web_terminals = {"users": [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}]}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["oidc_subject"] == "alice@example.org"
@@ -1884,7 +1939,7 @@ def test_resolve_personas_oidc_subject_threads_through_persona_branch() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["persona"] == "gui"
@@ -1895,7 +1950,7 @@ def test_resolve_personas_omits_oidc_subject_key_when_unset() -> None:
     """A roster with no OIDC mapping resolves byte-identically to before the
     field existed — no `oidc_subject: None` key appears."""
     # Act
-    result = resolve_personas({"users": ["alice"]}, _REGISTRY, "als")
+    result = resolve_personas({"users": ["alice"]}, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert "oidc_subject" not in result[0]
@@ -3447,8 +3502,10 @@ def test_resolve_personas_role_only_entry_resolves_like_the_equivalent_pin() -> 
     }
 
     # Act / Assert
-    assert resolve_personas(by_role, _REGISTRY, "als") == resolve_personas(by_pin, _REGISTRY, "als")
-    assert resolve_personas(by_role, _REGISTRY, "als")[0]["persona"] == "gui"
+    assert resolve_personas(by_role, _REGISTRY, "als", project_name="als") == resolve_personas(
+        by_pin, _REGISTRY, "als", project_name="als"
+    )
+    assert resolve_personas(by_role, _REGISTRY, "als", project_name="als")[0]["persona"] == "gui"
 
 
 def test_resolve_personas_strict_refuses_an_undeclared_role() -> None:
@@ -3463,7 +3520,7 @@ def test_resolve_personas_strict_refuses_an_undeclared_role() -> None:
 
     # Act / Assert
     with pytest.raises(UnresolvedRoleError):
-        resolve_personas(web_terminals, _REGISTRY, "als")
+        resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
 
 def test_resolve_personas_lenient_degrades_an_undeclared_role() -> None:
@@ -3478,7 +3535,7 @@ def test_resolve_personas_lenient_degrades_an_undeclared_role() -> None:
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", strict=False)
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=False)
 
     # Assert
     assert result[0]["persona"] == "cli"
@@ -3496,7 +3553,7 @@ def test_resolve_personas_strict_refuses_an_incoherent_authorization_stanza() ->
 
     # Act / Assert
     with pytest.raises(ValueError):
-        resolve_personas(web_terminals, _REGISTRY, "als")
+        resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
 
 # ---------------------------------------------------------------------------
@@ -3613,7 +3670,7 @@ def test_resolve_personas_exposes_control_identity_when_set() -> None:
     web_terminals = {"users": [{"name": "alice", "index": 0, "control_identity": "alice"}]}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["control_identity"] == "alice"
@@ -3628,7 +3685,7 @@ def test_resolve_personas_control_identity_threads_through_persona_branch() -> N
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als")
+    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert result[0]["persona"] == "gui"
@@ -3642,7 +3699,7 @@ def test_resolve_personas_omits_control_identity_key_when_unset(users: list) -> 
     """No identity (or an empty one) resolves byte-identically to before the
     field existed — no `control_identity: None` key appears."""
     # Act
-    result = resolve_personas({"users": users}, _REGISTRY, "als")
+    result = resolve_personas({"users": users}, _REGISTRY, "als", project_name="als")
 
     # Assert
     assert "control_identity" not in result[0]

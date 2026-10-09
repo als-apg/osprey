@@ -13,6 +13,7 @@ from datetime import time as dtime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from osprey.services.ariel_search.attachments import fetchable_url
 from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
@@ -67,6 +68,12 @@ class GenericJSONAdapter(FacilityAdapter):
     def supports_write(self) -> bool:
         """Write is supported only for local file sources, not HTTP."""
         return not self.source_url.startswith(("http://", "https://"))
+
+    def attachment_file_base(self) -> Path | None:
+        """Return the directory of a file source, or ``None`` for an HTTP source."""
+        if self.source_url.startswith(("http://", "https://")):
+            return None
+        return Path(self.source_url).parent
 
     @property
     def requires_write_auth(self) -> bool:
@@ -248,11 +255,18 @@ class GenericJSONAdapter(FacilityAdapter):
             raw_text = title or text
 
         attachments: list[AttachmentInfo] = []
+        file_source = self.attachment_file_base() is not None
         for att in data.get("attachments", []):
             if isinstance(att, dict) and "url" in att:
+                url = att["url"]
+                if not isinstance(url, str) or (
+                    url and not fetchable_url(url, file_source=file_source)
+                ):
+                    logger.debug(f"Dropping attachment with unfetchable url: {url!r}")
+                    continue
                 attachments.append(
                     {
-                        "url": att["url"],
+                        "url": url,
                         "type": att.get("type"),
                         "filename": att.get("filename"),
                         "thumbnail_url": att.get("thumbnail_url"),

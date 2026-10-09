@@ -28,6 +28,7 @@ import yaml
 from osprey.cli.build_profile_deploy import DeployConfig, parse_deploy_block
 from osprey.cli.deploy_scaffold_templates import CI_TEMPLATES, build_ci_context, render
 from osprey.deployment.web_terminals.persona_images import _referenced_personas
+from osprey.deployment.web_terminals.persona_naming import persona_project
 
 EXEMPLAR_DIR = Path(__file__).parent / "goldens" / "exemplar-profile"
 
@@ -118,7 +119,18 @@ def test_every_referenced_persona_is_a_host_side_build_unit(
     catalog entry a user points at is what the host builds, one image per
     distinct persona regardless of how many users share it.
     """
-    catalog = web_terminals["personas"]
+    # The host reads the rendered config, where the build has written each
+    # persona's render name and directory beside the catalog's source.
+    catalog = {
+        name: {
+            **entry,
+            "project": persona_project(PROJECT_NAME, name)[0],
+            "project_path": persona_project(PROJECT_NAME, name)[1],
+        }
+        for name, entry in web_terminals["personas"].items()
+    }
+    rendered = {**web_terminals, "personas": catalog}
+
     resolved_users = [
         {"persona": user["persona"], "project": catalog[user["persona"]]["project"]}
         for user in web_terminals["users"]
@@ -126,7 +138,7 @@ def test_every_referenced_persona_is_a_host_side_build_unit(
     # A third user sharing a persona must not add a second build of it.
     resolved_users.append({"persona": "readonly", "project": catalog["readonly"]["project"]})
 
-    units = _referenced_personas({"modules": {"web_terminals": web_terminals}}, resolved_users)
+    units = _referenced_personas({"modules": {"web_terminals": rendered}}, resolved_users)
 
     assert [u["persona"] for u in units] == ["readonly", "readwrite"]
     for unit in units:

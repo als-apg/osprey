@@ -32,6 +32,7 @@ from osprey.deployment.compose_generator import (
 from osprey.deployment.runtime_helper import get_runtime_command
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.env_production import deploy_issued_credential_vars
+from osprey.deployment.web_terminals.persona_naming import persona_project
 from osprey.deployment.web_terminals.personas import effective_image_source
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.docs_links import installer_remedy
@@ -94,7 +95,7 @@ def _persona_image_context(project_path: str | Path) -> Path:
     ``build/.image/<the image's project name>/`` — a deployment REPO rendered
     against the ``/app/<project name>`` path that container sees itself at, with
     ``profile.yml`` at its root and the render below it in ``build/``. The
-    persona's flat render at ``build/<repo>-<persona>/`` is the HOST's copy: its
+    persona's flat render at ``build/<project_name>-<persona>/`` is the HOST's copy: its
     ``config.yml`` records this machine's ``project_root``, so an image built
     from it ships MCP servers, hooks and an agent-data root that name the
     building host. Its ``.image`` sibling is the same render made against the
@@ -102,8 +103,9 @@ def _persona_image_context(project_path: str | Path) -> Path:
 
     Derived from the render's location rather than from the repo root, because
     the catalog's ``project_path`` is what every caller here has (and is an
-    externally-pinned contract — ``osprey init`` writes ``build/<repo>-<persona>``
-    and the dispatch e2e pins it), and the two directories are siblings by
+    externally-pinned contract — ``osprey build`` writes
+    ``build/<project_name>-<persona>`` into the rendered config and the dispatch
+    e2e pins it), and the two directories are siblings by
     construction: :func:`osprey.utils.workspace.container_image_context` puts the
     container copy at ``<render>/../.image/<render name>``. Relative in, relative
     out — repo-scoped verbs run from the repo root.
@@ -769,7 +771,8 @@ def verify_persona_renders(
         # the remedy below so the operator is not sent through a build that
         # cannot change the outcome.
         delta = _resolve_persona_profile(build_profile, persona_name, repo_root)
-        rendered_at = repo_root / BUILD_DIR_NAME / f"{repo_root.name}-{delta.stem}"
+        _, rendered_relpath = persona_project(resolve_project_name(config), delta.stem)
+        rendered_at = repo_root / rendered_relpath
 
         raise ValueError(
             f"Persona {persona_name!r} has no rendered project at {project_path}. "
@@ -777,10 +780,9 @@ def verify_persona_renders(
             "`osprey up` runs what the last build produced. Run `osprey build` in "
             f"{repo_root} and start again.\n"
             f"A build of this repo renders {delta.name} to {rendered_at}. If that "
-            "directory is there and this one is not, the catalog names a path no build "
-            f"writes: set modules.web_terminals.personas.{persona_name}.project_path to "
-            f"'{BUILD_DIR_NAME}/{rendered_at.name}' and its project to "
-            f"'{rendered_at.name}', which is what `osprey init` writes."
+            "directory is there and this one is not, the deployment's config was "
+            "rendered by an older build: `osprey build` writes each persona's project "
+            "and project_path from project_name, and a fresh build makes them agree."
         )
 
 

@@ -16,12 +16,14 @@ from jinja2 import Environment, Template
 from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
+from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
     allocate_ports,
     base_ports_from_config,
     resolve_nginx_port,
 )
+from osprey.deployment.web_terminals.provision import auth_sidecar_local_tag
 from osprey.deployment.web_terminals.render import (
     AUTH_ENV_DIGEST_LABEL,
     PROXY_ENV_NAMES,
@@ -119,6 +121,7 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
     if groups is not None:
         web_terminals["landing"] = {"groups": groups}
     return {
+        "project_name": "dls_controls",
         "facility": {
             "name": "Demo Light Source",
             "prefix": "dls",
@@ -3678,13 +3681,36 @@ def test_auth_sidecar_service_serves_a_single_uvicorn_bound_to_loopback() -> Non
 
 def test_auth_sidecar_service_image_defaults_to_the_local_build_tag() -> None:
     """Local mode: no `auth.image`, so the service names the tag the runtime build
-    produces — the persona-image pattern (`<project>-<name>:local`) applied to the
-    sidecar, whose project is resolve_personas()'s default `<prefix>-assistant`."""
+    produces — `<project_name>-auth:local`, on the compose project and never on
+    `facility.prefix`, the same tag provision builds."""
     # Act
-    auth = _compose(_auth_config())["services"]["auth"]
+    config = _auth_config()
+    auth = _compose(config)["services"]["auth"]
 
     # Assert
-    assert auth["image"] == "dls-assistant-auth:local"
+    assert auth["image"] == "dls_controls-auth:local"
+    assert auth["image"] == auth_sidecar_local_tag(config)
+
+
+def test_every_web_container_is_named_on_the_compose_project() -> None:
+    """nginx, the auth sidecar and each terminal carry `<project_name>-…`, and
+    `facility.prefix` (`dls`) names none of them."""
+    services = _compose(_auth_config(["alice", "bob"]))["services"]
+
+    assert services["nginx"]["container_name"] == "dls_controls-nginx"
+    assert services["auth"]["container_name"] == "dls_controls-auth"
+    assert services["web-alice"]["container_name"] == web_container_name("dls_controls", "alice")
+    assert services["web-bob"]["container_name"] == "dls_controls-web-bob"
+
+
+def test_web_volumes_carry_no_checkout_label() -> None:
+    """A per-user volume is owned by the compose project by name; it carries no
+    path-derived label, so a second checkout under the same project never sees
+    a volume whose labels disagree with its compose file. Services keep it."""
+    compose = _compose(_config(["alice"]))
+
+    assert compose["volumes"] == {"alice-claude-config": None, "alice-agent-data": None}
+    assert "com.osprey.repo-id" in compose["services"]["web-alice"]["labels"]
 
 
 def test_auth_sidecar_service_image_pins_a_configured_registry_image() -> None:

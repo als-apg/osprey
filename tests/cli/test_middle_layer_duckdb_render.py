@@ -39,6 +39,7 @@ def _middle_layer_repo(tmp_path: Path, *, with_duckdb: bool, data_dir: str = "da
     repo.mkdir(parents=True)
     profile = {
         "name": "Middle Layer DuckDB",
+        "project_name": repo.name,
         "data": data_dir,
         "provider": "cborg",
         "model": "claude-haiku-4-5",

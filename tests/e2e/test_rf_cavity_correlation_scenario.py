@@ -3,7 +3,8 @@
 Operator-style prompt — one diagnostic imperative, one deliverable, no
 subsystem hints:
 
-    "The beam dumped this morning. Figure out what happened and plot the data."
+    "The beam dumped in the early hours four days ago. Figure out what happened
+    and plot the data."
 
 This is the cross-paradigm benchmark's RF scenario. It tests whether the
 agent can, from a bare beam-dump report, (a) enumerate the canonical
@@ -20,15 +21,17 @@ carries these as *relative* timestamps (``when: {days_ago, time}``); applying
 the scenario resolves them against one apply-time anchor (newest entry lands
 two days before today) and seeds them into ARIEL. The telemetry ground truth
 lives in the same bundle (``data/simulation/scenarios/rf-thermal/``): the three
-CAVITY01 thermal excursions are anchored to that same apply-time T0 via
-``at_offset`` — T0-38h, T0-21h and T0-7h, each a 2h-sigma spike. They therefore
-sit at fixed wall-clock times rather than at a fixed proportion of whatever
-window the agent asks for, which is what makes them storable in a real archiver;
-because the anchor is set when the scenario is applied, the test stays
-date-agnostic all the same. Two consequences for the agent's search: the most
-recent excursion falls a few hours back, so the prompt's "this morning" points
-at real data, and a lookback shorter than about two days will not show all three
-excursions. The test activates the scenario after
+CAVITY01 thermal excursions are placed with ``at_when``, the logbook's own
+``{days_ago, time}``, so they resolve against the same apply-time T0 onto the
+days the entries narrate — nine and seven days back, and the trip four days back
+at 03:05 with forward power at zero from 03:15 to 04:30. They sit at fixed
+wall-clock times rather than at a fixed proportion of whatever window the agent
+asks for, which is what makes them storable in a real archiver; because the
+anchor is set when the scenario is applied, the test stays date-agnostic all the
+same. Two consequences for the agent's search: the prompt's "early hours four
+days ago" points at the trip, and a lookback shorter than about ten days will
+not show all three excursions. Nothing happens after the repair two days back.
+The test activates the scenario after
 building the deployment via ``activate_scenarios(repo, "rf-thermal")``, which
 also purges + reseeds the logbook so narrative and telemetry share one clock;
 the mock connectors then route RF cavity / klystron / DCCT reads through the
@@ -143,10 +146,9 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
         tier=3,
     )
     # Switch the mock connectors' data substrate to the ``rf-thermal`` scenario
-    # bundle — the CAVITY01 thermal excursions anchored at T0-38h/-21h/-7h — and
-    # seed its DEMO-026/027/028 incident arc into ARIEL (purge + reseed) so
-    # logbook and telemetry share one apply-time clock. T0 is set here, so the
-    # newest excursion is a few hours old by the time the agent looks.
+    # bundle — the CAVITY01 thermal excursions placed on the logbook's own days,
+    # the trip four days back — and seed its DEMO-026/027/028 incident arc into
+    # ARIEL (purge + reseed) so logbook and telemetry share one apply-time clock.
     activate_scenarios(repo, "rf-thermal")
     cf_server = _channel_finder_server_name(repo)
     if cf_server is None:
@@ -155,7 +157,10 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
     judge = LLMJudge(provider="als-apg")
     # Operator-style prompt: one diagnostic imperative + one deliverable.
     # No subsystem names, no PV addresses, no cavity ID, no time window.
-    query = "The beam dumped this morning. Figure out what happened and plot the data."
+    query = (
+        "The beam dumped in the early hours four days ago. "
+        "Figure out what happened and plot the data."
+    )
     result = await run_sdk_query(
         repo,
         query,
@@ -224,9 +229,9 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
     # --- Diagnostic conclusion -------------------------------------------------
     # The logbook unambiguously names CAVITY01 (DEMO-026/027/028) and the
     # archiver data unambiguously shows thermal excursions on CAVITY01 with
-    # CAVITY02 stable for contrast — one of them within hours of the reported
-    # dump, so even a short lookback lands on the evidence, and all three appear
-    # once the agent widens to a couple of days. The agent must commit to
+    # CAVITY02 stable for contrast — the trip on the reported night, so a lookback
+    # around it lands on the evidence, and all three appear once the agent widens
+    # to the week and a half before it. The agent must commit to
     # CAVITY01 and connect the thermal excursions to the beam dumps.
     eval = await judge.evaluate(
         _to_workflow_result(query, result),

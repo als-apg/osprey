@@ -46,6 +46,9 @@ OSPREY agent selects the appropriate tool based on the user's query.
      - Full-text keyword search across logbook entries
    * - ``semantic_search``
      - Vector similarity search using embeddings
+   * - ``hybrid_search``
+     - Keyword and semantic ranking combined, with optional query expansion
+       and reranking (offered when the hybrid module is enabled)
    * - ``sql_query``
      - Direct SQL queries against the logbook database
    * - ``browse``
@@ -62,6 +65,13 @@ OSPREY agent selects the appropriate tool based on the user's query.
      - Retrieve a single entry by ID
    * - ``entries_by_ids``
      - Batch retrieve multiple entries by their IDs
+   * - ``attachment_view``
+     - Return one viewable picture attached to an entry, with its summary
+   * - ``entry_open``
+     - Show an entry, and optionally one of its viewable pictures enlarged, in
+       the ARIEL web panel
+   * - ``attachment_to_artifact``
+     - Copy one viewable picture into the artifact gallery and select it there
    * - ``entry_create``
      - Create a new logbook entry
 
@@ -71,7 +81,174 @@ characters of each entry's ``raw_text``, and ``entries_by_ids`` the first
 ``raw_text_truncated: true`` and its full ``raw_text_length``. ``entry_get``
 returns the whole entry. See :ref:`config-ariel-entry-text`.
 
+Attachment summaries
+--------------------
+
+Every tool that returns entries describes their attachments with one summary
+shape, listed under ``attachments``:
+
+.. code-block:: text
+
+   {attachment_id?, filename, mime_type, viewable, copy_status, skip_reason?,
+    caption?, caption_source?, visible_text?, url?}
+
+Listings (search results, ``browse`` and ``entries_by_ids``) cut ``caption``
+and ``visible_text`` to 200 characters and mark a cut field with
+``caption_truncated`` or ``visible_text_truncated``; they carry only the first
+few summaries and count them all in ``attachment_count``. A search hit that
+matched through an attachment names it in ``matched_attachment_ids``.
+``entry_get`` returns every summary with its caption in full.
+
+An attachment is ``viewable`` when its copy finished (``copy_status`` is
+``copied``), it was not skipped (no ``skip_reason``), its type is an image,
+and its display rendition is stored. ``attachment_view`` takes the
+``attachment_id`` of a viewable attachment and returns a JSON block (the
+summary plus ``entry_id``, ``source_url``, ``size_bytes``, ``rendition_size``
+and ``rendition_sha256``) followed by the picture. An unknown id is
+``not_found``; an attachment that is not viewable is ``no_results``.
+
+``ariel.attachments.view.enabled`` (default ``true``) switches picture viewing
+for the agent. With it off:
+
+- ``attachment_view`` and ``attachment_to_artifact`` are absent from
+  ``tools/list``, and a call to either returns ``not_supported``;
+- listings carry no ``attachments``, ``attachment_count`` or
+  ``matched_attachment_ids``;
+- ``entry_get`` carries the entry's stored ``attachments`` items unchanged,
+  without summaries.
+
+The web panel's attachment display does not depend on this setting.
+
+``entry_open`` takes an ``entry_id`` and an optional ``attachment_id`` and asks
+the web terminal to bring the ARIEL panel forward at
+``#entry?id=<entry_id>``, with ``&attachment=<attachment_id>`` when that
+attachment is one of the entry's and is viewable. It returns ``entry_id``,
+``attachment_id``, ``opened`` (``entry`` or ``entry_and_picture``), the panel
+``url`` and a ``message``; without a web terminal the ``url`` is the link to
+follow. An unknown entry, or an attachment that is not the entry's, is
+``not_found``. The panel route also works in a browser on the standalone ARIEL
+web page.
+
+``attachment_to_artifact`` takes the ``attachment_id`` of a viewable attachment
+and saves its display rendition, never the original upload, to the artifact
+gallery as an ``image`` artifact in the ``visualization`` category, titled with
+the filename and entry id. The entry id, attachment id, filename, and caption
+with its ``caption_source`` are recorded in the artifact's description and in
+``metadata.logbook_picture``. The artifact is keyed by the rendition's sha256,
+so saving the same picture again returns the same artifact. The result is the
+gallery's usual artifact response (``artifact_id``, ``title``,
+``artifact_type``, ``category``, ``gallery_url`` ...) plus ``entry_id``,
+``attachment_id``, ``created`` and ``focused``. Errors match
+``attachment_view``'s.
+
 **Source:** :file:`src/osprey/mcp_server/ariel/tools/`
+
+Captions and picture search availability
+----------------------------------------
+
+The presets turn ``image_caption``, ``image_embedding`` and
+``ariel.attachments.view.enabled`` on. Each picture module runs when its server
+and model answer and is skipped otherwise, like semantic search without
+Ollama; nothing else stops working. See :doc:`/how-to/ariel/picture-search`.
+
+``capabilities.attachments`` carries:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Field
+     - Meaning
+   * - ``captions``
+     - ``image_caption`` is enabled
+   * - ``picture_search``
+     - ``image_embedding`` and the ``hybrid`` search module are both enabled
+   * - ``picture_search_unavailable``
+     - ``null``, or why picture search cannot answer: ``unreachable`` (the
+       embedding server does not answer), ``model`` (it does not serve the
+       configured model), ``auth`` (it refused the API key) or ``config``
+       (the module's configuration or the database schema is incomplete).
+       ``null`` when picture search is off, has not failed, or its last
+       attempt succeeded.
+
+A deployment **without llama-server** (or with ``image_embedding`` not
+reachable for another reason) sees ``osprey ariel status`` name the skipped
+``image_embedding`` module and why, ``hybrid_search`` answer on text only with
+the diagnostic "Picture search unavailable --- results are matched on text
+only, so entries known only by their pictures are missing.", and
+``picture_search_unavailable`` set to the reason.
+
+A deployment **without the caption model** sees ``osprey ariel status`` name
+the skipped ``image_caption`` module and why; entries are searched on their
+text without captions.
+
+Each module is turned off with its own key:
+``ariel.enhancement_modules.image_caption.enabled: false``,
+``ariel.enhancement_modules.image_embedding.enabled: false``, and
+``ariel.attachments.view.enabled: false`` for the view tool.
+
+
+Entry fields
+------------
+
+A facility adapter may declare extra fields an author fills in when an entry
+is written (see the Entry Fields section of
+:doc:`/how-to/ariel/data-ingestion`). ``capabilities`` lists them under
+``entry_fields``, in form order, and ``entry_create`` and ``entry_publish``
+take their values as a ``fields`` object keyed by field name.
+
+``capabilities.entry_fields`` is a list with one item per declared field:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Field
+     - Meaning
+   * - ``name``
+     - The key the value is passed under in ``fields`` and stored under in
+       the entry's ``metadata``
+   * - ``label``, ``description``, ``section``
+     - How the field is shown and grouped in the entry form
+   * - ``type``
+     - ``text``, ``int``, ``float``, ``bool``, ``date``, ``select`` or
+       ``dynamic_select``
+   * - ``default``
+     - The form's pre-filled value; never applied to a value left out
+   * - ``options``
+     - The allowed ``{value, label}`` choices of a ``select``
+   * - ``min``, ``max``, ``step``, ``placeholder``
+     - Present when declared
+   * - ``required``
+     - Present (``true``) when the field must be filled before the entry is
+       written to the logbook
+   * - ``depends_on``
+     - Present when non-empty: the static fields whose values decide a
+       ``dynamic_select``'s choices
+
+The list is empty when no ingestion adapter is configured or the adapter
+declares no fields. When the declarations are broken, ``entry_fields`` is
+empty and ``entry_fields_error`` says what is wrong; the rest of
+``capabilities`` still answers.
+
+``entry_create`` checks ``fields`` against the declarations before anything is
+written. A draft (the default) may leave ``required`` fields out; a direct
+create may not. Its check covers each value's type, length, range and
+``select`` options, but does not ask the adapter for a ``dynamic_select``'s
+current choices. A draft stores the coerced values under ``fields`` in the
+draft JSON. ``entry_publish`` merges its ``fields`` over the values stored on
+the entry and checks the result in full, including the adapter's current
+``dynamic_select`` choices; a ``logbook`` argument wins over a stored or
+passed ``logbook`` field. Both tools refuse a name that is not declared.
+
+A refused value is a ``validation_error`` whose ``details.field`` names the
+field; for a ``select`` the details also carry ``allowed``, the first 50
+allowed values. When the adapter cannot list a ``dynamic_select``'s choices,
+``entry_publish`` returns ``internal_error`` with ``details.field``. Broken
+declarations are an ``internal_error`` from either tool.
+
+The checks cover shape only. Whether a value is right for the facility is
+decided by the adapter and the logbook.
 
 
 Search Result Structure
@@ -196,8 +373,13 @@ The web interface discovers its search modes and tunable parameters dynamically 
               - Update the ARIEL configuration block
             * - GET
               - ``/api/publish-info``
-              - Describe the configured logbook's write capability (the create
-                form adapts its credential prompt to it)
+              - Describe the configured logbook's write capability and its
+                declared entry fields (the create form adapts its credential
+                prompt and its field sections to it)
+            * - GET
+              - ``/api/entry-fields/{name}/options``
+              - List the current choices of a declared ``dynamic_select``
+                entry field
             * - POST
               - ``/api/drafts``
               - Create a draft entry (pre-fill data for the web form)
@@ -207,6 +389,50 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - GET
               - ``/api/drafts/{draft_id}/attachments/{filename}``
               - Download a draft's attachment
+
+         **Entry fields.** ``GET /api/publish-info`` returns
+         ``{supports_write, requires_auth, source_system, entry_fields}``.
+         ``entry_fields`` is always a list, empty when no adapter is configured
+         or none is declared; its items carry the same keys as the
+         ``capabilities.entry_fields`` items of the MCP server, and a
+         ``dynamic_select`` item also carries ``options_endpoint``
+         (``/entry-fields/{name}/options``, relative to the ``/api`` prefix).
+         ``GET /api/entry-fields/{name}/options`` returns
+         ``{"field": name, "options": [{"value": ..., "label": ...}]}``. It reads
+         only the field's ``depends_on`` values from the query string, each
+         checked against its own declaration, and is 404 unless ``name`` is a
+         declared ``dynamic_select``. ``POST /api/entries`` and
+         ``POST /api/entries/upload`` check the declared values in full,
+         including the adapter's current ``dynamic_select`` choices, before
+         anything is written; the adapter receives the declared values only,
+         and undeclared metadata stays in ARIEL's copy of the entry. A draft
+         read from ``GET /api/drafts/{draft_id}`` carries the values an agent
+         stored as ``fields``; ``POST /api/drafts`` does not accept them.
+
+         An entry-field failure on any of these endpoints returns one of three
+         envelopes:
+
+         .. code-block:: json
+
+            {"detail": "...", "code": "invalid_entry_field", "field": "book"}
+
+         is 422: a submitted value (or an options query's parent value) is
+         invalid and the author can correct it.
+
+         .. code-block:: json
+
+            {"detail": "...", "code": "entry_field_options_unavailable", "field": "scan"}
+
+         is 502: the adapter failed or took longer than 10 seconds to list a
+         ``dynamic_select``'s choices. The detail is a generic message, not the
+         adapter's error text.
+
+         .. code-block:: json
+
+            {"detail": "...", "code": "entry_fields_misdeclared"}
+
+         is 500: the adapter declares its fields wrongly, and only a change to
+         the adapter fixes it.
 
          ``GET /health`` at the root level is the one route the sign-in gate leaves open. It
          reports ``status`` (``healthy`` or ``degraded``), a fixed ``message``, ``config_status``,
@@ -375,6 +601,11 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - ``entries.js``, ``entries-detail.js``, ``entries-form.js``, ``entries-helpers.js``
               - Browse view with pagination, entry detail view, and the new
                 entry form (split across the four modules)
+            * - ``entry-fields.js``
+              - The new entry form's facility-declared field sections: renders
+                them from ``/api/publish-info``, refetches a ``dynamic_select``'s
+                choices when a field it depends on changes, and marks the input
+                a 422 response names
             * - ``dashboard.js``
               - Status dashboard rendering and periodic health refresh
             * - ``components.js``

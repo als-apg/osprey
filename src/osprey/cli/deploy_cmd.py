@@ -31,6 +31,25 @@ if TYPE_CHECKING:
 logger = get_logger("deploy")
 
 
+def _display_name(repo_root: Path) -> str:
+    """What a phase title calls this deployment: the profile's display ``name:``.
+
+    A label for the operator, never a resource name — containers, volumes and
+    images are named from ``project_name:``. The folder name stands in when the
+    profile cannot be read or states no name, so a title is always printed.
+    """
+    import yaml
+
+    from .repo_resolver import PROFILE_FILENAME
+
+    try:
+        document = yaml.safe_load((repo_root / PROFILE_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        document = None
+    name = document.get("name") if isinstance(document, dict) else None
+    return str(name) if isinstance(name, str) and name.strip() else repo_root.name
+
+
 def _report_fact(message: str) -> None:
     """Report ``message`` under this module's logger.
 
@@ -598,6 +617,19 @@ def up_verb(
     would deploy something other than what the profile now describes. Pass
     --build to re-render first, or --as-built to start the old render knowingly.
 
+    Containers are named from profile.yml's project_name, not from this
+    directory's name, and each one records the checkout that created it. up
+    refuses, before it touches any container, when containers named for this
+    project were created from another checkout — a second clone or worktree
+    on this host reads the same name. Stop that deployment where it lives, or
+    give this copy its own name in a variant overlay:
+
+    \b
+      profiles/scratch.yml:   project_name: <project_name>-scratch
+      .env.variant:           OSPREY_PROFILE_VARIANT=scratch
+
+    then `osprey build` and start again.
+
     Whether this deployment is reachable off-host is a property of the build,
     not of this command: the bind address is rendered into every published port.
     Change it with `osprey set config.deployment.bind_address=0.0.0.0`, then rebuild.
@@ -626,6 +658,7 @@ def up_verb(
     from osprey.cli.repo_resolver import find_repo_root
     from osprey.cli.summary_card import owns_summary_card, print_summary_card
     from osprey.deployment.container_lifecycle import up_as_built
+    from osprey.deployment.container_ownership import ForeignCheckoutError
 
     repo_root = find_repo_root(repo)
     # Asked before the reporter is installed, so a start chained from `init --up`
@@ -653,7 +686,7 @@ def up_verb(
             # terminal to compose with os.execvpe and this process is gone. That
             # is the documented shape — phases up to the exec point, then the
             # live log stream, and no summary card.
-            with reporter.phase(f"Starting {repo_root.name}"):
+            with reporter.phase(f"Starting {_display_name(repo_root)}"):
                 up_as_built(
                     repo_root,
                     detached=detached,
@@ -661,6 +694,14 @@ def up_verb(
                     keep_archiver_base=keep_archiver_base,
                     reuse_stores=reuse_stores,
                 )
+        except ForeignCheckoutError as e:
+            # Another copy of this repo holds the project name. The same refusal
+            # `reset` prints, named for this verb; the phase printed the ✗.
+            from .foreign_refusal import render_foreign_refusal
+
+            render_foreign_refusal(e, "osprey up", extra_remedy=e.extra_remedy, mark=False)
+            output.note("Nothing was deployed.")
+            raise click.Abort() from None
         except DeploymentPreconditionError as e:
             # One handler for every unmet precondition on this path — a missing
             # render, a --dev that cannot be honored, an unreleased pin. They
@@ -745,7 +786,7 @@ def down_verb(repo: Path | None) -> None:
             # The card is the verb's, not the library's: `down_deployment` is
             # also what `restart` and `reset` stop with, and a "stopped" card
             # printed from inside it would land in the middle of both.
-            with reporter.phase(f"Stopping {repo_root.name}"):
+            with reporter.phase(f"Stopping {_display_name(repo_root)}"):
                 down_deployment(repo_root)
             print_summary_card(repo_root, "stopped")
     except KeyboardInterrupt:
@@ -849,6 +890,7 @@ def restart_verb(
     from osprey.cli.repo_resolver import find_repo_root
     from osprey.cli.summary_card import owns_summary_card, print_summary_card
     from osprey.deployment.container_lifecycle import restart_deployment
+    from osprey.deployment.container_ownership import ForeignCheckoutError
 
     repo_root = find_repo_root(repo)
     owns_card = owns_summary_card()
@@ -866,7 +908,7 @@ def restart_verb(
             # the verb is: `restart_deployment` recreates the containers, and a
             # stop reported as finished while the start is still to come would
             # invite reading the ✓ as "it is down now".
-            with reporter.phase(f"Restarting {repo_root.name}"):
+            with reporter.phase(f"Restarting {_display_name(repo_root)}"):
                 restart_deployment(
                     repo_root,
                     detached=detached,
@@ -874,6 +916,13 @@ def restart_verb(
                     keep_archiver_base=keep_archiver_base,
                     reuse_stores=reuse_stores,
                 )
+        except ForeignCheckoutError as e:
+            # Same refusal as `up`, raised before the stop, so nothing stopped.
+            from .foreign_refusal import render_foreign_refusal
+
+            render_foreign_refusal(e, "osprey restart", extra_remedy=e.extra_remedy, mark=False)
+            output.note("Nothing was stopped.")
+            raise click.Abort() from None
         except DeploymentPreconditionError as e:
             # Same single handler as `up`; the restart phase's ✗ is the run's
             # marker, so the renderer adds none of its own.

@@ -1228,7 +1228,7 @@ def _privileged_persona_problems(
     # lint's `web_terminals.invalid_user_access` there), and raising from this
     # rule would replace that report with a worse one. The unreadable entry is
     # dropped, so this rule says nothing about it — again as lint does.
-    resolved = resolve_personas(web_terminals, {}, "", strict=False)
+    resolved = resolve_personas(web_terminals, {}, "", project_name="", strict=False)
     problems.extend(shared_card_privileged_problems(resolved, absolute_privileges))
     return problems
 
@@ -1624,6 +1624,7 @@ def _materialize_profile_directory(
     )
     from .build_profile_presets import preset_data_bundle
     from .templates.manager import TemplateManager
+    from .templates.shared_data import shared_data_files
 
     # Resolving through the public path validates the preset AND its --set
     # edits up front, and names the bundle whose data tree gets copied. It also
@@ -1654,12 +1655,38 @@ def _materialize_profile_directory(
     if name_override is not None:
         profile_name_default = str(name_override)
 
+    # The deployment's own name, recorded in the profile so every host and every
+    # clone derives the same compose project, volumes and images from it. The
+    # folder name is read here, once, to propose it; `--set project_name=`
+    # states it outright (and the resolution above has already held that
+    # spelling to compose's).
+    from osprey.deployment.compose_generator import _normalize_compose_name
+
+    project_name_override = edit.get("project_name")
+    project_name = (
+        str(project_name_override)
+        if project_name_override is not None
+        else _normalize_compose_name(target.name)
+    )
+    if not project_name:
+        raise click.UsageError(
+            f"Cannot propose a project_name from the folder name {target.name!r}: it has no "
+            f"character a compose project name may use. Pass one with "
+            f"`--set project_name=<name>` (lowercase letters, digits, '_' and '-')."
+        )
+
     manager = TemplateManager()
     # The packaged tree this repo's `data/` is copied from. Read off the preset
     # chain, not off `resolved`: the bundle name is preset-side only, so it
     # never reaches the profile the emission below writes.
     data_bundle = preset_data_bundle(normalized_preset)
     data_source = _packaged_data_source(manager, data_bundle)
+    # Read before the first mkdir, like every other input here: a malformed
+    # declaration refuses before anything is written.
+    try:
+        shared_files = shared_data_files(_app_template_root(manager, data_bundle))
+    except ValueError as e:
+        raise click.UsageError(f"Cannot materialize {preset_name!r}: {e}") from e
 
     # How the emitted persona comments spell their own paths: repo-relative,
     # because the repo root is where a reader stands.
@@ -1696,7 +1723,7 @@ def _materialize_profile_directory(
     persona_deltas = _parsed_persona_deltas(persona_texts)
 
     extra_layers: tuple[dict[str, Any], ...] = (
-        *((persona_catalog_layer(persona_texts, repo_name=target.name),) if persona_texts else ()),
+        *((persona_catalog_layer(persona_texts),) if persona_texts else ()),
         *((triggers_layer(),) if triggers_src is not None else ()),
     )
 
@@ -1725,6 +1752,7 @@ def _materialize_profile_directory(
         preset_name=normalized_preset,
         set_pairs=(*set_pairs, f"data={_PROFILE_DATA_DIRNAME}"),
         profile_name=profile_name_default,
+        project_name=project_name,
         extra_layers=extra_layers,
         include_flow_diagram=True,
         providers_hash=catalog.content_hash,
@@ -1753,11 +1781,20 @@ def _materialize_profile_directory(
         # come across byte-identical — a profile data tree is content, never
         # templates, so nothing here is rendered. The one exclusion is build
         # exhaust the wheel does not ship either (_EXCLUDED_DATA_SUBTREES).
-        shutil.copytree(
-            data_source,
-            target / _PROFILE_DATA_DIRNAME,
-            ignore=_data_copy_ignore(data_source),
-        )
+        if data_source.is_dir():
+            shutil.copytree(
+                data_source,
+                target / _PROFILE_DATA_DIRNAME,
+                ignore=_data_copy_ignore(data_source),
+            )
+        else:
+            (target / _PROFILE_DATA_DIRNAME).mkdir(parents=True)
+        # The files this template shares with another one land beside its own,
+        # byte-identical, so the profile cannot tell them apart.
+        for relative, source in shared_files.items():
+            destination = target / _PROFILE_DATA_DIRNAME / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
         (target / "profile.yml").write_text(profile_text, encoding="utf-8")
         (target / PROVIDERS_FILENAME).write_text(catalog.text, encoding="utf-8")
         if catalog.carried:

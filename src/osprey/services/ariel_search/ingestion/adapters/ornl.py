@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.services.ariel_search.attachments import fetchable_url
 from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
@@ -197,7 +198,12 @@ class ORNLLogbookAdapter(FacilityAdapter):
         self,
         data: dict[str, Any],
     ) -> list[AttachmentInfo]:
-        """Transform ORNL attachments to ARIEL format."""
+        """Transform ORNL attachments to ARIEL format.
+
+        An attachment whose url is non-empty and not an absolute http(s) url is
+        dropped with a debug log; an empty or missing url stays as a
+        header-only item.
+        """
         result: list[AttachmentInfo] = []
 
         attachments = data.get("attachments", [])
@@ -217,9 +223,13 @@ class ORNLLogbookAdapter(FacilityAdapter):
             for att in attachments:
                 if not isinstance(att, dict):
                     continue
+                url = att.get("url") or ""
+                if not isinstance(url, str) or (url and not fetchable_url(url, file_source=False)):
+                    logger.debug(f"Dropping ORNL attachment with unfetchable url: {url!r}")
+                    continue
                 result.append(
                     {
-                        "url": att.get("url", ""),
+                        "url": url,
                         "type": att.get("type"),
                         "filename": att.get("filename"),
                     }

@@ -115,9 +115,9 @@ class TestEnhancementWithOllama:
             }
         )
 
-        healthy, message = await module.health_check()
-        assert healthy is True
-        assert "connected" in message.lower() or "ok" in message.lower()
+        result = await module.health_check()
+        assert result.reachable is True
+        assert result.reason is None
 
     async def test_text_embedding_handles_empty_text(
         self, repository, migrated_pool, seed_entry_factory, seeded_prefixes
@@ -381,8 +381,9 @@ class TestEnhancementWithoutOllama:
             }
         )
 
-        healthy, message = await module.health_check()
-        assert healthy is False
+        result = await module.health_check()
+        assert result.reachable is False
+        assert result.reason is not None
 
     async def test_enhancement_module_configured_correctly(self):
         """Enhancement module configures models from dict."""

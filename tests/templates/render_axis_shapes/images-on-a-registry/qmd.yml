@@ -1,5 +1,11 @@
-# The qmd search sidecar's image (see ./Dockerfile) bakes in the qmd CLI and its
-# 2.1 GB of GGUF models so a cold container never reaches out to huggingface.co.
+# One qmd search sidecar per corpus: each corpus has its own index, its own
+# container and its own port in the qmd family, so a small corpus never shares
+# a vector scan, an update sweep or a rebuild with a large one. The corpus list
+# is resolved in compose_generator._resolve_qmd_corpora; this file renders one
+# service per entry and nothing else.
+#
+# The image (see ./Dockerfile) bakes in the qmd CLI and its 2.1 GB of GGUF
+# models so a cold container never reaches out to huggingface.co.
 # It is built from the Dockerfile beside this file unless services.qmd.image
 # names a different image, which this file then runs as named with no build.
 # OSPREY_QMD_IMAGE names one for a single shell (e.g.
@@ -28,7 +34,7 @@
 # whole corpus.
 
 services:
-  qmd:
+  qmd-okf:
     image: ${OSPREY_QMD_IMAGE:-registry.example.org/physics/osprey/golden-project-qmd:v1.2.3}
     build:
       # EVERY relative path in this file — the build context and the bind-mount
@@ -43,9 +49,8 @@ services:
         OSPREY_PROJECT_NAME: "golden-project"
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy a sidecar on one host without colliding
-    # on one name. In-network consumers reach this service by its compose
-    # service key `qmd`, which this rename does not touch.
-    container_name: golden-project-qmd
+    # on one name.
+    container_name: golden-project-qmd-okf
     labels:
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
     restart: unless-stopped
@@ -56,6 +61,11 @@ services:
       # container side of the publish above, or the published port forwards to
       # nothing.
       OSPREY_QMD_PORT: "10060"
+      # The corpus this sidecar serves, under the collection name its clients
+      # query it by.
+      OSPREY_QMD_CORPUS: "okf"
+      OSPREY_QMD_CORPUS_PATH: "/corpus/okf"
+      OSPREY_QMD_INDEX_MODE: "managed"
       # Fallback sweep period, NOT the expected freshness lag: a corpus writer
       # touches its `.qmd-touch` marker and the sidecar re-indexes within a
       # poll. The sweep only catches writers that forgot to touch it, and its
@@ -63,27 +73,27 @@ services:
       # corpus wants a larger value via `services.qmd.interval`.
       OSPREY_QMD_UPDATE_INTERVAL: "30"
       # Where the entrypoint keeps the qmd config and the SQLite index. Backed
-      # by the named volume below, and deliberately NOT under the model cache —
+      # by the volume below, and deliberately NOT under the model cache —
       # persisting the index must not shadow the models baked into the image.
       OSPREY_QMD_STATE_DIR: "/var/lib/qmd"
-      # The rendered collection config, mounted read-only. The entrypoint copies
-      # it into the state directory on every start, so changing what gets
-      # indexed is a redeploy, not an image rebuild.
-      OSPREY_QMD_INDEX_CONFIG: "/etc/qmd/index.yml"
       TZ: UTC
     volumes:
       # The index. A named volume rather than a bind: it is derived data the
       # sidecar owns end to end, it is large, and rebuilding it from scratch
-      # costs ~41 minutes — which is exactly why it must survive a container
-      # recreate.
-      - qmd_index:/var/lib/qmd
-      - ./build/services/qmd/index.yml:/etc/qmd/index.yml:ro
+      # costs ~41 minutes at 135,000 documents — which is exactly why it must
+      # survive a container recreate.
+      - qmd_index_okf:/var/lib/qmd
+      # The corpus, read-only. Read-only is load-bearing: the sidecar indexes
+      # this tree, and the processes that write it (the OKF bundle's authors,
+      # ARIEL's mirror exporter) are outside this container.
+      - ./data/facility_knowledge:/corpus/okf:ro
     networks:
       - osprey-network
     healthcheck:
       # /health is the daemon's own probe, reached through the forwarder — so a
       # pass means the whole published path works, not just that qmd is alive.
-      test: ["CMD-SHELL", "curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:10060/health"]
+      # Loopback inside the container, so it bypasses any proxy in the env.
+      test: ["CMD-SHELL", "curl -fsS --noproxy '*' -o /dev/null --max-time 5 http://127.0.0.1:10060/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -96,9 +106,7 @@ services:
       start_period: 3600s
 
 volumes:
-  qmd_index:
-    labels:
-      com.osprey.repo-id: "0123456789ab"
+  qmd_index_okf:
 
 networks:
   osprey-network:

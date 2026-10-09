@@ -21,6 +21,8 @@ from osprey.agent_runner.provider_env import (
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
 )
+from osprey.models.provider_registry import get_provider_registry
+from osprey.models.providers.llama_cpp import LLAMA_CPP_DEFAULT_MODEL
 from osprey.profiles.providers import packaged_catalog_path
 
 #: Catalog entries whose gateway fronts more than one vendor. Each lists a
@@ -158,9 +160,12 @@ class TestTheShippedCatalogResolves:
             assert isinstance(models, list) and models, name
             assert entry.get("default_model") in models, name
 
-    def test_every_provider_resolves_to_its_own_default(self):
+    def test_every_chat_provider_resolves_to_its_own_default(self):
         providers = _shipped_providers()
+        registry = get_provider_registry()
         for name, entry in providers.items():
+            if not registry.is_chat(name):
+                continue
             spec = ClaudeCodeModelResolver.resolve(
                 {"provider": name}, providers, include_telemetry=False
             )
@@ -170,6 +175,17 @@ class TestTheShippedCatalogResolves:
             assert set(spec.alias_models) == set(TIER_MODEL_ENV_VARS)
             for model_id in spec.alias_models.values():
                 assert model_id in entry["models"], (name, model_id)
+
+    def test_the_embeddings_only_llama_cpp_entry_is_refused_as_the_agent_provider(self):
+        providers = _shipped_providers()
+        entry = providers["llama-cpp"]
+        assert entry["base_url"] == "${LLAMA_CPP_HOST:-http://localhost:8080}"
+        assert entry["api_key"] == "llama-cpp"
+        assert entry["models"] == [LLAMA_CPP_DEFAULT_MODEL]
+        with pytest.raises(ValueError, match="llama-cpp serves embeddings only, no chat"):
+            ClaudeCodeModelResolver.resolve(
+                {"provider": "llama-cpp"}, providers, include_telemetry=False
+            )
 
     def test_no_provider_borrows_another_providers_ids(self):
         """The list must be the provider's own naming, not Anthropic's.

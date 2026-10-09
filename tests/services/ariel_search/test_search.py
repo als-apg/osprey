@@ -21,6 +21,8 @@ from osprey.services.ariel_search.search.keyword import (
     get_tool_descriptor,
     has_boolean_operators,
 )
+from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
+from tests.services.ariel_search.repo_fakes import attach_fake_fts
 
 
 class TestSearchConstants:
@@ -205,6 +207,7 @@ class TestKeywordSearchFunction:
         from unittest.mock import AsyncMock, MagicMock
 
         repo = MagicMock()
+        attach_fake_fts(repo, has_v2=False, has_copy_state=False)
         repo.config = mock_config
         repo.keyword_search = AsyncMock(return_value=[])
         repo.fuzzy_search = AsyncMock(return_value=[])
@@ -381,6 +384,7 @@ class TestSemanticSearchFunction:
         from unittest.mock import AsyncMock, MagicMock
 
         repo = MagicMock()
+        attach_fake_fts(repo, has_v2=False, has_copy_state=False)
         repo.config = mock_config
         repo.semantic_search = AsyncMock(return_value=[])
         return repo
@@ -390,8 +394,7 @@ class TestSemanticSearchFunction:
         """Create mock embedding provider."""
         from unittest.mock import MagicMock
 
-        embedder = MagicMock()
-        embedder.default_base_url = "http://localhost:11434"
+        embedder = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
         embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
         return embedder
 
@@ -552,6 +555,7 @@ class TestKeywordSearchWithResults:
         from unittest.mock import AsyncMock, MagicMock
 
         repo = MagicMock()
+        attach_fake_fts(repo, has_v2=False, has_copy_state=False)
         repo.config = mock_config
         repo.keyword_search = AsyncMock(return_value=sample_results)
         repo.fuzzy_search = AsyncMock(return_value=[])
@@ -621,6 +625,7 @@ class TestSemanticSearchWithDateFilters:
         from unittest.mock import AsyncMock, MagicMock
 
         repo = MagicMock()
+        attach_fake_fts(repo, has_v2=False, has_copy_state=False)
         repo.config = mock_config
         repo.semantic_search = AsyncMock(return_value=[])
         return repo
@@ -630,7 +635,7 @@ class TestSemanticSearchWithDateFilters:
         """Create mock embedder."""
         from unittest.mock import MagicMock
 
-        embedder = MagicMock()
+        embedder = make_fake_embedding_provider()()
         embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
         return embedder
 
@@ -685,6 +690,7 @@ class TestQuerySQLInjection:
         from unittest.mock import AsyncMock, MagicMock
 
         repo = MagicMock()
+        attach_fake_fts(repo, has_v2=False, has_copy_state=False)
         repo.config = mock_config
         repo.keyword_search = AsyncMock(return_value=[])
         repo.fuzzy_search = AsyncMock(return_value=[])
@@ -808,6 +814,7 @@ class TestUnbalancedQuotes:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.keyword_search = AsyncMock(return_value=[])
         mock_repo.fuzzy_search = AsyncMock(return_value=[])
 
@@ -839,6 +846,7 @@ class TestQueryLengthTruncation:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.keyword_search = AsyncMock(return_value=[])
         mock_repo.fuzzy_search = AsyncMock(return_value=[])
 
@@ -864,6 +872,7 @@ class TestQueryLengthTruncation:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.keyword_search = AsyncMock(return_value=[])
         mock_repo.fuzzy_search = AsyncMock(return_value=[])
 
@@ -888,6 +897,7 @@ class TestQueryLengthTruncation:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.keyword_search = AsyncMock(return_value=[])
         mock_repo.fuzzy_search = AsyncMock(return_value=[])
 
@@ -955,11 +965,11 @@ class TestSemanticSearchValidation:
         from osprey.services.ariel_search.search.semantic import semantic_search
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.semantic_search = AsyncMock(return_value=[])
 
         # Return embedding with different dimension than configured
-        mock_embedder = MagicMock()
-        mock_embedder.default_base_url = "http://localhost:11434"
+        mock_embedder = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
         mock_embedder.execute_embedding = MagicMock(
             return_value=[[0.1, 0.2, 0.3]]  # 3 dimensions, config expects 384
         )
@@ -1003,10 +1013,10 @@ class TestThreeTierThresholdResolution:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.semantic_search = AsyncMock(return_value=[])
 
-        mock_embedder = MagicMock()
-        mock_embedder.default_base_url = "http://localhost:11434"
+        mock_embedder = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
         mock_embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
 
         # Pass explicit threshold that should override config
@@ -1046,10 +1056,10 @@ class TestThreeTierThresholdResolution:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.semantic_search = AsyncMock(return_value=[])
 
-        mock_embedder = MagicMock()
-        mock_embedder.default_base_url = "http://localhost:11434"
+        mock_embedder = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
         mock_embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
 
         # Don't pass explicit threshold - should use config
@@ -1079,6 +1089,7 @@ class TestFuzzyFallbackConditions:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.keyword_search = AsyncMock(return_value=[])
         mock_repo.fuzzy_search = AsyncMock(return_value=[])
 
@@ -1157,10 +1168,10 @@ class TestEmbeddingGenerationFailure:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.semantic_search = AsyncMock(return_value=[])
 
-        mock_embedder = MagicMock()
-        mock_embedder.default_base_url = "http://localhost:11434"
+        mock_embedder = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
         mock_embedder.execute_embedding = MagicMock(
             side_effect=Exception("Embedding service unavailable")
         )
@@ -1196,9 +1207,9 @@ class TestEmbeddingGenerationQuality:
         except Exception:
             pytest.skip("Ollama not available")
 
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+        from tests.services.ariel_search.fake_providers import ollama_text_embedder
 
-        embedder = OllamaEmbeddingProvider()
+        embedder = ollama_text_embedder()
 
         # Generate actual embedding
         embeddings = embedder.execute_embedding(
@@ -1302,10 +1313,10 @@ class TestThreeTierPriorityComplete:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.semantic_search = AsyncMock(return_value=[])
 
-        mock_embedder = MagicMock()
-        mock_embedder.default_base_url = "http://localhost:11434"
+        mock_embedder = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
         mock_embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
 
         # Explicit param = 0.3 should override config's 0.8
@@ -1348,10 +1359,10 @@ class TestThreeTierPriorityComplete:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.semantic_search = AsyncMock(return_value=[])
 
-        mock_embedder = MagicMock()
-        mock_embedder.default_base_url = "http://localhost:11434"
+        mock_embedder = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
         mock_embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
 
         # No explicit param -> should use config's 0.85
@@ -1390,10 +1401,10 @@ class TestThreeTierPriorityComplete:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.semantic_search = AsyncMock(return_value=[])
 
-        mock_embedder = MagicMock()
-        mock_embedder.default_base_url = "http://localhost:11434"
+        mock_embedder = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
         mock_embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
 
         # No explicit param, no config value -> should use default
@@ -1432,10 +1443,10 @@ class TestThresholdInSQLVerification:
         )
 
         mock_repo = MagicMock()
+        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
         mock_repo.semantic_search = AsyncMock(return_value=[])
 
-        mock_embedder = MagicMock()
-        mock_embedder.default_base_url = "http://localhost:11434"
+        mock_embedder = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
         mock_embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
 
         threshold = 0.75
@@ -1486,6 +1497,7 @@ class TestKeywordSearchFilterParameters:
         from unittest.mock import AsyncMock, MagicMock
 
         repo = MagicMock()
+        attach_fake_fts(repo, has_v2=False, has_copy_state=False)
         repo.config = mock_config
         repo.keyword_search = AsyncMock(return_value=[])
         repo.fuzzy_search = AsyncMock(return_value=[])
@@ -1568,8 +1580,7 @@ class TestSemanticSearchDiagnostics:
         """Embedder returning a 3-dimensional vector."""
         from unittest.mock import MagicMock
 
-        embedder = MagicMock()
-        embedder.default_base_url = "http://localhost:11434"
+        embedder = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
         embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
         return embedder
 
@@ -1579,6 +1590,7 @@ class TestSemanticSearchDiagnostics:
         from unittest.mock import AsyncMock, MagicMock
 
         repo = MagicMock()
+        attach_fake_fts(repo, has_v2=False, has_copy_state=False)
         repo.semantic_search = AsyncMock(return_value=[])
         repo.get_embedding_tables = AsyncMock(return_value=[])
         return repo

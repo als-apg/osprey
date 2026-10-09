@@ -11,14 +11,23 @@ from osprey.deployment.qmd_service import (
     DEFAULT_FIRST_INDEX_GRACE_SECONDS,
     DEFAULT_INTERVAL_SECONDS,
     DEFAULT_PORT,
+    INDEX_MANAGED,
+    INDEX_PREBUILT,
+    MAX_DECLARED_CORPORA,
     MODEL_FILENAMES,
     MODELS_DIR_CONFIG_KEY,
     PORT_CONFIG_KEY,
+    DeclaredCorpus,
     QMDServiceConfig,
+    corpus_service_name,
+    corpus_url_env,
+    preflight_qmd_corpora,
     preflight_qmd_models_dir,
     resolve_bind_address,
+    resolve_qmd_corpus_config,
     resolve_qmd_service_config,
 )
+from osprey.port_layout import QMD_CORPUS_MAX, default_port
 
 
 class TestAbsentBlock:
@@ -316,3 +325,186 @@ def test_model_fetches_retry_a_dropped_stream() -> None:
 def test_port_conflict_preflight_knows_the_sidecar() -> None:
     """The deploy-time port sweep can name the key that moves the qmd port."""
     assert _SERVICE_REMEDY_KEYS["qmd"] == PORT_CONFIG_KEY == "services.qmd.port"
+
+
+class TestCorpora:
+    """One sidecar per corpus: okf and ariel at fixed offsets, declared ones after."""
+
+    def test_okf_and_ariel_sit_at_fixed_offsets_whatever_the_render_configures(self) -> None:
+        # A render that knows only one of the two still dials the port the
+        # deployment published it on.
+        resolved = resolve_qmd_service_config({"services": {"qmd": {"port": 9000}}})
+        assert resolved.for_corpus("okf").port == 9000
+        assert resolved.for_corpus("ariel").port == 9001
+
+    def test_declared_corpora_follow_in_list_order(self) -> None:
+        resolved = resolve_qmd_service_config(
+            {
+                "services": {
+                    "qmd": {
+                        "port": 9000,
+                        "corpora": [
+                            {"name": "papers", "index": "prebuilt", "index_dir": "/i/papers"},
+                            {"name": "ascc", "source": "./data/ascc"},
+                        ],
+                    }
+                }
+            }
+        )
+        assert resolved.corpora == (
+            DeclaredCorpus("papers", INDEX_PREBUILT, None, "/i/papers"),
+            DeclaredCorpus("ascc", INDEX_MANAGED, "./data/ascc", None),
+        )
+        assert resolved.for_corpus("papers").port == 9002
+        assert resolved.for_corpus("ascc").port == 9003
+        assert resolved.for_corpus("ascc").base_url == "http://127.0.0.1:9003"
+
+    def test_resolve_corpus_config_without_a_block_is_none(self) -> None:
+        assert resolve_qmd_corpus_config({}, "okf") is None
+
+    def test_an_unknown_corpus_is_refused_not_guessed(self) -> None:
+        with pytest.raises(ValueError, match="no qmd corpus named 'papers'"):
+            resolve_qmd_corpus_config({"services": {"qmd": {}}}, "papers")
+
+    @pytest.mark.parametrize(
+        ("corpora", "match"),
+        [
+            ("papers", "must be a list"),
+            ([{"source": "./x"}], "name must be"),
+            ([{"name": "Papers", "source": "./x"}], "name must be"),
+            ([{"name": "okf", "source": "./x"}], "already taken"),
+            ([{"name": "a", "source": "./x"}, {"name": "a", "source": "./y"}], "already taken"),
+            ([{"name": "a"}], "needs a `source`"),
+            ([{"name": "a", "index": "prebuilt"}], "needs the `index_dir`"),
+            ([{"name": "a", "source": "./x", "index_dir": "/i"}], "corpus is managed"),
+            ([{"name": "a", "index": "remote", "source": "./x"}], "index must be"),
+            ([{"name": "a", "source": "./x", "catalogue": "t"}], "unknown key"),
+            ([{"name": f"c{i}", "source": "./x"} for i in range(9)], "room for 8"),
+        ],
+    )
+    def test_malformed_corpora_are_refused(self, corpora, match: str) -> None:
+        with pytest.raises(ValueError, match=match):
+            resolve_qmd_service_config({"services": {"qmd": {"corpora": corpora}}})
+
+    def test_the_family_fits_below_the_next_slot(self) -> None:
+        # okf + ariel + the most declared corpora fill the qmd band exactly.
+        assert MAX_DECLARED_CORPORA + 2 == QMD_CORPUS_MAX + 1
+        assert default_port("qmd", QMD_CORPUS_MAX) < default_port("tiled")
+
+
+class TestCorporaPreflight:
+    """Declared corpora must have something on the host before the build."""
+
+    def _config(self, **corpus) -> dict:
+        return {"services": {"qmd": {"corpora": [{"name": "papers", **corpus}]}}}
+
+    def test_no_declared_corpora_is_a_no_op(self, tmp_path: Path) -> None:
+        preflight_qmd_corpora({"services": {"qmd": {}}}, tmp_path)
+        preflight_qmd_corpora({}, tmp_path)
+
+    def test_a_missing_managed_source_is_refused(self, tmp_path: Path) -> None:
+        with pytest.raises(DeploymentPreconditionError, match="not a directory"):
+            preflight_qmd_corpora(self._config(source="data/papers"), tmp_path)
+
+    def test_a_present_managed_source_passes(self, tmp_path: Path) -> None:
+        (tmp_path / "data" / "papers").mkdir(parents=True)
+        preflight_qmd_corpora(self._config(source="data/papers"), tmp_path)
+
+    def test_a_prebuilt_dir_without_an_index_is_refused(self, tmp_path: Path) -> None:
+        (tmp_path / "idx").mkdir()
+        with pytest.raises(DeploymentPreconditionError, match="holds no qmd index"):
+            preflight_qmd_corpora(
+                self._config(index="prebuilt", index_dir=str(tmp_path / "idx")), tmp_path
+            )
+
+    def test_a_prebuilt_dir_with_an_index_passes(self, tmp_path: Path) -> None:
+        (tmp_path / "idx" / ".qmd").mkdir(parents=True)
+        (tmp_path / "idx" / ".qmd" / "index.sqlite").write_bytes(b"x")
+        preflight_qmd_corpora(self._config(index="prebuilt", index_dir="idx"), tmp_path)
+
+
+class TestInNetworkDial:
+    """A client inside the compose network dials the sidecar by its service name.
+
+    The ``services.qmd`` block only knows where the sidecar is PUBLISHED, which
+    from inside a bridge-networked container is that container's own loopback.
+    The render hands such a container the in-network URL under
+    :func:`corpus_url_env`, and the corpus resolver honours it.
+    """
+
+    BLOCK = {"services": {"qmd": {"port": 9000, "corpora": [{"name": "papers", "source": "./p"}]}}}
+
+    def test_service_name_and_env_name_derive_from_the_corpus(self) -> None:
+        assert corpus_service_name("ariel") == "qmd-ariel"
+        assert corpus_url_env("ariel") == "OSPREY_QMD_ARIEL_URL"
+        assert corpus_url_env("site_docs") == "OSPREY_QMD_SITE_DOCS_URL"
+
+    def test_without_an_override_the_host_address_is_dialled(self) -> None:
+        resolved = resolve_qmd_corpus_config(self.BLOCK, "ariel", env={})
+        assert resolved is not None
+        assert resolved.dial_url is None
+        assert resolved.base_url == "http://127.0.0.1:9001"
+
+    def test_the_override_names_the_url_dialled(self) -> None:
+        env = {"OSPREY_QMD_ARIEL_URL": "http://qmd-ariel:9001"}
+        resolved = resolve_qmd_corpus_config(self.BLOCK, "ariel", env=env)
+        assert resolved is not None
+        assert resolved.base_url == "http://qmd-ariel:9001"
+        # The published port is still the deployment's fact; only the dial moves.
+        assert resolved.port == 9001
+
+    def test_the_override_is_per_corpus(self) -> None:
+        env = {"OSPREY_QMD_ARIEL_URL": "http://qmd-ariel:9001"}
+        assert resolve_qmd_corpus_config(self.BLOCK, "okf", env=env).base_url == (
+            "http://127.0.0.1:9000"
+        )
+        assert resolve_qmd_corpus_config(self.BLOCK, "papers", env=env).base_url == (
+            "http://127.0.0.1:9002"
+        )
+
+    @pytest.mark.parametrize("value", ["", "   "])
+    def test_an_empty_override_is_no_override(self, value: str) -> None:
+        resolved = resolve_qmd_corpus_config(
+            self.BLOCK, "ariel", env={"OSPREY_QMD_ARIEL_URL": value}
+        )
+        assert resolved.base_url == "http://127.0.0.1:9001"
+
+    def test_a_trailing_slash_is_dropped(self) -> None:
+        env = {"OSPREY_QMD_ARIEL_URL": "http://qmd-ariel:9001/"}
+        assert resolve_qmd_corpus_config(self.BLOCK, "ariel", env=env).base_url == (
+            "http://qmd-ariel:9001"
+        )
+
+    def test_the_process_environment_is_the_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OSPREY_QMD_OKF_URL", "http://qmd-okf:9000")
+        assert resolve_qmd_corpus_config(self.BLOCK, "okf").base_url == "http://qmd-okf:9000"
+
+    def test_an_override_without_a_block_still_resolves_to_none(self) -> None:
+        # No block means no sidecar this deployment knows; a stray variable does
+        # not conjure one.
+        assert (
+            resolve_qmd_corpus_config({}, "okf", env={"OSPREY_QMD_OKF_URL": "http://x:1"}) is None
+        )
+
+    def test_another_corpus_never_inherits_a_dial_url(self) -> None:
+        env = {"OSPREY_QMD_ARIEL_URL": "http://qmd-ariel:9001"}
+        ariel = resolve_qmd_corpus_config(self.BLOCK, "ariel", env=env)
+        assert ariel.dial_url == "http://qmd-ariel:9001"
+        assert ariel.for_corpus("okf").dial_url is None
+
+    def test_the_render_hands_each_sidecar_its_in_network_url(self, tmp_path: Path) -> None:
+        from osprey.deployment.compose_generator import _resolve_qmd_render_context
+
+        config = {
+            **self.BLOCK,
+            "facility_knowledge": {"bundle_path": "./okf"},
+        }
+        context = _resolve_qmd_render_context(config, str(tmp_path))
+        assert [c["service"] for c in context["corpora"]] == [
+            corpus_service_name("okf"),
+            corpus_service_name("papers"),
+        ]
+        assert context["network_env"] == {
+            "OSPREY_QMD_OKF_URL": "http://qmd-okf:9000",
+            "OSPREY_QMD_PAPERS_URL": "http://qmd-papers:9002",
+        }

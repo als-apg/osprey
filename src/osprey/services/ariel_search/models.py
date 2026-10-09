@@ -11,10 +11,11 @@ This module defines the core data models for ARIEL search service:
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, date, datetime, time
 from enum import Enum
-from typing import Any, NotRequired
+from typing import Annotated, Any, NotRequired
 
+from pydantic import BeforeValidator
 from typing_extensions import TypedDict
 
 
@@ -99,6 +100,8 @@ class EnhancedLogbookEntry(TypedDict):
     summary: NotRequired[str | None]
     keywords: NotRequired[list[str]]
     enhancement_status: NotRequired[dict[str, Any]]
+    attachment_text: NotRequired[str | None]
+    attachment_captions: NotRequired[dict[str, Any] | None]
 
 
 def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
@@ -132,6 +135,10 @@ def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
         entry["keywords"] = row_dict["keywords"]
     if row_dict.get("enhancement_status") is not None:
         entry["enhancement_status"] = row_dict["enhancement_status"]
+    if row_dict.get("attachment_text") is not None:
+        entry["attachment_text"] = row_dict["attachment_text"]
+    if row_dict.get("attachment_captions") is not None:
+        entry["attachment_captions"] = row_dict["attachment_captions"]
 
     return entry
 
@@ -230,7 +237,6 @@ class ARIELSearchRequest:
         time_range: Default time range filter (see Time Range Semantics)
         facility: Facility filter
         max_results: Maximum results to return (default: 10, range: 1-100)
-        include_images: Include image attachments (default: False)
     """
 
     query: str
@@ -238,7 +244,6 @@ class ARIELSearchRequest:
     time_range: tuple[datetime, datetime] | None = None
     facility: str | None = None
     max_results: int = 10
-    include_images: bool = False
     advanced_params: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -399,15 +404,21 @@ def _format_entry_base(entry: EnhancedLogbookEntry) -> dict[str, Any]:
     Returns:
         Dict with entry_id, timestamp, author, text, and title. The text is cut at
         the listing default and marked as ``text_truncated``/``text_length`` when cut.
+        A partial keyword hit also carries ``matched_terms`` and ``missing_terms``.
     """
     timestamp = entry.get("timestamp")
-    return {
+    formatted = {
         "entry_id": entry.get("entry_id"),
         "timestamp": timestamp.isoformat() if timestamp is not None else None,
         "author": entry.get("author"),
         **entry_text_fields(entry.get("raw_text", ""), DEFAULT_LISTING_TEXT_CHARS, field="text"),
         "title": entry.get("metadata", {}).get("title"),
     }
+    row: dict[str, Any] = dict(entry)
+    for key in ("matched_terms", "missing_terms"):
+        if f"_{key}" in row:
+            formatted[key] = list(row[f"_{key}"])
+    return formatted
 
 
 def resolve_time_range(
@@ -435,3 +446,87 @@ def resolve_time_range(
     if fallback_range:
         return fallback_range
     return (None, None)
+
+
+def parse_time_bound(value: str | float, *, end: bool) -> datetime:
+    """Parse one bound of a search window, facility-local when naive.
+
+    A value with no time of day -- an ISO-8601 calendar date in either form
+    (``2025-10-06``, ``20251006``) -- names the whole day: as a start it is
+    that day's first instant, as an end its last, so a window ending on a date
+    keeps the entries written during it. An ISO-8601 date-time is taken
+    exactly as written. A number, or text that is only a number, is epoch
+    seconds.
+
+    Args:
+        value: The bound as given.
+        end: Whether the value closes the window.
+
+    Returns:
+        The bound, timezone-aware.
+
+    Raises:
+        ValueError: If `value` is none of the above.
+    """
+    from osprey.utils.config import localize_facility
+
+    if isinstance(value, bool):
+        raise ValueError(f"not a date, a time or epoch seconds: {value!r}")
+    if isinstance(value, (int, float)):
+        return _epoch(value)
+    text = value.strip()
+    try:
+        day = date.fromisoformat(text)
+    except ValueError:
+        pass
+    else:
+        return localize_facility(datetime.combine(day, time.max if end else time.min))
+    try:
+        return localize_facility(datetime.fromisoformat(text))
+    except ValueError:
+        pass
+    try:
+        seconds = float(text)
+    except ValueError:
+        raise ValueError(f"not an ISO-8601 date or time, nor epoch seconds: {value!r}") from None
+    return _epoch(seconds)
+
+
+def _epoch(seconds: float) -> datetime:
+    """Epoch seconds as an aware UTC datetime, refusing ones out of range."""
+    try:
+        return datetime.fromtimestamp(seconds, UTC)
+    except (OverflowError, OSError, ValueError) as e:
+        raise ValueError(f"epoch seconds out of range: {seconds!r}") from e
+
+
+def _time_bound_text(value: object) -> object:
+    """Check a search-window bound and keep it as text for :func:`parse_time_bound`.
+
+    A number becomes the ISO-8601 text of the instant it names, so the field
+    always holds text; anything :func:`parse_time_bound` refuses is refused.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return parse_time_bound(value, end=False).isoformat()
+    if isinstance(value, str):
+        parse_time_bound(value, end=False)
+    return value
+
+
+#: A search-window bound as an input field holds it: ISO-8601 text (a bare date
+#: or a date-time) or epoch seconds, kept as text so a bare date still names a
+#: whole day when :func:`parse_time_bound` reads it.
+TimeBoundText = Annotated[str | None, BeforeValidator(_time_bound_text)]
+
+#: Field description of a window's start bound.
+START_BOUND_DESCRIPTION = (
+    "Filter entries from this time (inclusive): ISO-8601 date or date-time, or epoch seconds"
+)
+
+#: Field description of a window's end bound.
+END_BOUND_DESCRIPTION = (
+    "Filter entries up to this time (inclusive): ISO-8601 date or date-time, or epoch "
+    "seconds; a bare date includes that whole day"
+)

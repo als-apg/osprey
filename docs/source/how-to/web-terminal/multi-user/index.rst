@@ -178,25 +178,15 @@ The config block
                   display_name: "Deployment Admin (Carol)"
                 personas:
                   readonly:
-                    project: control-assistant-readonly
-                    project_path: build/control-assistant-readonly
                     build_profile: personas/readonly.yml
                   readwrite:
-                    project: control-assistant-readwrite
-                    project_path: build/control-assistant-readwrite
                     build_profile: personas/readwrite.yml
                   admin:
-                    project: control-assistant-admin
-                    project_path: build/control-assistant-admin
                     build_profile: personas/admin.yml
                   logbook:
-                    project: control-assistant-logbook
-                    project_path: build/control-assistant-logbook
                     build_profile: personas/logbook.yml
                     landing_group: Standalone deployments
                   knowledge:
-                    project: control-assistant-knowledge
-                    project_path: build/control-assistant-knowledge
                     build_profile: personas/knowledge.yml
                     landing_group: Standalone deployments
 
@@ -204,7 +194,16 @@ The config block
          repository — the file ``osprey init`` writes under ``personas/`` and
          points the catalog at. The delta merges over ``profile.yml``, so every
          persona shares one data
-         tree, one set of secrets, and one set of your own artifacts. A bundled
+         tree, one set of secrets, and one set of your own artifacts. Where the
+         persona renders is not stated here: the build derives
+         ``build/<project_name>-<persona>`` from the profile's ``project_name:``
+         and writes it into ``build/config.yml`` as the persona's ``project`` and
+         ``project_path``. Spelling either key beside a ``build_profile`` is
+         refused. An entry with no ``build_profile`` — a persona rendered
+         somewhere else — still names its ``project_path`` itself, and proves
+         its tier by that render: the build reads the ``config.yml`` there, the
+         same file ``osprey up`` reads, so such a persona may be the
+         ``default_persona`` or sit on a shared card like any other. A bundled
          preset name, an absolute path, or a path outside ``personas/`` is
          rejected by both ``osprey scaffold web-terminals lint`` and
          ``osprey up``.
@@ -380,19 +379,31 @@ What ``osprey build`` and ``osprey up`` do for the web tier
 #. **The start builds each persona's image.** In the preset's local mode
    (``image_source: local``), ``osprey up`` builds each persona's image
    (tagged ``<project>:local`` after the persona's rendered project, e.g.
-   ``my-control-assistant-readwrite:local``) from that rendered project —
+   ``control-assistant-readwrite:local``) from that rendered project —
    no registry, no CI. Registry mode pulls them instead; see
    :ref:`multi-user-registry-images`.
 
-#. **Brings up the web tier.** An nginx reverse proxy (container ``ca-nginx``)
-   serves the landing page on ``http://127.0.0.1:10000``, and one Web Terminal
-   container comes up per user — ``ca-web-alice`` on host port ``10100``,
-   ``ca-web-bob`` on ``10101``, ``ca-web-logbook`` on ``10102``,
-   ``ca-web-carol`` on ``10103`` and ``ca-web-knowledge`` on ``10104`` — each
-   reached
-   through the landing page. (The
-   ``ca-`` prefix is the preset's ``facility.prefix``; change it for your
-   site.)
+#. **Brings up the web tier.** An nginx reverse proxy (container
+   ``control-assistant-nginx``) serves the landing page on
+   ``http://127.0.0.1:10000``, and one Web Terminal container comes up per
+   user — ``control-assistant-web-alice`` on host port ``10100``,
+   ``control-assistant-web-bob`` on ``10101``, ``control-assistant-web-logbook``
+   on ``10102``, ``control-assistant-web-carol`` on ``10103`` and
+   ``control-assistant-web-knowledge`` on ``10104`` — each reached through the
+   landing page. With login on, the auth sidecar runs as
+   ``control-assistant-auth``, from a locally built
+   ``control-assistant-auth:local`` image. Every one of these names is
+   ``<project_name>-…``, after the profile's ``project_name:``, which
+   ``osprey init`` took from the folder name.
+
+   .. note:: Upgrading a multi-user deployment
+
+      Before this naming, the web containers and the auth image took their
+      prefix from ``facility.prefix`` (``ca-nginx``, ``ca-web-alice``,
+      ``ca-assistant-auth:local``). The first ``osprey up`` after upgrading
+      replaces them with the ``<project_name>-…`` containers and builds the auth
+      image under its new tag; no old-named container is left running. The
+      volumes keep their names, so every user's workspace carries over.
 
 Stop the stack again with ``osprey down``; check on it with
 ``osprey status``.
@@ -432,7 +443,8 @@ names it derives itself.
      - ``<registry.url>/web-terminal-<persona>:<tag>``
 
 ``<persona>`` is the persona's key in the ``personas`` catalog, not its
-``project``.
+``project``. The ``project`` is ``<project_name>-<persona>``, which the build
+derives from the profile's ``project_name:``.
 The default persona keeps the unsuffixed name, so adding a catalog never
 renames the image its users already pull.
 
@@ -458,8 +470,9 @@ A profile with no ``deploy:`` block sets it there.
 The scaffolded pipeline builds only the facility's own service images, not
 these, so the facility's pipeline must push them.
 Put that job in ``ci-extra.yml`` (see :doc:`../../deploy-a-facility`).
-Build each image from that persona's rendered project: the same render
-``image_source: local`` builds as ``<project>:local``.
+Build each image from that persona's rendered project,
+``build/<project_name>-<persona>``: the same render ``image_source: local``
+builds as ``<project_name>-<persona>:local``.
 
 Registry mode also pulls the auth sidecar from
 ``modules.web_terminals.auth.image`` when login is on; see :doc:`login`.
@@ -489,12 +502,8 @@ For example, with this config:
          index: 1
        personas:
          readonly:
-           project: demo-readonly
-           project_path: build/demo-readonly
            build_profile: personas/readonly.yml
          readwrite:
-           project: demo-readwrite
-           project_path: build/demo-readwrite
            build_profile: personas/readwrite.yml
 
 ``osprey up`` pulls:

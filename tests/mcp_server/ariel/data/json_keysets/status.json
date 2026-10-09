@@ -1,0 +1,21 @@
+{
+  "$": "dict",
+  "active_embedding_model": "str",
+  "database_connected": "bool",
+  "database_uri": "str",
+  "embedding_tables": "list",
+  "embedding_tables[]": "dict",
+  "embedding_tables[].dimension": "int",
+  "embedding_tables[].entry_count": "int",
+  "embedding_tables[].is_active": "bool",
+  "embedding_tables[].table_name": "str",
+  "enabled_enhancement_modules": "list",
+  "enabled_enhancement_modules[]": "str",
+  "enabled_search_modules": "list",
+  "enabled_search_modules[]": "str",
+  "entry_count": "int",
+  "errors": "list",
+  "errors[]": "str",
+  "healthy": "bool",
+  "last_ingestion": "str"
+}

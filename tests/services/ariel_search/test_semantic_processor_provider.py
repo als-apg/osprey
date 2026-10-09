@@ -369,3 +369,107 @@ class TestTheInputBudgetIsAConfigKey:
             await module._process_text("x" * 50, entry_id="entry-42")
 
         assert not any("entry-42" in record.getMessage() for record in caplog.records)
+
+
+class TestHealthCheckRoute:
+    """The health check lists models where the route can, and calls the LLM elsewhere."""
+
+    @staticmethod
+    def _route(monkeypatch, provider: str, provider_cfg: dict[str, Any]) -> list[str]:
+        """Pin the provider config and fail any completion; return the URLs the probe asks."""
+        from osprey.models.provider_registry import get_provider_registry
+
+        provider_cls = get_provider_registry().get_provider(provider)
+        env = getattr(provider_cls, "base_url_env_var", None)
+        if env:
+            monkeypatch.delenv(env, raising=False)
+        monkeypatch.setattr(
+            "osprey.models.config.get_provider_config", lambda *_a, **_k: dict(provider_cfg)
+        )
+
+        def no_completion(*_a: Any, **_k: Any) -> str:
+            raise AssertionError("a probing route made a completion call")
+
+        monkeypatch.setattr("osprey.models.completion.get_chat_completion", no_completion)
+        asked: list[str] = []
+        return asked
+
+    @staticmethod
+    def _listing(monkeypatch, asked: list[str], status: int, ids: list[str]) -> None:
+        """Answer every ``httpx.get`` with one model listing."""
+        import httpx
+
+        def fake_get(url: str, **_k: Any) -> httpx.Response:
+            asked.append(url)
+            return httpx.Response(
+                status, json={"data": [{"id": i} for i in ids]}, request=httpx.Request("GET", url)
+            )
+
+        monkeypatch.setattr(httpx, "get", fake_get)
+
+    async def test_probing_route_makes_no_completion_call(self, monkeypatch) -> None:
+        asked = self._route(
+            monkeypatch, "cborg", {"base_url": "https://gateway.example", "api_key": "k"}
+        )
+        self._listing(monkeypatch, asked, 200, ["claude-haiku-4-5"])
+        module = SemanticProcessorModule()
+        module.configure(_config(model={"model_id": "claude-haiku-4-5"}))
+
+        result = await module.health_check()
+
+        assert (result.reachable, result.reason) == (True, None)
+        assert asked and asked[0].startswith("https://gateway.example")
+
+    async def test_probe_verdict_is_returned_unchanged(self, monkeypatch) -> None:
+        from osprey.models.providers.health import probe_models_endpoint
+
+        self._route(monkeypatch, "cborg", {"base_url": "https://gateway.example"})
+        asked: list[str] = []
+        self._listing(monkeypatch, asked, 200, ["other-model"])
+        module = SemanticProcessorModule()
+        module.configure(_config(model={"model_id": "claude-haiku-4-5"}))
+
+        from osprey.models.provider_registry import get_provider_registry
+
+        expected = probe_models_endpoint(
+            get_provider_registry().get_provider("cborg"),
+            "https://gateway.example",
+            None,
+            "claude-haiku-4-5",
+        )
+        assert await module.health_check() == expected
+        assert expected.reason == "model"
+
+    async def test_anthropic_without_base_url_reports_a_real_verdict(self, monkeypatch) -> None:
+        asked = self._route(monkeypatch, "anthropic", {"api_key": "sk-x"})
+        self._listing(monkeypatch, asked, 401, [])
+        module = SemanticProcessorModule()
+        module.configure(_config(provider="anthropic", model={"model_id": "claude-haiku-4-5"}))
+
+        result = await module.health_check()
+
+        assert result.reachable is False
+        assert result.reason == "auth"
+        assert asked and asked[0].startswith("https://api.anthropic.com")
+
+    async def test_route_without_models_probe_keeps_the_completion_check(self, monkeypatch) -> None:
+        import httpx
+
+        calls: list[str] = []
+
+        def completion(message: str, model_config: Any = None) -> str:  # noqa: ARG001
+            calls.append(message)
+            return "OK"
+
+        def no_get(*_a: Any, **_k: Any) -> Any:
+            raise AssertionError("a route without models_probe was probed")
+
+        monkeypatch.setattr("osprey.models.completion.get_chat_completion", completion)
+        monkeypatch.setattr(httpx, "get", no_get)
+        module = SemanticProcessorModule()
+        module.configure(_config(provider="ollama", model={"model_id": "llama3"}))
+
+        result = await module.health_check()
+
+        assert (result.reachable, result.message, result.reason) == (True, "OK", None)
+        assert calls == ["Say OK"]

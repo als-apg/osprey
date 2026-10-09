@@ -460,3 +460,213 @@ class TestHandleStructuredOutputWithChatRequest:
         )
         assert second_text.count("must respond with valid JSON") == 1
         assert second == first
+
+
+_PNG_B64 = "iVBORw0KGgo="
+_IMAGE_PART = {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{_PNG_B64}"}}
+
+
+def _ollama_reply(content: str):
+    """A fake ``/api/chat`` response carrying *content* as the assistant reply."""
+    response = MagicMock()
+    response.json.return_value = {"message": {"role": "assistant", "content": content}}
+    response.raise_for_status = MagicMock()
+    return response
+
+
+class TestOllamaVisionCompletion:
+    """The direct Ollama path sends image parts as ``images:`` and text as one string."""
+
+    @staticmethod
+    def _complete(chat_request, **kwargs):
+        from osprey.models.providers.litellm_adapter import execute_litellm_completion
+
+        return execute_litellm_completion(
+            provider="ollama",
+            message="",
+            model_id="llava",
+            api_key="ollama",
+            base_url="http://ollama:11434",
+            chat_request=chat_request,
+            **kwargs,
+        )
+
+    @patch("httpx.post")
+    def test_image_parts_become_base64_images_with_think_false(self, mock_post):
+        """A [text, image] user message posts joined text, images:[b64], think:false."""
+        mock_post.return_value = _ollama_reply("A beam-current plot.")
+        req = ChatCompletionRequest(
+            messages=[
+                ChatMessage("system", "Describe images."),
+                ChatMessage(
+                    "user",
+                    [
+                        {"type": "text", "text": "What is"},
+                        _IMAGE_PART,
+                        {"type": "text", "text": "this?"},
+                    ],
+                ),
+            ]
+        )
+
+        reply = self._complete(req, timeout=7.5)
+
+        assert reply == "A beam-current plot."
+        assert mock_post.call_args.args[0] == "http://ollama:11434/api/chat"
+        body = mock_post.call_args.kwargs["json"]
+        assert body["think"] is False
+        assert body["stream"] is False
+        system, user = body["messages"]
+        assert system == {"role": "system", "content": "Describe images."}
+        assert user["role"] == "user"
+        assert user["content"] == "What is\nthis?"
+        assert user["images"] == [_PNG_B64]
+        assert mock_post.call_args.kwargs["timeout"] == 7.5
+
+    @patch("httpx.post")
+    def test_text_only_request_sends_no_think_and_no_images(self, mock_post):
+        """Without an image part the body carries neither think nor images."""
+        mock_post.return_value = _ollama_reply("hello")
+        req = ChatCompletionRequest(messages=[ChatMessage("user", "hi")])
+
+        assert self._complete(req) == "hello"
+
+        body = mock_post.call_args.kwargs["json"]
+        assert "think" not in body
+        assert body["messages"] == [{"role": "user", "content": "hi"}]
+        assert mock_post.call_args.kwargs["timeout"] == 120.0
+
+    @patch("httpx.post")
+    def test_text_only_list_content_is_joined_without_images(self, mock_post):
+        """List content holding only text parts becomes a string, no images key."""
+        mock_post.return_value = _ollama_reply("ok")
+        req = ChatCompletionRequest(
+            messages=[
+                ChatMessage("user", [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}])
+            ]
+        )
+
+        self._complete(req)
+
+        body = mock_post.call_args.kwargs["json"]
+        assert "think" not in body
+        assert body["messages"] == [{"role": "user", "content": "a\nb"}]
+
+    @patch("httpx.post")
+    def test_several_images_keep_their_order(self, mock_post):
+        """Two image parts in one message become two entries of ``images`` in order."""
+        mock_post.return_value = _ollama_reply("two")
+        second = {"type": "image_url", "image_url": "data:image/jpeg;base64,/9j/AA=="}
+        req = ChatCompletionRequest(messages=[ChatMessage("user", [_IMAGE_PART, second])])
+
+        self._complete(req)
+
+        (user,) = mock_post.call_args.kwargs["json"]["messages"]
+        assert user["images"] == [_PNG_B64, "/9j/AA=="]
+        assert user["content"] == ""
+
+    @patch("httpx.post")
+    def test_non_data_url_image_raises_before_posting(self, mock_post):
+        """An image part that is not a base64 data URL cannot reach Ollama."""
+        bad = {"type": "image_url", "image_url": {"url": "https://example.org/x.png"}}
+        req = ChatCompletionRequest(messages=[ChatMessage("user", [bad])])
+
+        with pytest.raises(ValueError):
+            self._complete(req)
+        mock_post.assert_not_called()
+
+    @patch("httpx.post")
+    def test_caller_message_objects_are_not_mutated(self, mock_post):
+        """Conversion builds new message dicts; the caller's parts stay intact."""
+        mock_post.return_value = _ollama_reply("ok")
+        parts = [{"type": "text", "text": "x"}, dict(_IMAGE_PART)]
+        req = ChatCompletionRequest(messages=[ChatMessage("user", parts)])
+
+        self._complete(req)
+
+        assert req.messages[0].content == parts
+        assert parts[1]["type"] == "image_url"
+
+
+class TestStructuredOutputImageParts:
+    """Structured output with image-bearing chat requests."""
+
+    def test_ollama_with_chat_request_raises(self):
+        """The ollama structured path takes one string, so a chat_request is refused."""
+        from pydantic import BaseModel
+
+        from osprey.models.providers.litellm_adapter import _handle_structured_output
+
+        class Out(BaseModel):
+            name: str
+
+        req = ChatCompletionRequest(
+            messages=[ChatMessage("user", [{"type": "text", "text": "x"}, _IMAGE_PART])]
+        )
+
+        with patch("httpx.post") as mock_post, pytest.raises(ValueError, match="ollama"):
+            _handle_structured_output(
+                provider="ollama",
+                model_id="llava",
+                litellm_model="ollama/llava",
+                message="",
+                completion_kwargs={"messages": req.to_litellm_messages(), "max_tokens": 64},
+                output_format=Out,
+                is_typed_dict_output=False,
+                chat_request=req,
+            )
+        mock_post.assert_not_called()
+
+    @staticmethod
+    def _fallback(mock_litellm, content):
+        from pydantic import BaseModel
+
+        from osprey.models.providers.litellm_adapter import _handle_structured_output
+
+        class Out(BaseModel):
+            name: str
+
+        mock_litellm.supports_response_schema.return_value = False
+        response = MagicMock()
+        response.choices = [MagicMock()]
+        response.choices[0].message.content = '{"name": "plot"}'
+        mock_litellm.completion.return_value = response
+
+        req = ChatCompletionRequest(messages=[ChatMessage("user", content)])
+        result = _handle_structured_output(
+            provider="test",
+            model_id="model",
+            litellm_model="test/model",
+            message="",
+            completion_kwargs={
+                "model": "test/model",
+                "messages": req.to_litellm_messages(),
+                "max_tokens": 64,
+            },
+            output_format=Out,
+            is_typed_dict_output=False,
+            chat_request=req,
+        )
+        assert result == Out(name="plot")
+        return mock_litellm.completion.call_args.kwargs["messages"][-1]["content"]
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_prompt_fallback_appends_to_last_text_part_before_image(self, mock_litellm):
+        """[text, image]: the schema lands on the text part; the image part is untouched."""
+        sent = self._fallback(mock_litellm, [{"type": "text", "text": "Describe."}, _IMAGE_PART])
+
+        assert len(sent) == 2
+        assert sent[0]["type"] == "text"
+        assert sent[0]["text"].startswith("Describe.")
+        assert "valid JSON" in sent[0]["text"]
+        assert sent[1] == _IMAGE_PART
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_prompt_fallback_adds_text_part_when_only_images(self, mock_litellm):
+        """[image]: a text part carrying the schema instruction is appended."""
+        sent = self._fallback(mock_litellm, [_IMAGE_PART])
+
+        assert len(sent) == 2
+        assert sent[0] == _IMAGE_PART
+        assert sent[1]["type"] == "text"
+        assert "valid JSON" in sent[1]["text"]

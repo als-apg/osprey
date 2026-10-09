@@ -42,6 +42,7 @@ from osprey.deployment.compose_merge import (
 )
 from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.deployment.errors import DeploymentPreconditionError
+from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS
 from osprey.deployment.runtime_helper import (
     CONFIG_DIGEST_VAR,
     ComposeProvider,
@@ -157,14 +158,14 @@ QMD_CORPUS_ROOT = "/corpus"
 #: qmd collection the OKF facility-knowledge bundle is indexed under. This is a
 #: contract, not a label: a query filters on the collection name, so this must
 #: equal ``osprey.services.facility_knowledge.okf.bundle.OKF_COLLECTION``.
-#: Restated here rather than imported, because rendering a compose file must not
-#: drag the facility-knowledge service into the deployment import graph; a test
-#: asserts the two spellings agree.
-QMD_OKF_COLLECTION = "okf"
+#: Taken from the qmd schema rather than from the facility-knowledge service,
+#: because rendering a compose file must not drag that service into the
+#: deployment import graph; a test asserts the two spellings agree.
+QMD_OKF_COLLECTION = OKF_CORPUS
 
 #: qmd collection ARIEL's markdown mirror is indexed under. Same contract: the
 #: ARIEL search module filters on this name.
-QMD_ARIEL_COLLECTION = "ariel"
+QMD_ARIEL_COLLECTION = ARIEL_CORPUS
 
 #: Where a SERVICE image holds the deployment project's mounted files. Distinct
 #: from ``_CONTAINER_APP_ROOT``/``<project_name>``, which is where a *project*
@@ -242,11 +243,13 @@ def resolve_repo_root(config=None, config_path=None):
     return Path.cwd().absolute()
 
 
-#: Label key carrying WHICH CHECKOUT a container or volume belongs to.
-#: ``COMPOSE_PROJECT_NAME`` is derived from the repo's directory name, so two
-#: clones of one deployment on a single host share a project name and a volume
-#: namespace. This is what tells them apart — and what lets a destructive verb
-#: refuse to remove the other checkout's resources.
+#: Label key carrying WHICH CHECKOUT created a container. Two checkouts of one
+#: deployment on a single host that declare the same project name share a
+#: compose project; this label tells their containers apart, which is what lets
+#: ``up`` refuse to start over the other copy and ``reset`` refuse to remove it
+#: (:mod:`osprey.deployment.container_ownership`). It is on containers only:
+#: volumes belong to the project by name, ``<project>_<volume>``, and carry no
+#: checkout label.
 REPO_ID_LABEL = "com.osprey.repo-id"
 
 #: Label naming the compose project a container belongs to. The generated
@@ -977,38 +980,65 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
 
 
 def _resolve_qmd_corpora(config, repo_root):
-    """List the corpora the qmd sidecar indexes, one entry per collection.
+    """List the corpora the deployment searches, one qmd sidecar per entry.
 
-    This is the single derivation behind BOTH of the sidecar's rendered
-    artifacts: ``docker-compose.yml.j2`` turns each entry into a read-only bind
-    mount and ``index.yml.j2`` turns the same entry into a qmd collection. Doing
-    it once here is the point — a corpus mounted without a collection indexes
-    nothing, and a collection declared without a mount points at an empty
-    directory, and both fail as "the search returns nothing" rather than as an
+    This is the single derivation behind every corpus sidecar the qmd compose
+    fragment renders: its service name, its port in the qmd family, its index
+    volume or prebuilt index mount, and its read-only corpus mount and the
+    collection the entrypoint declares over it. Doing it once here is the point
+    — a corpus mounted under one name and declared under another indexes
+    nothing, and a sidecar published on a port no client resolves is never
+    asked, and both fail as "the search returns nothing" rather than as an
     error.
 
-    Two corpora are recognized, each gated on the config that produces it:
+    Two corpora are derived from the config that produces them, at fixed
+    offsets in the port family:
 
-    * the facility-knowledge bundle, when ``facility_knowledge.bundle_path``
-      names one;
-    * ARIEL's markdown mirror, when
+    * the facility-knowledge bundle (``okf``), when
+      ``facility_knowledge.bundle_path`` names one;
+    * ARIEL's markdown mirror (``ariel``), when
       ``ariel.enhancement_modules.qmd_export`` is enabled AND names a
       ``mirror_path`` (an enabled export with no path is a config error the
       exporter itself refuses at runtime; there is nothing to mount here).
+
+    The corpora ``services.qmd.corpora`` declares follow, in list order.
 
     :param config: Configuration dictionary
     :type config: dict
     :param repo_root: The deployment repo root, for relative bind sources
     :type repo_root: str
-    :return: Corpus descriptors with ``collection``, ``source`` and ``target``
+    :return: Corpus descriptors with ``collection``, ``service``, ``port``,
+        ``index`` (``managed`` or ``prebuilt``), ``source`` and ``target`` (the
+        corpus mount, ``None`` for a prebuilt corpus without one), ``index_dir``
+        (the prebuilt index's bind source, else ``None``) and ``volume`` (the
+        managed index's named volume, else ``None``)
     :rtype: list[dict]
     """
+    from osprey.deployment.qmd_service import (
+        INDEX_MANAGED,
+        QMDServiceConfig,
+        corpus_service_name,
+        resolve_bind_address,
+        resolve_qmd_service_config,
+    )
 
-    def corpus(collection, raw_path):
+    resolved = resolve_qmd_service_config(config) or QMDServiceConfig(
+        bind_address=resolve_bind_address(config)
+    )
+
+    def corpus(collection, raw_source, index=INDEX_MANAGED, raw_index_dir=None):
+        managed = index == INDEX_MANAGED
         return {
             "collection": collection,
-            "source": repo_relative_mount_source(raw_path, repo_root),
-            "target": f"{QMD_CORPUS_ROOT}/{collection}",
+            "service": corpus_service_name(collection),
+            "port": resolved.for_corpus(collection).port,
+            "index": index,
+            "source": (repo_relative_mount_source(raw_source, repo_root) if raw_source else None),
+            "target": f"{QMD_CORPUS_ROOT}/{collection}" if raw_source else None,
+            "index_dir": (
+                None if managed else repo_relative_mount_source(raw_index_dir, repo_root)
+            ),
+            "volume": f"qmd_index_{collection}" if managed else None,
         }
 
     corpora = []
@@ -1021,6 +1051,9 @@ def _resolve_qmd_corpora(config, repo_root):
     mirror_path = configured_ariel_mirror_path(config)
     if mirror_path is not None:
         corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path))
+
+    for declared in resolved.corpora:
+        corpora.append(corpus(declared.name, declared.source, declared.index, declared.index_dir))
 
     return corpora
 
@@ -1091,6 +1124,26 @@ def resolve_ariel_mirror_dir(
     return root / path
 
 
+def _host_dial_address(config):
+    """The address a host-namespace container dials a store this deployment publishes at.
+
+    Every bundled store publishes on ``deployment.bind_address``, so a client on
+    the host network reaches it there by the one rule
+    :func:`~osprey.deployment.qmd_service.dial_address` states: a wildcard bind
+    is dialled on its family's loopback, a pinned interface on that interface.
+    Bracketed when it is an IPv6 literal, since templates set it as the host
+    half of a URL or DSN.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: The dialable host
+    :rtype: str
+    """
+    from osprey.deployment.qmd_service import dial_address, resolve_bind_address
+
+    return dial_address(resolve_bind_address(config))
+
+
 def _resolve_qmd_render_context(config, repo_root):
     """Build the ``osprey_qmd`` render context for the sidecar's templates.
 
@@ -1106,16 +1159,23 @@ def _resolve_qmd_render_context(config, repo_root):
     exists so that a render cannot fail with an attribute error on a name the
     template legitimately expects to be there.
 
+    ``network_env`` is what a container on the compose bridge needs to reach
+    each sidecar: the variable :func:`~osprey.deployment.qmd_service.corpus_url_env`
+    names, set to the sidecar's service name and the port it listens on inside
+    the network. The consumer templates emit it as given, so no template spells
+    a sidecar's name or port.
+
     :param config: Configuration dictionary
     :type config: dict
     :param repo_root: The deployment repo root, for relative bind sources
     :type repo_root: str
     :return: ``port``, ``bind_address``, ``interval_seconds``,
-        ``first_index_grace_seconds`` and ``corpora``
+        ``first_index_grace_seconds``, ``corpora`` and ``network_env``
     :rtype: dict
     """
     from osprey.deployment.qmd_service import (
         QMDServiceConfig,
+        corpus_url_env,
         resolve_bind_address,
         resolve_qmd_service_config,
     )
@@ -1123,12 +1183,18 @@ def _resolve_qmd_render_context(config, repo_root):
     resolved = resolve_qmd_service_config(config) or QMDServiceConfig(
         bind_address=resolve_bind_address(config)
     )
+    corpora = _resolve_qmd_corpora(config, repo_root)
     return {
         "port": resolved.port,
         "bind_address": resolved.bind_address,
         "interval_seconds": resolved.interval_seconds,
         "first_index_grace_seconds": resolved.first_index_grace_seconds,
-        "corpora": _resolve_qmd_corpora(config, repo_root),
+        "corpora": corpora,
+        # The sidecar listens on its published port inside the container too
+        # (the qmd fragment publishes `port:port`), so one number serves both.
+        "network_env": {
+            corpus_url_env(c["collection"]): f"http://{c['service']}:{c['port']}" for c in corpora
+        },
     }
 
 
@@ -1674,9 +1740,8 @@ def project_label_values(config):
         #
         # Applied at CREATE time, like every container label: containers that
         # were already running keep whatever label they were created with until
-        # something recreates them, and a named volume takes its labels only
-        # when it is first created — an existing volume is never relabelled by a
-        # later deploy.
+        # something recreates them. It labels containers only; volumes belong to
+        # the project by name and carry no checkout label.
         "repo_id": repo_identity(resolve_repo_root(config)),
     }
 
@@ -1999,6 +2064,10 @@ def _inject_project_metadata(config):
     # mount (an empty directory). Injected unconditionally, like every other
     # derived key here; templates that do not name it are unaffected.
     config_with_labels["osprey_qmd"] = _resolve_qmd_render_context(config, repo_root)
+    # Where a container on the host network reaches a store this deployment
+    # publishes: the interface `deployment.bind_address` names, or loopback for
+    # a wildcard. One derivation for every template that sets such an address.
+    config_with_labels["osprey_host_dial_address"] = _host_dial_address(config)
 
     # The archive service's sources — the volumes it reads, derived from the
     # same roster, worker and lane inputs their owner templates render from —

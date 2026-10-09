@@ -121,7 +121,7 @@ class TestIngestHonoursTheConfiguredAdapter:
         monkeypatch.setattr("osprey.services.ariel_search.ingestion.get_adapter", _fake_get_adapter)
         monkeypatch.setattr(
             "osprey.services.ariel_search.enhancement.create_enhancers_from_config",
-            lambda config: [],
+            lambda config, **_: [],
         )
 
         result = await ops.run_ingest(config_dict, "entries.json", None, None, None, True)

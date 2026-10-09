@@ -37,6 +37,21 @@ def test_parse_date_filters_respects_explicit_offset():
 
 
 @pytest.mark.usefixtures("facility_tokyo")
+def test_parse_date_filters_bare_end_date_runs_through_that_day():
+    """A bare end date names the whole day, ending at its last facility-local instant."""
+    start, end = parse_date_filters("2025-10-06", "2025-10-06")
+    assert start == datetime(2025, 10, 6, tzinfo=TOKYO)
+    assert end == datetime(2025, 10, 6, 23, 59, 59, 999999, tzinfo=TOKYO)
+
+
+@pytest.mark.usefixtures("facility_tokyo")
+def test_parse_date_filters_timestamped_end_stays_exact():
+    """An end that names a time of day is taken as written, midnight included."""
+    _, end = parse_date_filters(None, "2025-10-06T00:00:00")
+    assert end == datetime(2025, 10, 6, tzinfo=TOKYO)
+
+
+@pytest.mark.usefixtures("facility_tokyo")
 def test_serialize_entry_renders_timestamp_in_facility_zone():
     entry = {
         "entry_id": "e1",
@@ -45,7 +60,14 @@ def test_serialize_entry_renders_timestamp_in_facility_zone():
         "source_system": "elog",
         "raw_text": "hello",
     }
-    out = serialize_entry(entry, text_limit=DEFAULT_LISTING_TEXT_CHARS)
+    out = serialize_entry(
+        entry,
+        text_limit=DEFAULT_LISTING_TEXT_CHARS,
+        attachment_limit=0,
+        attachment_rows=None,
+        model_id=None,
+        file_source=False,
+    )
     # UTC midnight rendered in Tokyo (+09:00) → 09:00+09:00 on the same date.
     assert out["timestamp"].endswith("+09:00")
     assert "T09:00:00" in out["timestamp"]

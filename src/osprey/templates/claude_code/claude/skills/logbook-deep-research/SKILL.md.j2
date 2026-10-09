@@ -52,6 +52,12 @@ results are findings, not dead ends.**
   pass `expand_query: true`/`false` to force or suppress it, and check
   `expanded_terms` for what was applied. It also accepts `*` globs (3+ literal
   characters, e.g. `BPM*`) and `/regex/` tokens for control-system names.
+- Every plain word must appear in an entry. Only when no entry has them all
+  does `keyword_search` return entries holding most of them, ranked, with
+  `matched_terms`/`missing_terms` and a `partial` diagnostic naming the words
+  no hit holds. Put dates and authors in `start_date`/`end_date`/`author`,
+  never in the query text (a bare `end_date` includes that day); join
+  alternatives with `OR` to widen.
 
 ### 2b. Semantic search
 
@@ -62,7 +68,13 @@ results are findings, not dead ends.**
 - Pass `exclude_entry_ids` to skip IDs already returned by Phase 2a to
   avoid duplicate review.
 
-### 2c. SQL / structural queries
+### 2c. Hybrid search
+
+- If `capabilities().search_modes` includes `hybrid`, run `hybrid_search`
+  for sub-questions where a known term and a fuzzy description matter at
+  once, or that are about a picture; otherwise skip it silently.
+
+### 2d. SQL / structural queries
 
 - Use `sql_query` for structural questions:
   - Counts (`COUNT(*)` of entries matching a tag or author)
@@ -70,7 +82,7 @@ results are findings, not dead ends.**
   - JSONB metadata filters
 - The query is read-only; it cannot mutate the database.
 
-### 2d. Browse and filter discovery
+### 2e. Browse and filter discovery
 
 - Use `browse` with date filters for chronological exploration of an event
   window.
@@ -79,6 +91,8 @@ results are findings, not dead ends.**
 
 After each search, write down: what you queried, how many results, and what
 the results suggest for the next query.
+
+{% set attachments_heading = "###" %}{% include "claude_code/claude/agents/_shared/attachments.md.j2" %}
 
 ---
 

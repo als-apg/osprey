@@ -430,3 +430,64 @@ class TestWriteEntry:
         """The root may arrive as a configured string path."""
         assert write_entry(str(tmp_path), make_entry()) is True
         assert (Path(tmp_path) / "2024" / "05" / "12345.md").is_file()
+
+
+_CAPTIONS = (
+    "[picture a.png - upstream caption] dipole trip\n"
+    "[picture b.png - machine caption by vision-x] RF cavity trace"
+)
+
+
+class TestCaptionsLine:
+    """An entry's picture text is rendered as one searchable body line."""
+
+    def test_captions_line_follows_keywords_before_the_text(self):
+        document = render_entry(make_entry(keywords=["rf"], attachment_text=_CAPTIONS))
+
+        lines = document.splitlines()
+        captions = (
+            "Captions: [picture a.png - upstream caption] dipole trip "
+            "[picture b.png - machine caption by vision-x] RF cavity trace"
+        )
+        assert captions in lines
+        assert lines.index(captions) == lines.index("Keywords: rf.") + 1
+        assert lines.index(captions) < lines.index(make_entry()["raw_text"])
+
+    @pytest.mark.parametrize("blank", [None, "", "  \n "])
+    def test_no_picture_text_renders_the_b1_bytes(self, blank):
+        assert render_entry(make_entry(attachment_text=blank)) == render_entry(make_entry())
+        assert "Captions:" not in render_entry(make_entry(attachment_text=blank))
+
+    def test_control_characters_in_captions_are_stripped(self):
+        document = render_entry(make_entry(attachment_text="trip\x00 here"))
+        assert "Captions: trip here" in document
+
+    @pytest.mark.asyncio
+    async def test_qmd_export_and_qmd_resync_write_identical_bytes(self, monkeypatch, tmp_path):
+        from osprey.services.ariel_search import cli_operations as ops
+        from osprey.services.ariel_search.enhancement.qmd_export import QmdExportModule
+        from tests.services.ariel_search._cli_ops_doubles import _patch_pool
+        from tests.services.ariel_search.conftest import _FakePool
+
+        row = make_entry(attachment_text=_CAPTIONS, keywords=["rf"], summary="RF trip.")
+        exported, resynced = tmp_path / "exported", tmp_path / "resynced"
+        module = QmdExportModule()
+        module.configure({"mirror_path": str(exported)})
+        await module.enhance(dict(row), None)  # type: ignore[arg-type]
+
+        _patch_pool(monkeypatch, _FakePool(rows_for={"FROM enhanced_entries": [dict(row)]}))
+        result = await ops.run_qmd_resync(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "enhancement_modules": {
+                    "qmd_export": {"enabled": True, "mirror_path": str(resynced)}
+                },
+            },
+            rebuild=True,
+        )
+
+        assert result is not None and result.written == 1
+        relative = mirror_path(exported, row).relative_to(exported)
+        exported_bytes = (exported / relative).read_bytes()
+        assert exported_bytes == (resynced / relative).read_bytes()
+        assert b"Captions: [picture a.png - upstream caption] dipole trip" in exported_bytes

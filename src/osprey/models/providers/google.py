@@ -39,6 +39,7 @@ class GoogleProviderAdapter(LiteLLMDelegatingProvider):
     supports_interactive_login = False
     supports_images = True
     supports_thinking = False
+    self_hosted = False
 
     # LiteLLM integration - Google uses "gemini" prefix
     litellm_prefix = "gemini"

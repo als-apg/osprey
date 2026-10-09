@@ -371,10 +371,10 @@ class TestControlAssistantAdminPreset:
         catalog = resolve_preset("control-assistant").config[WEB_TERMINALS_KEY]["personas"]
         entry = catalog["admin"]
         assert entry["build_profile"] == ADMIN_PRESET
-        assert entry["project"] == "control-assistant-admin"
-        assert entry["project_path"] == "build/control-assistant-admin"
-        # Name invariant the roster relies on: project == basename(project_path).
-        assert entry["project"] == Path(entry["project_path"]).name
+        # The render's name and directory come from the deployment's
+        # project_name at build time, never from the shipped catalog.
+        assert "project" not in entry
+        assert "project_path" not in entry
 
     def test_admin_roster_user_carol_is_authenticated(self) -> None:
         """Carol is a person, not a shared service. The ARIEL card ships

@@ -184,6 +184,13 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
             # ARIEL enhancement modules
             ariel_enhancement_modules=[
                 ArielEnhancementModuleRegistration(
+                    name="image_caption",
+                    module_path="osprey.services.ariel_search.enhancement.image_caption.module",
+                    class_name="ImageCaptionModule",
+                    description="Caption logbook pictures with a vision model (catch-up only)",
+                    execution_order=5,
+                ),
+                ArielEnhancementModuleRegistration(
                     name="semantic_processor",
                     module_path="osprey.services.ariel_search.enhancement.semantic_processor.processor",
                     class_name="SemanticProcessorModule",
@@ -196,6 +203,13 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     class_name="TextEmbeddingModule",
                     description="Generate vector embeddings for logbook entries",
                     execution_order=20,
+                ),
+                ArielEnhancementModuleRegistration(
+                    name="image_embedding",
+                    module_path="osprey.services.ariel_search.enhancement.image_embedding.module",
+                    class_name="ImageEmbeddingModule",
+                    description="Embed logbook pictures for picture search (catch-up only)",
+                    execution_order=25,
                 ),
                 ArielEnhancementModuleRegistration(
                     name="qmd_export",

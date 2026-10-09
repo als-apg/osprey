@@ -700,3 +700,79 @@ class TestAReconciliationPass:
         handler.reconcile((artifacts_dir,))
 
         assert broadcaster.broadcast.call_count == 0
+
+
+def test_an_audit_spill_is_never_announced(tmp_path):
+    """An image the tool-call audit spilled is a record, not an artifact: no SSE
+    ``artifact`` event, while an ordinary save beside it still broadcasts."""
+    watcher, broadcaster, artifact_store = _make_watcher(tmp_path)
+    handler = _IndexFileHandler(watcher._index_configs, broadcaster)
+    handler._debounce_seconds = 0
+
+    artifact_store.save_or_touch_by_sha256(
+        "a" * 64,
+        origin="tool_call",
+        save_kwargs={
+            "file_content": b"\x89PNG audit",
+            "filename": "toolu_1-image-0.png",
+            "artifact_type": "image",
+            "title": "mcp__x__shot image",
+            "mime_type": "image/png",
+            "tool_source": "audit.tool_call",
+            "metadata": {"sha256": "a" * 64},
+        },
+    )
+    artifact_store.save_file(
+        file_content=b"<html>ok</html>",
+        filename="ok.html",
+        artifact_type="plot_html",
+        title="Produced Plot",
+        mime_type="text/html",
+        tool_source="test",
+    )
+    index_file = tmp_path / "artifacts" / "artifacts.json"
+    handler._handle(FileModifiedEvent(str(index_file)))
+
+    announced = [call.args[0] for call in broadcaster.broadcast.call_args_list]
+    assert [e["title"] for e in announced if e["type"] == "artifact"] == ["Produced Plot"]
+
+
+def test_the_gallery_save_listener_skips_an_audit_spill(tmp_path):
+    """The same-process route: the gallery's save listener broadcasts an
+    ordinary save and stays silent for an audit spill."""
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from osprey.interfaces.artifacts import app as gallery
+
+    sent: list[dict] = []
+    with (
+        patch.object(gallery._SSEBroadcaster, "broadcast", lambda _self, data: sent.append(data)),
+        TestClient(gallery.create_app(workspace_root=tmp_path)),
+    ):
+        store = ArtifactStore(workspace_root=tmp_path, auto_launch=False)
+        store.save_or_touch_by_sha256(
+            "b" * 64,
+            origin="tool_call",
+            save_kwargs={
+                "file_content": b"\x89PNG audit",
+                "filename": "toolu_2-image-0.png",
+                "artifact_type": "image",
+                "title": "Audit Spill",
+                "mime_type": "image/png",
+                "tool_source": "audit.tool_call",
+                "metadata": {"sha256": "b" * 64},
+            },
+        )
+        store.save_file(
+            file_content=b"<html>ok</html>",
+            filename="ok.html",
+            artifact_type="plot_html",
+            title="Produced Plot",
+            mime_type="text/html",
+            tool_source="test",
+        )
+        titles = [e.get("title") for e in sent if e.get("type") == "artifact"]
+        assert "Produced Plot" in titles
+        assert "Audit Spill" not in titles

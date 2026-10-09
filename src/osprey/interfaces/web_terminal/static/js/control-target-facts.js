@@ -212,6 +212,7 @@ export const REASON_PHRASES = {
   archive_belongs_to_standin: 'archive conflict',
   invented_history: 'no archive',
   standin_not_deployed: 'stand-in not deployed',
+  reaches_live_machine: 'points at live machine',
   selected_role_missing: 'no endpoint for role',
   [REASON_STORE_UNAVAILABLE]: 'store unavailable',
   [REASON_CONTEXT_OWNED_ELSEWHERE]: 'held elsewhere',

@@ -16,14 +16,16 @@ vocabulary expansion the failed statement contained.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from osprey.mcp_server.ariel.server import make_error, serialize_entry
-from osprey.mcp_server.ariel.server_context import get_ariel_context
+from osprey.services.ariel_search.attachments.compose import caption_model_id
+from osprey.services.ariel_search.attachments.summaries import file_source_for
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping, Sequence
 
     from osprey.services.ariel_search.exceptions import (
         PatternError,
@@ -60,6 +62,7 @@ def advanced_params(
     similarity_threshold: float | None = None,
     expand_query: bool | None = None,
     rerank: bool | None = None,
+    include_images: bool | None = None,
 ) -> dict[str, Any]:
     """Build the ``advanced_params`` mapping a search request carries.
 
@@ -75,6 +78,8 @@ def advanced_params(
             so the deployment's ``expand_by_default`` decides.
         rerank: Reranking preference, omitted when not given so the
             deployment's ``search_modules.hybrid.settings.rerank`` decides.
+        include_images: Picture-search preference, omitted when not given so
+            the service decides from ``image_embedding.enabled``.
 
     Returns:
         The mapping to hand to :meth:`ARIELSearchService.search`.
@@ -90,6 +95,8 @@ def advanced_params(
         params["expand_query"] = expand_query
     if rerank is not None:
         params["rerank"] = rerank
+    if include_images is not None:
+        params["include_images"] = include_images
     return params
 
 
@@ -129,19 +136,129 @@ class ResultWindow:
         """How many entries to ask the service for."""
         return self.max_results + len(self.excluded) if self.excluded else self.max_results
 
+    @property
+    def image_only_cap(self) -> int:
+        """Most entries matched only through a picture that one page may hold."""
+        return math.ceil(self.max_results / 3)
+
     def select(self, entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Drop the excluded entries, keep at most `max_results`, and serialize each
-        at the deployment's listing budget (`ariel.entry_text.listing_chars`).
+        """Drop the excluded entries and keep at most `max_results`.
+
+        Image-only entries (``_matched_via == ["image"]``) beyond
+        :attr:`image_only_cap` are dropped before the page is cut, so text hits
+        fetched for the window refill the page the way they refill an
+        exclusion.
 
         Args:
             entries: The service's ranked entries.
 
         Returns:
-            At most ``max_results`` serialized entries, in ranking order.
+            At most ``max_results`` of the raw entry dicts, in ranking order;
+            :func:`serialize_entries` turns them into the listing shape.
         """
-        kept = [e for e in entries if e["entry_id"] not in self.excluded][: self.max_results]
-        listing_chars = get_ariel_context().config.entry_text.listing_chars
-        return [serialize_entry(e, text_limit=listing_chars) for e in kept]
+        kept: list[dict[str, Any]] = []
+        image_only = 0
+        for entry in entries:
+            if entry["entry_id"] in self.excluded:
+                continue
+            if entry.get("_matched_via") == ["image"]:
+                if image_only >= self.image_only_cap:
+                    continue
+                image_only += 1
+            kept.append(entry)
+        return kept[: self.max_results]
+
+
+async def serialize_entries(
+    entries: Sequence[Mapping[str, Any]],
+    *,
+    text_limit: int,
+    attachment_limit: int,
+    repository: Any,
+    model_id: str | None,
+    file_source: bool,
+    full_captions: bool = False,
+    view_enabled: bool = True,
+) -> list[dict[str, Any]]:
+    """Serialize a page of entries with their attachment summaries.
+
+    The attachment rows of the whole page come from one
+    ``repository.get_attachment_rows`` call, made only when there is an entry
+    and summaries are wanted. A ``DatabaseQueryError`` from that reader is
+    treated as a store without copy state: every entry keeps its fallback
+    summaries and the process logs the schema-gap warning once, so a failing
+    reader never costs the caller a result.
+
+    Args:
+        entries: The raw entry dicts, in output order.
+        text_limit: Characters of each entry's text to include.
+        attachment_limit: Attachment summaries per entry; ``0`` omits them.
+        repository: The ARIEL repository the rows are read from.
+        model_id: The configured caption model id (``caption_model_id``).
+        file_source: Whether the source resolves relative attachment paths
+            (``file_source_for``).
+        full_captions: Emit captions and visible text uncut.
+        view_enabled: ``ariel.attachments.view.enabled``; false reads no rows
+            and emits the entries without any attachment keys.
+
+    Returns:
+        One serialized dict per entry, in the given order.
+
+    Raises:
+        TypeError: If the reader returned something other than None or a dict.
+    """
+    from osprey.services.ariel_search.database.repository import read_attachment_rows
+
+    if not entries:
+        return []
+    mapping: Mapping[str, Any] | None = {}
+    if view_enabled and attachment_limit > 0:
+        mapping = await read_attachment_rows(repository, [e["entry_id"] for e in entries])
+    return [
+        serialize_entry(
+            entry,
+            text_limit=text_limit,
+            attachment_limit=attachment_limit,
+            attachment_rows=None if mapping is None else mapping.get(entry["entry_id"], []),
+            model_id=model_id,
+            file_source=file_source,
+            full_captions=full_captions,
+            view_enabled=view_enabled,
+        )
+        for entry in entries
+    ]
+
+
+async def serialize_page(
+    entries: Sequence[Mapping[str, Any]],
+    config: Any,
+    repository: Any,
+    *,
+    text_limit: int,
+) -> list[dict[str, Any]]:
+    """Serialize a page of entries the way every listing tool does.
+
+    :func:`serialize_entries` with the attachment limit, caption model, file
+    source and view switch all taken from the deployment's ARIEL config.
+
+    Args:
+        entries: The raw entry dicts, in output order.
+        config: The ARIEL config.
+        repository: The ARIEL repository the rows are read from.
+        text_limit: Characters of each entry's text to include.
+
+    Returns:
+        One serialized dict per entry, in the given order.
+    """
+    return await serialize_entries(
+        entries,
+        text_limit=text_limit,
+        attachment_limit=config.entry_text.listing_attachments,
+        repository=repository,
+        model_id=caption_model_id(config),
+        file_source=file_source_for(config),
+        view_enabled=config.attachments.view_enabled,
+    )
 
 
 def success_envelope(
@@ -202,8 +319,30 @@ def diagnostics(result: object) -> list[dict[str, Any]]:
         One mapping per diagnostic with the level as its string value, empty
         when the search reported none.
     """
+    return _serialize_diagnostics(_iter_diagnostics(result))
+
+
+async def envelope_diagnostics(result: object, repository: Any) -> list[dict[str, Any]]:
+    """Serialize a search's diagnostics followed by the store's schema-behind ones.
+
+    Args:
+        result: The service's search result.
+        repository: The ARIEL repository whose schema is checked.
+
+    Returns:
+        :func:`diagnostics` of ``result``, then one mapping per
+        schema-behind diagnostic the store reports.
+    """
+    from osprey.services.ariel_search.database.repository import schema_behind_diagnostics
+
+    schema_behind = await schema_behind_diagnostics(repository)
+    return diagnostics(result) + _serialize_diagnostics(schema_behind)
+
+
+def _serialize_diagnostics(found: Iterable[Any]) -> list[dict[str, Any]]:
+    """Serialize diagnostics, dropping any without a level."""
     out: list[dict[str, Any]] = []
-    for diagnostic in _iter_diagnostics(result):
+    for diagnostic in found:
         level = getattr(getattr(diagnostic, "level", None), "value", None)
         if level is None:
             continue
@@ -341,10 +480,13 @@ __all__ = [
     "ResultWindow",
     "advanced_params",
     "diagnostics",
+    "envelope_diagnostics",
     "expanded_terms",
     "raise_for_fault_exception",
     "raise_for_vocabulary_error",
     "raise_on_statement_fault",
+    "serialize_entries",
+    "serialize_page",
     "statement_fault",
     "success_envelope",
 ]

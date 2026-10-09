@@ -144,6 +144,8 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #   preset content hash: @PRESET_HASH:control-assistant@
 
 name: Als Exemplar
+# Names the compose project, volumes, images, persona renders; not the folder.
+project_name: als-exemplar
 
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
@@ -213,7 +215,6 @@ skills:
   - bluesky-plans  # Browse which plans this deployment can run
   # Available — uncomment to enable:
   # - logbook-deep-research  # Multi-phase logbook investigation skill
-  # - sim-scenarios  # List and switch simulated machine scenarios
 
 agents:
   - channel-finder          # Finds channel addresses (the mode above decides how)
@@ -432,7 +433,7 @@ config:
   # control_system.patterns.read: ['my_custom_cs_lib\.read\(']
   #
   # Mock connector: driven by the simulation machine model below. Switch
-  # scenarios with `osprey sim apply NAME...` (see the sim-scenarios skill).
+  # scenarios with `osprey sim apply NAME...` (see the simulation bundle reference).
   control_system.connector.mock.simulation_file: data/simulation/machine.json
   # Virtual-accelerator connector: a containerized PyAT-backed soft IOC
   # reached over real EPICS Channel Access, with the same gateway shape as the
@@ -743,6 +744,13 @@ config:
   # the same Postgres the logbook lives in, so this number is a storage
   # decision in both directions.
   # ariel.attachments.max_file_mb: 10
+  # Which attachments ingest copies into the logbook database: `images` (what
+  # captions, picture search and `attachment_view` read), `all`, or `none`.
+  ariel.attachments.copy_on_ingest: images
+  # The agents' `attachment_view` tool and the attachment summaries in their
+  # search and entry results. false hides both from agents and leaves the web
+  # panel unchanged.
+  ariel.attachments.view.enabled: true
   # How much of each entry's text the agent sees: search and browse results
   # carry the first `listing_chars`, `entries_by_ids` the first `read_chars`,
   # and `entry_get` the whole entry. A cut entry says so and gives its length.
@@ -842,6 +850,40 @@ config:
     - name: nomic-embed-text
       dimension: 768
       max_input_tokens: 2048
+  # Picture captions: a vision model describes each copied picture and lists
+  # its visible text, so search finds an entry by what its plots show. Runs
+  # when the Ollama server and the model are available; otherwise it is
+  # skipped, `osprey ariel status` says why, and everything else keeps
+  # working. `enabled: false` turns it off. Provider and model are this
+  # module's own, never the deployment's main model.
+  ariel.enhancement_modules.image_caption.enabled: true
+  ariel.enhancement_modules.image_caption.provider: ollama
+  ariel.enhancement_modules.image_caption.model.model_id: qwen3-vl:4b
+  # Pictures captioned per entry, in attachment order; the rest are recorded
+  # as over the cap and never sent to the model.
+  # ariel.enhancement_modules.image_caption.max_images_per_entry: 8
+  # Replaces the caption prompt; `{text}` is replaced by the entry text. A
+  # replacement must keep asking for the `Visible text:` list the reply is
+  # split at.
+  # ariel.enhancement_modules.image_caption.prompt_template: |
+  # Seconds one vision call may take; a local vision model on CPU can spend
+  # minutes on one picture. A timeout is retried on the next pass.
+  # ariel.enhancement_modules.image_caption.timeout_seconds: 1320
+  # Picture embedding for picture search: hybrid search also ranks pictures
+  # against the query. Needs a site-run llama-server serving the model (see
+  # the ARIEL guide). Runs when that server and the model are available;
+  # otherwise it is skipped, `osprey ariel status` says why, `hybrid_search`
+  # answers text-only with a diagnostic, and everything else keeps working.
+  # `enabled: false` turns it off.
+  ariel.enhancement_modules.image_embedding.enabled: true
+  ariel.enhancement_modules.image_embedding.provider: llama-cpp
+  # The model id the server advertises and the vector width it is cut to;
+  # changing either makes every picture owed again.
+  ariel.enhancement_modules.image_embedding.model: qwen3-vl-embedding-2b
+  ariel.enhancement_modules.image_embedding.dimensions: 1024
+  # Seconds one picture embedding call may take, many times what one picture
+  # takes on a CPU-only server; a timeout is retried on the next pass.
+  # ariel.enhancement_modules.image_embedding.timeout_seconds: 120
   # qmd export: one markdown file per entry into the mirror tree the sidecar
   # indexes. On for the same reason `hybrid` above is; an enabled export with
   # no mirror_path is refused at startup.
@@ -1224,8 +1266,10 @@ config:
   # `modules.web_terminals.enabled: false` to have `osprey up` deploy backend
   # services only.
   #
-  # Short prefix for the web container names (`<prefix>-nginx`, `<prefix>-web-
-  # <user>`). Must start with a letter or digit. Use your facility's initials.
+  # Short facility token; use your facility's initials. It keys the facility
+  # graph's identifiers and names `/app/<prefix>-assistant`, the in-container
+  # directory of a terminal with no persona render of its own. Container names
+  # come from the top-level `project_name:` instead.
   facility.prefix: ca
   # The hostname people open in a browser. 127.0.0.1 is your own machine; set
   # your real hostname to reach it from anywhere else.
@@ -1361,28 +1405,18 @@ config:
       # `osprey build` builds one of these per file in personas/, into build/.
       # `osprey up` builds nothing: if one is missing it stops and says so.
       readonly:
-        project: als-exemplar-readonly
-        project_path: build/als-exemplar-readonly
         build_profile: personas/readonly.yml
       readwrite:
-        project: als-exemplar-readwrite
-        project_path: build/als-exemplar-readwrite
         build_profile: personas/readwrite.yml
       admin:
-        project: als-exemplar-admin
-        project_path: build/als-exemplar-admin
         build_profile: personas/admin.yml
       logbook:
-        project: als-exemplar-logbook
-        project_path: build/als-exemplar-logbook
         build_profile: personas/logbook.yml
         # Puts this persona's users under their own landing-page heading
         # instead of in with the people. Presentation only — it changes
         # nothing about the container, its ports, or what it can do.
         landing_group: Standalone deployments
       knowledge:
-        project: als-exemplar-knowledge
-        project_path: build/als-exemplar-knowledge
         build_profile: personas/knowledge.yml
         landing_group: Standalone deployments
 
@@ -2338,8 +2372,9 @@ DISPATCH_WORKER_TOKEN=exemplar-worker-token
 README_MD = """\
 # Als Exemplar
 
-This folder is your OSPREY assistant. Everything it is made of lives here, and
-the folder name is the assistant's name.
+This folder is your OSPREY assistant. Everything it is made of lives here. Its
+name on this machine — the containers, volumes and images — is `project_name:`
+in `profile.yml`, not the folder name.
 
 ## What is in here
 
@@ -2734,15 +2769,24 @@ sys.exit(s.connect_ex(('$host', $port)))" 2>/dev/null; then
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # This deployment's compose project, named the way `osprey up` names it:
-# COMPOSE_PROJECT_NAME when the caller pins it, else the repo directory's name
-# in compose's alphabet — lower case, [a-z0-9_-], no leading or trailing _ or -.
+# COMPOSE_PROJECT_NAME when the caller pins it, else project_name in
+# build/config.yml. The built config is the source; the repo directory's
+# name is only a fallback for a repo that has no project_name there. Either is
+# put in compose's alphabet — lower case, [a-z0-9_-], no leading or trailing _ or -.
 compose_project() {
   if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
     printf '%s' "$COMPOSE_PROJECT_NAME"
     return
   fi
-  local name
-  name="$(basename "$REPO_ROOT" | LC_ALL=C tr '[:upper:]' '[:lower:]' \\
+  local name=""
+  if [ -f "$REPO_ROOT/build/config.yml" ]; then
+    name="$(sed -n "s/^project_name:[[:space:]]*[\\"']\\{0,1\\}\\([A-Za-z0-9_.-]*\\).*/\\1/p" \\
+      "$REPO_ROOT/build/config.yml" | head -n 1)"
+  fi
+  if [ -z "$name" ]; then
+    name="$(basename "$REPO_ROOT")"
+  fi
+  name="$(printf '%s' "$name" | LC_ALL=C tr '[:upper:]' '[:lower:]' \\
     | LC_ALL=C tr -cd 'a-z0-9_-' | sed -e 's/^[-_]*//' -e 's/[-_]*$//')"
   printf '%s' "${name:-unnamed-project}"
 }
@@ -3479,19 +3523,13 @@ def build_exemplar_repo(
 ) -> Path:
     """Materialize the gold-standard four-zone deployment repo at ``dest``.
 
-    ``dest`` is created if absent; it is the repo root, and its name is the
-    deployment name. The exemplar's own identity (``Als Exemplar``) is written
+    ``dest`` is created if absent; it is the repo root. The exemplar's own
+    identity (``name: Als Exemplar``, ``project_name: als-exemplar``) is written
     verbatim whatever the directory is called — two checkouts of one deployment
     at two paths is a real situation the lifecycle verbs have to tell apart,
-    and this is how a test stages it.
-
-    One consequence to know before materializing under a different name: the
-    persona catalog's ``project``/``project_path`` values are derived from the
-    deployment's directory name at emission (``als-exemplar-readonly``), so
-    they are the one part of this text that a rename would make stale. They are
-    frozen rather than templated because the byte comparison against a live
-    ``osprey init`` is what this fixture exists for, and that comparison runs
-    at :data:`EXEMPLAR_DIRNAME`.
+    and this is how a test stages it. Every host-visible name derives from
+    ``project_name``, so a checkout under another folder name is the SAME
+    deployment unless the test overrides that key.
 
     Args:
         dest: Directory to materialize into.

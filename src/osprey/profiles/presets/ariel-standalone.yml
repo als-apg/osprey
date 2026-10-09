@@ -93,8 +93,9 @@ config:
   # Display name woven into the agent prompts and the web landing page. Keep it
   # in sync with .claude/rules/facility.md.
   facility.name: Example Research Facility
-  # Short prefix for container names (`<prefix>-nginx`, `<prefix>-web-<user>`).
-  # Only the multi-user web-terminal stack reads it.
+  # Short facility token. It keys the facility graph's identifiers and names
+  # the web-terminal directory `/app/<prefix>-assistant`. Container names come
+  # from the top-level `project_name:` instead.
   # facility.prefix: ex
   # This facility's compiled ontology table feeds the channel-finder subagent's
   # vocabulary. No channel finder here: the graph agent reads the vocabulary
@@ -232,15 +233,26 @@ config:
   # ariel.web.host: 127.0.0.1
   # ariel.web.port: <a port outside this deployment's block>
   # ariel.web.auto_launch: true
-  # Where entries come from. The bundle ships a demo logbook; for production
-  # point adapter and source_url at your logbook system and run
-  # `osprey ariel ingest`.
-  ariel.ingestion.adapter: generic_json
+  # The demo narrative: the logbook entries of every control-assistant scenario,
+  # with the pictures they attach. `osprey up` seeds it into an empty logbook and
+  # `osprey ariel quickstart` adds embeddings and captions. Remove the key to
+  # start from an empty logbook.
+  ariel.demo_narrative: data/logbook_seed
+  # Where your own entries come from: point an adapter and source_url at your
+  # logbook system and run `osprey ariel ingest` (see the data-ingestion guide).
+  # ariel.ingestion.adapter: generic_json
+  # ariel.ingestion.source_url: https://logbook.example.org/api/entries
   # Largest file one entry may attach, in MB. Attachments are stored as rows in
   # the same Postgres the logbook lives in, so this number is a storage
   # decision in both directions.
   # ariel.attachments.max_file_mb: 10
-  ariel.ingestion.source_url: data/logbook_seed/demo_logbook.json
+  # Which attachments ingest copies into the logbook database: `images` (what
+  # captions, picture search and `attachment_view` read), `all`, or `none`.
+  ariel.attachments.copy_on_ingest: images
+  # The agents' `attachment_view` tool and the attachment summaries in their
+  # search and entry results. false hides both from agents and leaves the web
+  # panel unchanged.
+  ariel.attachments.view.enabled: true
   # TLS on the logbook fetch. Verification is ON — an ingest that cannot verify
   # the logbook's certificate fails rather than trusting whatever answered.
   # Two ways out, in order of preference: name your site CA's PEM with
@@ -347,6 +359,40 @@ config:
     - name: nomic-embed-text
       dimension: 768
       max_input_tokens: 2048
+  # Picture captions: a vision model describes each copied picture and lists
+  # its visible text, so search finds an entry by what its plots show. Runs
+  # when the Ollama server and the model are available; otherwise it is
+  # skipped, `osprey ariel status` says why, and everything else keeps
+  # working. `enabled: false` turns it off. Provider and model are this
+  # module's own, never the deployment's main model.
+  ariel.enhancement_modules.image_caption.enabled: true
+  ariel.enhancement_modules.image_caption.provider: ollama
+  ariel.enhancement_modules.image_caption.model.model_id: qwen3-vl:4b
+  # Pictures captioned per entry, in attachment order; the rest are recorded
+  # as over the cap and never sent to the model.
+  # ariel.enhancement_modules.image_caption.max_images_per_entry: 8
+  # Replaces the caption prompt; `{text}` is replaced by the entry text. A
+  # replacement must keep asking for the `Visible text:` list the reply is
+  # split at.
+  # ariel.enhancement_modules.image_caption.prompt_template: |
+  # Seconds one vision call may take; a local vision model on CPU can spend
+  # minutes on one picture. A timeout is retried on the next pass.
+  # ariel.enhancement_modules.image_caption.timeout_seconds: 1320
+  # Picture embedding for picture search: hybrid search also ranks pictures
+  # against the query. Needs a site-run llama-server serving the model (see
+  # the ARIEL guide). Runs when that server and the model are available;
+  # otherwise it is skipped, `osprey ariel status` says why, `hybrid_search`
+  # answers text-only with a diagnostic, and everything else keeps working.
+  # `enabled: false` turns it off.
+  ariel.enhancement_modules.image_embedding.enabled: true
+  ariel.enhancement_modules.image_embedding.provider: llama-cpp
+  # The model id the server advertises and the vector width it is cut to;
+  # changing either makes every picture owed again.
+  ariel.enhancement_modules.image_embedding.model: qwen3-vl-embedding-2b
+  ariel.enhancement_modules.image_embedding.dimensions: 1024
+  # Seconds one picture embedding call may take, many times what one picture
+  # takes on a CPU-only server; a timeout is retried on the next pass.
+  # ariel.enhancement_modules.image_embedding.timeout_seconds: 120
   # qmd export: one markdown file per entry into the mirror tree the sidecar
   # indexes. On for the same reason `hybrid` above is; an enabled export with
   # no mirror_path is refused at startup.

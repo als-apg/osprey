@@ -42,6 +42,7 @@ from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import container_lifecycle, host_ports
 from osprey.deployment.compose_generator import (
+    _host_dial_address,
     prepare_compose_files,
     resolve_project_name,
     resolve_user_volume_names,
@@ -2055,6 +2056,122 @@ def test_bluesky_tiled_absent_when_disabled() -> None:
     assert "bluesky_tiled_catalog" not in rendered
 
 
+_TILED_KEY = "k3y"
+
+
+def _run_tiled_start(
+    storage: Path, *, upgrade_rc: int = 0, hold_s: float | None = None
+) -> tuple[list[list[str]], subprocess.CompletedProcess[str] | None, str]:
+    """Run the rendered tiled ``command`` against a stub ``tiled`` binary.
+
+    The container's ``/storage`` is remapped to *storage* and compose's ``$$``
+    escape is undone, so the script runs as the container's shell would run it.
+    The stub records each invocation and exits *upgrade_rc* for
+    ``upgrade-database``. With *hold_s* set the script is expected NOT to exit:
+    it is checked alive after that long, then sent SIGTERM, and the completed
+    process is ``None``.
+
+    Returns the recorded invocations, the completed process, and stderr.
+    """
+    command = yaml.safe_load(_render_bluesky_tiled(tiled_enabled=True))["services"]["tiled"][
+        "command"
+    ]
+    assert isinstance(command, list) and command[:2] == ["sh", "-c"], command
+    script = command[2].replace("$$", "$").replace("/storage", str(storage))
+
+    bin_dir = storage.parent / "bin"
+    bin_dir.mkdir()
+    calls = storage.parent / "calls.jsonl"
+    stub = bin_dir / "tiled"
+    stub.write_text(
+        f"#!{sys.executable}\n"
+        "import json, sys\n"
+        f"with open({str(calls)!r}, 'a') as f:\n"
+        "    f.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        f"sys.exit({upgrade_rc} if sys.argv[1:3] == ['catalog', 'upgrade-database'] else 0)\n"
+    )
+    stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+    env["BLUESKY_TILED_API_KEY"] = _TILED_KEY
+
+    if hold_s is None:
+        done = subprocess.run(
+            ["sh", "-c", script], env=env, capture_output=True, text=True, timeout=30
+        )
+        stderr = done.stderr
+    else:
+        proc = subprocess.Popen(["sh", "-c", script], env=env, stderr=subprocess.PIPE, text=True)
+        try:
+            proc.wait(timeout=hold_s)
+            pytest.fail(f"the start script exited ({proc.returncode}) instead of holding")
+        except subprocess.TimeoutExpired:
+            pass
+        proc.terminate()
+        proc.wait(timeout=5)
+        stderr = proc.stderr.read() if proc.stderr else ""
+        done = None
+
+    recorded = (
+        [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+    )
+    return recorded, done, stderr
+
+
+def test_tiled_upgrades_an_existing_catalog_before_serving(tmp_path: Path) -> None:
+    """A catalog volume written by an older Tiled is migrated before ``serve``.
+
+    ``serve catalog --init`` creates a missing catalog but refuses a stale one
+    (DatabaseUpgradeNeeded), so a pin bump would crash-loop the container on
+    every existing volume unless ``upgrade-database`` runs first.
+    """
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    (storage / "catalog.db").write_bytes(b"SQLite format 3\x00")
+
+    calls, done, _ = _run_tiled_start(storage)
+
+    assert done is not None and done.returncode == 0
+    assert calls[0] == ["catalog", "upgrade-database", f"sqlite+aiosqlite:///{storage}/catalog.db"]
+    assert calls[1][:4] == ["serve", "catalog", f"{storage}/catalog.db", "--init"]
+    assert calls[1][calls[1].index("--api-key") + 1] == _TILED_KEY
+    assert len(calls) == 2
+
+
+def test_tiled_initialises_a_fresh_volume_without_upgrading(tmp_path: Path) -> None:
+    """A fresh volume goes straight to ``serve --init``.
+
+    ``upgrade-database`` aborts on a database with no revision stamp (Tiled
+    0.2.18's ``catalog upgrade-database``), so it must not run before the
+    catalog exists.
+    """
+    storage = tmp_path / "storage"
+    storage.mkdir()
+
+    calls, done, _ = _run_tiled_start(storage)
+
+    assert done is not None and done.returncode == 0
+    assert [call[:2] for call in calls] == [["serve", "catalog"]]
+    assert "--init" in calls[0]
+
+
+def test_tiled_holds_unhealthy_when_the_catalog_cannot_be_upgraded(tmp_path: Path) -> None:
+    """A failed upgrade stops short of ``serve`` and keeps the container up.
+
+    Exiting would hand the container to ``restart: unless-stopped`` and loop
+    with nothing reading the failure. Holding instead leaves the reason in the
+    log once and lets the healthcheck turn the container ``unhealthy`` — the
+    state ``osprey health`` and the ``osprey up`` card report.
+    """
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    (storage / "catalog.db").write_bytes(b"SQLite format 3\x00")
+
+    calls, _, stderr = _run_tiled_start(storage, upgrade_rc=1, hold_s=1.5)
+
+    assert [call[:2] for call in calls] == [["catalog", "upgrade-database"]]
+    assert "upgrade-database" in stderr
+
+
 @pytest.mark.parametrize("tiled_enabled", [True, False])
 def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
     """A Tiled outage must never block the bridge from starting (FR4): the
@@ -3216,6 +3333,9 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
     # ``deployment`` block moves the whole layout with it, and a port map built
     # from the default block would then contradict the base the render resolved.
     ctx.setdefault("osprey_ports", _layout_ports_for(ctx["deployment"]))
+    # Derived by the production producer from the same (possibly overridden)
+    # ``deployment`` block, so a test that moves the bind moves the dial too.
+    ctx.setdefault("osprey_host_dial_address", _host_dial_address(ctx))
     return template.render(**ctx)
 
 
@@ -6768,8 +6888,9 @@ def test_bridge_without_the_axis_renders_todays_network_blocks(
     assert "_data:/data\n    networks:\n      - osprey-network\n\nvolumes:\n" in rendered
 
     # The file-level stanza still closes the file, still one blank line after
-    # the volumes block.
-    assert rendered.endswith('com.osprey.repo-id: ""\n\nnetworks:\n  osprey-network:'), (
+    # the volumes block, which ends at the bare volume name: a volume carries
+    # no path-derived label.
+    assert rendered.endswith("_data:\n\nnetworks:\n  osprey-network:"), (
         f"unexpected file tail: {rendered[-80:]!r}"
     )
 

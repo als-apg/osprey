@@ -37,6 +37,7 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build as build_command
 from osprey.cli.repo_resolver import PROFILE_FILENAME
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.staleness import DriftState, check_drift
 from osprey.deployment.web_terminals.persona_images import verify_persona_renders
 from osprey.deployment.web_terminals.personas import resolve_personas
@@ -85,6 +86,7 @@ def _resolved_users(config: dict) -> list[dict]:
         web_terminals,
         config.get("registry") or {},
         (config.get("facility") or {}).get("prefix") or "",
+        project_name=resolve_project_name(config),
         strict=True,
     )
 

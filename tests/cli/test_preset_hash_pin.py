@@ -177,27 +177,49 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # already did. A rebuilt project of any of the four has no picker, so the
     # advisory firing is correct. control-assistant and hello-world gained a
     # comment only, which moves no digest; the other five stand still.
-    "ariel-standalone": ("sha256:abb22faa5923ade1f2cf430fd8a95f376bedf0a89ede3c738433f8bd776513c2"),
+    # The twenty-third move, and the two presets that carry an `ariel:` block:
+    # ariel-standalone and control-assistant turned the ARIEL picture modules
+    # on (`image_caption` and `image_embedding`, each with its own provider and
+    # model) and state `ariel.attachments.copy_on_ingest: images` and
+    # `ariel.attachments.view.enabled: true`. A rebuilt project captions and
+    # embeds pictures where it did not before, so the staleness advisory firing
+    # on already-deployed projects is the correct signal. The five `extends`
+    # children inherit them; channel-finder-standalone and hello-world stand
+    # still.
+    # The twenty-fourth move, and ariel-standalone alone: it states
+    # `ariel.demo_narrative: data/logbook_seed` in place of its demo ingestion
+    # block (`ariel.ingestion.adapter` / `source_url`, now commented examples),
+    # so its deploy seeds the control-assistant scenario narratives, pictures
+    # included, instead of ingesting a copied JSON file. A rebuilt project seeds
+    # a different demo logbook, so the staleness advisory firing on
+    # already-deployed projects is the correct signal. Every other preset
+    # stands still.
+    # The twenty-fifth move, and control-assistant's family alone: the root
+    # preset's persona catalog states each entry's `build_profile` only, because
+    # the build derives every persona's `project`/`project_path` from the
+    # profile's `project_name`. The five `extends` children inherit the
+    # catalog; the other three stand still.
+    "ariel-standalone": ("sha256:2619aa34aef8aa2f1812f3f5fc321fb437aca6ca8809a9be99efce4d371e569c"),
     "channel-finder-standalone": (
         "sha256:7bec034ab9e5ae0c11d79df9cf294075e9c38c66bc7251ab9246a684165c9ee5"
     ),
     "control-assistant": (
-        "sha256:284e5a0e2ba8b55a9adcfd4fb97859e43a5c8ad01ed66e830f312cc36c09b182"
+        "sha256:4f693bfa36239dedfec8b406e05e00fd3bc8b14d4f5055ca275ea053a3e00c0f"
     ),
     "control-assistant-admin": (
-        "sha256:a1cde818cbb963b0eb9200b237f60e28a68431b3ac897bebf67873a595070bb5"
+        "sha256:715f9ea1629e3289378af079e865ed56a54b63fc5a00276acc80c6ec7e795831"
     ),
     "control-assistant-knowledge": (
-        "sha256:5d60857376ca6702cb371eaddce2a16c790bb372a2dacade4a5d4a227c0fc51d"
+        "sha256:ce785c4677a81ebf000503fb26979819238641a9198f058f3e056724330f213a"
     ),
     "control-assistant-logbook": (
-        "sha256:5be8777709428d65ef629693978e07dee4910fd665260c8b66003a8b2ffdbefb"
+        "sha256:8f9d7202bf46e67799e4e02a63b9b06cd3f2cf3b4df3b06c8e6a8783cfb0bc44"
     ),
     "control-assistant-readonly": (
-        "sha256:fc185914a127d56abbf0b9383012a7b2eb1dfbde54fe6573956de962a127e087"
+        "sha256:bb08a776ddac5125a6ca24aa9fdee207e251aedbad94eb7f7d4326571498b453"
     ),
     "control-assistant-readwrite": (
-        "sha256:52ca513ef55d1ea7b32333a3730d6396ac5d7f687043cc9fea9c9161769f2217"
+        "sha256:a9cb9a48abd47750d0b06c77018d829e38f2161ea76f7bb7e49065ce16cb7ded"
     ),
     "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
 }

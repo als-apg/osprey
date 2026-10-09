@@ -4,9 +4,9 @@
 The Search Sidecar (``qmd``)
 ============================
 
-``qmd`` is a service that indexes the deployment's **markdown corpora** and
-answers hybrid keyword-plus-semantic queries over HTTP. Two parts of OSPREY
-use it:
+``qmd`` is a service that indexes a **markdown corpus** and answers hybrid
+keyword-plus-semantic queries over HTTP. A deployment runs one ``qmd`` sidecar
+per corpus. Two parts of OSPREY use them:
 
 * ARIEL's logbook mirror --- the ``hybrid`` :doc:`search mode
   <search-modes>` and the ``hybrid_search`` MCP tool;
@@ -67,9 +67,10 @@ Configuration
      - qmd
 
 Those four keys are the whole schema for a host that can reach the internet;
-a fifth, ``models_dir``, covers one that cannot (see `Building without
-egress`_). Notably **there is no ``bind_address`` here** --- see `Where the
-sidecar listens`_ below.
+``models_dir`` covers one that cannot (see `Building without egress`_), and
+``corpora`` adds corpora of your own (see `Declaring more corpora`_). Notably
+**there is no ``bind_address`` here** --- see `Where the sidecar listens`_
+below.
 
 Neither consumer strictly needs the sidecar --- OKF search falls back to
 substring matching and hybrid logbook search reports an outage --- so a
@@ -112,38 +113,94 @@ start. A missing or misnamed file is refused before compose runs, by a
 deploy-time check that looks for the three expected filenames --- rather than
 surfacing an hour later as a container that never became healthy.
 
-What gets mounted
------------------
+One sidecar per corpus
+----------------------
 
-Each corpus is bind-mounted **read-only** into the sidecar at
-``/corpus/<collection>``, and the same list generates the sidecar's collection
-config --- so a corpus can never end up mounted without a collection, or
-declared without a mount. Read-only is deliberate: the sidecar indexes these
-trees, and everything that *writes* them lives outside the container.
+Every corpus gets its own sidecar: its own container, its own index and its own
+port. A small corpus therefore never shares a vector scan, an update sweep or a
+rebuild with a large one, and a search restricted to one corpus returns that
+corpus's nearest neighbours no matter how large the others grow. Two corpora are
+derived from configuration you already have:
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 40 40
+   :widths: 14 14 40 32
 
-   * - Collection
+   * - Corpus
+     - Port
      - Source
      - Present when
    * - ``okf``
+     - ``port``
      - ``facility_knowledge.bundle_path``
      - the bundle path is set
    * - ``ariel``
+     - ``port`` + 1
      - ``ariel.enhancement_modules.qmd_export`` → ``mirror_path``
      - the export is enabled and names a path
 
-The index itself lives in a named volume rather than a bind mount. It is
-derived data the sidecar owns end to end, it is large, and rebuilding it costs
-a full index build --- long on a large corpus --- which is precisely why it
-must survive a container recreate. The service's health check waits out that
-build for the same reason: the sidecar refuses to open its port until the index
-is built and provably non-empty, so until then a container that is working
-correctly would be reported unhealthy. ``first_index_grace`` is how long it
-waits, in seconds, and it defaults to an hour. Scale it with your corpus:
-shorter than the build and the first boot is reported as a failure.
+Each sidecar is the compose service ``qmd-<corpus>`` (``qmd-okf``,
+``qmd-ariel``, …), all running the one image. Its corpus is bind-mounted
+**read-only** at ``/corpus/<corpus>`` and indexed as a collection of the same
+name, which is the name clients query it by. Read-only is deliberate: the
+sidecar indexes the tree, and everything that *writes* it lives outside the
+container.
+
+Each index lives in its own named volume, ``qmd_index_<corpus>``, rather than a
+bind mount. It is derived data the sidecar owns end to end, it is large, and
+rebuilding it costs a full index build --- long on a large corpus --- which is
+precisely why it must survive a container recreate. The service's health check
+waits out that build for the same reason: the sidecar refuses to open its port
+until the index is built and provably non-empty, so until then a container that
+is working correctly would be reported unhealthy. ``first_index_grace`` is how
+long it waits, in seconds, and it defaults to an hour. Scale it with your
+largest corpus: shorter than the build and the first boot is reported as a
+failure.
+
+Embedding a large corpus takes several passes. ``qmd embed`` stops after a fixed
+session (30 minutes) and still reports success, so the sidecar repeats it until
+no document is left without vectors, or until a pass embeds nothing --- some
+chunks fail on every retry. ``osprey health`` shows each sidecar as one row of
+the ``qmd`` category, with a warning when documents still have no vectors and
+are found by keyword search only.
+
+Declaring more corpora
+----------------------
+
+``corpora`` adds corpora beyond those two, each served by its own sidecar at
+``port`` + 2 onwards, in list order; the family has room for eight.
+
+.. code-block:: yaml
+
+   services:
+     qmd:
+       path: ./services/qmd
+       corpora:
+         - name: textbooks
+           source: /data/library/textbooks    # a markdown tree, indexed here
+         - name: papers
+           index: prebuilt
+           index_dir: /data/qmd/papers-index  # built elsewhere, served here
+
+A corpus's index comes to exist in one of two ways:
+
+``managed`` (the default)
+    The sidecar indexes ``source``, a directory of markdown, and keeps the
+    index current itself, exactly as it does for ``okf`` and ``ariel``.
+
+``prebuilt``
+    The index was built elsewhere --- typically on a GPU host, where embedding
+    runs several times faster than on a CPU --- and ``index_dir`` is the
+    directory holding it (its ``.qmd/index.sqlite`` and ``.qmd/index.yml``,
+    which is the state directory of the sidecar that built it). The sidecar
+    mounts that directory as its state directory and only serves it: it never
+    re-indexes. It refuses to start if the index was built with a different
+    embedder from the one its image queries with, or holds no collection named
+    after the corpus.
+
+A relative ``source`` or ``index_dir`` resolves against the deployment repo.
+``osprey up`` refuses a declared corpus whose path holds nothing to index or
+serve, before anything is built.
 
 Sharing the knowledge bundle
 ----------------------------
@@ -208,15 +265,51 @@ overhead rather than by content. Chunking is close to 1:1 for logbook
 micro-documents (2,000 documents produced 2,001 chunks), so the index grows with
 entry count rather than with entry length.
 
+Memory footprint
+----------------
+
+The image carries a small set of patches on top of the pinned qmd release
+(``patches/README.md`` in the service template lists them and the upstream
+changes they mirror). One of them makes the daemon hold every stored vector in
+RAM and score a query with an exact scan instead of a sqlite-vec lookup, which is
+what keeps a search well under a second on a large index. The cost is memory:
+4 bytes per dimension per chunk, so about 3 KiB per chunk at the embedder's 768
+dimensions. Each corpus runs its own sidecar, so budget it per corpus:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 60 40
+
+   * - Index
+     - Resident vectors
+   * - 135,000 logbook entries (~135,000 chunks)
+     - ~0.4 GB
+   * - 62,797 papers (791,230 chunks)
+     - 2.3 GB
+
+The matrix loads in the background after the daemon starts (about 13 s for the
+papers index); until it is ready, and after any change to the index until it
+reloads, searches go to sqlite-vec, so a result is never served from stale
+vectors. ``QMD_VEC_SCAN=vec0`` turns the in-memory scan off and searches
+sqlite-vec directly, as the plain release does: export it on the host and name
+it under ``services.qmd.env`` to hand it to every qmd sidecar.
+
+.. code-block:: yaml
+
+   services:
+     qmd:
+       env: [QMD_VEC_SCAN]
+
 .. _qmd-where-the-sidecar-listens:
 
 Where the sidecar listens
 -------------------------
 
-The sidecar publishes **10060**, its slot in the deployment's port layout
-(:ref:`reference-ports`); the block's ``port`` key pins it somewhere else if you
-need that. qmd's own daemon runs on **8181** on the container's internal
-loopback and is fronted by a small forwarder. That split is
+The sidecars publish **10060--10069**, the ``qmd`` band of the deployment's
+port layout (:ref:`reference-ports`), one port per corpus as listed in `One
+sidecar per corpus`_; the block's ``port`` key moves the whole band if you need
+that. qmd's own daemon runs on **8181** on the container's internal loopback
+and is fronted by a small forwarder. That split is
 not cosmetic: qmd hardcodes a loopback-only bind with no option to change it,
 which makes it unreachable from any other container. Only the forwarder owns a
 routable port.
@@ -232,6 +325,23 @@ routable port.
    ``deployment.bind_address`` (default ``127.0.0.1``), so a deployment cannot
    put an unauthenticated search endpoint on an interface the rest of the stack
    is not already on. Moving that one key off loopback moves this service too.
+
+How clients reach it
+~~~~~~~~~~~~~~~~~~~~
+
+A client on the host, such as a web terminal, dials the published port at the
+``deployment.bind_address``. A container on the compose network cannot: the
+host's loopback is its own. So the ARIEL sync daemon and the dispatch workers
+are each handed one ``OSPREY_QMD_<CORPUS>_URL`` per sidecar, naming it by its
+compose service name (``http://qmd-ariel:10061``), and dial that instead. Under
+``network: host`` those services dial the published port like any host client.
+
+``osprey health`` probes through the same rule, so run inside a container it
+reports on the address that container's clients use, and an ARIEL search that
+falls back to picture matches names the sidecar URL it could not reach.
+``osprey build`` refuses a sidecar moved to the host network while one of its
+consumers stays on the compose network, since the name it would dial does not
+exist there.
 
 .. seealso::
 

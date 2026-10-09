@@ -348,7 +348,7 @@ class TestSwapRecovery:
     """The one window where ``build/`` does not exist, and how it is closed."""
 
     def test_an_incoming_render_is_adopted_when_build_is_gone(self, lifecycle_repo):
-        zones = build_cmd._render_zones(lifecycle_repo)
+        zones = build_cmd._render_zones(lifecycle_repo, "als-exemplar")
         zones.incoming.parent.mkdir(parents=True, exist_ok=True)
         zones.incoming.mkdir()
         (zones.incoming / "config.yml").write_text("new render\n", encoding="utf-8")
@@ -361,7 +361,7 @@ class TestSwapRecovery:
         assert not zones.incoming.exists()
 
     def test_an_outgoing_render_is_adopted_when_nothing_else_is_left(self, lifecycle_repo):
-        zones = build_cmd._render_zones(lifecycle_repo)
+        zones = build_cmd._render_zones(lifecycle_repo, "als-exemplar")
         zones.outgoing.parent.mkdir(parents=True, exist_ok=True)
         zones.outgoing.mkdir()
         (zones.outgoing / "config.yml").write_text("old render\n", encoding="utf-8")
@@ -374,7 +374,7 @@ class TestSwapRecovery:
 
     def test_a_present_build_wins_over_leftovers(self, lifecycle_repo):
         """A build that never reported success never happened."""
-        zones = build_cmd._render_zones(lifecycle_repo)
+        zones = build_cmd._render_zones(lifecycle_repo, "als-exemplar")
         zones.build_dir.mkdir()
         (zones.build_dir / "config.yml").write_text("the build in place\n", encoding="utf-8")
         zones.incoming.parent.mkdir(parents=True, exist_ok=True)
@@ -391,7 +391,7 @@ class TestSwapRecovery:
     def test_an_undeletable_leftover_is_moved_aside_rather_than_left_in_the_way(
         self, lifecycle_repo, monkeypatch
     ):
-        zones = build_cmd._render_zones(lifecycle_repo)
+        zones = build_cmd._render_zones(lifecycle_repo, "als-exemplar")
         zones.build_dir.mkdir()
         zones.incoming.parent.mkdir(parents=True, exist_ok=True)
         zones.incoming.mkdir()
@@ -416,7 +416,7 @@ class TestSwapRecovery:
         naming neither the path nor the reason.
         """
         assert _build(runner, lifecycle_repo).exit_code == 0
-        zones = build_cmd._render_zones(lifecycle_repo)
+        zones = build_cmd._render_zones(lifecycle_repo, "als-exemplar")
         zones.outgoing.mkdir(parents=True)
         (zones.outgoing / _UNDELETABLE_MARKER).write_text("", encoding="utf-8")
         _refuse_to_delete_marked_trees(monkeypatch, silently=True)
@@ -499,34 +499,95 @@ class TestRunningDeploymentWarning:
     """A build renders files. It never reaches a container that is already up."""
 
     @staticmethod
-    def _fake_runtime(monkeypatch, names: str) -> None:
-        class _Completed:
-            stdout = names
+    def _fake_runtime(monkeypatch, tmp_path, rows) -> dict:
+        """Answer the ownership probe with *rows*; return the config the build passes.
+
+        ``rows`` are ``(name, repo_id, working_dir)`` triples; ``repo_id`` of
+        ``None`` is a container an older OSPREY stamped no label onto.
+        """
+        from osprey.deployment.compose_generator import REPO_ID_LABEL
+        from osprey.deployment.container_ownership import Resource
 
         monkeypatch.setattr(
             "osprey.deployment.runtime_helper.get_runtime_command",
             lambda config=None: ["docker", "compose"],
         )
-        monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: _Completed())
+
+        class _Probe:
+            runtime = "docker"
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def containers_for_project(self, project, *, include_stopped=True):  # noqa: ARG002
+                return [
+                    Resource(
+                        kind="container",
+                        name=name,
+                        labels={
+                            "com.docker.compose.project": project,
+                            "com.docker.compose.project.working_dir": working_dir,
+                            **({REPO_ID_LABEL: repo_id} if repo_id else {}),
+                        },
+                    )
+                    for name, repo_id, working_dir in rows
+                ]
+
+            def volumes_for_project(self, project):  # noqa: ARG002
+                return []
+
+        monkeypatch.setattr("osprey.deployment.reset.RuntimeProbe", _Probe)
+        return {"project_name": "als-exemplar", "project_root": str(tmp_path)}
 
     def test_running_containers_are_named_with_when_the_build_takes_effect(
-        self, caplog, monkeypatch
+        self, caplog, monkeypatch, tmp_path
     ):
-        self._fake_runtime(monkeypatch, "als-exemplar-bluesky-1\nals-exemplar-nginx-1\n")
+        from osprey.deployment.compose_generator import repo_identity
+
+        mine = repo_identity(tmp_path)
+        config = self._fake_runtime(
+            monkeypatch,
+            tmp_path,
+            [
+                ("als-exemplar-bluesky-1", mine, str(tmp_path)),
+                ("als-exemplar-nginx-1", None, str(tmp_path)),
+            ],
+        )
 
         with caplog.at_level(logging.WARNING):
-            build_cmd._warn_if_deployment_running({"project_name": "als-exemplar"}, "als-exemplar")
+            build_cmd._warn_if_deployment_running(config, "als-exemplar")
 
         assert "als-exemplar-nginx-1" in caplog.text
+        assert "als-exemplar-bluesky-1" in caplog.text
         assert "osprey up" in caplog.text
+        assert "another checkout" not in caplog.text
 
-    def test_a_stopped_deployment_is_not_warned_about(self, caplog, monkeypatch):
-        self._fake_runtime(monkeypatch, "")
+    def test_another_checkouts_containers_are_named_as_that_checkouts(
+        self, caplog, monkeypatch, tmp_path
+    ):
+        """A scratch clone's build must not claim a colleague's running stack."""
+        other = tmp_path / "elsewhere"
+        config = self._fake_runtime(
+            monkeypatch,
+            tmp_path,
+            [("als-exemplar-nginx-1", "0123456789ab", str(other))],
+        )
 
         with caplog.at_level(logging.WARNING):
-            build_cmd._warn_if_deployment_running({"project_name": "als-exemplar"}, "als-exemplar")
+            build_cmd._warn_if_deployment_running(config, "als-exemplar")
+
+        assert "another checkout" in caplog.text
+        assert str(other) in caplog.text
+        assert "takes effect" not in caplog.text
+
+    def test_a_stopped_deployment_is_not_warned_about(self, caplog, monkeypatch, tmp_path):
+        config = self._fake_runtime(monkeypatch, tmp_path, [])
+
+        with caplog.at_level(logging.WARNING):
+            build_cmd._warn_if_deployment_running(config, "als-exemplar")
 
         assert "takes effect" not in caplog.text
+        assert "another checkout" not in caplog.text
 
     def test_no_container_runtime_is_not_a_build_failure(self, caplog, monkeypatch):
         def unavailable(_config=None):

@@ -1,12 +1,12 @@
 """FR5 deploy-time render step: a scenario's ``physics`` block -> VA_* ``.env`` vars.
 
-Tests two things per bundle: the ``physics`` block parses into the ``Scenario``
-(task 4.1's schema), and :func:`render_scenario_physics_env` (task 4.2) emits
-the exact ``VA_BPM_ERRORS``/``VA_CORR_GAIN`` strings the
-VA entrypoint parses -- round-tripped through the entrypoint's own parse
-helpers (not just asserted as a string) so the two-party contract actually
+Tests that :func:`render_scenario_physics_env` (task 4.2) emits the exact
+``VA_BPM_ERRORS``/``VA_CORR_GAIN`` strings the VA entrypoint parses --
+round-tripped through the entrypoint's own parse helpers (not just asserted as a string) so the two-party contract actually
 holds, not merely "looks right". Also covers backward compatibility: a bundle
-with no ``physics`` block still parses and renders nothing.
+with no ``physics`` block renders nothing. That each shipped bundle's ``physics``
+block parses (task 4.1's schema) is pinned in ``test_machine.py``'s
+``TestSeededDiscoveryScenarioBundles``.
 
 Uses the shipped ``bpm-polarity`` discovery scenario as a real fixture, and
 ``rf-thermal`` (no ``physics`` block) for the backward-compat case -- the same
@@ -18,7 +18,6 @@ its coverage uses ``_make_inline_project``.
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 import pytest
@@ -31,25 +30,12 @@ from osprey.simulation.apply import (
     write_scenario_physics_env,
 )
 from osprey.simulation.engine import SimulationEngine, resolve_active_scenarios
-
-TEMPLATE_SIM = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
+from tests.simulation.conftest import stage_sim_project
 
 
 def _make_project(tmp_path: Path) -> Path:
     """Stage a minimal sim-backed project from the shipped bundle tree."""
-    sim_dst = tmp_path / "data" / "simulation"
-    sim_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(TEMPLATE_SIM, sim_dst)
-    config = {
-        "control_system": {
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
-        },
-    }
-    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
-    return tmp_path
+    return stage_sim_project(tmp_path)
 
 
 def _make_inline_project(tmp_path: Path, scenarios: dict) -> Path:
@@ -76,18 +62,6 @@ def _make_inline_project(tmp_path: Path, scenarios: dict) -> Path:
 
 class TestBpmPolarityScenario:
     """physics.bpm_errors -> VA_BPM_ERRORS, round-tripped through the entrypoint."""
-
-    def test_physics_block_parses_into_scenario(self, tmp_path):
-        project = _make_project(tmp_path)
-        engine = SimulationEngine.from_file(project / "data/simulation/machine.json")
-        engine.set_active_scenario("bpm-polarity")
-        scenario = engine._scenarios[
-            "bpm-polarity"
-        ]  # private: no public accessor for a scenario's parsed physics block
-        assert scenario.physics is not None
-        assert scenario.physics.bpm_errors["BPM17"].polarity == -1
-        assert scenario.physics.bpm_errors["BPM17"].offset == 0.0
-        assert scenario.physics.corrector_gain == {}
 
     def test_render_emits_va_bpm_errors_isotropic_fanout(self, tmp_path):
         project = _make_project(tmp_path)
@@ -120,17 +94,6 @@ class TestOrmDualFaultScenario:
     No e2e activates the bundle -- the tests in this class are what keep it
     correct as the renderer changes, so they are its only guard.
     """
-
-    def test_physics_block_parses_both_faults(self, tmp_path):
-        project = _make_project(tmp_path)
-        engine = SimulationEngine.from_file(project / "data/simulation/machine.json")
-        engine.set_active_scenario("orm-dual-fault")
-        scenario = engine._scenarios[
-            "orm-dual-fault"
-        ]  # private: no public accessor for a scenario's parsed physics block
-        assert scenario.physics is not None
-        assert scenario.physics.bpm_errors["BPM17"].polarity == -1
-        assert scenario.physics.corrector_gain == {"HCM01": 0.5}
 
     def test_render_emits_both_va_vars_on_disjoint_devices(self, tmp_path):
         project = _make_project(tmp_path)
@@ -180,16 +143,7 @@ class TestOrmDualFaultScenario:
 
 
 class TestBackwardCompatibility:
-    """A bundle without a ``physics`` block still parses, and renders nothing."""
-
-    def test_scenario_without_physics_block_parses_with_none(self, tmp_path):
-        project = _make_project(tmp_path)
-        engine = SimulationEngine.from_file(project / "data/simulation/machine.json")
-        engine.set_active_scenario("rf-thermal")
-        scenario = engine._scenarios[
-            "rf-thermal"
-        ]  # private: no public accessor for a scenario's parsed physics block
-        assert scenario.physics is None
+    """A bundle without a ``physics`` block renders nothing."""
 
     def test_render_of_physics_free_scenario_yields_nothing(self, tmp_path):
         project = _make_project(tmp_path)
