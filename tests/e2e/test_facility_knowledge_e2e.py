@@ -40,6 +40,7 @@ from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     SDKWorkflowResult,
+    e2e_budget_scale,
     init_project,
     is_claude_code_available,
     run_sdk_query,
@@ -228,7 +229,10 @@ async def test_facility_knowledge_delegation(tmp_path: Path) -> None:
 
     # Cost under budget.
     if result.cost_usd is not None:
-        assert result.cost_usd < 1.0, f"Test cost ${result.cost_usd:.4f} — exceeded $1.00 budget"
+        budget = 1.0 * e2e_budget_scale()
+        assert result.cost_usd < budget, (
+            f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
+        )
 
     # Grounded answer: judge confirms the response is based on retrieved content.
     result_eval = await judge.evaluate(
