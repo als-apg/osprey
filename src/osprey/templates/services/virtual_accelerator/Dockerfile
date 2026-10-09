@@ -145,9 +145,11 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 #
 # pip and apt fetch through BuildKit cache mounts, so a deps layer that does
 # rebuild (a new pin, a changed manifest) downloads only what changed, and
-# images building side by side draw on one cache. The apt mounts are private
-# rather than locked: a lock would hold this whole RUN, pip install included,
-# against every other image building its own deps layer at the same time.
+# images building side by side draw on one cache. The apt mounts are locked:
+# apt keeps its own lock files in both directories, so two builds cannot use
+# them at once, and podman's builder accepts no private sharing mode. The lock
+# lasts the whole RUN, so two different deps layers building together take
+# turns; the service recipes share one deps layer, which builds only once.
 #
 # The installs here run under uv rather than pip: uv resolves without pip's
 # one-candidate-at-a-time metadata crawl and downloads in parallel, which on a
@@ -181,8 +183,8 @@ ARG PIP_EXTRA_INDEX_URL=""
 COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=cache,target=/var/cache/apt,sharing=private \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=private \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
     [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \

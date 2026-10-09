@@ -15,8 +15,8 @@ from tests.deployment._proxy_idiom import raw_run_instructions
 PIP_CACHE_MOUNT = "--mount=type=cache,target=/root/.cache/pip"
 UV_CACHE_MOUNT = "--mount=type=cache,target=/root/.cache/uv"
 APT_CACHE_MOUNTS = (
-    "--mount=type=cache,target=/var/cache/apt,sharing=private",
-    "--mount=type=cache,target=/var/lib/apt/lists,sharing=private",
+    "--mount=type=cache,target=/var/cache/apt,sharing=locked",
+    "--mount=type=cache,target=/var/lib/apt/lists,sharing=locked",
 )
 DOCKER_CLEAN_REMOVAL = "rm -f /etc/apt/apt.conf.d/docker-clean"
 
