@@ -1069,9 +1069,7 @@ def _with_unbannered_pointers(repo: Path) -> Path:
     """Give a repo two ``VA_*`` pointer lines under no OSPREY banner."""
     env = repo / ".env"
     env.write_text(
-        env.read_text(encoding="utf-8")
-        + "\nVA_CHANNELS_FILE=channel_manifest.json\n"
-        + "VA_LATTICE=lattice.json\n",
+        env.read_text(encoding="utf-8") + "\nVA_NOTES=operator.txt\n" + "VA_LATTICE=lattice.json\n",
         encoding="utf-8",
     )
     return env
@@ -1086,7 +1084,7 @@ def test_the_operators_keys_survive_beside_unbannered_pointers(repo):
 
     text = env.read_text(encoding="utf-8")
     assert "ANTHROPIC_API_KEY=sk-provider-secret" in text
-    assert "VA_CHANNELS_FILE=channel_manifest.json" in text
+    assert "VA_NOTES=operator.txt" in text
 
 
 @pytest.mark.usefixtures("no_down")
