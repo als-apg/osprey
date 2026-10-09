@@ -36,6 +36,7 @@ def primer_pip_argv(body: str, tmp_path: Path, env: dict[str, str]) -> list[str]
     for name, script in (
         ("apt-get", "#!/bin/sh\nexit 0\n"),
         ("pip", f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(log))}\nexit 0\n'),
+        ("uv", '#!/bin/sh\n[ "$1" = pip ] && shift\nexec "$(dirname "$0")/pip" "$@"\n'),
     ):
         stub = stub_bin / name
         stub.write_text(script)

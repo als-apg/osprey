@@ -23,8 +23,8 @@ WORKDIR /app
 # the project image's. OSPREY_SITE_CA names a CA file (PEM) staged in the build
 # context; the compose build stages the operator's `images.site_ca` there and
 # passes the name, because a COPY cannot reach outside the context. The
-# `.dockerignore` sibling keeps the glob COPY matching when nothing is staged,
-# and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
+# `.osprey-layer-anchor` sibling keeps the glob COPY matching when nothing is
+# staged, and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
 # apt install below deliberately: that fetch verifies TLS against the system
 # store this extends.
 #
@@ -36,7 +36,7 @@ WORKDIR /app
 # not exist crashes an httpx client at construction. No NODE_EXTRA_CA_CERTS —
 # this image has no Node.
 ARG OSPREY_SITE_CA=""
-COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/
+COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/
 RUN if [ -n "$OSPREY_SITE_CA" ]; then \
         cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
         && update-ca-certificates; \
@@ -59,10 +59,17 @@ ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
 # HTTPS just above, and apt keeps no https entry in its config tree unless one
 # is written, so relying on a fallback from the http key is how this would
 # quietly become a no-op.
+#
+# The base image's docker-clean hook deletes every downloaded .deb after each
+# install, which keeps a plain layer small but would empty the apt cache mount
+# the installing RUNs below share across builds, so it is removed here. Every
+# RUN that installs packages mounts /var/cache/apt and /var/lib/apt/lists as
+# caches, so neither the archives nor the lists land in a layer.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
- && printf 'Acquire::Retries "5";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-osprey-retries
+ && printf 'Acquire::Retries "5";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-osprey-retries \
+ && rm -f /etc/apt/apt.conf.d/docker-clean
 
 # ── deps layer ───────────────────────────────────────────────────────────────
 # Prime the image with the pinned framework release and its dependencies. A C
@@ -72,15 +79,38 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # unpinned prime (the wheel layer below then overlays the real code); without it
 # a pin miss stays fatal. Any local dependency delta staged as
 # osprey-local-requirements.txt (dev builds only) is installed after the primer,
-# while the toolchain is still available; the `.dockerignore` COPY sibling keeps
-# the glob matching when no manifest is staged, so this cache only busts when
-# the manifest content changes.
+# while the toolchain is still available; the `.osprey-layer-anchor` COPY
+# sibling keeps the glob matching when no manifest is staged, so this cache only
+# busts when the manifest content changes.
+#
+# Everything from FROM through this layer is the same, instruction for
+# instruction, in every Python service recipe, and `.osprey-layer-anchor` is the
+# same bytes in every context. That is what lets BuildKit run the framework
+# install once and share the layer across every service image a deploy builds;
+# whatever one image needs beyond it goes in a layer below this one.
+#
+# pip and apt fetch through BuildKit cache mounts, so a deps layer that does
+# rebuild (a new pin, a changed manifest) downloads only what changed, and
+# images building side by side draw on one cache. The apt mounts are locked:
+# apt keeps its own lock files in both directories, so two builds cannot use
+# them at once, and podman's builder accepts no private sharing mode. The lock
+# lasts the whole RUN, so two different deps layers building together take
+# turns; the service recipes share one deps layer, which builds only once.
+#
+# The installs here run under uv rather than pip: uv resolves without pip's
+# one-candidate-at-a-time metadata crawl and downloads in parallel, which on a
+# slow index is most of this layer's time. It is installed with pip from the
+# same index (so a site mirror still applies), handed pip's settings (the
+# constraint file for runtime and build dependencies, the site indexes with
+# pip's consider-every-index strategy, bytecode compilation), and uninstalled
+# before the RUN ends, so no image ships it. Later layers install with pip.
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
 # OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
-# connectors ship as a pair from one tag, and pip never picks a pre-release
-# for a requirement that names none (the framework's own connectors
-# requirement), so the deps layer then resolves as a whole with --pre.
+# connectors ship as a pair from one tag, and an installer prefers a stable
+# release for a requirement that names none (the framework's own connectors
+# requirement), so the deps layer then resolves as a whole with
+# --prerelease=allow.
 ARG OSPREY_PIP_PRE=""
 # The three pip ARGs are the rest of the site build settings the compose build
 # hands this image (the same producer that passes OSPREY_SITE_CA above).
@@ -96,45 +126,58 @@ ARG OSPREY_PIP_PRE=""
 ARG PIP_NO_PROXY=""
 ARG PIP_INDEX_URL=""
 ARG PIP_EXTRA_INDEX_URL=""
-COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
+COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
 # fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
 # where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
 # pip's isolated build environments. Drop once a fixed release is out.
-RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
     [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
     && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_BUILD_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 \
+              UV_INDEX_STRATEGY=unsafe-best-match \
+    && { [ -z "$PIP_INDEX_URL" ] || export UV_DEFAULT_INDEX="$PIP_INDEX_URL"; } \
+    && { [ -z "$PIP_EXTRA_INDEX_URL" ] || export UV_INDEX="$PIP_EXTRA_INDEX_URL"; } \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
-    && { pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION" \
+    && pip install "uv==0.12.21" \
+    && { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework==$OSPREY_VERSION" \
          || if [ "$OSPREY_DEV" = "1" ]; then \
                 echo "WARNING: pin unreleased, priming with latest" \
-                && pip install --no-cache-dir "osprey-framework" ; \
+                && uv pip install "osprey-framework" ; \
             else \
                 exit 1 ; \
             fi ; } \
     && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
-           pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+           uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
        fi \
+    && pip uninstall -y uv \
     && apt-get purge -y build-essential python3-dev \
     && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
+    && rm -rf /tmp/deps-ctx
 
 # ── wheel layer ──────────────────────────────────────────────────────────────
-# Overlay a locally-built wheel when `osprey up --dev` stages one into
-# the build context. `.dockerignore` is a guaranteed sibling of the COPY, so
-# the glob always matches at least one file; `*.wh[l]` optionally pulls in the
+# Overlay a locally-built wheel when `osprey up --dev` stages one into the build
+# context. `.osprey-layer-anchor` is a guaranteed sibling of the COPY, so the
+# glob always matches at least one file; `*.wh[l]` optionally pulls in the
 # wheel. The wheel is installed plain (no extra — the deps layer already primed
 # every extra), then force-reinstalled --no-deps to guarantee its own modules
 # win, and `pip check` guards against residual mismatches. No wheel staged →
 # no-op, image already complete after the deps layer.
-COPY .dockerignore *.wh[l] /tmp/ctx/
-RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
+COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
-        && pip install --no-cache-dir /tmp/ctx/*.whl \
-        && pip install --no-cache-dir --no-deps --force-reinstall /tmp/ctx/*.whl \
+        && pip install /tmp/ctx/*.whl \
+        && pip install --no-deps --force-reinstall /tmp/ctx/*.whl \
         && pip check ; \
     fi \
     && rm -rf /tmp/ctx

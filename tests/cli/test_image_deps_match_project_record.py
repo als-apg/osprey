@@ -38,7 +38,7 @@ OSPREY_SPEC = "osprey-framework==1.2.3"
 # requirements. Only the tail is under test here; `tests/cli/test_dockerfile_template.py`
 # owns the shape of the surrounding RUN.
 _INSTALL_LINE = re.compile(
-    r'pip install --no-cache-dir \$\{OSPREY_PIP_PRE:\+--pre\} "\$OSPREY_PIP_SPEC"(?P<args>[^\\\n]*)'
+    r'uv pip install \$\{OSPREY_PIP_PRE:\+--prerelease=allow\} "\$OSPREY_PIP_SPEC"(?P<args>[^\\\n]*)'
 )
 
 

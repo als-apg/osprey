@@ -1,0 +1,10 @@
+# Byte-identical in every OSPREY service build context, on purpose; do not edit
+# one copy without the others.
+#
+# Each service Dockerfile COPYs this file beside its optional globs
+# (`*.cr[t] *.pe[m]`, `osprey-local-requirements.tx[t]`, `*.wh[l]`) so every
+# COPY matches at least one file when nothing is staged. BuildKit keys a COPY
+# layer on the content of what it copies, so the sibling has to be the same
+# bytes in every context: a per-service file there (each `.dockerignore`
+# differs) gives every image its own framework install, where this one lets the
+# services share a single deps layer.

@@ -895,9 +895,7 @@ def test_dockerfile_pins_the_queueserver_version() -> None:
     deliberately chosen pair, not whatever the transitive resolve produced."""
     dockerfile = (TEMPLATE_DIR / "bluesky" / "Dockerfile").read_text(encoding="utf-8")
     assert _dockerfile_queueserver_pin()
-    assert 'pip install --no-cache-dir "bluesky-queueserver==$BLUESKY_QUEUESERVER_VERSION"' in (
-        dockerfile
-    )
+    assert 'pip install "bluesky-queueserver==$BLUESKY_QUEUESERVER_VERSION"' in (dockerfile)
 
 
 def test_dockerfile_queueserver_pin_matches_the_lockfile() -> None:
