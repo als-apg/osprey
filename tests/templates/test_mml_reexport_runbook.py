@@ -1,9 +1,9 @@
 """The runbook for re-running the MATLAB Middle Layer export on a MATLAB host.
 
-The shipped README carries one section that tells a facility, or the owner of the
-committed SPEAR3 and NSLS-II exports, how a fresh export is produced and what to
-do with it. The two fixture READMEs point at that section rather than at a
-private note.
+The fixture tree's README carries one section that tells a facility, or the
+owner of the committed SPEAR3 and NSLS-II exports, how a fresh export is
+produced and what to do with it. The two fixture READMEs point at that section
+rather than at a private note.
 """
 
 from __future__ import annotations
@@ -14,9 +14,8 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MML_DIR = REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data" / "mml"
-README = MML_DIR / "README.md"
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
+README = FIXTURES / "README.md"
 FIXTURE_READMES = (FIXTURES / "spear3" / "README.md", FIXTURES / "nsls2" / "README.md")
 
 SECTION_TITLE = "Re-running the export on a MATLAB host"

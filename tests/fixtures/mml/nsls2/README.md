@@ -91,7 +91,7 @@ them from their `AT.ATIndex` and wires the six with a channel. The seventh,
 ## How the export was made
 
 - **Exporter:** `mml_export 2.1.0`, the script shipped at
-  `src/osprey/templates/apps/control_assistant/data/mml/mml_export.m`.
+  `src/osprey/facility/layers/mml/mml_export.m`.
 - **MATLAB:** 26.1.0.3276743 (R2026a) Update 3, Linux x86_64, on the host `appsdev2`.
 - **Middle Layer:** the `MML-prod` tree as synced 2026-05-28. It is a plain synced
   folder with no version history, so there is no commit id to quote.
@@ -100,7 +100,7 @@ them from their `AT.ATIndex` and wires the six with a channel. The seventh,
   it initialises the Accelerator Objects.
 - **Commands:** `~/mml-reexport/run_reexport.sh nsls2-sr` and
   `~/mml-reexport/run_reexport.sh nsls2-ltb`, one fresh MATLAB each, as described
-  in [Re-running the export on a MATLAB host](../../../../src/osprey/templates/apps/control_assistant/data/mml/README.md#re-running-the-export-on-a-matlab-host).
+  in [Re-running the export on a MATLAB host](../README.md#re-running-the-export-on-a-matlab-host).
 - **Date:** 2026-10-05 (StorageRing), 2026-10-04 (LTB).
 
 NSLS-II ships no physics-data file, so none of its numbers come from one. The link

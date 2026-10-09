@@ -58,7 +58,7 @@ model.
 ## How the export was made
 
 - **Exporter:** `mml_export 2.1.0`, the script shipped at
-  `src/osprey/templates/apps/control_assistant/data/mml/mml_export.m`.
+  `src/osprey/facility/layers/mml/mml_export.m`.
 - **MATLAB:** 26.1.0.3276743 (R2026a) Update 3, Linux x86_64, on the host `appsdev2`.
 - **Middle Layer:** the `MML-prod` tree as synced 2026-05-28. It is a plain synced
   folder with no version history, so there is no commit id to quote.
@@ -67,7 +67,7 @@ model.
   it initialises the Accelerator Objects.
 - **Command:** `~/mml-reexport/run_reexport.sh spear3`, which runs one fresh MATLAB
   for the sub-machine, as described in
-  [Re-running the export on a MATLAB host](../../../../src/osprey/templates/apps/control_assistant/data/mml/README.md#re-running-the-export-on-a-matlab-host).
+  [Re-running the export on a MATLAB host](../README.md#re-running-the-export-on-a-matlab-host).
 - **Two symlinks the host needed:** Linux is case-sensitive and the Middle Layer
   asks for `machine/SPEAR3/...` and `SPEAR3physdata.mat` where the checkout spells
   both `Spear3`. Without `machine/SPEAR3 -> Spear3` and

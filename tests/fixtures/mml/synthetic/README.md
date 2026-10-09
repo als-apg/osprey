@@ -15,7 +15,7 @@ enough to read by eye, plus a seventh that pairs with none of them:
 
 Every name in them is invented. The contract they are written against is the
 frozen key set in the header of
-`src/osprey/templates/apps/control_assistant/data/mml/mml_export.m`.
+`src/osprey/facility/layers/mml/mml_export.m`.
 
 ## Provenance
 
