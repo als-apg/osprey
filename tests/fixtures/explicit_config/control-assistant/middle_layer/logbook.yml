@@ -173,7 +173,6 @@ deployed_services: []
 execution:
   execution_method: subprocess
 facility:
-  ontology: data/facility_ontology.json
   prefix: ca
 facility_knowledge:
   bundle_path: data/facility_knowledge
