@@ -599,9 +599,9 @@ class TestQueryShapeWithoutDocker:
                 ["BEAM:CURRENT", "BEAM:LIFETIME"],
                 {"date": 1, "BEAM:CURRENT": 1, "BEAM:LIFETIME": 1},
             ),
-            # A PV literally named "date", and a repeated PV, both collapse
-            # into the single key the projection already has.
-            (["date"], {"date": 1}),
+            # A PV literally named "date" is projected under its own field,
+            # beside the document's instant; a repeated PV collapses into one key.
+            (["date"], {"date": 1, "%64ate": 1}),
             (["BEAM:CURRENT", "BEAM:CURRENT"], {"date": 1, "BEAM:CURRENT": 1}),
         ],
     )
