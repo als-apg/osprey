@@ -133,11 +133,14 @@ async def test_lattice_refresh_all_fast_figures():
     assert req.call_args.args == ("POST", "/api/refresh")
 
 
-@pytest.mark.parametrize("figure", ["da", "fma"])
-async def test_lattice_refresh_verification_figures(figure):
+@pytest.mark.parametrize(
+    ("figure", "path"),
+    [("verify", "/api/verify"), ("da", "/api/refresh/da"), ("lma", "/api/refresh/lma")],
+)
+async def test_lattice_refresh_verification_figures(figure, path):
     with _patch_request(return_value={}) as req:
         await _fn(lt.lattice_refresh)(figure=figure)
-    assert req.call_args.args == ("POST", "/api/verify")
+    assert req.call_args.args == ("POST", path)
 
 
 async def test_lattice_refresh_named_figure():
@@ -154,17 +157,19 @@ async def test_lattice_set_baseline_happy():
     assert data["baseline"] == {"tunes": [0.1, 0.2]}
 
 
-async def test_lattice_get_figure_happy():
-    with _patch_request(return_value={"data": [], "layout": {}}) as req:
+async def test_get_figure_happy_carries_key():
+    body = {"status": "ready", "key": "k" * 64, "figure": {"data": [], "layout": {}}}
+    with _patch_request(return_value=body) as req:
         result = await _fn(lt.lattice_get_figure)(name="optics")
-    assert json.loads(result) == {"data": [], "layout": {}}
+    assert json.loads(result) == body
     assert req.call_args.args == ("GET", "/api/figures/optics")
 
 
 async def test_lattice_get_data_happy():
-    with _patch_request(return_value={"s": [0, 1]}) as req:
+    body = {"status": "ready", "key": "k" * 64, "data": {"s": [0, 1]}}
+    with _patch_request(return_value=body) as req:
         result = await _fn(lt.lattice_get_data)(name="optics")
-    assert json.loads(result) == {"s": [0, 1]}
+    assert json.loads(result) == body
     assert req.call_args.args == ("GET", "/api/data/optics")
 
 
@@ -263,3 +268,52 @@ async def test_get_figure_http_error_includes_valid_names_hint():
         with assert_raises_error(error_type="lattice_error") as ctx:
             await _fn(lt.lattice_get_figure)(name="optics")
     assert any("lattice_refresh" in s for s in ctx["envelope"]["suggestions"])
+
+
+def _json_status_error(status: int, body: dict) -> httpx.HTTPStatusError:
+    req = httpx.Request("GET", "http://dash/api/figures/optics")
+    resp = httpx.Response(status, json=body, request=req)
+    return httpx.HTTPStatusError("bad status", request=req, response=resp)
+
+
+@pytest.mark.parametrize("tool_name", ["lattice_get_figure", "lattice_get_data"])
+async def test_get_figure_stale_names_the_status_and_refresh(tool_name):
+    error = _json_status_error(404, {"status": "stale", "key": "k", "error": None})
+    with _patch_request(side_effect=error):
+        with assert_raises_error(error_type="figure_not_current") as ctx:
+            await _fn(getattr(lt, tool_name))(name="optics")
+    assert ctx["envelope"]["error_message"] == "optics is stale"
+    assert ctx["envelope"]["suggestions"] == ['call lattice_refresh("optics")']
+
+
+async def test_get_figure_failed_names_the_error():
+    body = {"status": "failed", "key": "k", "error": "Worker timed out after 300 s"}
+    with _patch_request(side_effect=_json_status_error(404, body)):
+        with assert_raises_error(error_type="figure_not_current") as ctx:
+            await _fn(lt.lattice_get_figure)(name="da")
+    assert ctx["envelope"]["error_message"] == "da is failed: Worker timed out after 300 s"
+    assert ctx["envelope"]["suggestions"] == ['call lattice_refresh("da")']
+
+
+async def test_get_figure_computing_says_wait():
+    body = {"status": "computing", "key": "k", "error": None}
+    with _patch_request(side_effect=_json_status_error(404, body)):
+        with assert_raises_error(error_type="figure_not_current") as ctx:
+            await _fn(lt.lattice_get_figure)(name="optics")
+    assert ctx["envelope"]["suggestions"] == ["wait for figure_ready"]
+
+
+async def test_get_figure_unavailable_has_no_refresh_hint():
+    body = {"status": "unavailable", "reason": "not available for a single-pass model"}
+    with _patch_request(side_effect=_json_status_error(409, body)):
+        with assert_raises_error(error_type="figure_unavailable") as ctx:
+            await _fn(lt.lattice_get_figure)(name="lma")
+    assert ctx["envelope"]["error_message"] == "not available for a single-pass model"
+    assert ctx["envelope"]["suggestions"] == []
+
+
+async def test_get_figure_unknown_name_stays_a_lattice_error():
+    error = _json_status_error(404, {"detail": "Unknown figure: tune"})
+    with _patch_request(side_effect=error):
+        with assert_raises_error(error_type="lattice_error"):
+            await _fn(lt.lattice_get_figure)(name="tune")
