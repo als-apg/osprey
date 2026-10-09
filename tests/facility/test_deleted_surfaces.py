@@ -92,7 +92,7 @@ RETIRED_SOURCE_NAMES = (
     "VA_LATTICE|VA_BPM_ERRORS|VA_CORR_GAIN|VA_STANDIN_BPM_ERRORS|VA_NOISE_LEVEL|"
     "VA_ENTRYPOINT_MODULE|VA_CHANNELS_FILE|VA_STUCK_SETPOINTS|ordinalInFacility|"
     r"tier_dir|resolved_tier|TemplateChannelDatabase|_manifest_tier|ManifestPaths|"
-    r"databases\.template|from \.template import"
+    r"databases\.template|from \.template import|channel_databases/tiers"
 )
 
 #: The stage whose close removes the last shipped spelling of those names.

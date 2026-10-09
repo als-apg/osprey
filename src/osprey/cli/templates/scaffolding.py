@@ -423,11 +423,10 @@ def copy_template_data(
 
 
 #: The staging subtrees a facility data tree may carry that no render needs:
-#: the per-tier channel databases and benchmark query sources, and the raw
-#: inputs they were generated from. Relative to the render's ``data/``.
+#: the benchmark query sources and the raw inputs. Relative to the render's
+#: ``data/``.
 _RENDER_EXCLUDED_DATA_DIRS: tuple[tuple[str, ...], ...] = (
     ("benchmarks", "cross_paradigm"),
-    ("channel_databases", "tiers"),
     ("raw",),
 )
 
@@ -439,9 +438,8 @@ def materialize_benchmark_queries(project_dir: Path, channel_finder_mode: str) -
     ``data/benchmarks/cross_paradigm/queries/``: ``in_context_queries.json``
     for ``in_context`` and ``tree_queries.json`` for every other mode. The selected
     one is copied to ``data/benchmarks/queries.json``. Then
-    ``data/benchmarks/cross_paradigm/``, ``data/channel_databases/tiers/`` and
-    ``data/raw/`` are removed from the render; the facility tree they were
-    copied from is never touched. Each channel-finder index is the view the
+    ``data/benchmarks/cross_paradigm/`` and ``data/raw/`` are removed from the
+    render; the facility tree they were copied from is never touched. Each channel-finder index is the view the
     build writes at its own path, so nothing is flattened here.
 
     A render whose tree ships no ``data/benchmarks/cross_paradigm/`` subtree

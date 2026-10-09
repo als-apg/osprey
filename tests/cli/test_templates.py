@@ -133,7 +133,6 @@ class TestTemplateManager:
         assert queries.read_bytes() == expected.read_bytes()
 
         data = project_dir / "data"
-        assert not (data / "channel_databases" / "tiers").exists()
         assert not (data / "benchmarks" / "cross_paradigm").exists()
         assert not (data / "raw").exists()
         for paradigm in VALID_CHANNEL_FINDER_MODES:

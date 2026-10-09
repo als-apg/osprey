@@ -2003,7 +2003,6 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
     assert (project_dir / expected_path).is_file()
 
     data = project_dir / "data"
-    assert not (data / "channel_databases" / "tiers").exists()
     assert not (data / "benchmarks" / "cross_paradigm").exists()
     assert not (data / "raw").exists()
     staged = sorted(path.name for path in (data / "channel_databases").glob("*"))
