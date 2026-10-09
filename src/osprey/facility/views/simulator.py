@@ -5,7 +5,7 @@ Written into ``<render>/data/simulator/``::
     served_models.json   {schema: osprey.facility.served_models/1, models: [...]}
     addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...]}
     decks/<model>.json   a byte copy of each deck-bearing model's deck
-    variables.json       {schema: osprey.facility.simulator/1, code, models: [...], channels: [...]}
+    variables.json       {schema: osprey.facility.simulator/2, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/1, seeds: {<address>: <seed record>}}
     scenarios.json       {schema: osprey.facility.scenarios/1, scenarios: [...]}
     scenarios/<name>/    a byte copy of each file a scenario's logbook entries attach
@@ -58,6 +58,21 @@ from osprey.facility.build import FacilityDocument
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
+from osprey_connectors.simulation.view import (
+    ADDRESSES_FILE,
+    ADDRESSES_SCHEMA,
+    DECKS_DIR,
+    SCENARIOS_DIR,
+    SCENARIOS_FILE,
+    SCENARIOS_SCHEMA,
+    SEEDS_FILE,
+    SEEDS_SCHEMA,
+    SERVED_MODELS_FILE,
+    SERVED_MODELS_SCHEMA,
+    VARIABLES_FILE,
+    VARIABLES_SCHEMA,
+    SimulatorView,
+)
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -79,36 +94,10 @@ __all__ = [
     "write_simulator_view",
 ]
 
-SERVED_MODELS_FILE = "served_models.json"
-SERVED_MODELS_SCHEMA = "osprey.facility.served_models/1"
-ADDRESSES_FILE = "addresses.json"
-ADDRESSES_SCHEMA = "osprey.facility.addresses/1"
-DECKS_DIR = "decks"
-VARIABLES_FILE = "variables.json"
-VARIABLES_SCHEMA = "osprey.facility.simulator/1"
-SEEDS_FILE = "seeds.json"
-SEEDS_SCHEMA = "osprey.facility.seeds/1"
-SCENARIOS_FILE = "scenarios.json"
-#: The directory holding each scenario's attached files, ``scenarios/<name>/``,
-#: under the facility tree and under the view alike.
-SCENARIOS_DIR = "scenarios"
-SCENARIOS_SCHEMA = "osprey.facility.scenarios/1"
-
-#: The view's directory under a render.
-_VIEW_RELPATH = Path("data") / "simulator"
-
 
 def simulator_view(project_dir: Path) -> Path:
-    """The simulator view of *project_dir*'s render, ``<render>/data/simulator``.
-
-    A deployment repo keeps its render under ``build/``, beside the rendered
-    ``config.yml``; a container's project directory is the render itself.
-    """
-    from osprey_connectors.workspace import rendered_config_path
-
-    rendered = rendered_config_path(project_dir)
-    render = rendered.parent if rendered.is_file() else project_dir
-    return render / _VIEW_RELPATH
+    """The simulator view of *project_dir*'s render, ``<render>/data/simulator``."""
+    return SimulatorView.path_for_project(project_dir)
 
 
 #: The mark a scenario's faults carry for a model the render does not serve.

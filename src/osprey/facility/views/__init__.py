@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.build import FacilityDocument
+from osprey_connectors.simulation.view import VIEW_RELPATH
 
 __all__ = [
     "PIPELINE_MODE_KEY",
@@ -216,7 +217,7 @@ def _write_graph(root: Path, inputs: ViewInputs) -> list[Path]:
 VIEWS: tuple[View, ...] = (
     View(
         name="simulator",
-        path="simulator",
+        path=VIEW_RELPATH.name,
         written_when=_always,
         write=_write_simulator,
     ),

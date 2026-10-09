@@ -257,7 +257,7 @@ def test_variables_carries_its_schema_and_key_sets(built_control_assistant: Buil
     facility = built_control_assistant.facility
 
     assert set(variables) == {"schema", "code", "models", "channels"}
-    assert variables["schema"] == "osprey.facility.simulator/1"
+    assert variables["schema"] == "osprey.facility.simulator/2"
     assert variables["code"] == facility["identity"]["code"]
     assert [model["name"] for model in variables["models"]] == sorted(
         model["name"] for model in facility["models"]
