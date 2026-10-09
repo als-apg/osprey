@@ -139,4 +139,5 @@ available and compares the fresh exports with these files.
 | StorageRing | `SM1`, `SH3`, `SH4`, `SL1`, `SL3` | `k2amp` answered with nothing usable over the negative-strength grid, for every device |
 
 None of these is repaired in the Middle Layer. Each is carried as what the facility
-states, and the verdict rules decide what the model does about it.
+states, and the mapping's `wiring` block says which of these families a model drives
+or reads.

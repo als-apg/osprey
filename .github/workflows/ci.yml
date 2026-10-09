@@ -5505,7 +5505,7 @@ jobs:
     #   - test_mml_trees_boot.py, which installs a facility export from
     #     scratch for each of its three trees — init, import, emit, set,
     #     validate, build — and boots a container of its own per tree under
-    #     that module's own `BOOT_TIMEOUT_S` of 240 s.
+    #     that module's own `BOOT_TIMEOUT_S` of 240 s;
     #   - the real-facility lane on the NSLS-II stand-in, one install of a two-model
     #     export — init, import, set, build — and one boot under that
     #     module's own `BOOT_TIMEOUT_S` of 240 s, capped at 20 minutes.
