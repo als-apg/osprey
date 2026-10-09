@@ -55,7 +55,7 @@ providers:
 # --- defaults applied to every model row unless overridden ------------------
 defaults:
   seeds: 3            # subjects run 3 seeds; references override to 1
-  budget_scale: 1     # price normalizer; only pricey hosted refs raise it
+  budget_scale: 1     # price normalizer for direct cells; proxied cells run uncapped
   timeout_s: 1800     # per-test hang-breaker (scored inconclusive, not failed)
 
 # --- the grid ---------------------------------------------------------------
@@ -76,7 +76,7 @@ models:
   - { id: claude-opus-4-6,           provider: als-apg, seeds: 1, budget_scale: 6 }
 
   # ---- local DeepSeek V4 on the shared ds4 server (keyless localhost) -------
-  # Local inference is free (budget_scale stays 1) but slow on the shared GPU, so
+  # Local inference is free (proxied, so uncapped) but slow on the shared GPU, so
   # run a SINGLE seed (seeds: 1) — a full 3-seed lane takes ~1.5 days. Run this
   # lane on its own at `--parallel 1` (matrix_restart.sh launches it as the
   # matrix_ds4 tmux session). The judge stays remote (via: cborg).

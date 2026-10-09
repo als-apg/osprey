@@ -26,6 +26,7 @@
 #   results/<safe_model>__seed<seed>.xml    JUnit XML (per-test outcomes)
 #   results/<safe_model>__seed<seed>.json   summary {model,seed,passed,failed,...}
 #   results/<safe_model>__seed<seed>.live.jsonl  one JSON line per test as it ends
+#   results/<safe_model>__seed<seed>.queries.jsonl  one JSON line per agent query (timing)
 #
 # NEVER `uv run` — invoke the venv python directly (per macstudio convention).
 set -uo pipefail
@@ -62,6 +63,10 @@ export OSPREY_E2E_LIVE="$REPO/results/${SAFE}__seed${SEED}.live.jsonl"
 # time). The dashboard joins outcomes against it to score the capability lane
 # (agentic_benchmark) separately from the harness-integrity lane.
 export OSPREY_E2E_LANES="$REPO/results/${SAFE}__seed${SEED}.lanes.json"
+# per-query timing (wall time, time waiting on the model, turns, tokens); the
+# dashboard's latency columns read it.
+export OSPREY_E2E_QUERY_LOG="$REPO/results/${SAFE}__seed${SEED}.queries.jsonl"
+: > "$OSPREY_E2E_QUERY_LOG"
 
 echo ">> model=$MODEL seed=$SEED provider=$OSPREY_E2E_FORCE_PROVIDER route=$ROUTE" >&2
 echo ">> junit=$XML" >&2

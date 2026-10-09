@@ -87,6 +87,10 @@ def anthropic_to_openai_request(
         "messages": messages,
         "stream": body.get("stream", False),
     }
+    if openai_body["stream"]:
+        # OpenAI-protocol servers report token usage on a stream only when asked;
+        # the agent's token accounting is built from that report.
+        openai_body["stream_options"] = {"include_usage": True}
 
     if body.get("max_tokens"):
         openai_body[max_tokens_param] = body["max_tokens"]
@@ -459,13 +463,18 @@ def make_content_block_stop(index: int) -> str:
     )
 
 
-def make_message_delta(stop_reason: str, output_tokens: int = 0) -> str:
+def make_message_delta(
+    stop_reason: str, output_tokens: int = 0, input_tokens: int | None = None
+) -> str:
+    usage = {"output_tokens": output_tokens}
+    if input_tokens is not None:
+        usage = {"input_tokens": input_tokens, **usage}
     return format_sse(
         "message_delta",
         {
             "type": "message_delta",
             "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-            "usage": {"output_tokens": output_tokens},
+            "usage": usage,
         },
     )
 

@@ -1,12 +1,13 @@
 #!/usr/bin/env python
-"""Render a self-contained HTML dashboard for the CBORG e2e model matrix (#259).
+"""Render a self-contained HTML dashboard for the e2e model-capability matrix.
 
 Reads results/<model>__seed<seed>.json (the summary schema emitted by
 run_e2e_for_model.sh) and produces a single static HTML file (inline CSS, no
 external deps) with:
 
   * run metadata + methodology footer (override mechanism, proxy, cap, drops),
-  * a model x seed summary matrix (pass-rate heatmap + counts + wall-clock),
+  * a model x seed summary matrix (Tier 1 pass rate, Tier 0 line, counts, wall-clock)
+    with latency columns (median task time, share spent waiting on the model, tok/s),
   * a per-test heatmap (one row per model-driving test x model cols; cell = passes across seeds),
     grouped by test file, so you can see exactly which capabilities each model
     holds up on weak -> strong.
@@ -202,6 +203,7 @@ def load(results_dir: str) -> dict:
         runs[(model, seed)] = {
             "model": model,
             "seed": seed,
+            "provider": _provider_from_run_log(f[: -len(".live.jsonl")] + ".run.log"),
             "route": "",
             "pytest_rc": None,
             "total_duration_s": int(sum(t.get("duration_s", 0) for t in tests)),
@@ -212,6 +214,20 @@ def load(results_dir: str) -> dict:
             "_stalled": stalled,
         }
     return runs
+
+
+def _provider_from_run_log(run_log_path: str) -> str:
+    """The provider a still-running cell builds with, from the worker's
+    ``>> model=... provider=...`` banner ("" when the log has none yet)."""
+    try:
+        with open(run_log_path, errors="replace") as f:
+            for line in f:
+                m = re.match(r">> model=\S+ seed=\S+ provider=(\S+)", line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return ""
 
 
 def load_lanes(results_dir: str) -> dict[tuple, str]:
@@ -241,6 +257,74 @@ def load_lanes(results_dir: str) -> dict[tuple, str]:
             elif lane == "harness":
                 lanes[canon_name(nodeid)] = "harness"
     return lanes
+
+
+def load_query_timing(results_dir: str) -> dict[str, list[dict]]:
+    """model -> every per-query timing record across its seeds.
+
+    Each cell's ``*.queries.jsonl`` (tests/e2e/sdk_helpers.py,
+    ``OSPREY_E2E_QUERY_LOG``) holds one line per agent query: wall time, time
+    spent waiting on the model, turns and tokens. Cells run before the log
+    existed simply contribute nothing."""
+    out: dict[str, list[dict]] = defaultdict(list)
+    for f in glob.glob(os.path.join(results_dir, "*__seed*.queries.jsonl")):
+        model = os.path.basename(f)[: -len(".queries.jsonl")].rsplit("__seed", 1)[0]
+        model = model.replace("__", "/")
+        for line in open(f):
+            line = line.strip()
+            if line:
+                try:
+                    out[model].append(json.loads(line))
+                except Exception:
+                    pass
+    return out
+
+
+def latency_stats(
+    model: str, runs: dict, queries: dict[str, list[dict]], lane_map: dict[tuple, str]
+) -> dict:
+    """Latency figures for one model across its seeds.
+
+    ``median_task_s`` is the median wall time of the model's Tier 1 tests (all
+    tests when there is no lane manifest), skips excluded. ``model_share`` and
+    ``tokens_per_s`` come from the per-query log: the share of query time spent
+    waiting on the model, and output tokens per second of model time. Each is
+    None when its data is missing."""
+    durations = []
+    for (m, _s), d in runs.items():
+        if m != model:
+            continue
+        for t in d.get("tests", []):
+            if t.get("outcome") == "skipped":
+                continue
+            if lane_map and lane_map.get(canon_name(t["name"])) != "agentic":
+                continue
+            durations.append(float(t.get("duration_s", 0) or 0))
+    median_task = None
+    if durations:
+        durations.sort()
+        mid = len(durations) // 2
+        median_task = (
+            durations[mid] if len(durations) % 2 else (durations[mid - 1] + durations[mid]) / 2
+        )
+    total_ms = api_ms = out_tok = 0
+    for q in queries.get(model, []):
+        if q.get("duration_ms") and q.get("duration_api_ms") is not None:
+            total_ms += q["duration_ms"]
+            api_ms += q["duration_api_ms"]
+            out_tok += q.get("output_tokens") or 0
+    return {
+        "median_task_s": median_task,
+        "model_share": (api_ms / total_ms) if total_ms else None,
+        "tokens_per_s": (out_tok / (api_ms / 1000)) if api_ms and out_tok else None,
+    }
+
+
+def fmt_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "—"
+    m, sec = divmod(int(round(seconds)), 60)
+    return f"{m}m {sec:02d}s" if m else f"{sec}s"
 
 
 def lane_conclusive(d: dict, lane_map: dict[tuple, str], lane: str) -> tuple[int, int]:
@@ -303,11 +387,11 @@ def provider_of(model: str, runs: dict) -> str:
 
 
 def provider_display(provider: str) -> str:
-    """Render the canonical provider for the [provider] line. ds4 is fully
-    self-hosted (local DeepSeek V4 on the Mac Studio, no external API), so flag
-    the host to distinguish it from the proxied/remote providers."""
+    """Render the canonical provider for the [provider] line. ds4 is the keyless
+    local-server entry, so flag it as self-hosted to set it apart from the
+    remote providers."""
     if provider == "ds4":
-        return "ds4 · macstudio (self-hosted)"
+        return "ds4 · self-hosted"
     return provider
 
 
@@ -488,15 +572,15 @@ def main() -> int:
     # batch left combos START-ed but never END-ed. "Complete" must mean nothing
     # is still in flight, so AND it with an empty running set.
     matrix_done = matrix_done and not running
-    models = list(MODEL_ORDER)
-    for m in sorted({m for (m, _) in runs} | {m for (m, _) in started}):
-        if m not in models:
-            models.append(m)
-    if args.artifact:
-        # A published artifact shows only models that actually have results — no
-        # empty "pending" rows for models in MODEL_ORDER that weren't part of this run.
-        with_data = {m for (m, _s) in runs}
-        models = [m for m in models if m in with_data]
+    # MODEL_ORDER only orders the rows; a model gets a row when it has results
+    # (or, on the live monitor, has started), never as an empty placeholder.
+    present = (
+        {m for (m, _) in runs}
+        if args.artifact
+        else {m for (m, _) in runs} | {m for (m, _) in started}
+    )
+    models = [m for m in MODEL_ORDER if m in present] + sorted(present - set(MODEL_ORDER))
+    queries = load_query_timing(args.results_dir)
 
     # union of all test names, grouped by file; (file,test) -> model -> {seed: outcome}
     all_tests: dict[str, set] = defaultdict(set)
@@ -564,7 +648,7 @@ def main() -> int:
         if args.artifact
         else ('<meta http-equiv="refresh" content="60">' if running_active else "")
     )
-    title = "OSPREY model-capability benchmark" if args.artifact else "CBORG e2e model matrix"
+    title = "OSPREY model-capability benchmark"
 
     H = []
     H.append(
@@ -576,13 +660,13 @@ def main() -> int:
         # timestamp, auto-refresh or running-now line — just title and data.
         H.append("<h1>OSPREY model-capability benchmark</h1>")
         H.append(
-            f"<p class=sub>Open-weight &amp; self-hosted models across the full "
-            f"<code>tests/e2e/</code> suite · {len(models)} models × {len(SEEDS)} seeds</p>"
+            f"<p class=sub>Open-weight &amp; self-hosted models across the "
+            f"<code>tests/e2e/</code> suite · {len(models)} model{'s' if len(models) != 1 else ''} × {len(SEEDS)} seeds</p>"
         )
     else:
-        H.append("<h1>CBORG open models — full OSPREY e2e suite</h1>")
+        H.append("<h1>OSPREY model-capability benchmark</h1>")
         H.append(
-            f"<p class=sub>Issue #259 · {len(models)} models × {len(SEEDS)} seeds · "
+            f"<p class=sub>{len(models)} model{'s' if len(models) != 1 else ''} × {len(SEEDS)} seeds · "
             f"per-test hang-breaker 1800s · <b>{done}/{total_cells}</b> runs complete · "
             + (f"<b>{live_n} filling live</b> · " if live_n else "")
             + f"<b>{html.escape(status)}</b> · updated {now}"
@@ -611,13 +695,14 @@ def main() -> int:
     H.append("<h2>Outcome breakdown by model × seed</h2>")
     if lane_map:
         H.append(
-            "<p class=sub>The headline pass% per cell is the <b>capability lane</b> — the "
-            "<code>agentic_benchmark</code>-marked tests where the model itself can fail "
-            "(passed / passed+failed+timeout+error; a <b>timeout counts as a failure</b>, only skips "
-            "are excluded). The <i>harness</i> line below it scores the "
-            "<code>harness_benchmark</code> lane (model-independent OSPREY safety/plumbing "
-            "assertions) separately, so harness passes can never inflate a model's capability "
-            "score. Bar and counts show the full outcome mix across both lanes.</p>"
+            "<p class=sub>The headline pass% per cell is <b>Tier 1 · capability</b> — the "
+            "tests where the model itself can fail (passed / passed+failed+timeout+error; a "
+            "<b>timeout counts as a failure</b>, only skips are excluded). The <b>Tier 0</b> line "
+            "below it scores the harness tests (model-independent OSPREY safety and plumbing) "
+            "separately, so they can never inflate a model's Tier 1 score. Bar and counts show the "
+            "full outcome mix across both tiers. Latency: <i>median task</i> is the median wall "
+            "time of a Tier 1 test, <i>in model</i> the share of agent time spent waiting on the "
+            "model, <i>tok/s</i> output tokens per second of model time.</p>"
         )
     else:
         H.append(
@@ -629,14 +714,15 @@ def main() -> int:
     H.append(
         "<tr><th class=l>model</th>"
         + "".join(f"<th>seed {s}</th>" for s in SEEDS)
-        + ("<th>mean capability</th></tr>" if lane_map else "<th>mean pass</th></tr>")
+        + ("<th>mean Tier 1</th>" if lane_map else "<th>mean pass</th>")
+        + "<th>median task</th><th>in model</th><th>tok/s</th></tr>"
     )
     sep_done = False
     for m in models:
         # Light divider between the self-hosted/open models and the Anthropic
         # reference bracket (drawn once, before the first reference row).
         if not sep_done and m in REFERENCE_MODELS:
-            H.append(f"<tr class=sep><td colspan='{len(SEEDS) + 2}'></td></tr>")
+            H.append(f"<tr class=sep><td colspan='{len(SEEDS) + 5}'></td></tr>")
             sep_done = True
         H.append(
             f"<tr><td class=l>{html.escape(label(m))}"
@@ -661,7 +747,7 @@ def main() -> int:
                     # constant) passes never pad the capability number.
                     p_s, den_s = lane_conclusive(d, lane_map, "agentic")
                     hp, hden = lane_conclusive(d, lane_map, "harness")
-                    harness_line = f"<div class=muted>harness {hp}/{hden}</div>" if hden else ""
+                    harness_line = f"<div class=muted>Tier 0 {hp}/{hden}</div>" if hden else ""
                 else:
                     p_s, den_s = conclusive(d)
                     harness_line = ""
@@ -691,8 +777,14 @@ def main() -> int:
             else:
                 H.append("<td style='background:#fafbfc'><span class=muted>N/A</span></td>")
         mean = sum(fracs) / len(fracs) if fracs else None
+        lat = latency_stats(m, runs, queries, lane_map)
+        share = lat["model_share"]
+        tps = lat["tokens_per_s"]
         H.append(
-            f"<td style='background:{heat(mean)}'><b>{(f'{100 * mean:.0f}%' if mean is not None else '·')}</b></td></tr>"
+            f"<td style='background:{heat(mean)}'><b>{(f'{100 * mean:.0f}%' if mean is not None else '·')}</b></td>"
+            f"<td>{fmt_duration(lat['median_task_s'])}</td>"
+            f"<td>{f'{100 * share:.0f}%' if share is not None else '—'}</td>"
+            f"<td>{f'{tps:.0f}' if tps is not None else '—'}</td></tr>"
         )
     H.append("</table>")
 
@@ -741,12 +833,12 @@ def main() -> int:
             for short in all_tests[file]:
                 lane = lane_map.get((file, short)) or "other"
                 sections[lane].setdefault(file, []).append(short)
-        H.append("<h2 style='font-size:15px'>Capability lane (agentic_benchmark)</h2>")
+        H.append("<h2 style='font-size:15px'>Tier 1 · capability</h2>")
         render_test_table(sections["agentic"])
-        H.append("<h2 style='font-size:15px'>Harness-integrity lane (harness_benchmark)</h2>")
+        H.append("<h2 style='font-size:15px'>Tier 0 · harness</h2>")
         render_test_table(sections["harness"])
         if sections["other"]:
-            H.append("<h2 style='font-size:15px'>Unclassified (not in lane manifest)</h2>")
+            H.append("<h2 style='font-size:15px'>Unclassified (not in the tier manifest)</h2>")
             render_test_table(sections["other"])
     else:
         render_test_table(all_tests)
@@ -775,32 +867,26 @@ def main() -> int:
         n_a = sum(1 for v in lane_map.values() if v == "agentic")
         n_h = sum(1 for v in lane_map.values() if v == "harness")
         scope += (
-            f" — split into a <b>{n_a}-test capability lane</b> "
-            f"(<code>agentic_benchmark</code>: multi-step agentic tasks the model itself can fail; "
-            f"the headline score) and a <b>{n_h}-test harness-integrity lane</b> "
-            f"(<code>harness_benchmark</code>: model-independent safety/plumbing assertions, scored "
-            f"separately so they never pad the capability number), with lane membership declared "
-            f"by pytest markers on the tests and re-derived from live collection every cell —"
+            f" — split into <b>Tier 1 · capability</b>, {n_a} tests "
+            f"(<code>agentic_benchmark</code>: agentic tasks the model itself can fail; the "
+            f"headline score) and <b>Tier 0 · harness</b>, {n_h} tests "
+            f"(<code>harness_benchmark</code>: model-independent safety and plumbing assertions, "
+            f"scored separately so they never pad the Tier 1 number), with tier membership "
+            f"declared by pytest markers on the tests and re-derived from live collection every "
+            f"cell —"
         )
     H.append(
-        "<footer><b>Methodology.</b> " + scope + " onto each "
-        "CBORG model suite-wide via <code>OSPREY_E2E_FORCE_PROVIDER=cborg</code> + "
-        "<code>OSPREY_E2E_FORCE_MODEL</code> (all tiers collapse to one model). Open models route through "
-        "OSPREY's Anthropic↔OpenAI translation proxy. The per-test timeout is 1800s; a timeout "
-        "<b>counts as a failure</b> (the model did not complete the task within the cap) and is shown as a "
-        "distinct category so it can be told apart from a logic failure. Models were chosen from a 14-model "
-        "lightweight probe to span "
-        "weak/fast→big/slow across distinct open families (gpt-oss, gemma, cborg). "
-        "<code>qwen-3</code> / <code>qwen-3-coder</code> are open-weight but CBORG-proxied "
-        "(<code>google/</code> route, not <code>lbl/</code> self-hosted), included as an additional open "
-        "family. Dropped at probe: <code>cborg-instant</code>, <code>cborg-instant-short</code> (could not "
-        "relay a tool result; short context truncates the harness prompt). Closed-weight commercial models "
-        "(GPT/Gemini/…) are out of scope as study subjects, but single-seed Anthropic Claude "
-        "reference models — <code>claude-haiku-4-5</code> (the suite's literal default tier), "
-        "<code>claude-sonnet-4-6</code>, and <code>claude-opus-4-6</code> — bracket the open models weak→strong "
-        "as a control/ceiling, showing how they compare against the models the tests were written for. Open subjects "
-        "run on the Mac Studio via CBORG; the Anthropic reference rows route natively via als-apg (see the "
-        "<code>[provider]</code> line under each model).</footer>"
+        "<footer><b>Methodology.</b> " + scope + " onto each model suite-wide via "
+        "<code>OSPREY_E2E_FORCE_PROVIDER</code> + <code>OSPREY_E2E_FORCE_MODEL</code> (all tiers of "
+        "the agent collapse to one model). OpenAI-protocol models route through OSPREY's "
+        "Anthropic↔OpenAI translation proxy; Anthropic models connect directly. The per-test "
+        "timeout is 1800s; a timeout <b>counts as a failure</b> (the model did not complete the "
+        "task within the cap) and is shown as a distinct category so it can be told apart from a "
+        "logic failure. Anthropic Claude models, where present, are a reference ceiling: the "
+        "models the tests were written for. Latency figures come from the agent SDK's own "
+        "accounting of each query (<code>OSPREY_E2E_QUERY_LOG</code>) and from per-test wall time; "
+        "a self-hosted model's speed depends on its hardware, named under each model with its "
+        "provider.</footer>"
     )
     H.append("</div>")
 
