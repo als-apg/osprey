@@ -19,7 +19,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from osprey.interfaces.lattice_dashboard.state import SINGLE_PASS, twiss_in_arrays
+from osprey.interfaces.lattice_dashboard.state import SINGLE_PASS
 from osprey.interfaces.lattice_dashboard.workers._base import (
     load_baseline_ring,
     load_ring,
@@ -40,13 +40,15 @@ def compute_optics(
 
     Args:
         ring: The lattice to solve.
-        twiss_in: A ``single_pass`` model's ``settings.pyat.twiss_in``; the
-            optics then start from it, and the summary carries no tunes or
+        twiss_in: A ``single_pass`` model's prepared ``twiss_in``, each value
+            a list or array of the length the pyAT engine normalised it to;
+            the optics then start from it, and the summary carries no tunes or
             chromaticity. None solves the lattice periodically.
     """
     refpts = range(len(ring) + 1)
     if twiss_in is not None:
-        _, rd, ld = at.get_optics(ring, refpts=refpts, twiss_in=twiss_in_arrays(twiss_in))
+        arrays = {key: np.asarray(values, dtype=float) for key, values in twiss_in.items()}
+        _, rd, ld = at.get_optics(ring, refpts=refpts, twiss_in=arrays)
     else:
         _, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
     s_pos = ring.get_s_pos(refpts)

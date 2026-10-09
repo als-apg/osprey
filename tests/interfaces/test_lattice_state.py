@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from osprey.interfaces.lattice_dashboard.state import LatticeState
+from osprey.simulation.engines.pyat import Prepared
 
 
 @pytest.fixture
@@ -109,8 +110,12 @@ class TestInitializeSinglePass:
             result = state.initialize(
                 "/fake/line.json",
                 model="LINE",
-                solve="single_pass",
-                twiss_in=self.TWISS_IN,
+                prepared=Prepared(
+                    solve="single_pass",
+                    twiss_in={key: np.asarray(v) for key, v in self.TWISS_IN.items()},
+                    rest_mass_gev=0.000511,
+                    length_m=10.0,
+                ),
                 deck_sha256="abc",
             )
         return result, mock_at

@@ -1,12 +1,13 @@
 """The lattice models a render's simulator view offers the dashboard.
 
-A render carries ``facility.json`` at its root and the simulator view under
-``data/simulator/``: ``served_models.json`` names the served models and
-``decks/<model>.json`` holds a copy of each deck-bearing model's deck. The
-dashboard switches between the facility file's models that have such a copy;
-engine ``texture`` is never one of them. A model is ``served`` when
-``served_models.json`` lists it, and the served ones come first, in that
-file's order, then the others by name.
+A render carries the simulator view under ``data/simulator/``:
+``variables.json`` lists every model with its engine, its settings, whether the
+render serves it, and the path of its deck copy under ``decks/``. The dashboard
+switches between the models that have a deck; engine ``texture`` is never one
+of them. Each model's settings are checked against its deck by the pyAT
+engine's ``prepare``, so the dashboard solves a deck exactly as the simulator
+does, and a model the engine stops on is listed with the stop's text. The
+served models come first, in the view's order, then the others by name.
 """
 
 from __future__ import annotations
@@ -14,9 +15,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from osprey.interfaces.lattice_dashboard.state import PERIODIC
+if TYPE_CHECKING:
+    from osprey.simulation.engines.pyat import Prepared
 
 #: The simulator view's directory under a render root.
 SIMULATOR_VIEW_DIR = Path("data") / "simulator"
@@ -34,17 +36,23 @@ class DashboardModel:
 
     Attributes:
         name: The model's name in the facility file.
-        served: Whether ``served_models.json`` lists it.
-        solve: ``periodic`` or ``single_pass``.
-        twiss_in: The model's ``settings.pyat.twiss_in``, or None.
+        served: Whether the render serves it.
         deck: The deck copy under the simulator view.
+        prepared: The model's ``pyat`` settings checked against its deck, or
+            None when the engine stops on them.
+        error: The engine's stop, or None when the settings are sound.
     """
 
     name: str
     served: bool
-    solve: str
-    twiss_in: dict[str, Any] | None
     deck: Path
+    prepared: Prepared | None
+    error: str | None = None
+
+    @property
+    def solve(self) -> str | None:
+        """The model's solve, or None when its settings are not sound."""
+        return None if self.prepared is None else self.prepared.solve
 
 
 @dataclass(frozen=True)
@@ -52,7 +60,7 @@ class ModelCatalog:
     """The models of one render, or the absence of a simulator view.
 
     Attributes:
-        has_view: Whether the render carries ``served_models.json``.
+        has_view: Whether the render carries ``variables.json``.
         models: The switchable models, served first.
     """
 
@@ -76,66 +84,60 @@ class ModelCatalog:
         return None
 
 
-def _pyat_settings(record: dict[str, Any]) -> dict[str, Any]:
-    settings = record.get("settings")
-    block = settings.get("pyat") if isinstance(settings, dict) else None
-    return block if isinstance(block, dict) else {}
-
-
-def catalog_sources(render_root: Path) -> tuple[Path, Path]:
-    """Return the two files a catalog of *render_root* is read from.
+def catalog_sources(render_root: Path) -> tuple[Path, ...]:
+    """Return the files a catalog of *render_root* is read from.
 
     Returns:
-        ``data/simulator/served_models.json`` and ``facility.json``.
+        ``data/simulator/variables.json``, alone.
     """
-    from osprey.facility import FACILITY_FILE
-    from osprey.facility.views.simulator import SERVED_MODELS_FILE
+    from osprey.facility.views.simulator import VARIABLES_FILE
 
-    root = Path(render_root)
-    return root / SIMULATOR_VIEW_DIR / SERVED_MODELS_FILE, root / FACILITY_FILE
+    return (Path(render_root) / SIMULATOR_VIEW_DIR / VARIABLES_FILE,)
+
+
+def _model(view: Path, record: dict[str, Any]) -> DashboardModel:
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.simulation.engines import pyat
+
+    name = str(record["name"])
+    deck = view / str(record["deck"])
+    try:
+        prepared: Prepared | None = pyat.prepare(deck, record.get("settings"), model=name)
+        error = None
+    except FacilityBuildError as exc:
+        prepared, error = None, str(exc)
+    return DashboardModel(
+        name=name, served=bool(record.get("served")), deck=deck, prepared=prepared, error=error
+    )
 
 
 def read_catalog(render_root: Path | None) -> ModelCatalog:
     """Read the switchable models of the render at *render_root*.
+
+    Loads each model's deck through the pyAT engine, so it is called off the
+    request path.
 
     Args:
         render_root: The render's root directory, or None for no render.
 
     Returns:
         The catalog; ``has_view`` is False when *render_root* is None or holds
-        no ``data/simulator/served_models.json``.
+        no ``data/simulator/variables.json``.
     """
     from osprey.facility import TEXTURE
-    from osprey.facility.views.simulator import DECKS_DIR
 
     if render_root is None:
         return ModelCatalog(has_view=False)
-    served_path, facility_path = catalog_sources(render_root)
-    view = served_path.parent
-    if not served_path.is_file():
+    (variables_path,) = catalog_sources(render_root)
+    if not variables_path.is_file():
         return ModelCatalog(has_view=False)
 
-    served_names = [str(name) for name in json.loads(served_path.read_text()).get("models", [])]
-    records = (
-        json.loads(facility_path.read_text()).get("models", []) if facility_path.is_file() else []
-    )
-
-    found: dict[str, DashboardModel] = {}
-    for record in records:
-        name = str(record.get("name", ""))
-        deck = view / DECKS_DIR / f"{name}.json"
-        if not name or name == TEXTURE or not deck.is_file():
-            continue
-        block = _pyat_settings(record)
-        twiss_in = block.get("twiss_in")
-        found[name] = DashboardModel(
-            name=name,
-            served=name in served_names,
-            solve=str(block.get("solve", PERIODIC)),
-            twiss_in=twiss_in if isinstance(twiss_in, dict) else None,
-            deck=deck,
-        )
-
-    served = [found[name] for name in served_names if name in found]
-    unserved = sorted((model for model in found.values() if not model.served), key=lambda m: m.name)
+    view = variables_path.parent
+    found = [
+        _model(view, record)
+        for record in json.loads(variables_path.read_text()).get("models", [])
+        if record.get("engine") != TEXTURE and record.get("deck") and record.get("name")
+    ]
+    served = [model for model in found if model.served]
+    unserved = sorted((model for model in found if not model.served), key=lambda m: m.name)
     return ModelCatalog(has_view=True, models=tuple(served + unserved))
