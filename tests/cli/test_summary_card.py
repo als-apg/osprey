@@ -21,7 +21,6 @@ the card carries a filesystem path, which is exactly what wrapping breaks.
 from __future__ import annotations
 
 import io
-import json
 from pathlib import Path
 
 import pytest
@@ -38,7 +37,7 @@ from osprey.cli.phase_reporter import (
 )
 from osprey.cli.styles import osprey_theme
 from osprey.cli.summary_card import format_summary_card, owns_summary_card, print_summary_card
-from osprey.facility.views.simulator import SCENARIOS_FILE, SCENARIOS_SCHEMA
+from tests._simulator_view import write_scenarios_view
 
 
 def recording_console(*, terminal: bool = False) -> tuple[Console, io.StringIO]:
@@ -180,10 +179,10 @@ PLAIN_SCENARIO = {"name": "drift", "description": "A slow drift."}
 
 def write_scenarios(repo: Path, scenarios: list[dict]) -> None:
     """Write ``scenarios`` into the build's simulator view, as the build does."""
-    view = repo / "build" / "data" / "simulator"
-    view.mkdir(parents=True, exist_ok=True)
-    document = {"schema": SCENARIOS_SCHEMA, "scenarios": sorted(scenarios, key=lambda s: s["name"])}
-    (view / SCENARIOS_FILE).write_text(json.dumps(document), encoding="utf-8")
+    write_scenarios_view(
+        repo / "build",
+        {s["name"]: {k: v for k, v in s.items() if k != "name"} for s in scenarios},
+    )
 
 
 @pytest.fixture
