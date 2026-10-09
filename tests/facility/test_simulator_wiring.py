@@ -32,8 +32,11 @@ ENTRY_KEYS = {
     "unit",
     "default",
     "value_range",
+    "role",
+    "plane",
+    "refresh",
 }
-ALWAYS = {"id", "address", "engine", "direction", "default"}
+ALWAYS = {"id", "address", "engine", "direction", "default", "role", "plane", "refresh"}
 UNWIRED_ELEMENT = {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
 
 
