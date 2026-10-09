@@ -27,13 +27,13 @@ reads made here.
 
 from __future__ import annotations
 
-import json
 import shutil
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
 
+from osprey_connectors.simulation.view import Model, SimulatorView
 from tests.va.e2e import conftest as e2e_conftest
 
 pytestmark = [
@@ -83,7 +83,7 @@ def served(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
     tree = boot.BuiltTree(
         name=chain.TREE,
         repo=built.root,
-        view=built.view("simulator/variables.json"),
+        view=SimulatorView.of_render(built.build),
         declared_kinds=frozenset(),
         stopped="",
         remedied=(),
@@ -92,27 +92,28 @@ def served(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
         yield running
 
 
-def _model(served: Any, name: str) -> dict[str, Any]:
+def _model(served: Any, name: str) -> Model:
     """The served view's record of one model."""
-    (model,) = [model for model in served.tree.view["models"] if model["name"] == name]
+    model: Model = served.tree.view.model(name)
     return model
 
 
 def _channels(served: Any, name: str) -> list[str]:
     """Every address one model drives, sorted."""
-    return sorted({str(record["address"]) for record in _model(served, name)["wiring"]})
+    bindings = served.tree.view.bindings(model=name, served_only=False)
+    return sorted({binding.address for binding in bindings})
 
 
 def test_the_view_serves_both_models_of_the_chain(served: Any) -> None:
     """The render the container mounts names each model of the tree as served."""
-    view = served.tree.simulator_dir
-    names = json.loads((view / "served_models.json").read_text(encoding="utf-8"))["models"]
+    names = served.tree.view.served()
 
     assert MODELS == _chain().MODELS
     assert set(MODELS) <= set(names)
     for name in MODELS:
-        assert _model(served, name)["served"], name
-        assert (view / str(_model(served, name)["deck"])).is_file(), name
+        model = _model(served, name)
+        assert model.served, name
+        assert model.deck is not None and model.deck.is_file(), name
 
 
 @pytest.mark.parametrize("name", MODELS)
@@ -141,7 +142,7 @@ def test_every_setpoint_of_the_model_serves_what_the_model_owes(served: Any, nam
     setpoints = [
         address
         for address in _channels(served, name)
-        if served.tree.channel(address)["role"] == "setpoint"
+        if served.tree.channel(address).role == "setpoint"
     ]
     assert setpoints, f"{name} wires no setpoint"
 
