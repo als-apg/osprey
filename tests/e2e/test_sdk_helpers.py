@@ -18,6 +18,7 @@ from osprey.agent_runner.primitives import SDKWorkflowResult, ToolTrace
 from osprey.agent_runner.project_paths import claude_project_dir
 from tests.e2e.sdk_helpers import (
     HOOK_ATTACHMENT_PREFIX,
+    JUDGE_RESULT_CHARS,
     TRANSCRIPT_SUBDIR,
     HookEvent,
     _bind_approval_policy,
@@ -32,14 +33,18 @@ pytestmark = pytest.mark.model_free
 
 # ---------------------------------------------------------------------------
 # The agent-transcript dump. Its whole reason to exist is that the judge sees
-# tool results previewed at 300 characters, so the property worth pinning is
+# tool results previewed at JUDGE_RESULT_CHARS, so the property worth pinning is
 # that the artifact is NOT truncated — a dump that inherited the same limit
 # would look like coverage while answering nothing.
 # ---------------------------------------------------------------------------
 
 
-def _result_with_a_long_tool_result(size: int = 5000):
-    """One trace whose result is far longer than the judge's 300-char preview."""
+# Twice the judge's preview, so a dump that inherited the preview's cut fails.
+_LONG_RESULT_CHARS = 2 * JUDGE_RESULT_CHARS
+
+
+def _result_with_a_long_tool_result(size: int = _LONG_RESULT_CHARS):
+    """One trace whose result is far longer than the judge's preview."""
     return SDKWorkflowResult(
         text_blocks=["I measured the ring.", "The response is linear."],
         tool_traces=[
@@ -71,8 +76,8 @@ def test_transcript_dump_keeps_tool_results_whole(tmp_path, monkeypatch):
     """The payload must carry the full tool result, not a preview.
 
     This is the defect the dump exists to close: `_to_workflow_result` cuts
-    every result to 300 characters before the judge sees it, and a
-    `get_run_data` body spends that budget on `run_uid` and `columns`.
+    every result to `JUDGE_RESULT_CHARS` before the judge sees it, so a long
+    `get_run_data` body is never seen whole.
     """
     monkeypatch.setenv("OSPREY_CI_DIAG_DIR", str(tmp_path))
 
@@ -81,7 +86,7 @@ def test_transcript_dump_keeps_tool_results_whole(tmp_path, monkeypatch):
     assert target is not None
     assert target == tmp_path / TRANSCRIPT_SUBDIR / "orbit_response.json"
     payload = json.loads(target.read_text(encoding="utf-8"))
-    assert len(payload["tool_traces"][0]["result"]) == 5000
+    assert len(payload["tool_traces"][0]["result"]) == _LONG_RESULT_CHARS
     assert payload["response"] == "I measured the ring.\nThe response is linear."
     # No render, no hook stdout: the six plan-stack dump sites that call this
     # without one must keep exactly the payload they had.
