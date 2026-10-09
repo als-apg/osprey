@@ -184,9 +184,9 @@ def _ca_native_type(ftype: Any) -> int | None:
     native type is the remainder — the arithmetic ``epics.dbr.native_type``
     does, without importing pyepics here.
     """
-    if isinstance(ftype, bool) or not isinstance(ftype, int) or ftype < 0:
-        return None
-    return ftype % 7
+    if isinstance(ftype, int) and not isinstance(ftype, bool) and ftype >= 0:
+        return ftype % 7
+    return None
 
 
 def _integer_write_problem(native_type: int | None, value: Any) -> str | None:
