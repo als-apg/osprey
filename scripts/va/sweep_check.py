@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Full-namespace Channel Access reachability sweep against a running VA container.
 
-Batched, single-shared-timeout bulk read of every channel the simulator view's
-``addresses.json`` lists -- the namespace the container serves. Never reads
+Batched, single-shared-timeout bulk read of every channel the simulator view
+lists -- the namespace the container serves. Never reads
 channels one at a time: every address gets its own ``epics.PV``
 (auto-monitoring) up front so connections happen concurrently, then one shared
 deadline is used to wait for the whole set to connect before reading values
@@ -14,7 +14,7 @@ Usable two ways:
 
       export EPICS_CA_NAME_SERVERS=localhost:5064
       export EPICS_CA_AUTO_ADDR_LIST=NO
-      python scripts/va/sweep_check.py [build/data/simulator/addresses.json]
+      python scripts/va/sweep_check.py [build/data/simulator]
 
 * Imported, so ``tests/va/e2e/test_full_sweep.py`` can drive the exact same
   sweep function against its own container fixture without duplicating the
@@ -28,20 +28,20 @@ client (see the poisoning caveat documented in
 
 from __future__ import annotations
 
-import json
 import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-#: The served addresses of a built project, relative to its root.
-DEFAULT_ADDRESSES_JSON = Path("build/data/simulator/addresses.json")
+from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
+
+#: The simulator view of a built project, relative to its root.
+DEFAULT_VIEW_DIR = Path("build") / VIEW_RELPATH
 
 
-def served_addresses(addresses_json: Path = DEFAULT_ADDRESSES_JSON) -> list[str]:
-    """Every channel address ``addresses_json`` lists, in file order."""
-    document = json.loads(Path(addresses_json).read_text(encoding="utf-8"))
-    return [str(address) for address in document["channels"]]
+def served_addresses(view_dir: Path = DEFAULT_VIEW_DIR) -> list[str]:
+    """Every channel address the simulator view in ``view_dir`` lists, sorted."""
+    return list(SimulatorView.open(view_dir).channels())
 
 
 @dataclass
@@ -119,7 +119,7 @@ def main(argv: list[str]) -> int:
     os.environ.setdefault("EPICS_CA_NAME_SERVERS", "localhost:5064")
     os.environ.setdefault("EPICS_CA_AUTO_ADDR_LIST", "NO")
 
-    source = Path(argv[0]) if argv else DEFAULT_ADDRESSES_JSON
+    source = Path(argv[0]) if argv else DEFAULT_VIEW_DIR
     addresses = served_addresses(source)
     print(f"Sweeping {len(addresses)} addresses from {source} ...")
     result = sweep(addresses)
