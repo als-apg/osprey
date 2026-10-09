@@ -41,6 +41,7 @@ import subprocess
 import pytest
 
 import osprey
+from tests.deployment._cache_mounts import assert_build_caches_mounted
 from tests.deployment._pip_probe import primer_pip_argv
 from tests.deployment._proxy_idiom import (
     assert_apt_runs_carry_proxy_idiom,
@@ -131,7 +132,7 @@ SERVICES = sorted(PRIMER_SPEC)
 # (the guaranteed sibling keeps the glob matching when absent) and installed
 # inside the deps RUN while the C toolchain is still available.
 MANIFEST_COPY = "COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/"
-MANIFEST_INSTALL = "pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt"
+MANIFEST_INSTALL = "pip install -r /tmp/deps-ctx/osprey-local-requirements.txt"
 
 
 def _dockerfile(service: str) -> str:
@@ -141,7 +142,7 @@ def _dockerfile(service: str) -> str:
 def _run_bodies(text: str) -> list[str]:
     """Every RUN instruction's shell body, line-continuations joined."""
     joined = re.sub(r"\\\n", " ", text)
-    return re.findall(r"^RUN (.+)$", joined, flags=re.MULTILINE)
+    return re.findall(r"^RUN (?:--\S+\s+)*(.+)$", joined, flags=re.MULTILINE)
 
 
 def _instructions(text: str) -> list[tuple[str, str]]:
@@ -192,10 +193,10 @@ class TestLayerSplit:
         if service == "virtual_accelerator":
             # VA's first (deps-resolving) install carries the extra so a dev
             # wheel that changes the extra's deps picks them up.
-            assert 'pip install --no-cache-dir "${whl}[virtual-accelerator]"' in wheel
+            assert 'pip install "${whl}[virtual-accelerator]"' in wheel
         else:
-            assert "pip install --no-cache-dir /tmp/ctx/*.whl" in wheel
-        assert "pip install --no-cache-dir --no-deps --force-reinstall /tmp/ctx/*.whl" in wheel
+            assert "pip install /tmp/ctx/*.whl" in wheel
+        assert "pip install --no-deps --force-reinstall /tmp/ctx/*.whl" in wheel
         assert "pip check" in wheel
         # Always clean up the staged context regardless of whether a wheel was
         # present (so a no-op wheel layer still leaves no /tmp/ctx behind).
@@ -204,7 +205,7 @@ class TestLayerSplit:
     def test_pinned_primer_spec_present(self, service):
         deps = _deps_body(service)
         spec = PRIMER_SPEC[service]
-        assert f'pip install --no-cache-dir ${{OSPREY_PIP_PRE:+--pre}} "{spec}"' in deps, (
+        assert f'pip install ${{OSPREY_PIP_PRE:+--pre}} "{spec}"' in deps, (
             f"{service}: pinned primer spec {spec!r} missing from deps layer"
         )
 
@@ -296,9 +297,7 @@ class TestLayerSplit:
         assert deps.index(MANIFEST_INSTALL) < deps.index("apt-get purge -y build-essential"), (
             f"{service}: manifest install must precede the toolchain purge"
         )
-        assert "rm -rf /var/lib/apt/lists/* /tmp/deps-ctx" in deps, (
-            f"{service}: deps RUN must clean up /tmp/deps-ctx with the apt cleanup"
-        )
+        assert "rm -rf /tmp/deps-ctx" in deps, f"{service}: deps RUN must clean up /tmp/deps-ctx"
 
     def test_deps_layer_propagates_manifest_install_failure(self, service, tmp_path):
         """Empirical probe: with a manifest staged and its `pip install -r`
@@ -480,7 +479,6 @@ def test_event_dispatcher_node_comes_from_the_base_image_distro():
     # inside the continuation, so they are only reachable in the comment-
     # stripped body above — a naive join would leave them commented out.
     assert "npm install -g @anthropic-ai/claude-code@" in node
-    assert "rm -rf /var/lib/apt/lists/*" in node
 
 
 def test_event_dispatcher_has_no_third_party_node_apt_repo():
@@ -515,7 +513,7 @@ def test_virtual_accelerator_wheel_extra_placement():
     deps = _deps_body("virtual_accelerator")
     wheel = _wheel_body("virtual_accelerator")
     assert "[virtual-accelerator]" in deps
-    assert 'pip install --no-cache-dir "${whl}[virtual-accelerator]"' in wheel
+    assert 'pip install "${whl}[virtual-accelerator]"' in wheel
     first_install, _, after_force_reinstall = wheel.partition("--force-reinstall")
     assert "[virtual-accelerator]" in first_install
     assert "[virtual-accelerator]" not in after_force_reinstall
@@ -624,6 +622,28 @@ def test_shared_deps_layer_covers_the_compose_built_services():
         "services/bluesky_web",
         "services/event_dispatcher",
     } <= set(SHARED_DEPS_IDS)
+
+
+#: Shipped recipes that install with pip, and so fetch through the build caches.
+#: The qmd sidecar installs with npm on a Node base and is not one of them.
+PIP_INSTALLING = [p for p in SHIPPED_DOCKERFILES if "pip install" in p.read_text(encoding="utf-8")]
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    PIP_INSTALLING,
+    ids=[str(p.parent.relative_to(TEMPLATES_DIR)) for p in PIP_INSTALLING],
+)
+def test_installs_fetch_through_the_shared_build_caches(dockerfile):
+    """Every pip and apt install mounts the caches the deploy's images share.
+
+    The rule is spelled once, in :mod:`tests.deployment._cache_mounts`, and
+    applied to the rendered project template too.
+    """
+    assert_build_caches_mounted(
+        dockerfile.read_text(encoding="utf-8"),
+        str(dockerfile.parent.relative_to(TEMPLATES_DIR)),
+    )
 
 
 # ── Proxy delivery ───────────────────────────────────────────────────────────

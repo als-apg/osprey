@@ -5871,10 +5871,8 @@ def test_gchat_bridge_image_installs_the_gchat_extra_over_the_shared_deps_layer(
         .joinpath("templates/services/gchat_bridge/Dockerfile")
         .read_text(encoding="utf-8")
     )
-    deps_install = (
-        'pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION"'
-    )
-    extras_install = 'pip install --no-cache-dir "osprey-framework[gchat]"'
+    deps_install = 'pip install ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION"'
+    extras_install = 'pip install "osprey-framework[gchat]"'
     assert deps_install in dockerfile
     assert extras_install in dockerfile
     assert (
@@ -6703,10 +6701,8 @@ def test_teams_bridge_image_installs_the_teams_extra_over_the_shared_deps_layer(
         .joinpath("templates/services/teams_bridge/Dockerfile")
         .read_text(encoding="utf-8")
     )
-    deps_install = (
-        'pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION"'
-    )
-    extras_install = 'pip install --no-cache-dir "osprey-framework[teams]"'
+    deps_install = 'pip install ${OSPREY_PIP_PRE:+--pre} "osprey-framework==$OSPREY_VERSION"'
+    extras_install = 'pip install "osprey-framework[teams]"'
     assert deps_install in dockerfile
     assert extras_install in dockerfile
     assert (
@@ -6714,7 +6710,7 @@ def test_teams_bridge_image_installs_the_teams_extra_over_the_shared_deps_layer(
         < dockerfile.index(extras_install)
         < dockerfile.index("# ── wheel layer ─")
     )
-    assert 'pip install --no-cache-dir "${whl}[teams]"' in dockerfile
+    assert 'pip install "${whl}[teams]"' in dockerfile
     assert '"${whl}"' not in dockerfile
 
 

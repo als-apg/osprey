@@ -32,6 +32,11 @@ from __future__ import annotations
 
 import re
 
+#: The ``RUN`` flags a recipe may open with (``--mount=type=cache,...``). They
+#: are BuildKit's, not the shell's, so every reconstruction drops them and reads
+#: the body the way the shell receives it.
+RUN_FLAGS = re.compile(r"^RUN (?:--\S+\s+)+", flags=re.MULTILINE)
+
 #: The canonical bridge, keyed on its first assignment. An apt-using RUN opens
 #: with this and may follow it with further exports (see :data:`_ARG_EXPORT`).
 PROXY_EXPORT_BRIDGE = 'export http_proxy="${http_proxy:-${HTTP_PROXY:-}}"'
@@ -57,8 +62,14 @@ def run_instructions(text: str) -> list[str]:
     is dropped rather than folded into the body — which is how Docker treats
     it, and the difference matters: a naive join turns everything after such a
     comment into inert shell comment text, hiding the commands that actually
-    run.
+    run. Leading ``RUN`` flags are dropped too (see :data:`RUN_FLAGS`);
+    :func:`raw_run_instructions` keeps them.
     """
+    return [RUN_FLAGS.sub("RUN ", instruction) for instruction in raw_run_instructions(text)]
+
+
+def raw_run_instructions(text: str) -> list[str]:
+    """:func:`run_instructions`, keeping each instruction's ``--mount`` flags."""
     blocks: list[list[str]] = []
     current: list[str] | None = None
     for line in text.splitlines():
