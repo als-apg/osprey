@@ -111,8 +111,6 @@ services:
 
 volumes:
   qmd_index_okf:
-    labels:
-      com.osprey.repo-id: "0123456789ab"
 
 networks:
   osprey-network:

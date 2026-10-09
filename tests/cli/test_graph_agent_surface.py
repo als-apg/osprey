@@ -318,6 +318,7 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
         yaml.dump(
             {
                 "name": "Graph Surface",
+                "project_name": repo.name,
                 # The preset carries the posture floor and names the bundle.
                 "extends": "control-assistant",
                 "data": "data",

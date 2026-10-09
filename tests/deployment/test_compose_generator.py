@@ -6888,8 +6888,9 @@ def test_bridge_without_the_axis_renders_todays_network_blocks(
     assert "_data:/data\n    networks:\n      - osprey-network\n\nvolumes:\n" in rendered
 
     # The file-level stanza still closes the file, still one blank line after
-    # the volumes block.
-    assert rendered.endswith('com.osprey.repo-id: ""\n\nnetworks:\n  osprey-network:'), (
+    # the volumes block, which ends at the bare volume name: a volume carries
+    # no path-derived label.
+    assert rendered.endswith("_data:\n\nnetworks:\n  osprey-network:"), (
         f"unexpected file tail: {rendered[-80:]!r}"
     )
 

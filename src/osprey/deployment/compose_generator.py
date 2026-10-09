@@ -243,11 +243,13 @@ def resolve_repo_root(config=None, config_path=None):
     return Path.cwd().absolute()
 
 
-#: Label key carrying WHICH CHECKOUT a container or volume belongs to.
-#: ``COMPOSE_PROJECT_NAME`` is derived from the repo's directory name, so two
-#: clones of one deployment on a single host share a project name and a volume
-#: namespace. This is what tells them apart — and what lets a destructive verb
-#: refuse to remove the other checkout's resources.
+#: Label key carrying WHICH CHECKOUT created a container. Two checkouts of one
+#: deployment on a single host that declare the same project name share a
+#: compose project; this label tells their containers apart, which is what lets
+#: ``up`` refuse to start over the other copy and ``reset`` refuse to remove it
+#: (:mod:`osprey.deployment.container_ownership`). It is on containers only:
+#: volumes belong to the project by name, ``<project>_<volume>``, and carry no
+#: checkout label.
 REPO_ID_LABEL = "com.osprey.repo-id"
 
 #: Label naming the compose project a container belongs to. The generated
@@ -1738,9 +1740,8 @@ def project_label_values(config):
         #
         # Applied at CREATE time, like every container label: containers that
         # were already running keep whatever label they were created with until
-        # something recreates them, and a named volume takes its labels only
-        # when it is first created — an existing volume is never relabelled by a
-        # later deploy.
+        # something recreates them. It labels containers only; volumes belong to
+        # the project by name and carry no checkout label.
         "repo_id": repo_identity(resolve_repo_root(config)),
     }
 

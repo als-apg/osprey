@@ -165,9 +165,9 @@ def repoint_persona_catalog(repo_root: Path, names: Sequence[str]) -> int:
     spelling that survives beside the module subtree the operator pasted in.
 
     Args:
-        repo_root: The deployment repo whose ``profile.yml`` is edited. Its
-            directory name keys each persona's ``project``/``project_path``,
-            which is why a shipped preset cannot spell them.
+        repo_root: The deployment repo whose ``profile.yml`` is edited. Only
+            each entry's ``build_profile`` is written: the build derives every
+            persona's ``project``/``project_path`` from ``project_name:``.
         names: Personas to repoint — ordinarily ``PersonaReport.names`` from the
             emission that just ran. A name the repo's catalog does not carry is
             skipped silently: it names no entry to rewrite, and whether that is
@@ -204,7 +204,7 @@ def repoint_persona_catalog(repo_root: Path, names: Sequence[str]) -> int:
     if not stale:
         return 0
 
-    layer = persona_catalog_layer(stale, repo_name=repo_root.name)
+    layer = persona_catalog_layer(stale)
     # `write_back_cli_overrides` takes the pairs an operator would have typed,
     # and its own flattening turns `config.a.b.c=v` back into the single dotted
     # `config:` key the layer spells — so the fragment reaches the file exactly

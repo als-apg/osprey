@@ -215,7 +215,9 @@ class TestTheDefaultsLedger:
         """``<derived>`` alone says nothing; the note is the whole answer."""
         ledger = config_cmd._render_defaults_ledger()
 
-        assert "# the project directory's own name\nproject_name: <derived>\n" in ledger
+        assert (
+            "# the profile's top-level `project_name:` field\nproject_name: <derived>\n" in ledger
+        )
 
     def test_a_covered_leaf_names_the_key_that_covers_it(self):
         """A leaf with no reader of its own points at the block that has one,

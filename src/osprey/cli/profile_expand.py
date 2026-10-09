@@ -458,7 +458,7 @@ def _restamp_header(text: str, preset: str, preset_hash: str) -> str:
     return "".join(lines)
 
 
-def _reference_document(preset: str, *, repo_name: str, profile_name: str) -> CommentedMap:
+def _reference_document(preset: str, *, project_name: str, profile_name: str) -> CommentedMap:
     """The profile ``osprey init --preset <preset>`` would write, with comments.
 
     :func:`~osprey.cli.build_profile_emit.materialized_profile` answers the same
@@ -468,10 +468,8 @@ def _reference_document(preset: str, *, repo_name: str, profile_name: str) -> Co
     text is what this parses. The layering is the materializer's, so the two
     documents are the same document read two ways.
 
-    ``repo_name`` is the deployment directory rather than the profile's display
-    name: the persona catalog derives each persona's ``project_path`` from it,
-    and a value copied out of here has to be the one this repo would have been
-    materialized with.
+    ``project_name`` is the profile's own ``project_name:``, so the reference
+    states the same value and that key never reads as one to copy in.
     """
     from ruamel.yaml import YAML
 
@@ -488,10 +486,12 @@ def _reference_document(preset: str, *, repo_name: str, profile_name: str) -> Co
     config = resolved.get("config")
     personas = persona_catalog(config if isinstance(config, Mapping) else {})
     layers: tuple[dict[str, Any], ...] = (
-        *((persona_catalog_layer(personas, repo_name=repo_name),) if personas else ()),
+        *((persona_catalog_layer(personas),) if personas else ()),
         *((triggers_layer(),) if hasattr(resolved.get("dispatch"), "items") else ()),
     )
-    text = emit_standalone_profile_yaml(preset, (), profile_name, extra_layers=layers)
+    text = emit_standalone_profile_yaml(
+        preset, (), profile_name, project_name=project_name, extra_layers=layers
+    )
     document: CommentedMap = YAML().load(text)
     return document
 
@@ -715,7 +715,11 @@ def expand(from_preset: str | None, refresh_providers: bool, repo: Path | None) 
     profile_name = str(document.get("name") or repo_root.name)
 
     try:
-        reference = _reference_document(preset, repo_name=repo_root.name, profile_name=profile_name)
+        reference = _reference_document(
+            preset,
+            project_name=str(document.get("project_name") or ""),
+            profile_name=profile_name,
+        )
         lacking = lacking_config_keys(document, preset)
     except BuildProfileError as e:
         raise click.UsageError(f"Cannot read preset {preset!r} to expand from: {e}") from e

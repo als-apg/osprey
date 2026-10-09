@@ -3,7 +3,7 @@ services:
 
   nginx:
     image: nginx:1.31-alpine
-    container_name: dls-nginx
+    container_name: dls_controls-nginx
     restart: unless-stopped
     network_mode: host
     labels:
@@ -31,7 +31,7 @@ services:
 
   web-alice:
     image: git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest
-    container_name: dls-web-alice
+    container_name: dls_controls-web-alice
     restart: unless-stopped
     network_mode: host
     labels:
@@ -83,7 +83,7 @@ services:
 
   web-bob:
     image: git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest
-    container_name: dls-web-bob
+    container_name: dls_controls-web-bob
     restart: unless-stopped
     network_mode: host
     labels:
@@ -136,16 +136,8 @@ services:
 volumes:
 
   alice-claude-config:
-    labels:
-      com.osprey.repo-id: "@REPO_ID@"
   alice-agent-data:
-    labels:
-      com.osprey.repo-id: "@REPO_ID@"
 
   bob-claude-config:
-    labels:
-      com.osprey.repo-id: "@REPO_ID@"
   bob-agent-data:
-    labels:
-      com.osprey.repo-id: "@REPO_ID@"
 

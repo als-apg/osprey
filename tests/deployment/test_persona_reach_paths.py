@@ -24,7 +24,7 @@ from pathlib import Path, PurePosixPath
 import pytest
 import yaml
 
-from osprey.deployment.compose_generator import _resolve_qmd_corpora
+from osprey.deployment.compose_generator import _resolve_qmd_corpora, resolve_project_name
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.personas import resolve_personas
 from osprey.deployment.web_terminals.render import render_web_terminals
@@ -117,6 +117,7 @@ def resolved_entries(host_config: dict) -> list[dict]:
         host_config["modules"]["web_terminals"],
         host_config.get("registry") or {},
         (host_config.get("facility") or {}).get("prefix") or "",
+        project_name=resolve_project_name(host_config),
         strict=True,
     )
 

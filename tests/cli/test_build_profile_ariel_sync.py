@@ -45,6 +45,7 @@ REMOTE_SOURCE = "https://logbook.example.org/api/entries"
 _PROFILE = """\
 extends: ariel-standalone
 name: Ariel Sync Fixture
+project_name: ariel-sync-fixture
 data: data
 {services}config:
   ariel.ingestion.source_url: {source_url}
@@ -63,6 +64,7 @@ services:
 _STANDALONE_PROFILE = """\
 extends: ariel-standalone
 name: Ariel Standalone Fixture
+project_name: ariel-sync-fixture
 data: data
 """
 

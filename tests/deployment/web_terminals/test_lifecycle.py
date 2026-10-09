@@ -110,6 +110,34 @@ def _reload_users(config_path):
     return data["modules"]["web_terminals"]["users"]
 
 
+def _service_of(name: str) -> str:
+    """The compose service key a listed container name stands for.
+
+    Read off the name's tail so a test can list containers under any naming
+    scheme (``<project>-web-<user>``, an earlier ``<prefix>-web-<user>``):
+    compose stamps the service label from the service key, never the name.
+    """
+    if "-web-" in name:
+        return "web-" + name.rsplit("-web-", 1)[1]
+    return name.rsplit("-", 1)[-1]
+
+
+def _ps_json(names, *, project: str = "demo-project") -> str:
+    """Docker-shaped ``ps --format json`` output (one object per line)."""
+    return "\n".join(
+        json.dumps(
+            {
+                "Names": name,
+                "Labels": (
+                    f"com.docker.compose.project={project},"
+                    f"com.docker.compose.service={_service_of(name)}"
+                ),
+            }
+        )
+        for name in names
+    )
+
+
 @pytest.fixture
 def fake_runtime(monkeypatch):
     """Patch subprocess.run + get_runtime_command; return the list of captured argvs."""
@@ -155,7 +183,7 @@ def fake_runtime_prune(monkeypatch):
     ):
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
-            stdout = "\n".join(listing["containers"])
+            stdout = _ps_json(listing["containers"])
         elif argv[1:3] == ["volume", "ls"]:
             stdout = "\n".join(listing["volumes"])
         else:
@@ -202,7 +230,7 @@ def fake_runtime_nuke(monkeypatch):
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
             return subprocess.CompletedProcess(
-                argv, returncode=0, stdout="\n".join(listing["containers"]), stderr=""
+                argv, returncode=0, stdout=_ps_json(listing["containers"]), stderr=""
             )
         if argv[1:3] == ["volume", "ls"]:
             return subprocess.CompletedProcess(
@@ -258,7 +286,7 @@ def test_decommission_retain_by_default_removes_container_not_volumes(
     assert volume_calls == []
 
     container_calls = [c for c in fake_runtime if c[1] == "rm"]
-    assert container_calls == [["docker", "rm", "-f", "dls-web-alice"]]
+    assert container_calls == [["docker", "rm", "-f", "demo-project-web-alice"]]
 
     # Roster entry gone; the survivor remains.
     users = _reload_users(config_path)
@@ -573,7 +601,7 @@ def test_prune_no_orphans_is_a_noop(tmp_path, monkeypatch, fake_runtime_prune, c
     config = _config(["alice"])
     config_path = _write_config(tmp_path, config)
     alice_claude, alice_agent = resolve_user_volume_names(config, "alice")
-    listing["containers"] = ["dls-web-alice"]
+    listing["containers"] = ["demo-project-web-alice"]
     listing["volumes"] = [alice_claude, alice_agent]
 
     lifecycle.prune_users(str(config_path), assume_yes=True)
@@ -591,7 +619,7 @@ def test_prune_dry_run_prints_plan_and_removes_nothing(
     config = _config(["alice"])
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["dls-web-alice", "dls-web-eve"]
+    listing["containers"] = ["demo-project-web-alice", "demo-project-web-eve"]
     listing["volumes"] = [eve_claude, eve_agent]
 
     lifecycle.prune_users(str(config_path), dry_run=True)
@@ -612,13 +640,13 @@ def test_prune_removes_only_off_roster_resources(tmp_path, monkeypatch, fake_run
     config_path = _write_config(tmp_path, config)
     alice_claude, alice_agent = resolve_user_volume_names(config, "alice")
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["dls-web-alice", "dls-web-eve"]
+    listing["containers"] = ["demo-project-web-alice", "demo-project-web-eve"]
     listing["volumes"] = [alice_claude, alice_agent, eve_claude, eve_agent]
 
     lifecycle.prune_users(str(config_path), purge=True, assume_yes=True)
 
     container_calls = [c for c in calls if c[1] == "rm"]
-    assert container_calls == [["docker", "rm", "-f", "dls-web-eve"]]
+    assert container_calls == [["docker", "rm", "-f", "demo-project-web-eve"]]
 
     volume_rm_calls = [c for c in calls if c[1:3] == ["volume", "rm"]]
     assert volume_rm_calls == [
@@ -635,12 +663,12 @@ def test_prune_retain_default_removes_container_not_volumes(
     config = _config([])
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["dls-web-eve"]
+    listing["containers"] = ["demo-project-web-eve"]
     listing["volumes"] = [eve_claude, eve_agent]
 
     lifecycle.prune_users(str(config_path), assume_yes=True)
 
-    assert [c for c in calls if c[1] == "rm"] == [["docker", "rm", "-f", "dls-web-eve"]]
+    assert [c for c in calls if c[1] == "rm"] == [["docker", "rm", "-f", "demo-project-web-eve"]]
     assert [c for c in calls if c[1:3] == ["volume", "rm"]] == []
 
 
@@ -650,7 +678,7 @@ def test_prune_purge_removes_volumes_after_confirmation(tmp_path, monkeypatch, f
     config = _config([])
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["dls-web-eve"]
+    listing["containers"] = ["demo-project-web-eve"]
     listing["volumes"] = [eve_claude, eve_agent]
     monkeypatch.setattr("builtins.input", lambda prompt="": "prune")
 
@@ -671,7 +699,7 @@ def test_prune_archive_tars_then_removes_each_volume_in_order(
     config = _config([])
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["dls-web-eve"]
+    listing["containers"] = ["demo-project-web-eve"]
     listing["volumes"] = [eve_claude, eve_agent]
 
     lifecycle.prune_users(str(config_path), archive=True, assume_yes=True)
@@ -693,7 +721,7 @@ def test_prune_without_confirmation_leaves_everything_untouched(
     config = _config([])
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["dls-web-eve"]
+    listing["containers"] = ["demo-project-web-eve"]
     listing["volumes"] = [eve_claude, eve_agent]
     monkeypatch.setattr("builtins.input", lambda prompt="": "")  # blank, non-matching response
 
@@ -710,7 +738,7 @@ def test_prune_assume_yes_skips_prompt_and_proceeds(tmp_path, monkeypatch, fake_
     config = _config([])
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["dls-web-eve"]
+    listing["containers"] = ["demo-project-web-eve"]
     listing["volumes"] = [eve_claude, eve_agent]
     _assert_no_input_prompt(monkeypatch)
 
@@ -731,7 +759,7 @@ def test_prune_discovery_filters_by_compose_project_label(
     config = _config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["dls-web-eve"]
+    listing["containers"] = ["demo-project-web-eve"]
     listing["volumes"] = [eve_claude, eve_agent]
 
     lifecycle.prune_users(str(config_path), dry_run=True)
@@ -745,7 +773,7 @@ def test_prune_discovery_filters_by_compose_project_label(
             "--filter",
             "label=com.docker.compose.project=demo-project",
             "--format",
-            "{{.Names}}",
+            "json",
         ]
     ]
 
@@ -775,7 +803,7 @@ def test_prune_argv_safety_removal_commands_are_exact_named(
     config_path = _write_config(tmp_path, config)
     alice_claude, alice_agent = resolve_user_volume_names(config, "alice")
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["dls-web-alice", "dls-web-eve"]
+    listing["containers"] = ["demo-project-web-alice", "demo-project-web-eve"]
     listing["volumes"] = [alice_claude, alice_agent, eve_claude, eve_agent]
 
     lifecycle.prune_users(str(config_path), purge=True, assume_yes=True)
@@ -1332,7 +1360,7 @@ def test_prune_never_touches_images_even_with_local_personas_configured(
     config = _persona_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
-    listing["containers"] = ["dls-web-eve"]
+    listing["containers"] = ["demo-project-web-eve"]
     listing["volumes"] = [eve_claude, eve_agent]
 
     lifecycle.prune_users(str(config_path), purge=True, assume_yes=True)
@@ -1856,7 +1884,7 @@ def test_prune_purges_off_roster_auth_credentials_and_recreates(
     # previous `osprey up` left at the project root.
     _stub_rendered_web_stack(tmp_path)
     _seed_env_auth(tmp_path, ALICE="scrypt.alice", CAROL="scrypt$carol")
-    listing["containers"] = ["dls-web-carol"]
+    listing["containers"] = ["demo-project-web-carol"]
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice"]))
 
     lifecycle.prune_users(str(config_path), assume_yes=True)
@@ -1883,7 +1911,7 @@ def test_prune_with_no_auth_entries_to_purge_recreates_nothing(
     # nothing-to-put-into-force guard deleted.
     _stub_rendered_web_stack(tmp_path)
     _seed_env_auth(tmp_path, ALICE="scrypt.alice")
-    listing["containers"] = ["dls-web-carol"]  # orphan that never had a credential
+    listing["containers"] = ["demo-project-web-carol"]  # orphan that never had a credential
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice"]))
 
     lifecycle.prune_users(str(config_path), assume_yes=True)
@@ -2025,7 +2053,7 @@ def test_prune_auth_recreate_failure_is_fatal_too(tmp_path, monkeypatch, fake_ru
     monkeypatch.chdir(tmp_path)
     _stub_rendered_web_stack(tmp_path)
     _seed_env_auth(tmp_path, CAROL="scrypt$carol")
-    listing["containers"] = ["dls-web-carol"]
+    listing["containers"] = ["demo-project-web-carol"]
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice"]))
 
     def _failed_recreate(*args, **kwargs):
@@ -2097,7 +2125,7 @@ def test_prune_partial_purge_failure_still_forces_the_earlier_removals_into_effe
     monkeypatch.chdir(tmp_path)
     _stub_rendered_web_stack(tmp_path)
     _seed_env_auth(tmp_path, CAROL="scrypt$carol", DAVE="scrypt$dave")
-    listing["containers"] = ["dls-web-carol", "dls-web-dave"]
+    listing["containers"] = ["demo-project-web-carol", "demo-project-web-dave"]
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice"]))
 
     real_purge = lifecycle.purge_auth_credentials
@@ -2148,14 +2176,14 @@ def test_nuke_auth_sidecar_image_is_removed_when_label_verified(
     calls, _listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(tmp_path, _auth_persona_config(["alice"]))
-    image_labels["dls-assistant-auth:local"] = "demo-project"
+    image_labels["demo-project-auth:local"] = "demo-project"
     image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
 
     removed = [c[3] for c in calls if c[1:3] == ["image", "rm"]]
-    assert "dls-assistant-auth:local" in removed
+    assert "demo-project-auth:local" in removed
 
 
 @pytest.mark.parametrize(
@@ -2174,14 +2202,14 @@ def test_nuke_auth_sidecar_image_is_not_a_candidate(
     calls, _listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(tmp_path, _auth_persona_config(["alice"], **kwargs))
-    image_labels["dls-assistant-auth:local"] = "demo-project"  # exists and is ours
+    image_labels["demo-project-auth:local"] = "demo-project"  # exists and is ours
     image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
 
     inspected = [c[3] for c in calls if c[1:3] == ["image", "inspect"]]
-    assert "dls-assistant-auth:local" not in inspected, why
+    assert "demo-project-auth:local" not in inspected, why
 
 
 # =============================================================================
@@ -2212,7 +2240,13 @@ def _resolved_by_name(config_path):
     with open(config_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     web_terminals = data["modules"]["web_terminals"]
-    resolved = resolve_personas(web_terminals, data.get("registry", {}), "dls", strict=True)
+    resolved = resolve_personas(
+        web_terminals,
+        data.get("registry", {}),
+        "dls",
+        project_name=data["project_name"],
+        strict=True,
+    )
     return {entry["name"]: entry for entry in resolved}
 
 
@@ -2621,7 +2655,9 @@ def test_decommission_of_the_conflicted_personas_own_user_still_succeeds(
     lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
 
     assert [entry["name"] for entry in _reload_users(config_path)] == ["bob"]
-    assert [c for c in fake_runtime if c[1] == "rm"] == [["docker", "rm", "-f", "dls-web-alice"]]
+    assert [c for c in fake_runtime if c[1] == "rm"] == [
+        ["docker", "rm", "-f", "demo-project-web-alice"]
+    ]
 
 
 # =============================================================================
@@ -2638,12 +2674,17 @@ def test_up_reconcile_removes_only_off_roster_terminal_containers(
     calls, listing = fake_runtime_prune
     monkeypatch.chdir(tmp_path)
     config = _config(["alice"])
-    listing["containers"] = ["dls-web-alice", "dls-web-eve", "dls-nginx", "dls-auth"]
+    listing["containers"] = [
+        "demo-project-web-alice",
+        "demo-project-web-eve",
+        "demo-project-nginx",
+        "demo-project-auth",
+    ]
 
     removed = lifecycle.remove_orphan_terminals(config)
 
-    assert removed == {"eve": "dls-web-eve"}
-    assert [c for c in calls if c[1] == "rm"] == [["docker", "rm", "-f", "dls-web-eve"]]
+    assert removed == {"eve": "demo-project-web-eve"}
+    assert [c for c in calls if c[1] == "rm"] == [["docker", "rm", "-f", "demo-project-web-eve"]]
     assert [c for c in calls if c[1] == "volume"] == []
 
 
@@ -2651,7 +2692,7 @@ def test_up_reconcile_with_no_orphans_removes_nothing(tmp_path, monkeypatch, fak
     calls, listing = fake_runtime_prune
     monkeypatch.chdir(tmp_path)
     config = _config(["alice", "bob"])
-    listing["containers"] = ["dls-web-alice", "dls-web-bob", "dls-nginx"]
+    listing["containers"] = ["demo-project-web-alice", "demo-project-web-bob", "demo-project-nginx"]
 
     assert lifecycle.remove_orphan_terminals(config) == {}
     assert [c for c in calls if c[1] == "rm"] == []
@@ -2663,10 +2704,10 @@ def test_up_reconcile_treats_a_renamed_user_as_an_orphan(tmp_path, monkeypatch, 
     calls, listing = fake_runtime_prune
     monkeypatch.chdir(tmp_path)
     config = _config([{"name": "logbook", "index": 6}])
-    listing["containers"] = ["dls-web-ariel"]
+    listing["containers"] = ["demo-project-web-ariel"]
 
-    assert lifecycle.remove_orphan_terminals(config) == {"ariel": "dls-web-ariel"}
-    assert [c for c in calls if c[1] == "rm"] == [["docker", "rm", "-f", "dls-web-ariel"]]
+    assert lifecycle.remove_orphan_terminals(config) == {"ariel": "demo-project-web-ariel"}
+    assert [c for c in calls if c[1] == "rm"] == [["docker", "rm", "-f", "demo-project-web-ariel"]]
 
 
 def test_up_reconcile_discovery_is_scoped_by_compose_project_label(
@@ -2687,9 +2728,78 @@ def test_up_reconcile_discovery_is_scoped_by_compose_project_label(
             "--filter",
             "label=com.docker.compose.project=demo-project",
             "--format",
-            "{{.Names}}",
+            "json",
         ]
     ]
+
+
+def test_up_reconcile_finds_an_off_roster_terminal_under_an_earlier_name(
+    tmp_path, monkeypatch, fake_runtime_prune
+):
+    """A terminal created when container names carried ``facility.prefix`` is
+    still this project's terminal: discovery reads the compose service label,
+    so the renamed scheme strands nothing. Its nginx and auth siblings are not
+    users, whatever they are called."""
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"], facility_prefix="dls")
+    listing["containers"] = ["dls-web-alice", "dls-web-eve", "dls-nginx", "dls-auth"]
+
+    removed = lifecycle.remove_orphan_terminals(config)
+
+    assert removed == {"eve": "dls-web-eve"}
+    assert [c for c in calls if c[1] == "rm"] == [["docker", "rm", "-f", "dls-web-eve"]]
+
+
+def test_up_reconcile_ignores_a_project_container_whose_name_merely_looks_like_a_terminal(
+    tmp_path, monkeypatch, fake_runtime_prune
+):
+    """A name is not evidence: a base service whose container happens to be
+    called ``<project>-web-<x>`` but whose service key is not ``web-<x>`` is
+    never removed as a terminal."""
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"])
+    row = {
+        "Names": "demo-project-web-eve",
+        "Labels": "com.docker.compose.project=demo-project,com.docker.compose.service=archiver",
+    }
+
+    def _run(argv, **kwargs):
+        calls.append(list(argv))
+        stdout = json.dumps(row) if argv[1:3] == ["ps", "-a"] else ""
+        return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+
+    assert lifecycle.remove_orphan_terminals(config) == {}
+    assert [c for c in calls if c[1] == "rm"] == []
+
+
+def test_up_reconcile_reads_podman_shaped_rows(tmp_path, monkeypatch, fake_runtime_prune):
+    """Podman answers ``ps --format json`` with one array, labels as an object
+    and names as a list; discovery reads both shapes alike."""
+    calls, _listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"])
+    rows = [
+        {
+            "Names": ["dls-web-eve"],
+            "Labels": {
+                "com.docker.compose.project": "demo-project",
+                "com.docker.compose.service": "web-eve",
+            },
+        }
+    ]
+
+    def _run(argv, **kwargs):
+        calls.append(list(argv))
+        stdout = json.dumps(rows) if argv[1:3] == ["ps", "-a"] else ""
+        return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+
+    assert lifecycle.remove_orphan_terminals(config) == {"eve": "dls-web-eve"}
 
 
 def test_up_reconcile_reports_a_failed_removal_instead_of_raising(
@@ -2701,7 +2811,7 @@ def test_up_reconcile_reports_a_failed_removal_instead_of_raising(
     calls, listing = fake_runtime_prune
     monkeypatch.chdir(tmp_path)
     config = _config(["alice"])
-    listing["containers"] = ["dls-web-eve"]
+    listing["containers"] = ["demo-project-web-eve"]
 
     def _refusing_run(
         argv,
@@ -2716,14 +2826,14 @@ def test_up_reconcile_reports_a_failed_removal_instead_of_raising(
             return subprocess.CompletedProcess(argv, returncode=1, stdout="", stderr="busy")
         if argv[1:3] == ["ps", "-a"]:
             return subprocess.CompletedProcess(
-                argv, returncode=0, stdout="\n".join(listing["containers"]), stderr=""
+                argv, returncode=0, stdout=_ps_json(listing["containers"]), stderr=""
             )
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _refusing_run)
 
     assert lifecycle.remove_orphan_terminals(config) == {}
-    assert "dls-web-eve" in caplog.text
+    assert "demo-project-web-eve" in caplog.text
     assert "busy" in caplog.text
 
 
@@ -2731,7 +2841,7 @@ def test_up_reconcile_argv_safety_removal_is_exact_named(tmp_path, monkeypatch, 
     calls, listing = fake_runtime_prune
     monkeypatch.chdir(tmp_path)
     config = _config(["alice"])
-    listing["containers"] = ["dls-web-eve", "dls-web-mallory"]
+    listing["containers"] = ["demo-project-web-eve", "demo-project-web-mallory"]
 
     lifecycle.remove_orphan_terminals(config)
 
@@ -2859,7 +2969,7 @@ def test_decommission_purge_names_each_volume_the_runtime_kept(tmp_path, monkeyp
         lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
 
     assert _reload_users(config_path) == [{"name": "bob", "index": 1}]
-    assert ["docker", "rm", "-f", "dls-web-alice"] in fake_runtime
+    assert ["docker", "rm", "-f", "demo-project-web-alice"] in fake_runtime
     assert [c for c in fake_runtime if c[1:3] == ["volume", "rm"]] == [
         ["docker", "volume", "rm", claude_vol],
         ["docker", "volume", "rm", agent_vol],
@@ -2944,7 +3054,7 @@ def test_prune_names_each_kept_volume_after_every_orphan_is_handled(
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
     mallory_claude, mallory_agent = resolve_user_volume_names(config, "mallory")
-    listing["containers"] = ["dls-web-eve", "dls-web-mallory"]
+    listing["containers"] = ["demo-project-web-eve", "demo-project-web-mallory"]
     listing["volumes"] = [eve_claude, eve_agent, mallory_claude, mallory_agent]
     _refuse_removals(monkeypatch, {eve_claude: _in_use(eve_claude)})
 

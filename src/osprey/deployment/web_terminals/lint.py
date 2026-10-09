@@ -28,7 +28,10 @@ from typing import Any, Literal, cast
 import yaml
 
 from osprey.config_guards import is_positive_int
-from osprey.deployment.compose_generator import DISPATCH_WORKER_SERVICE_PREFIX
+from osprey.deployment.compose_generator import (
+    DISPATCH_WORKER_SERVICE_PREFIX,
+    resolve_project_name,
+)
 from osprey.deployment.web_terminals.persona_images import (
     PREDATES_DELTA_REMEDY,
     persona_build_profile_shape_problem,
@@ -53,6 +56,7 @@ from osprey.deployment.web_terminals.personas import (
     privilege_phrase,
     privileged_default_persona_problem,
     privileges_beyond_baseline,
+    rendered_persona_config_file,
     rendered_persona_configs,
     resolve_access_principals,
     resolve_image_tag,
@@ -1049,10 +1053,12 @@ class _UnreadablePersona:
     #: :func:`persona_build_profile_shape_problem`'s clause, when the value's
     #: shape is itself the reason nothing resolved.
     shape_problem: str | None
-    #: RENDERED altitude only: the catalog entry's ``project_path``, whose
-    #: ``config.yml`` is not there. Quoted verbatim rather than resolved — the
+    #: The catalog entry's ``project_path``, whose ``config.yml`` is not there:
+    #: at rendered altitude for any entry, at profile altitude for an entry
+    #: with no ``build_profile`` (a persona the build does not render is read
+    #: from its own render at both). Quoted verbatim rather than resolved — the
     #: join that decides where it resolves lives in
-    #: :func:`~osprey.deployment.web_terminals.personas.rendered_persona_configs`
+    #: :func:`~osprey.deployment.web_terminals.personas.rendered_persona_config_file`
     #: and repeating it here is exactly the second convention that walk exists
     #: to prevent. ``None`` means "not this shape of failure", including when
     #: the entry declares no usable ``project_path`` at all.
@@ -1108,7 +1114,10 @@ def _profile_persona_layers(
     (``personas/<name>.yml``, which is what ``osprey init`` writes) is by
     construction *only* its own layer — it is merged over the host profile
     beside it — so the host's ``config:`` block, which is the document being
-    linted, is layered underneath it.
+    linted, is layered underneath it. An entry with NO ``build_profile`` is a
+    persona the build does not render, and the one document that says what it
+    holds is the render its ``project_path`` points at — see
+    :func:`_rendered_elsewhere_layers`.
 
     The delta is resolved against ``profile_root``, the directory holding the
     profile being linted, and NOT against the working directory. Anchoring it on
@@ -1127,7 +1136,7 @@ def _profile_persona_layers(
     """
     build_profile = entry.get("build_profile")
     if not isinstance(build_profile, str) or not build_profile:
-        return _UnreadablePersona(build_profile=build_profile, path_tried=None, shape_problem=None)
+        return _rendered_elsewhere_layers(entry, profile_root=profile_root)
 
     shape_problem = persona_build_profile_shape_problem(build_profile)
     if shape_problem is None:
@@ -1167,6 +1176,61 @@ def _profile_persona_layers(
         # resolve" and an instruction.
         return _UnreadablePersona(build_profile, None, shape_problem)
     return _PersonaLayers((resolved.config,), authored, build_profile, is_delta=False)
+
+
+def _rendered_elsewhere_layers(
+    entry: dict[str, Any], *, profile_root: Path | None
+) -> _PersonaLayers | _UnreadablePersona:
+    """The config a persona the build does not render is judged by, at PROFILE altitude.
+
+    A catalog entry with no ``build_profile`` points at a project rendered
+    somewhere else — a persona supplied ready-made rather than materialized from
+    a delta beside the profile — and names where with its ``project_path``. The
+    render's ``config.yml`` is the one document that says what that persona
+    holds, and it is the same file ``osprey up`` reads at rendered altitude
+    (:func:`~osprey.deployment.web_terminals.personas.rendered_persona_configs`),
+    so a hand-written persona proves its tier the same way at both altitudes
+    and may be the ``default_persona`` or sit on a shared card like any other.
+
+    One composed document, so it is both the only layer and the authored one:
+    there is no delta or preset for an inherited key to have come from, which
+    is why :func:`_check_readonly_persona_inherits_writes` finds nothing to ask
+    of it.
+
+    ``project_path`` is spelled against the repo root, which at this altitude is
+    ``profile_root`` — the directory the profile being linted lives in — read
+    through the one join every other reader of a render uses.
+
+    Returns:
+        A :class:`_PersonaLayers` holding the render, or an
+        :class:`_UnreadablePersona` naming the path tried. An entry naming no
+        ``project_path`` at all is unreadable too: nothing points at a document.
+    """
+    project_path = entry.get("project_path")
+    if not isinstance(project_path, str) or not project_path:
+        return _UnreadablePersona(
+            build_profile=None, path_tried=None, shape_problem=None, project_path=""
+        )
+    config_yml = rendered_persona_config_file(profile_root or Path("."), project_path)
+    if not config_yml.is_file():
+        return _UnreadablePersona(
+            build_profile=None,
+            path_tried=str(config_yml),
+            shape_problem=None,
+            project_path=project_path,
+        )
+    try:
+        with config_yml.open("r", encoding="utf-8") as fh:
+            rendered = yaml.safe_load(fh)
+    except (OSError, yaml.YAMLError):
+        return _UnreadablePersona(
+            build_profile=None,
+            path_tried=str(config_yml),
+            shape_problem=None,
+            project_path=project_path,
+        )
+    document = as_dict(rendered)
+    return _PersonaLayers((document,), document, str(config_yml), is_delta=False)
 
 
 def _persona_documents(
@@ -1585,11 +1649,18 @@ def _unknown_privilege_stance(baseline: Sequence[str]) -> str:
 def _unreadable_persona_clause(record: _UnreadablePersona) -> str:
     """One sentence saying what was tried and why nothing came back."""
     if record.project_path is not None:
-        # Rendered altitude: the delta is not what was read, the render is.
+        # The render is what was read, not a delta: at rendered altitude for
+        # every entry, at profile altitude for one with no build_profile.
         if not record.project_path:
             return (
-                "Its catalog entry declares no project_path, so this deployment has no "
-                "rendered project to read it from"
+                "Its catalog entry names neither a build_profile nor a project_path, so "
+                "no document says what it holds"
+            )
+        if record.path_tried is not None:
+            return (
+                f"Its catalog entry names no build_profile, so it is read from its own "
+                f"render — and its project_path {record.project_path!r} holds no readable "
+                f"config.yml at {record.path_tried}"
             )
         return (
             f"Its project_path {record.project_path!r} holds no rendered config.yml, so "
@@ -1674,7 +1745,15 @@ def _check_privileged_persona_exposure(
     facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
     resolved = (
-        list(resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False))
+        list(
+            resolve_personas(
+                web_terminals,
+                registry_cfg,
+                facility_prefix,
+                project_name=resolve_project_name(root),
+                strict=False,
+            )
+        )
         if users
         else []
     )
@@ -1969,7 +2048,13 @@ def _check_live_writer_without_control_identity(
     facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
     findings: list[Finding] = []
-    for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False):
+    for entry in resolve_personas(
+        web_terminals,
+        registry_cfg,
+        facility_prefix,
+        project_name=resolve_project_name(root),
+        strict=False,
+    ):
         persona = entry.get("persona")
         if not isinstance(persona, str) or persona not in live_writers:
             continue
@@ -2016,7 +2101,13 @@ def _check_unknown_persona_reference(
     personas_catalog = _persona_catalog(web_terminals)
     facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
-    resolved = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
+    resolved = resolve_personas(
+        web_terminals,
+        registry_cfg,
+        facility_prefix,
+        project_name=resolve_project_name(root),
+        strict=False,
+    )
 
     findings: list[Finding] = []
     for entry in resolved:
@@ -2037,12 +2128,15 @@ def _check_unknown_persona_reference(
 
 
 def _check_empty_facility_prefix(root: dict[str, Any], users: list[Any]) -> list[Finding]:
-    """Every web container name is derived from ``facility.prefix``:
-    ``<prefix>-nginx`` and ``<prefix>-web-<user>`` (see the compose template /
-    :mod:`osprey.deployment.web_terminals.seeding`). An empty prefix renders
-    leading-dash names like ``-nginx``, which Docker rejects — and only at
-    ``osprey up``, which never runs this lint pass. This check pulls that
-    failure forward to lint/build time.
+    """A roster entry with no persona render of its own runs in
+    ``/app/<prefix>-assistant`` (see :func:`personas.resolve_personas`), and the
+    facility graph is keyed by the same ``facility.prefix``. An empty prefix
+    renders that directory as ``/app/-assistant`` — a path no OSPREY image
+    build creates, so the user's agent data and seeded context land somewhere the agent never
+    reads — and only at ``osprey up``, which never runs this lint pass. This
+    check pulls that failure forward to lint/build time. Container names are
+    not involved: they are spelled on the compose project
+    (:mod:`osprey.deployment.web_terminals.naming`).
 
     The effective prefix is derived exactly as ``render.py`` derives it
     (``facility.get("prefix") or ""``). Scoped to a configured roster — an
@@ -2060,8 +2154,9 @@ def _check_empty_facility_prefix(root: dict[str, Any], users: list[Any]) -> list
             code="web_terminals.empty_facility_prefix",
             message=(
                 "modules.web_terminals has users configured but the effective "
-                "facility.prefix is empty; web container names render as "
-                "'-nginx'/'-web-<user>', which Docker rejects at `osprey up`"
+                "facility.prefix is empty; a terminal with no persona render of "
+                "its own then runs in '/app/-assistant', a directory no OSPREY "
+                "image build creates, and the facility graph has no key"
             ),
         )
     ]
@@ -2440,8 +2535,6 @@ def _check_persona_project_collisions(
 
     deployment_project = root.get("project_name")
     if isinstance(deployment_project, str) and deployment_project:
-        from osprey.deployment.compose_generator import resolve_project_name
-
         deployment_project = resolve_project_name(root)
 
     findings: list[Finding] = []

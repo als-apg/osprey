@@ -2375,9 +2375,10 @@ def test_lint_per_container_stdio_topology_reports_no_error() -> None:
 
 
 def test_lint_users_with_absent_facility_prefix_is_an_error() -> None:
-    """Web container names are `<facility.prefix>-nginx`/`<...>-web-<user>`, so a
-    configured roster with no facility section at all renders leading-dash names
-    like `-nginx`, which Docker rejects only at `osprey up`. Catch it at lint."""
+    """A terminal with no persona render of its own runs in
+    `/app/<facility.prefix>-assistant`, so a configured roster with no facility
+    section at all renders `/app/-assistant`, which no image build creates and
+    nothing reports before `osprey up`. Catch it at lint."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config.pop("facility", None)  # no facility section -> empty effective prefix
@@ -2391,7 +2392,7 @@ def test_lint_users_with_absent_facility_prefix_is_an_error() -> None:
 
 
 def test_lint_users_with_empty_string_facility_prefix_is_an_error() -> None:
-    """An explicit empty-string prefix derives the same broken `-nginx` name as an
+    """An explicit empty-string prefix derives the same broken directory as an
     absent one (`facility.get("prefix") or ""`), so it is equally an error."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
@@ -2406,7 +2407,7 @@ def test_lint_users_with_empty_string_facility_prefix_is_an_error() -> None:
 
 
 def test_lint_users_with_nonempty_facility_prefix_reports_no_prefix_error() -> None:
-    """A non-empty prefix yields valid `<prefix>-nginx` names, so the check is silent."""
+    """A non-empty prefix yields a real `/app/<prefix>-assistant`, so the check is silent."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["facility"] = {"prefix": "als"}

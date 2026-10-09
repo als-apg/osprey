@@ -115,7 +115,12 @@ def _profile_yaml(
     packages: list[str] | None = None,
 ) -> str:
     """A hello-world-derived profile carrying the declarations under test."""
-    lines = ["extends: hello-world", "data: data", f"osprey_install: {OSPREY_SPEC}"]
+    lines = [
+        "extends: hello-world",
+        "project_name: proj",
+        "data: data",
+        f"osprey_install: {OSPREY_SPEC}",
+    ]
     if dependencies:
         lines += ["dependencies:", *(f"  - {json.dumps(dep)}" for dep in dependencies)]
     if python or packages:

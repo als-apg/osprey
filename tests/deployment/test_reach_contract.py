@@ -33,6 +33,7 @@ from osprey.bluesky_bridge_connection import (
     SECOND_LANE_KEYS,
     lane_env_prefix,
 )
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.host_binding import BUNDLED_HOST_BINDINGS
 from osprey.deployment.reach import (
     REACH_CONTRACTS,
@@ -515,6 +516,7 @@ def entries(host_config: dict) -> list[dict]:
         host_config["modules"]["web_terminals"],
         host_config.get("registry") or {},
         (host_config.get("facility") or {}).get("prefix") or "",
+        project_name=resolve_project_name(host_config),
         strict=True,
     )
 

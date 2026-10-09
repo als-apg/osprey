@@ -791,7 +791,7 @@ def test_a_minimal_profile_directory_builds_standalone(tmp_path: Path) -> None:
     that states them.
     """
     repo = tmp_path / "scratch"
-    _write(repo / "profile.yml", BARE_PROFILE)
+    _write(repo / "profile.yml", "project_name: scratch\n" + BARE_PROFILE)
     (repo / "data").mkdir(parents=True, exist_ok=True)
 
     _assert_ok(_build(repo), "minimal repo build")

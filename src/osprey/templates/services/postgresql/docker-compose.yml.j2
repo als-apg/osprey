@@ -121,8 +121,6 @@ volumes:
   # silently: the volume mounts fine, but postgres fails to start (or starts
   # against an unwritable directory) with no error surfaced here.
   ariel_postgres_data:
-    labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 
 networks:
   osprey-network:

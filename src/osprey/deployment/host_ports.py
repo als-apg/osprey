@@ -53,6 +53,7 @@ from osprey.deployment.compose_generator import (
     repo_identity,
     resolve_repo_root,
 )
+from osprey.deployment.container_ownership import claims_row
 from osprey.deployment.graphdb_service import (
     CONTAINER_BOLT_PORT,
     CONTAINER_HTTP_PORT,
@@ -727,8 +728,8 @@ def derive_host_network_bindings(config):
 def _web_terminal_service(user):
     """Return the binding label of one user's terminal.
 
-    ``web-<user>`` is the container name (``<facility_prefix>-web-<user>``,
-    see :mod:`osprey.deployment.web_terminals.naming`) with the facility prefix
+    ``web-<user>`` is the container name (``<project>-web-<user>``, see
+    :mod:`osprey.deployment.web_terminals.naming`) with the project name
     dropped, which is exactly the suffix :func:`_runs_service` matches a running
     container's name against — so this deployment's own terminal, still up from
     the previous deploy, is read as the idempotent redeploy it is.
@@ -1017,17 +1018,12 @@ def _deployment_identity(config):
 def _holder_is_ours(record, project_name, repo_id):
     """Whether a running container belongs to THIS deployment.
 
-    The repo-id label strengthens the older compose-project check without
-    replacing it, because the two answer different questions and only one of
-    them is always available:
-
-    * both this checkout and the container carry a repo-id: the labels decide,
-      outright. A container of ANOTHER checkout of the same repo shares this
-      deployment's compose project name, so the project check alone would call
-      a real collision an idempotent redeploy and wave it through.
-    * the container carries none (an older OSPREY created it, or it is not
-      OSPREY's at all): fall back to the compose project name, which is what
-      this check has always used.
+    The parsed row read through the one ownership rule,
+    :func:`~osprey.deployment.container_ownership.claims_row`: when both this
+    checkout and the container carry a repo-id the ids decide, because another
+    checkout of the same repo shares this deployment's compose project name and
+    the project alone would call a real collision an idempotent redeploy;
+    otherwise the compose project name decides.
 
     Args:
         record: One parsed ``ps`` row.
@@ -1037,9 +1033,12 @@ def _holder_is_ours(record, project_name, repo_id):
     Returns:
         ``True`` when the container is this deployment's own.
     """
-    if record.repo_id and repo_id:
-        return record.repo_id == repo_id
-    return bool(record.project) and record.project == project_name
+    return claims_row(
+        row_repo_id=record.repo_id,
+        row_project=record.project,
+        project=project_name,
+        repo_id=repo_id,
+    )
 
 
 def _runs_service(records, project_name, repo_id, service):

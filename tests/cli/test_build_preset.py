@@ -616,6 +616,7 @@ def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Pa
     _facility_data(profile.parent)
     profile.write_text(
         "name: McpTest\n"
+        "project_name: repo\n"
         "extends: hello-world\n"
         "data: data\n"
         "provider: anthropic\n"
@@ -710,6 +711,7 @@ def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Pat
     _facility_data(profile.parent)
     profile.write_text(
         "name: CatTest\n"
+        "project_name: repo\n"
         "extends: hello-world\n"
         "data: data\n"
         "provider: anthropic\n"
@@ -740,7 +742,8 @@ def test_profile_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
     _facility_data(profile_dir)
     profile = profile_dir / "profile.yml"
     profile.write_text(
-        "extends: hello-world\nname: ConventionTest\ndata: data\nprovider: anthropic\n"
+        "extends: hello-world\nname: ConventionTest\nproject_name: repo\ndata: data\n"
+        "provider: anthropic\n"
     )
     result = _render_from(runner, str(profile))
     assert result.exit_code == 0, result.output
@@ -1100,7 +1103,7 @@ class TestMirroredLogbookSeedNotMutated:
         )
         profile = profile_dir / "profile.yml"
         profile.write_text(
-            "extends: hello-world\nname: SeedVerbatim\ndata: data\n"
+            "extends: hello-world\nname: SeedVerbatim\nproject_name: repo\ndata: data\n"
             "provider: anthropic\nmodel: claude-haiku-4-5\n"
         )
 
@@ -1135,6 +1138,7 @@ class TestDeployServicesKnob:
     # the "nothing here is a service this render would run" assertion below.
     _PROFILE = (
         "name: Attachment Test\n"
+        "project_name: smoke\n"
         "extends: control-assistant\n"
         "data: data\n"
         "va_archiver: null\n"
@@ -1303,7 +1307,8 @@ def test_persona_delta_build_resolves_from_the_profile_root(
     )
     (root / "data" / "FACILITY_MARKER.txt").write_text("from the root\n")
     (root / "profile.yml").write_text(
-        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: claude-sonnet-5\ndata: data\n"
+        "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
+        "model: claude-sonnet-5\ndata: data\n"
     )
     (root / "personas" / "readonly.yml").write_text("name: ReadOnly\nmodel: claude-haiku-4-5\n")
 
@@ -1361,7 +1366,8 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
         "---\ndescription: profile-shipped namespaced command\n---\n\nBody.\n"
     )
     (root / "profile.yml").write_text(
-        "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: claude-sonnet-5\ndata: data\n"
+        "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
+        "model: claude-sonnet-5\ndata: data\n"
     )
     (root / "personas" / "narrow.yml").write_text(
         "name: Narrow\n"
@@ -1420,6 +1426,7 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
     (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
+        "project_name: prof\n"
         "data: data\n"
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
@@ -1477,6 +1484,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
     (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
+        "project_name: prof\n"
         "data: data\n"
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
