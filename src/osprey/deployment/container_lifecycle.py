@@ -4766,18 +4766,19 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     :returns: The archive composite
         (:class:`~osprey_connectors.simulation.archive.ArchiveComposite`).
     :raises RuntimeError: The render carries no simulator view.
+    :raises ViewSchemaError: The render's view is from an older build.
     """
-    from osprey.facility.views.simulator import simulator_view
     from osprey.simulation.apply import persisted_scenario_anchor
     from osprey_connectors.simulation.archive import build
-    from osprey_connectors.simulation.composite import ADDRESSES_FILE
     from osprey_connectors.simulation.state import read_active_state
+    from osprey_connectors.simulation.view import SimulatorView
     from osprey_connectors.workspace import resolve_simulation_state_dir
 
-    view = simulator_view(project_dir)
-    if not (view / ADDRESSES_FILE).is_file():
+    view = SimulatorView.find(project_dir)
+    if view is None:
         raise RuntimeError(
-            f"The archiver seed has no channel set to build from: no simulator view in {view}. "
+            "The archiver seed has no channel set to build from: no simulator view in "
+            f"{SimulatorView.path_for_project(project_dir)}. "
             "Run `osprey build`; the seed never invents a namespace."
         )
     names, _ = read_active_state(resolve_simulation_state_dir(config, project_dir))
