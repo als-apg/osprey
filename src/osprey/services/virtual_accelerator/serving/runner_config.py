@@ -15,8 +15,8 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
   channel settable by -- and ``ro`` for everything else, the status addresses
   included.
 
-:func:`chromaticity_addresses` names the channels wired to a physics model's
-chromaticity output, which a write pass leaves for the next periodic pass.
+:func:`periodic_addresses` names the channels the view says refresh
+``periodic``, which a write pass leaves for the next periodic pass.
 
 :data:`HEALTH_KEYS` holds the defaults of the runner's health record: how many
 consecutive failed publishing passes still count as ``degraded``.
@@ -29,9 +29,12 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-__all__ = ["HEALTH_KEYS", "SAFETY_KEYS", "apply_safety", "chromaticity_addresses"]
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.view import SimulatorView
+
+__all__ = ["HEALTH_KEYS", "SAFETY_KEYS", "apply_safety", "periodic_addresses"]
 
 #: The write-path keys every model runner configuration carries.
 SAFETY_KEYS: Mapping[str, Any] = {
@@ -49,18 +52,18 @@ HEALTH_KEYS: Mapping[str, Any] = {"failed_pass_tolerance": 3}
 
 _SETPOINT = "setpoint"
 _FLOAT = "float"
-_CHROMATICITY_OUTPUT = "chromaticity"
+_PERIODIC = "periodic"
 
 
-def apply_safety(config: Mapping[str, Any], view: Mapping[str, Any]) -> dict[str, Any]:
+def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, Any]:
     """The runner configuration ``config`` with the view's write safety applied.
 
     Args:
         config: A configuration shaped as ``Runner.generate_config`` returns
             it: ``{description, prefix, max_array_bytes, variables}``, each
             variable ``{name, pv, mode}`` keyed by address. Not modified.
-        view: The simulator view's ``variables.json`` document; its
-            ``channels`` give each address's role, writability and band.
+        view: The simulator view; its channels give each address's role,
+            writability and band.
 
     Returns:
         A new configuration: ``config`` with :data:`SAFETY_KEYS` set, every
@@ -68,49 +71,37 @@ def apply_safety(config: Mapping[str, Any], view: Mapping[str, Any]) -> dict[str
         the view's, and each float channel's ``precision`` set where the view
         states one.
     """
-    channels = {str(channel["address"]): channel for channel in view.get("channels", [])}
     safe: dict[str, Any] = copy.deepcopy(dict(config))
     safe.update(SAFETY_KEYS)
     for address, entry in safe["variables"].items():
-        channel = channels.get(address)
-        if channel is None:
+        try:
+            channel = view.channel(address)
+        except KeyError:
             entry["mode"] = "ro"
             continue
-        is_setpoint = channel.get("role") == _SETPOINT
+        is_setpoint = channel.role == _SETPOINT
         # A channel is served writable only as a setpoint the view marks writable.
-        entry["mode"] = "rw" if is_setpoint and channel.get("writable") is True else "ro"
+        entry["mode"] = "rw" if is_setpoint and channel.writable else "ro"
         if is_setpoint:
-            entry["value_range"] = copy.deepcopy(channel.get("value_range"))
-        if channel.get("value_type", _FLOAT) == _FLOAT and channel.get("precision") is not None:
-            entry["precision"] = channel["precision"]
+            entry["value_range"] = (
+                list(channel.value_range) if channel.value_range is not None else None
+            )
+        if channel.value_type == _FLOAT and channel.precision is not None:
+            entry["precision"] = channel.precision
     return safe
 
 
-def chromaticity_addresses(view: Mapping[str, Any]) -> frozenset[str]:
-    """The addresses wired to a physics model's chromaticity output.
-
-    A wiring entry reads that output when it names no element and no slices
-    and its engine block's ``attribute`` reads the chromaticity.
+def periodic_addresses(view: SimulatorView) -> frozenset[str]:
+    """The addresses whose binding refreshes ``periodic``, across every model of the view.
 
     Args:
-        view: The simulator view's ``variables.json`` document.
+        view: The simulator view.
 
     Returns:
-        The wired addresses, across every model of the view.
+        The bound addresses the periodic solve alone publishes.
     """
-    from osprey.simulation.engines.pyat import OPTICS_ATTRIBUTES
-
-    attributes = {
-        attribute
-        for attribute, output in OPTICS_ATTRIBUTES.items()
-        if output == _CHROMATICITY_OUTPUT
-    }
     return frozenset(
-        str(entry["address"])
-        for model in view.get("models", [])
-        for entry in model.get("wiring") or []
-        if entry.get("element") is None
-        and not entry.get("slices")
-        and isinstance(entry.get("engine"), Mapping)
-        and entry["engine"].get("attribute") in attributes
+        binding.address
+        for binding in view.bindings(served_only=False)
+        if binding.refresh == _PERIODIC
     )

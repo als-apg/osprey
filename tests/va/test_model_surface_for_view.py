@@ -30,7 +30,7 @@ from osprey.services.virtual_accelerator.serving.model_surface import (
 )
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
-from osprey_connectors.simulation.view import SCHEMAS
+from osprey_connectors.simulation.view import SCHEMAS, SimulatorView
 
 TOKEN = "s3cret"
 STATUS = "T:SIM:M:STATUS"
@@ -109,7 +109,7 @@ def _channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, A
     }
 
 
-def _view(path: Path, settings: Mapping[str, Any] | None = None) -> tuple[Path, dict[str, Any]]:
+def _view(path: Path, settings: Mapping[str, Any] | None = None) -> Path:
     channels = [
         _channel("M:BPM:X", "M", unit="mm"),
         _channel("M:SP", "M", role="setpoint", writable=True, value_range=[-5.0, 5.0]),
@@ -156,7 +156,7 @@ def _view(path: Path, settings: Mapping[str, Any] | None = None) -> tuple[Path, 
         (view / name).write_text(
             json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
         )
-    return view, addresses
+    return view
 
 
 def _surface(
@@ -167,11 +167,11 @@ def _surface(
     clock: Iterable[float] = (10.0, 12.5),
     failed_pass_tolerance: int = 3,
 ) -> tuple[ModelSurface, Composite]:
-    view, addresses = _view(tmp_path, settings)
+    view = SimulatorView.open(_view(tmp_path, settings))
     composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: T0)
     surface = ModelSurface.for_view(
         composite,
-        addresses,
+        view,
         instance="va-1",
         endpoint="va-1:5075",
         model_write_token=token,

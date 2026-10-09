@@ -3156,9 +3156,9 @@ def _host_path(volumes: list[str], container_path: str) -> str:
 
 def test_the_va_and_the_recorder_resolve_the_same_addresses_file() -> None:
     """The IOC serves and the recorder records one ``addresses.json`` on the host."""
-    from osprey.services.archiver_recorder.config import ADDRESSES_FILE
     from osprey.services.archiver_recorder.config import DEFAULT_DATA_DIR as RECORDER_VIEW
     from osprey.services.virtual_accelerator import entrypoint
+    from osprey_connectors.simulation.view import ADDRESSES_FILE, VIEW_RELPATH
 
     deployed = ["mongodb", "archiver_recorder", "virtual_accelerator"]
     va = yaml.safe_load(
@@ -3169,7 +3169,7 @@ def test_the_va_and_the_recorder_resolve_the_same_addresses_file() -> None:
     recorder = _recorder_service(va_co_deployed=True)
 
     va_data = va["environment"].get("VA_DATA_DIR") or entrypoint.DEFAULT_DATA_DIR
-    va_file = f"{va_data}/{entrypoint.SIMULATOR_DIR}/{entrypoint.ADDRESSES_FILE}"
+    va_file = f"{va_data}/{VIEW_RELPATH.name}/{ADDRESSES_FILE}"
     recorder_file = f"{RECORDER_VIEW}/{ADDRESSES_FILE}"
 
     assert _host_path(va["volumes"], va_file) == "./build/data/simulator/addresses.json"

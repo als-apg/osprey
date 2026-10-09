@@ -510,8 +510,10 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
 
             Composite._engine = staticmethod(engine)  # type: ignore[method-assign]
 
-        view_dir = Path(spec["view"])
-        composite = Composite(view_dir, state_dir=spec["state"], model_log=False)
+        from osprey_connectors.simulation.view import SimulatorView
+
+        view = SimulatorView.open(Path(spec["view"]))
+        composite = Composite(view, state_dir=spec["state"], model_log=False)
         fault = _PassFault()
         _inject_pass_fault(composite, fault)
         fault.text = spec["first_pass_fault"]
@@ -520,8 +522,7 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
 
         runner = ModelRunner(
             composite,
-            json.loads((view_dir / "variables.json").read_text(encoding="utf-8")),
-            json.loads((view_dir / "addresses.json").read_text(encoding="utf-8")),
+            view,
             model_write_token=TOKEN,
             tick_interval_s=spec["tick"],
             health_file=Path(spec["health_file"]),
