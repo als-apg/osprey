@@ -1,7 +1,8 @@
 """Every file the facility outputs write names its document and version.
 
-A JSON file carries ``"schema": "osprey.facility.<doc>/1"`` at its top level; a
-YAML or Markdown file starts with the line ``schema: osprey.facility.<doc>/1``.
+A JSON file carries ``"schema": "osprey.facility.<doc>/<version>"`` at its top
+level; a YAML or Markdown file starts with the line
+``schema: osprey.facility.<doc>/<version>``, the version a positive integer.
 The files checked are the ones ``render_facility_outputs`` writes in each render
 of a control-assistant build: the facility file, and every view it writes.
 
@@ -27,8 +28,8 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.slow]
 
-#: A header value: the document's name and version 1.
-HEADER = re.compile(r"osprey\.facility\.[a-z_]+/1")
+#: A header value: the document's name and its positive version.
+HEADER = re.compile(r"osprey\.facility\.[a-z_]+/[1-9][0-9]*")
 
 #: Files, by pattern relative to the render root, whose format is fixed outside
 #: OSPREY and so carries no ``schema`` header.
@@ -186,8 +187,8 @@ def test_every_binary_exemption_is_written(
         ("data/x/view.json", b'{"channels": []}', "top-level `schema` is None"),
         (
             "data/x/view.json",
-            b'{"schema": "osprey.facility.x/2"}',
-            "top-level `schema` is 'osprey.facility.x/2'",
+            b'{"schema": "osprey.facility.x/0"}',
+            "top-level `schema` is 'osprey.facility.x/0'",
         ),
         ("data/x/view.json", b"[]", "top-level `schema` is None"),
         ("data/x/view.yaml", b"schema: osprey.facility.x/1\nrows: []\n", None),
