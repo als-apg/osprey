@@ -12,6 +12,27 @@ from osprey.facility.views import view_bytes
 from osprey.facility.views.simulator import SCENARIOS_DIR, SCENARIOS_FILE, SCENARIOS_SCHEMA
 from osprey_connectors.simulation.view import SCHEMAS
 
+#: The documents of a texture-only view with no channels, by file name.
+_MINIMAL_VIEW: Mapping[str, Mapping[str, Any]] = {
+    "served_models.json": {"models": ["texture"]},
+    "addresses.json": {"channels": [], "status": []},
+    "variables.json": {
+        "code": "T",
+        "models": [
+            {
+                "name": "texture",
+                "engine": "texture",
+                "served": True,
+                "settings": {},
+                "deck": None,
+                "wiring": [],
+            }
+        ],
+        "channels": [],
+    },
+    "seeds.json": {"seeds": {}},
+}
+
 
 def write_scenarios_view(
     render: Path,
@@ -19,6 +40,9 @@ def write_scenarios_view(
     files: Path | None = None,
 ) -> Path:
     """Write ``<render>/data/simulator/scenarios.json`` listing ``scenarios``.
+
+    Each other view document not already present is written as a minimal
+    texture-only view, so the directory opens as a simulator view.
 
     Args:
         render: The render's root.
@@ -38,6 +62,9 @@ def write_scenarios_view(
     path = render / "data" / "simulator" / SCENARIOS_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(view_bytes(document))
+    for name, minimal in _MINIMAL_VIEW.items():
+        if not (path.parent / name).is_file():
+            (path.parent / name).write_bytes(view_bytes({"schema": SCHEMAS[name], **minimal}))
     if files is not None:
         for name in scenarios:
             if (files / name).is_dir():
