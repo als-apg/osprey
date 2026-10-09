@@ -2,10 +2,9 @@
 the facility-knowledge runtime read path is imported.
 
 rdflib is a core dependency, but inside the facility-knowledge package only
-the offline TTL seeder and the TTL generator
-(:mod:`osprey.services.facility_knowledge.ttl_generator`) import it — as does
-the graph-mode channel snapshot (:mod:`osprey.deployment.channel_snapshot`) —
-and all of them do so lazily, keeping it out of the runtime read path;
+the offline TTL seeder imports it — as does the graph-mode channel snapshot
+(:mod:`osprey.deployment.channel_snapshot`) — and both do so lazily, keeping it
+out of the runtime read path;
 neo4j belongs exclusively to the graph seeder (:mod:`.seeder.graph_seeder`) and
 the graph MCP server (:mod:`osprey.mcp_server.graph`), both of which import it
 lazily inside the functions that dial the store. Importing any of those modules
@@ -198,9 +197,6 @@ def _discover_modules(package: str, *, exclude: frozenset[str] = frozenset()) ->
 #: is the ``python -m`` entry point, not an importable surface.
 GRAPH_MCP_MODULES = _discover_modules("osprey.mcp_server.graph", exclude=frozenset({"__main__"}))
 
-#: Every module of the offline TTL generator.
-TTL_GENERATOR_MODULES = _discover_modules("osprey.services.facility_knowledge.ttl_generator")
-
 #: Modules the guard must cover no matter what discovery turns up — a floor that
 #: turns a silently-empty ``rglob`` into a red test rather than a vacuous pass.
 REQUIRED_GRAPH_MCP_MODULES = frozenset(
@@ -213,17 +209,6 @@ REQUIRED_GRAPH_MCP_MODULES = frozenset(
         "osprey.mcp_server.graph.tools.example_queries",
         "osprey.mcp_server.graph.tools.get_schema",
         "osprey.mcp_server.graph.tools.read_cypher",
-    }
-)
-
-#: Likewise for the TTL generator. ``emitter`` is intentionally absent: it is
-#: discovered automatically once it lands, so no follow-up edit is needed here.
-REQUIRED_TTL_GENERATOR_MODULES = frozenset(
-    {
-        "osprey.services.facility_knowledge.ttl_generator",
-        "osprey.services.facility_knowledge.ttl_generator.direction",
-        "osprey.services.facility_knowledge.ttl_generator.model",
-        "osprey.services.facility_knowledge.ttl_generator.ontology_map",
     }
 )
 
@@ -442,31 +427,6 @@ class TestGraphMcpServerDriverIsolation:
         """
         ok, stderr = _run_absent_check("neo4j", _CREATE_SERVER_NO_CONFIG_SETUP, env=no_config_env)
         assert ok, f"neo4j leaked while the graph server failed to start:\n{stderr}"
-
-
-class TestTtlGeneratorRdflibIsolation:
-    """The TTL generator holds rdflib behind function-local imports.
-
-    Its modules are pure data/model code; only the emitter's serialization step
-    touches rdflib, and it does so inside the function that writes Turtle.
-    """
-
-    def test_discovery_covers_the_known_ttl_generator_modules(self):
-        """Discovery must find at least the modules the generator is built from."""
-        missing = REQUIRED_TTL_GENERATOR_MODULES - set(TTL_GENERATOR_MODULES)
-        assert not missing, f"module discovery missed ttl_generator modules: {sorted(missing)}"
-
-    @pytest.mark.parametrize("module", TTL_GENERATOR_MODULES)
-    def test_ttl_generator_module_does_not_import_rdflib(self, module: str):
-        """Importing any ttl_generator module must leave rdflib out of sys.modules."""
-        ok, stderr = _run_isolation_check(f"import {module}")
-        assert ok, f"rdflib leaked after importing {module}:\n{stderr}"
-
-    @pytest.mark.parametrize("module", TTL_GENERATOR_MODULES)
-    def test_ttl_generator_module_does_not_import_neo4j(self, module: str):
-        """The generator writes a file; it must never reach for the graph driver."""
-        ok, stderr = _run_neo4j_isolation_check(f"import {module}")
-        assert ok, f"neo4j leaked after importing {module}:\n{stderr}"
 
 
 class TestGraphIndexImportIsolation:

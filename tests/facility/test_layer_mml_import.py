@@ -11,7 +11,6 @@ import json
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -188,23 +187,8 @@ def test_a_periodic_model_states_no_settings(spear3: Path) -> None:
     assert model["wiring"]
 
 
-def test_nsls2_imports_with_the_demo_ontology_blocked(tmp_path: Path) -> None:
-    facility = _facility(tmp_path, "nsls2")
-    exports = [str(FIXTURES / "nsls2" / f"{stem}.ao.json") for stem in TREES["nsls2"]]
-    code = (
-        "import sys\n"
-        "from pathlib import Path\n"
-        "sys.modules['osprey.services.facility_knowledge.ttl_generator.ontology_map'] = None\n"
-        "from osprey.facility.layers.mml.importer import import_mml\n"
-        "import_mml([Path(p) for p in sys.argv[2:]], Path(sys.argv[1]))\n"
-    )
-    proc = subprocess.run(
-        [sys.executable, "-c", code, str(facility), *exports],
-        capture_output=True,
-        text=True,
-        cwd=REPO_ROOT,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
+def test_nsls2_imports_both_trees_into_one_facility(tmp_path: Path) -> None:
+    facility = _import(tmp_path, "nsls2")
 
     groups = _by_id(_rows(facility, "groups.yaml"))
     bpms = groups["BPMx"]["members"]
