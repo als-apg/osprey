@@ -28,6 +28,7 @@ from osprey_connectors.control_system.mock_connector import (
 )
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
 
 if TYPE_CHECKING:
     from osprey_connectors.simulation.archive import ArchiveComposite
@@ -63,7 +64,7 @@ class MockArchiverConnector(ArchiverConnector):
     def __init__(self):
         self._connected = False
         self._archive: ArchiveComposite | None = None
-        self._view: Path | None = None
+        self._view: SimulatorView | None = None
         self._state_file: Path | None = None
         self._state_signature: tuple[int, int] | None = None
 
@@ -79,8 +80,9 @@ class MockArchiverConnector(ArchiverConnector):
 
         Raises:
             ValueError: ``sample_rate_hz`` is not greater than zero.
-            RuntimeError: There is no built simulator view, or a physics model
-                fails to build at the start state.
+            RuntimeError: There is no built simulator view, it is from an
+                older build, or a physics model fails to build at the start
+                state.
         """
         # A zero or negative rate would divide by zero later; reject it at
         # configuration time.
@@ -92,11 +94,14 @@ class MockArchiverConnector(ArchiverConnector):
         from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
 
         self._view = simulator_view_dir(config.get(SIMULATOR_VIEW_SETTING))
-        self._state_file = simulation_state_dir(self._view) / ACTIVE_SCENARIOS_FILENAME
-        self._rebuild()
+        self._state_file = simulation_state_dir(self._view.path) / ACTIVE_SCENARIOS_FILENAME
+        try:
+            self._rebuild()
+        except ViewSchemaError as error:
+            raise RuntimeError(str(error)) from None
 
         self._connected = True
-        logger.debug(f"Mock archiver connector serving {self._view}")
+        logger.debug(f"Mock archiver connector serving {self._view.path}")
 
     def _signature(self) -> tuple[int, int] | None:
         if self._state_file is None:

@@ -64,7 +64,13 @@ from osprey_connectors.control_system.base import (
     values_match,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation.view import ADDRESSES_FILE, SEEDS_FILE, VARIABLES_FILE
+from osprey_connectors.simulation.view import (
+    VARIABLES_FILE,
+    VIEW_RELPATH,
+    NoSimulatorView,
+    SimulatorView,
+    ViewSchemaError,
+)
 
 if TYPE_CHECKING:
     from osprey_connectors.simulation.composite import Composite
@@ -99,7 +105,6 @@ NOT_WRITABLE = "not a writable setpoint"
 UDF_SEVERITY = 3
 UDF_STATUS = "UDF"
 
-_VIEW_RELPATH = ("data", "simulator")
 _RENDERED_CONFIG = "config.yml"
 _LABELLED = ("bool", "enum")
 _REFUSED_BY_SIMULATOR = "CONTROL_SYSTEM_REFUSED"
@@ -144,30 +149,34 @@ def _loaded_config_path() -> str | None:
     return default_config_path()
 
 
-def simulator_view_dir(setting: str | Path | None = None) -> Path:
-    """The simulator view a mock serves.
+def simulator_view_dir(setting: str | Path | None = None) -> SimulatorView:
+    """The simulator view a mock serves, opened.
 
     Args:
         setting: The view directory a ``connect()`` call names; ``None`` reads
             ``data/simulator/`` beside the config this process loaded.
 
     Returns:
-        The view directory.
+        The view.
 
     Raises:
-        RuntimeError: There is no view there; the message is
-            :data:`NO_VIEW_MESSAGE`.
+        RuntimeError: There is no view there, the message being
+            :data:`NO_VIEW_MESSAGE`; or the view is from an older build, the
+            message saying to rebuild.
     """
     if setting:
-        view = Path(setting).expanduser()
+        path = Path(setting).expanduser()
     else:
         config_path = _loaded_config_path()
         if config_path is None:
             raise RuntimeError(NO_VIEW_MESSAGE)
-        view = Path(config_path).parent.joinpath(*_VIEW_RELPATH)
-    if not (view / ADDRESSES_FILE).is_file():
-        raise RuntimeError(NO_VIEW_MESSAGE)
-    return view
+        path = Path(config_path).parent / VIEW_RELPATH
+    try:
+        return SimulatorView.open(path)
+    except NoSimulatorView:
+        raise RuntimeError(NO_VIEW_MESSAGE) from None
+    except ViewSchemaError as error:
+        raise RuntimeError(str(error)) from None
 
 
 def _rendered_config(view: Path) -> tuple[Path, dict[str, Any]]:
@@ -256,11 +265,6 @@ def _mark(document: Any, text: str) -> int | str:
     return (0 if not text else text) if seq is None else seq
 
 
-def _read_json(path: Path) -> dict[str, Any]:
-    document: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    return document
-
-
 class MockConnector(ControlSystemConnector):
     """Serve the built facility's simulator view in process.
 
@@ -298,7 +302,8 @@ class MockConnector(ControlSystemConnector):
                   ``data/simulator/`` beside the loaded config.
 
         Raises:
-            RuntimeError: There is no built simulator view.
+            RuntimeError: There is no built simulator view, or it is from an
+                older build.
             ValueError: ``simulation.tick_s`` in the rendered config is not a
                 number greater than zero.
         """
@@ -314,24 +319,19 @@ class MockConnector(ControlSystemConnector):
             logger.debug("Mock connector: limits validator initialized")
 
         view = simulator_view_dir(config.get(SIMULATOR_VIEW_SETTING))
-        _config_path, rendered = _rendered_config(view)
+        _config_path, rendered = _rendered_config(view.path)
         self._tick_s = resolve_tick_s(rendered)
-        addresses = _read_json(view / ADDRESSES_FILE)
-        variables = _read_json(view / VARIABLES_FILE)
-        seeds = _read_json(view / SEEDS_FILE).get("seeds") or {}
-
-        self._records = {str(channel["address"]): channel for channel in variables["channels"]}
-        self._served = frozenset(
-            [*(str(a) for a in addresses["channels"]), *(str(a) for a in addresses["status"])]
-        )
-        self._moving = frozenset(
-            str(address)
-            for address, seed in seeds.items()
-            if seed and (seed.get("noise") or seed.get("drift"))
-        )
-        self._channels = frozenset(str(a) for a in addresses["channels"])
-        state_dir = simulation_state_dir(view)
-        self._composite = Composite(view, state_dir=state_dir, instance="inprocess")
+        state_dir = simulation_state_dir(view.path)
+        try:
+            self._records = {
+                str(entry["address"]): entry for entry in view.document(VARIABLES_FILE)["channels"]
+            }
+            self._moving = frozenset(view.moving())
+            self._channels = frozenset(view.channels())
+            self._served = self._channels | frozenset(view.status_addresses().values())
+            self._composite = Composite(view, state_dir=state_dir, instance="inprocess")
+        except ViewSchemaError as error:
+            raise RuntimeError(str(error)) from None
         self._journal = _Journal(state_dir)
         from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
 
@@ -343,7 +343,7 @@ class MockConnector(ControlSystemConnector):
         self._sync()
         self._connected = True
         self._tick_task = asyncio.create_task(self._tick())
-        logger.debug(f"Mock connector serving {view}")
+        logger.debug(f"Mock connector serving {view.path}")
 
     async def disconnect(self) -> None:
         """Stop the tick and drop the composite."""

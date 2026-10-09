@@ -504,3 +504,14 @@ def test_no_other_simulation_module_constructs_a_journal_reader():
         }
         assert "MockConnector" not in names, path
         assert "mock_connector" not in path.read_text(encoding="utf-8"), path
+
+
+async def test_the_mock_refuses_a_version_one_view_with_rebuild(view):
+    path = view / "variables.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(
+        json.dumps({**document, "schema": "osprey.facility.simulator/1"}), encoding="utf-8"
+    )
+
+    with pytest.raises(RuntimeError, match="rebuild with osprey build"):
+        await _connected(view)
