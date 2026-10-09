@@ -1255,3 +1255,17 @@ class TestLoadOrDraft:
         with pytest.raises(ImportStop, match="mapping-undecided"):
             load_or_draft(tmp_path, _export())
         assert path.read_text(encoding="utf-8") == dump_mapping(document)
+
+
+@pytest.mark.parametrize(
+    ("block", "words"),
+    [
+        (EngineBlock(attribute="PolynomB", index=1), {"attribute": "PolynomB", "index": 1}),
+        (EngineBlock(axis="y"), {"axis": "y"}),
+        (EngineBlock(attribute="PolynomB", index_open=True), {"attribute": "PolynomB"}),
+    ],
+)
+def test_an_engine_block_states_its_words_as_a_wiring_records_engine(
+    block: EngineBlock, words: dict[str, Any]
+) -> None:
+    assert block.words() == words
