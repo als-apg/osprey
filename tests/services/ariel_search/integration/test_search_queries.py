@@ -7,7 +7,7 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -30,6 +30,16 @@ SEMANTIC_PREFIX = "semantic-"
 
 #: The single row the source-filtered time-range query is asserted over.
 SOURCE_PREFIX = "search-source-"
+
+#: Rows for the partial-match fallback: a short entry whose numbers live in its
+#: picture caption, its twin a day later, and a same-day entry sharing two words.
+PARTIAL_PREFIX = "search-partial-"
+
+#: The field query: most of its words are in the entry, ``oct`` and ``6`` are not.
+FIELD_QUERY = "laser energy Channel A HP prep Oct 6 pulses"
+
+#: Caption text of the entry's picture, as the caption pipeline stores it.
+FIELD_CAPTION = "Laser energy 3.683 J, 178 total pulses on Channel A, std dev 0.012 J"
 
 
 @pytest.fixture
@@ -182,6 +192,204 @@ class TestKeywordQuerySyntax:
         entry_ids = [entry["entry_id"] for entry, _score, _highlights in results]
         assert "search-kw-004" in entry_ids
         assert "search-kw-002" not in entry_ids
+
+
+@pytest.fixture
+async def partial_repository(repository, seed_entry_factory, seeded_prefixes):
+    """Repository seeded with the rows the partial-match fallback is judged on.
+
+    ``search-partial-001`` is the field entry: two words of text, the rest of its
+    vocabulary in ``attachment_text``, stamped mid-afternoon facility time on
+    2025-10-06. ``-002`` is the same entry one day later, outside a one-day
+    window. ``-003`` shares only ``laser energy`` with the field query, on the
+    same day. ``-004`` to ``-007``, on 2025-11-03, hold the vocabulary and
+    hyphen cases: one or two words of ``rf trip beam loss`` (``rf`` written as
+    ``radio frequency``) and of ``rf-cavity trip vacuum``.
+
+    Returns:
+        The repository, with the seven entries upserted.
+    """
+    from osprey.utils.config import localize_facility
+
+    day = localize_facility(datetime(2025, 10, 6, 15, 30))
+    other_day = localize_facility(datetime(2025, 11, 3, 10, 0))
+    rows = [
+        (f"{PARTIAL_PREFIX}001", day, "#HP Prep", FIELD_CAPTION),
+        (f"{PARTIAL_PREFIX}002", day + timedelta(days=1), "#HP Prep", FIELD_CAPTION),
+        (f"{PARTIAL_PREFIX}003", day, "Laser energy logbook check", None),
+        (f"{PARTIAL_PREFIX}004", other_day, "Radio frequency", None),
+        (f"{PARTIAL_PREFIX}005", other_day, "Radio frequency trip", None),
+        (f"{PARTIAL_PREFIX}006", other_day, "Cavity fault", None),
+        (f"{PARTIAL_PREFIX}007", other_day, "RF cavity", None),
+    ]
+    seeded_prefixes.add(PARTIAL_PREFIX)
+    for entry_id, timestamp, raw_text, caption in rows:
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id=entry_id, timestamp=timestamp, raw_text=raw_text)
+        )
+        async with repository.pool.connection() as conn:
+            await conn.execute(
+                "UPDATE enhanced_entries SET attachment_text = %s WHERE entry_id = %s",
+                (caption, entry_id),
+            )
+    return repository
+
+
+class TestKeywordPartialMatch:
+    """Keyword search when no entry holds every plain word of the query."""
+
+    @staticmethod
+    async def run(
+        repository, config, query: str, start: str | None, end: str | None, expansion=None
+    ):
+        from osprey.mcp_server.ariel.server import parse_date_filters
+        from osprey.services.ariel_search.search.keyword import (
+            keyword_search,
+            parse_keyword_query,
+        )
+
+        start_date, end_date = parse_date_filters(start, end)
+        return await keyword_search(
+            query,
+            repository,
+            config,
+            max_results=100,
+            start_date=start_date,
+            end_date=end_date,
+            parsed=parse_keyword_query(query),
+            query_expansion=expansion,
+        )
+
+    @staticmethod
+    def partial_note(output):
+        [note] = [d for d in output.diagnostics if d.category == "partial"]
+        return note.message
+
+    async def test_field_query_in_its_window_returns_the_entry_naming_the_absent_words(
+        self, partial_repository, integration_ariel_config
+    ):
+        """The field query finds the entry, with ``oct`` and ``6`` reported missing."""
+        output = await self.run(
+            partial_repository, integration_ariel_config, FIELD_QUERY, "2025-10-06", "2025-10-06"
+        )
+
+        by_id = {entry["entry_id"]: entry for entry, _score, _highlights in output.entries}
+        assert f"{PARTIAL_PREFIX}001" in by_id
+        assert f"{PARTIAL_PREFIX}002" not in by_id
+        hit = by_id[f"{PARTIAL_PREFIX}001"]
+        assert hit["_missing_terms"] == ["oct", "6"]
+        assert set(hit["_matched_terms"]) >= {"laser", "energy", "channel", "hp", "prep"}
+        assert [e["entry_id"] for e, _s, _h in output.entries][0] == f"{PARTIAL_PREFIX}001"
+
+        partial = [d for d in output.diagnostics if d.category == "partial"]
+        assert len(partial) == 1
+        assert partial[0].message.endswith("terms found in no hit: oct, 6")
+
+    async def test_an_exact_query_returns_only_entries_holding_every_word(
+        self, partial_repository, integration_ariel_config
+    ):
+        """When some entry has every word, entries with fewer are not relaxed in."""
+        output = await self.run(
+            partial_repository,
+            integration_ariel_config,
+            "laser energy pulses",
+            "2025-10-06",
+            "2025-10-06",
+        )
+
+        ids = [entry["entry_id"] for entry, _score, _highlights in output.entries]
+        assert ids == [f"{PARTIAL_PREFIX}001"]
+        assert "_missing_terms" not in output.entries[0][0]
+        assert not [d for d in output.diagnostics if d.category == "partial"]
+
+    async def test_the_note_states_the_rule_every_hit_meets(
+        self, partial_repository, integration_ariel_config
+    ):
+        """ "at least k of n" is the admission rule: n counted words, every hit holds k."""
+        output = await self.run(
+            partial_repository, integration_ariel_config, FIELD_QUERY, "2025-10-06", "2025-10-06"
+        )
+
+        # ``a`` is a stop word, so eight of the nine typed words count.
+        assert "showing entries with at least 4 of 8;" in self.partial_note(output)
+        for entry, _score, _highlights in output.entries:
+            assert len(entry["_matched_terms"]) >= 4
+            assert len(entry["_matched_terms"]) + len(entry["_missing_terms"]) == 8
+
+    async def test_a_multi_word_alternative_counts_as_the_one_word_it_expands(
+        self, partial_repository, integration_ariel_config
+    ):
+        """``radio frequency`` stands for ``rf`` alone: one word of four, not two."""
+        from osprey.services.ariel_search.search.base import ExpansionGroup, QueryExpansion
+
+        expansion = QueryExpansion(
+            groups=(ExpansionGroup(original="rf", alternatives=("radio frequency",)),),
+            flattened_text="rf radio frequency trip beam loss",
+        )
+        output = await self.run(
+            partial_repository,
+            integration_ariel_config,
+            "rf trip beam loss",
+            "2025-11-03",
+            "2025-11-03",
+            expansion,
+        )
+
+        by_id = {entry["entry_id"]: entry for entry, _score, _highlights in output.entries}
+        assert f"{PARTIAL_PREFIX}004" not in by_id
+        assert by_id[f"{PARTIAL_PREFIX}005"]["_matched_terms"] == ["rf", "trip"]
+        assert by_id[f"{PARTIAL_PREFIX}005"]["_missing_terms"] == ["beam", "loss"]
+        assert "at least 2 of 4;" in self.partial_note(output)
+
+    async def test_a_hyphenated_word_counts_as_the_words_it_joins(
+        self, partial_repository, integration_ariel_config
+    ):
+        """``rf-cavity`` is the two words ``rf`` and ``cavity`` of four."""
+        output = await self.run(
+            partial_repository,
+            integration_ariel_config,
+            "rf-cavity trip vacuum",
+            "2025-11-03",
+            "2025-11-03",
+        )
+
+        by_id = {entry["entry_id"]: entry for entry, _score, _highlights in output.entries}
+        assert by_id[f"{PARTIAL_PREFIX}007"]["_matched_terms"] == ["rf", "cavity"]
+        assert f"{PARTIAL_PREFIX}006" not in by_id
+        assert "at least 2 of 4;" in self.partial_note(output)
+
+    async def test_the_partial_statement_runs_in_the_timeout_envelope(
+        self, partial_repository, integration_ariel_config
+    ):
+        """The relaxed statement parses each document once, under statement_timeout."""
+        from .conftest import RecordingPool
+
+        pool = RecordingPool(partial_repository.pool)
+        partial_repository.pool = pool
+        output = await self.run(
+            partial_repository, integration_ariel_config, FIELD_QUERY, "2025-10-06", "2025-10-06"
+        )
+
+        assert output.entries
+        [index] = [
+            i
+            for i, (kind, text, _params) in enumerate(pool.log)
+            if kind == "cursor.execute" and "AS doc OFFSET 0" in text
+        ]
+        assert pool.log[index - 1][0] == "statement_timeout_inside"
+        assert pool.log[index - 1][1] == "10s"
+
+    async def test_a_bare_end_date_includes_its_own_day(
+        self, partial_repository, integration_ariel_config
+    ):
+        """``end_date`` "2025-10-06" keeps an entry written that afternoon."""
+        output = await self.run(
+            partial_repository, integration_ariel_config, "HP prep", None, "2025-10-06"
+        )
+
+        ids = [entry["entry_id"] for entry, _score, _highlights in output.entries]
+        assert f"{PARTIAL_PREFIX}001" in ids
+        assert f"{PARTIAL_PREFIX}002" not in ids
 
 
 # ==============================================================================

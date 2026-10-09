@@ -49,6 +49,7 @@ def _repo(tmp_path: Path, provider: str | None, catalog: dict[str, Any] | None =
     (repo / "data").mkdir()
     profile = {
         "name": "Demo Facility",
+        "project_name": "repo",
         "extends": "hello-world",
         "data": "data",
         "provider": provider,

@@ -463,9 +463,11 @@ VIEWABLE_SQL = viewable_sql()
 """SQL fragment matching exactly the rows :func:`is_viewable` accepts."""
 
 CAPTION_NOT_DONE_SQL = (
-    "NOT (COALESCE(attachment_captions->f.attachment_id, '{}'::jsonb) ? %(model)s)"
+    "(NOT (COALESCE(attachment_captions->f.attachment_id, '{}'::jsonb) ? %(model)s)"
+    " OR COALESCE(attachment_captions->f.attachment_id->%(model)s, '{}'::jsonb) ? 'refresh')"
 )
-"""SQL fragment: picture ``f`` has no caption entry under the ``%(model)s`` model.
+"""SQL fragment: picture ``f`` has no caption entry under the ``%(model)s`` model,
+or its caption is marked ``refresh`` (to be made again).
 
 Evaluated over ``attachment_files f`` correlated with an ``enhanced_entries``
 row. The COALESCE keeps a picture "not done" both when ``attachment_captions``

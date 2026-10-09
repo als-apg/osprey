@@ -775,6 +775,93 @@ class TestProfileTimeBeltReadsPersonaDeltas:
         assert UNKNOWN_PRIVILEGE_CODE not in _codes(lint_profile_config(config))
 
 
+def _rendered_elsewhere(
+    tmp_path: Path, *, admin_access: Any, admin_config: dict[str, Any] | None
+) -> dict[str, Any]:
+    """`_delta_repo` with the admin persona supplied ready-made instead of from a delta.
+
+    The entry names no `build_profile`: the project at its `project_path` was
+    rendered somewhere else, so the only document saying what the persona holds
+    is that render's `config.yml`. `admin_config` is that file's content, nested
+    the way a render is written; `None` leaves the directory empty.
+    """
+    config = _delta_repo(tmp_path, admin_access=admin_access)
+    (tmp_path / "personas" / "admin.yml").unlink()
+    render = tmp_path / "ready-made" / "ca-admin"
+    render.mkdir(parents=True)
+    if admin_config is not None:
+        (render / "config.yml").write_text(yaml.safe_dump(admin_config), encoding="utf-8")
+    config["modules.web_terminals"]["personas"]["admin"] = {
+        "project": "ca-admin",
+        "project_path": "ready-made/ca-admin",
+    }
+    return config
+
+
+#: A render holding both deployment-editing surfaces.
+_LIFTED_RENDER: dict[str, Any] = {
+    "web": {"config_panel": {"enabled": True}},
+    "claude_code": {"permissions": {"deny": []}},
+}
+#: A render holding neither.
+_FLOORED_RENDER: dict[str, Any] = {
+    "web": {"config_panel": {"enabled": False}},
+    "claude_code": {"permissions": {"deny": [SETUP_TOOL]}},
+}
+
+
+class TestProfileTimeBeltReadsRendersTheBuildDoesNotMake:
+    """A persona with no `build_profile` proves its tier by its own render.
+
+    The build renders nothing for such an entry, so there is no delta to read;
+    its `project_path` names a `config.yml` already composed, and that file is
+    what `osprey up` reads at rendered altitude too. Both altitudes judge the
+    same document, which is what lets a ready-made persona be the default or
+    sit on a shared card.
+    """
+
+    def test_a_lifted_render_on_a_shared_card_is_caught(self, tmp_path: Path):
+        config = _rendered_elsewhere(tmp_path, admin_access="any", admin_config=_LIFTED_RENDER)
+        findings = lint_profile_config(config, profile_root=tmp_path)
+        assert SHARED_CARD_CODE in _codes(findings)
+        assert UNKNOWN_PRIVILEGE_CODE not in _codes(findings)
+
+    def test_a_floored_render_on_a_shared_card_passes(self, tmp_path: Path):
+        config = _rendered_elsewhere(tmp_path, admin_access="any", admin_config=_FLOORED_RENDER)
+        findings = lint_profile_config(config, profile_root=tmp_path)
+        assert SHARED_CARD_CODE not in _codes(findings)
+        assert UNKNOWN_PRIVILEGE_CODE not in _codes(findings)
+
+    def test_a_floored_render_may_be_the_default_persona(self, tmp_path: Path):
+        config = _rendered_elsewhere(tmp_path, admin_access=None, admin_config=_FLOORED_RENDER)
+        config["modules.web_terminals"]["default_persona"] = "admin"
+        findings = lint_profile_config(config, profile_root=tmp_path)
+        assert DEFAULT_PERSONA_CODE not in _codes(findings)
+        assert UNKNOWN_PRIVILEGE_CODE not in _codes(findings)
+
+    def test_a_render_that_is_not_there_is_refused_naming_the_path(self, tmp_path: Path):
+        """ "Cannot tell" is still not "holds nothing" — and the message says where it looked."""
+        config = _rendered_elsewhere(tmp_path, admin_access="any", admin_config=None)
+        findings = lint_profile_config(config, profile_root=tmp_path)
+        assert UNKNOWN_PRIVILEGE_CODE in _codes(findings)
+        message = _messages(findings, UNKNOWN_PRIVILEGE_CODE)[0]
+        assert "'admin'" in message
+        assert "names no build_profile" in message
+        assert str(tmp_path / "ready-made" / "ca-admin" / "config.yml") in message
+
+    def test_the_render_resolves_against_the_profile_root_not_the_cwd(
+        self, tmp_path: Path, monkeypatch
+    ):
+        config = _rendered_elsewhere(tmp_path, admin_access="any", admin_config=_FLOORED_RENDER)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        assert UNKNOWN_PRIVILEGE_CODE in _codes(lint_profile_config(config))
+        assert UNKNOWN_PRIVILEGE_CODE not in _codes(
+            lint_profile_config(config, profile_root=tmp_path)
+        )
+
+
 class TestProfileRootIsNotTheWorkingDirectory:
     """The seam the belt used to have: a delta resolved against the cwd.
 

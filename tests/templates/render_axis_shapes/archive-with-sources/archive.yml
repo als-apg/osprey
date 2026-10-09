@@ -98,11 +98,7 @@ services:
 # archive creates no volume of its own and renames none.
 volumes:
   alice-claude-config:
-    labels:
-      com.osprey.repo-id: "0123456789ab"
   alice-agent-data:
-    labels:
-      com.osprey.repo-id: "0123456789ab"
 
 networks:
   osprey-network:

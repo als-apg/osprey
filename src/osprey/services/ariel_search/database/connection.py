@@ -72,9 +72,11 @@ async def try_advisory_lock(
     """Hold a session-level PostgreSQL advisory lock for the ``async with`` body.
 
     The lock lives on a dedicated, non-pooled autocommit connection opened from
-    *conninfo*, and closing that connection is what releases it. Keeping it off
-    the pool means no exit path -- an exception, a task cancel -- can hand a
-    connection still holding the lock back to a pool for an unrelated caller.
+    *conninfo*. The body's exit unlocks it, so the next caller finds it free;
+    closing that connection releases it on any path where the unlock does not
+    land. Keeping it off the pool means no exit path -- an exception, a task
+    cancel -- can hand a connection still holding the lock back to a pool for an
+    unrelated caller.
     Callers pass the pool's own ``conninfo`` so the lock lives in the database
     that pool works on.
 
@@ -122,6 +124,17 @@ async def try_advisory_lock(
             with suppress(Exception):
                 await conn.cancel_safe()
             raise
-        yield held
+        try:
+            yield held
+        finally:
+            # Closing only asks the backend to exit; the server drops the lock
+            # once that exit completes, which can be after the next caller has
+            # already asked for it. Unlock first so the lock is free on return.
+            # Best effort: the close below releases it whether or not this lands.
+            if held:
+                with suppress(Exception):
+                    await conn.execute(
+                        "SELECT pg_advisory_unlock(hashtextextended(%(key)s, 0))", {"key": key}
+                    )
     finally:
         await conn.close()

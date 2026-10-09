@@ -22,6 +22,7 @@ from osprey.cli.build_cmd import build
 _PROFILE = """\
 extends: hello-world
 name: Archive Fixture
+project_name: archive-fixture
 data: data
 services:
   archive:

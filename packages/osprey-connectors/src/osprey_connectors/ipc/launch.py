@@ -90,7 +90,11 @@ async def spawn_host(python: str, env: Mapping[str, str]) -> Any:
 
 
 async def terminate_host(process: Any, grace_s: float) -> None:
-    """``SIGTERM``, then ``SIGKILL`` after the grace period. Never raises."""
+    """``SIGTERM``, then ``SIGKILL`` after the grace period. Never raises.
+
+    Only the event loop's child watcher ever reaps the child, so its own exit
+    code survives; see :func:`_signal_unreaped`.
+    """
     if process.returncode is not None:
         return
     _signal_unreaped(process.pid, signal.SIGTERM)
@@ -105,17 +109,24 @@ async def terminate_host(process: Any, grace_s: float) -> None:
 
 
 def _signal_unreaped(pid: int, sig: int) -> None:
-    """Send *sig* to a child that is still running, without ever reaping it.
+    """Send *sig* to the child *pid* only while it is still running, never reaping it.
 
     ``Process.terminate()`` and ``kill()`` go through ``Popen.send_signal``,
-    which polls first. A child that has already exited, the usual case when
-    the supervisor puts down a child whose stream just ended, is reaped by that
-    poll behind the event loop's child watcher, and asyncio then reports its
-    exit status as 255 instead of the code the child exited with. ``WNOWAIT``
-    only looks: an exited child is left for the watcher to reap. Where there is
-    no ``waitid`` (macOS before 3.13) the signal goes out unchecked; a child
-    that has exited but is not yet reaped is a zombie, and signalling one is a
-    no-op.
+    which polls first; a poll that finds the child exited reaps it behind the
+    event loop's child watcher, and asyncio then reports exit code 255 in place
+    of the child's own. So the signal goes to the pid directly, and only after
+    a ``waitid(WNOWAIT)`` look, which reports an exited child without reaping
+    it.
+
+    The look covers both kinds of watcher. Where the loop reaps the child
+    itself (the pidfd watcher), an exited child stays a zombie until the loop
+    gets to it: the look finds it exited and nothing is sent. Where a watcher
+    thread reaps it (macOS, Linux without pidfd), the child may already be
+    reaped, and its pid free for reuse, while ``returncode`` still reads
+    ``None``: the look raises ``ChildProcessError`` and nothing is sent. A
+    thread watcher can still reap the child between the look and the signal,
+    so the window is narrowed, not closed. Without ``waitid`` (macOS before
+    Python 3.13) the signal goes out unchecked.
     """
     if sys.platform != "darwin" or sys.version_info >= (3, 13):
         try:

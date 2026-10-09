@@ -32,7 +32,7 @@ NGINX_PORT = default_port("nginx")
 
 
 def _emit(preset: str, set_pairs: tuple[str, ...] = ()) -> str:
-    return emit_standalone_profile_yaml(preset, set_pairs, "Emitted")
+    return emit_standalone_profile_yaml(preset, set_pairs, "Emitted", project_name="emitted")
 
 
 def _prefix_pairs(config: dict) -> list[tuple[str, str]]:

@@ -55,7 +55,8 @@ async def semantic_search(
         query: Natural language description of what to find.
         max_results: Maximum number of results (1-100, default 10).
         start_date: Filter entries after this ISO-8601 date (e.g. "2024-01-15").
-        end_date: Filter entries before this ISO-8601 date.
+        end_date: Filter entries up to this ISO-8601 date or time; a bare date
+            includes that whole day.
         author: Filter by author name (partial match).
         source_system: Filter by source system (exact match).
         similarity_threshold: Minimum similarity score (0-1). Higher = stricter.

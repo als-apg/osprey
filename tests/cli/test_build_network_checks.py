@@ -725,7 +725,7 @@ def test_the_build_refuses_the_render_and_restores_the_working_directory(
     from is restored either way — the next build stages from wherever this one
     left the process.
     """
-    zones = _render_zones(tmp_path)
+    zones = _render_zones(tmp_path, tmp_path.name)
     zones.stage.mkdir(parents=True)
     (zones.stage / "config.yml").write_text("{}\n", encoding="utf-8")
 
@@ -750,7 +750,7 @@ def test_a_clean_render_returns_the_config_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The checks are a gate, not a rewrite: a passing render is handed on as it was."""
-    zones = _render_zones(tmp_path)
+    zones = _render_zones(tmp_path, tmp_path.name)
     zones.stage.mkdir(parents=True)
     (zones.stage / "config.yml").write_text("{}\n", encoding="utf-8")
 
@@ -767,4 +767,65 @@ def test_a_clean_render_returns_the_config_unchanged(
 
 def test_a_runtime_root_build_renders_nothing_to_check(tmp_path: Path) -> None:
     """With compose generation skipped there is no render for the checks to read."""
-    assert _render_compose_files(_render_zones(tmp_path), runtime_root="/app") is None
+    assert (
+        _render_compose_files(_render_zones(tmp_path, tmp_path.name), runtime_root="/app") is None
+    )
+
+
+# ---------------------------------------------------------------------------
+# The qmd sidecars and their bridge-resident consumers
+# ---------------------------------------------------------------------------
+
+
+def _qmd_config(project: Path, *, qmd_network: str | None, consumers: str | None) -> Path:
+    """A deployment running one qmd sidecar beside both project-image consumers.
+
+    *consumers* is the network of the ARIEL sync daemon and the dispatch pair,
+    the two templates that hand a bridge container the sidecar's in-network URL.
+    """
+    qmd: dict[str, Any] = {
+        "path": "./services/qmd",
+        "corpora": [{"name": "papers", "source": "./data/papers"}],
+    }
+    if qmd_network is not None:
+        qmd["network"] = qmd_network
+    sync: dict[str, Any] = {"path": "./services/ariel_sync"}
+    if consumers is not None:
+        sync["network"] = consumers
+    return _dispatch_config(
+        project, dispatch_network=consumers, extra_services={"qmd": qmd, "ariel_sync": sync}
+    )
+
+
+def test_a_host_network_sidecar_with_bridge_consumers_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The in-network URL a bridge consumer is handed names a sidecar that left."""
+    config_path = _qmd_config(tmp_path, qmd_network=_HOST_NETWORK, consumers=None)
+    config, compose_files = _render(config_path, tmp_path, monkeypatch)
+
+    errors = _network_check_errors(config, compose_files)
+
+    assert len(errors) == 2
+    sync, worker = sorted(errors, key=lambda e: "dispatch_worker" in e)
+    for message in (sync, worker):
+        assert message.startswith("services.qmd runs on the host network")
+        assert "OSPREY_QMD_PAPERS_URL -> http://qmd-papers:" in message
+    assert "`services.ariel_sync.network: host`" in sync
+    assert "`dispatch.network: host`" in worker
+
+
+@pytest.mark.parametrize(
+    ("qmd_network", "consumers"), [(None, None), (_HOST_NETWORK, _HOST_NETWORK)]
+)
+def test_a_sidecar_and_its_consumers_on_one_network_pass(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    qmd_network: str | None,
+    consumers: str | None,
+) -> None:
+    """Same side of the boundary: the bridge dials by name, the host by publish."""
+    config_path = _qmd_config(tmp_path, qmd_network=qmd_network, consumers=consumers)
+    config, compose_files = _render(config_path, tmp_path, monkeypatch)
+
+    assert _network_check_errors(config, compose_files) == []

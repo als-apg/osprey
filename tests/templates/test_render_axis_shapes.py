@@ -831,7 +831,7 @@ def test_ariel_sync_waits_for_the_store_only_when_it_is_co_deployed() -> None:
 
 
 def test_ariel_sync_on_host_reaches_the_store_where_it_publishes() -> None:
-    """On the host the address is ``localhost`` and the PUBLISHED port.
+    """On the host the address is the published interface and the PUBLISHED port.
 
     Derived through the shipped port layout rather than pinned as a literal, so
     moving ``deployment.port_base`` fails here — where the fix is a
@@ -843,7 +843,7 @@ def test_ariel_sync_on_host_reaches_the_store_where_it_publishes() -> None:
     expected = layout_ports(resolve_port_base({"deployment": {}}))["postgres"]
     environment = _service_env("ariel-sync-on-host", "ariel_sync", "ariel-sync")
 
-    assert environment["ARIEL_DATABASE_HOST"] == "localhost"
+    assert environment["ARIEL_DATABASE_HOST"] == "127.0.0.1"
     assert environment["ARIEL_DATABASE_PORT"] == str(expected)
 
 

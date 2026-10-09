@@ -5,7 +5,7 @@ lives in its ``config:`` block, documented on the line that sets it. A handful
 of keys are NOT the operator's to state — the framework template
 (``templates/project/config.yml.j2``) writes them at build time from the
 project layout, the port layout, ``providers.yml``, or a profile FIELD
-(``provider:``, ``model:``, ``channel_finder_mode:``, ``default_panel:``,
+(``project_name:``, ``provider:``, ``model:``, ``channel_finder_mode:``, ``default_panel:``,
 ``panel_presets:``). Those are the *derived* keys.
 
 A ``config:`` entry for one of them is a second home for one fact, and the
@@ -43,8 +43,9 @@ __all__ = ["DERIVED_KEYS", "derived_key_errors", "is_derived_key"]
 #: What each derived key is rendered from, phrased as the fix. Every member of
 #: :data:`DERIVED_KEYS` has an entry; the mapping IS the key list.
 _DERIVED_KEY_SOURCES: dict[str, str] = {
+    # The deployment's name, a profile field of its own.
+    "project_name": "the top-level `project_name:` field sets it",
     # Project layout — the build knows where it is writing.
-    "project_name": "the build takes it from the profile's `name:`",
     "project_root": "the build takes it from the repository it renders into",
     "build_dir": "the build takes it from the repository it renders into",
     "file_paths": "the build derives these paths from the project layout",

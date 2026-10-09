@@ -85,15 +85,24 @@ sys.exit(s.connect_ex(('$host', $port)))" 2>/dev/null; then
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}"){{ '/..' * verify_path.count('/') }}" && pwd)"
 
 # This deployment's compose project, named the way `osprey up` names it:
-# COMPOSE_PROJECT_NAME when the caller pins it, else the repo directory's name
-# in compose's alphabet — lower case, [a-z0-9_-], no leading or trailing _ or -.
+# COMPOSE_PROJECT_NAME when the caller pins it, else project_name in
+# {{ build_dir }}/config.yml. The built config is the source; the repo directory's
+# name is only a fallback for a repo that has no project_name there. Either is
+# put in compose's alphabet — lower case, [a-z0-9_-], no leading or trailing _ or -.
 compose_project() {
   if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
     printf '%s' "$COMPOSE_PROJECT_NAME"
     return
   fi
-  local name
-  name="$(basename "$REPO_ROOT" | LC_ALL=C tr '[:upper:]' '[:lower:]' \
+  local name=""
+  if [ -f "$REPO_ROOT/{{ build_dir }}/config.yml" ]; then
+    name="$(sed -n "s/^project_name:[[:space:]]*[\"']\{0,1\}\([A-Za-z0-9_.-]*\).*/\1/p" \
+      "$REPO_ROOT/{{ build_dir }}/config.yml" | head -n 1)"
+  fi
+  if [ -z "$name" ]; then
+    name="$(basename "$REPO_ROOT")"
+  fi
+  name="$(printf '%s' "$name" | LC_ALL=C tr '[:upper:]' '[:lower:]' \
     | LC_ALL=C tr -cd 'a-z0-9_-' | sed -e 's/^[-_]*//' -e 's/[-_]*$//')"
   printf '%s' "${name:-unnamed-project}"
 }

@@ -212,3 +212,19 @@ def test_the_attachment_arguments_are_required_keywords():
         assert params[name].kind is inspect.Parameter.KEYWORD_ONLY
         assert params[name].default is inspect.Parameter.empty
     assert params["full_captions"].default is False
+
+
+def test_a_partial_keyword_hit_names_its_matched_and_missing_terms():
+    entry = {**_entry("#HP Prep"), "_matched_terms": ["hp", "prep"], "_missing_terms": ["oct"]}
+    with patch("osprey.utils.config.get_config_value", _no_template):
+        out = serialize_entry(
+            entry,
+            text_limit=100,
+            attachment_limit=0,
+            attachment_rows=None,
+            model_id=None,
+            file_source=False,
+            view_enabled=False,
+        )
+    assert out["matched_terms"] == ["hp", "prep"]
+    assert out["missing_terms"] == ["oct"]
