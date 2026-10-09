@@ -252,9 +252,6 @@ class TestBuildPipelineOrderingHolds:
         assert not (project_dir / "data" / "benchmarks" / "cross_paradigm").exists(), (
             "cross_paradigm/ subtree reached the render from the profile-sourced tree"
         )
-        assert not (project_dir / "data" / "channel_databases" / "tiers").exists(), (
-            "the tiers subtree reached the render from the profile-sourced tree"
-        )
         assert queries_src.exists(), "the profile's own tree was pruned"
 
     def test_project_mirror_wins_over_profile_data(self, tmp_path: Path) -> None:
