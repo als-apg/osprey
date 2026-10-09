@@ -729,7 +729,7 @@ body.drag-active .figure-plot {
   box-shadow: 0 0 4px color-mix(in srgb, var(--lat-led-stale) 40%, transparent);
 }
 
-.figure-led[data-status="error"] {
+.figure-led[data-status="failed"] {
   background: var(--lat-led-error);
   box-shadow: 0 0 6px var(--lat-led-error);
 }

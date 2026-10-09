@@ -27,6 +27,7 @@ import {
   bindModelSelect,
   renderModelSelect,
   renderNotice,
+  selectionNotice,
   showFigureUnavailable,
   syncAvailability,
   unavailableFigures,
@@ -35,7 +36,7 @@ import {
 const ALL_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint', 'da', 'lma'];
 
 /** The refusal body every non-optics figure route gives a single-pass model. */
-const SINGLE_PASS_409 = { detail: 'not available for a single-pass model' };
+const SINGLE_PASS_409 = { status: 'unavailable', reason: 'not available for a single-pass model' };
 
 
 /** GET /api/models as the server lists it: served models first. */
@@ -45,18 +46,35 @@ const MODELS = [
   { name: 'spare', served: false, solve: 'periodic', selected: false },
 ];
 
-/** A GET /api/state body for a selected periodic, served model. */
+/**
+ * The selection of a GET /api/state body.
+ * @param {string} model @param {string[]} figures @param {string} [status]
+ */
+function selection(model, figures, status = 'ready') {
+  return {
+    model,
+    deck_sha256: 'd'.repeat(64),
+    status,
+    error: null,
+    capabilities: {
+      figures,
+      fast_figures: figures.filter((n) => !['da', 'lma'].includes(n)),
+      verify: figures.includes('da'),
+    },
+  };
+}
+
+/** A GET /api/state body for a selected periodic model. */
 const PERIODIC_STATE = {
-  base_lattice: '/decks/main.m',
-  model: 'main',
-  solve: 'periodic',
-  served: true,
-  fast_figures: ['optics', 'resonance', 'chromaticity', 'footprint'],
+  selection: selection('main', ALL_FIGURES),
   notice: null,
   figures: {},
   families: {},
   summary: {},
 };
+
+/** A GET /api/state body for a selected single-pass model. */
+const SINGLE_PASS_STATE = { ...PERIODIC_STATE, selection: selection('transfer', ['optics']) };
 
 /** One figure cell per figure, shaped like index.html's. */
 function figureCells() {
@@ -204,7 +222,7 @@ describe('model selector', () => {
   test('selecting a model posts its name, then re-reads the state and the model list', async () => {
     const fetchMock = stubFetch({
       '/api/models/select': response(PERIODIC_STATE),
-      '/api/state': response({ ...PERIODIC_STATE, model: 'spare', served: false }),
+      '/api/state': response({ ...PERIODIC_STATE, selection: selection('spare', ALL_FIGURES) }),
       '/api/models': response(MODELS),
     });
     const cb = makeNetCallbacks();
@@ -214,8 +232,10 @@ describe('model selector', () => {
 
     const select = fetchMock.mock.calls.find(([path]) => path === '/api/models/select');
     expect(select?.[1]).toMatchObject({ method: 'POST', body: JSON.stringify({ name: 'spare' }) });
-    expect(cb.onState).toHaveBeenCalledWith(expect.objectContaining({ model: 'spare' }));
-    expect(net.getState().model).toBe('spare');
+    expect(cb.onState).toHaveBeenCalledWith(
+      expect.objectContaining({ selection: expect.objectContaining({ model: 'spare' }) })
+    );
+    expect(net.getState().selection.model).toBe('spare');
     expect(cb.onModels).toHaveBeenCalledWith(MODELS);
   });
 
@@ -235,10 +255,11 @@ describe('model selector', () => {
 });
 
 describe('fast figures', () => {
-  test('Refresh marks computing exactly the fast figures the state names', async () => {
+  test('Refresh marks computing exactly the fast figures the capabilities name', async () => {
     stubFetch({
-      '/api/state': response({ ...PERIODIC_STATE, solve: 'single_pass', fast_figures: ['optics'] }),
-      '/api/refresh': response({ status: 'ok' }),
+      '/api/state': response(SINGLE_PASS_STATE),
+      '/api/models': response(MODELS),
+      '/api/refresh': response({ status: 'ok', launched: ['optics'] }),
     });
     const cb = makeNetCallbacks();
     const net = createNetClient(cb);
@@ -252,13 +273,24 @@ describe('fast figures', () => {
 });
 
 describe('figures the selected model cannot draw', () => {
-  test('a periodic, served model hides no figure', () => {
+  test('a periodic model hides no figure', () => {
     expect(unavailableFigures(PERIODIC_STATE, ALL_FIGURES)).toEqual([]);
   });
 
-  test('a single-pass model hides every figure but optics, verification pair included', () => {
-    const state = { ...PERIODIC_STATE, solve: 'single_pass', fast_figures: ['optics'] };
+  test('a selection that is not ready hides no figure', () => {
+    const state = { ...PERIODIC_STATE, selection: selection('main', [], 'loading') };
+    expect(unavailableFigures(state, ALL_FIGURES)).toEqual([]);
+  });
+
+  test('the capabilities alone decide, whatever the model is called or served', () => {
+    const state = { ...PERIODIC_STATE, selection: selection('main', ['optics', 'resonance']) };
     expect(unavailableFigures(state, ALL_FIGURES)).toEqual([
+      'chromaticity', 'footprint', 'da', 'lma',
+    ]);
+  });
+
+  test('a single-pass model hides every figure but optics, verification pair included', () => {
+    expect(unavailableFigures(SINGLE_PASS_STATE, ALL_FIGURES)).toEqual([
       'resonance', 'chromaticity', 'footprint', 'da', 'lma',
     ]);
   });
@@ -286,9 +318,7 @@ describe('figures the selected model cannot draw', () => {
       ...makeNetCallbacks(),
       onFigureUnavailable: showFigureUnavailable,
     });
-    const state = { ...PERIODIC_STATE, solve: 'single_pass', fast_figures: ['optics'] };
-
-    syncAvailability(state, ALL_FIGURES, net.fetchAndRenderFigure);
+    syncAvailability(SINGLE_PASS_STATE, ALL_FIGURES, net.fetchAndRenderFigure);
     await vi.waitFor(() => expect(panelText('lma')).toBe('not available for a single-pass model'));
 
     for (const name of ['resonance', 'chromaticity', 'footprint', 'da', 'lma']) {
@@ -301,7 +331,7 @@ describe('figures the selected model cannot draw', () => {
 
   test('an unserved model hides no figure', () => {
     const fetchFigure = vi.fn();
-    const state = { ...PERIODIC_STATE, model: 'spare', served: false };
+    const state = { ...PERIODIC_STATE, selection: selection('spare', ALL_FIGURES) };
 
     syncAvailability(state, ALL_FIGURES, fetchFigure);
 
@@ -314,7 +344,7 @@ describe('figures the selected model cannot draw', () => {
   });
 
   test('switching back to a periodic model restores the hidden panels', () => {
-    syncAvailability({ ...PERIODIC_STATE, solve: 'single_pass' }, ALL_FIGURES, (name) =>
+    syncAvailability(SINGLE_PASS_STATE, ALL_FIGURES, (name) =>
       showFigureUnavailable(name, 'not available for a single-pass model'));
 
     syncAvailability(PERIODIC_STATE, ALL_FIGURES, vi.fn());
@@ -346,5 +376,29 @@ describe('notice banner', () => {
     const banner = byId('model-notice');
     expect(banner.textContent).toBe('');
     expect(banner.style.display).toBe('none');
+  });
+
+  test('a model that did not load puts its error in the banner', () => {
+    const state = {
+      notice: null,
+      selection: { model: 'main', status: 'failed', error: 'ValueError: no deck' },
+    };
+
+    expect(selectionNotice(state)).toBe('main did not load: ValueError: no deck');
+  });
+
+  test('the build notice wins over a selection error', () => {
+    const state = {
+      notice: 'no lattice model is served',
+      selection: { model: null, status: 'failed', error: 'no model' },
+    };
+
+    expect(selectionNotice(state)).toBe('no lattice model is served');
+  });
+
+  test('a loaded or loading selection adds nothing to the banner', () => {
+    for (const status of ['ready', 'loading']) {
+      expect(selectionNotice({ notice: null, selection: { model: 'main', status } })).toBeNull();
+    }
   });
 });

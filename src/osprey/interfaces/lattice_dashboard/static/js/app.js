@@ -27,6 +27,7 @@ import {
   bindModelSelect,
   renderModelSelect,
   renderNotice,
+  selectionNotice,
   showFigureUnavailable,
   syncAvailability,
   unavailableFigures,
@@ -45,7 +46,8 @@ initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 // ── Configuration ───────────────────────────────────────
 
 // Every figure cell the page has. Which of them Refresh computes is the
-// selected model's, and comes with each /api/state as `fast_figures`.
+// selected model's, and comes with each /api/state as
+// `selection.capabilities.fast_figures`.
 const ALL_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint', 'da', 'lma'];
 
 // ── Renderer ─────────────────────────────────────────────
@@ -71,7 +73,7 @@ const net = createNetClient({
   onState: (state) => {
     renderer.renderState(state);
     syncAvailability(state, ALL_FIGURES, net.fetchAndRenderFigure);
-    renderNotice(state.notice);
+    renderNotice(selectionNotice(state));
     header.syncState(state);
     loadSettings();
   },
@@ -91,7 +93,7 @@ const net = createNetClient({
     hideSpinner(name);
   },
   onFigureError: (name, error) => {
-    updateLED(name, 'error');
+    updateLED(name, 'failed');
     hideSpinner(name);
     showFigureError(name, error);
   },
