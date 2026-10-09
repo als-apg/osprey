@@ -75,6 +75,7 @@ def _graph_repo(
         (data / "facility.ttl").write_text(corpus, encoding="utf-8")
     (root / "profile.yml").write_text(
         "name: Graph Index\n"
+        f"project_name: {root.name}\n"
         "provider: anthropic\n"
         f"channel_finder_mode: {mode}\n"
         "data: data\n"

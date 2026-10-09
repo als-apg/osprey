@@ -193,11 +193,7 @@ services:
 
 volumes:
   graphdb_data:
-    labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
   graphdb_plugins:
-    labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 {# A deliberate blank line precedes the file-level stanza, so this call carries
    no left-trim marker (`{{-` would eat the blank line along with the newline it
    is meant to keep). Under `host` nothing is declared and the file simply ends

@@ -2,7 +2,8 @@
     submit_response shares. The artifact is the deliverable; the text the
     subagent returns to the parent is a pointer to it. Set `handback_label`
     before including to relabel the id line (the channel finder keeps its
-    tested "Channels found"); the default is "Results". -#}
+    tested "Channels found"); the default is "Results". A logbook subagent
+    that set `attachments_hand_back` also lists every picture it viewed. -#}
 ## Handing Back
 
 `submit_response` files your answer as an artifact and returns its `artifact_id`.
@@ -17,6 +18,10 @@ parent must know before acting on it — a list that came back truncated, an
 ambiguity you resolved, a scope you narrowed>
 <the definitive identifiers, one per line, when the question asked for them —
 the same identifiers you filed with the artifact>
+{%- if attachments_hand_back | default(false) and ariel_attachment_view | default(false) %}
+<`<entry_id> <attachment_id>` of every picture you viewed, one per line, whether
+or not the question asked for identifiers>
+{%- endif %}
 
 Never paste the artifact body — tables, per-device listings, full entry text —
 into the reply.

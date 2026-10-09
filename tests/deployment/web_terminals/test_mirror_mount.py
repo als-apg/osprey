@@ -84,8 +84,8 @@ def test_every_persona_less_user_gets_the_mirror():
     """With no catalog the deploy config is every user's config, so its own
     export entitles everyone — answered with no disk read."""
     assert _mirror_mounts(_config()) == {
-        "web-alice": [f"{MIRROR_SOURCE}:/app/dls-assistant/{MIRROR_PATH}"],
-        "web-bob": [f"{MIRROR_SOURCE}:/app/dls-assistant/{MIRROR_PATH}"],
+        "web-alice": [f"{MIRROR_SOURCE}:/app/dls_controls-assistant/{MIRROR_PATH}"],
+        "web-bob": [f"{MIRROR_SOURCE}:/app/dls_controls-assistant/{MIRROR_PATH}"],
     }
 
 
@@ -93,8 +93,8 @@ def test_mirror_path_on_the_module_block_is_honoured_too():
     """``settings.mirror_path`` wins when present; the bare key is read otherwise —
     the exporter's own merge rule, followed here so the mount lands where it writes."""
     assert _mirror_mounts(_config(via_settings=False)) == {
-        "web-alice": [f"{MIRROR_SOURCE}:/app/dls-assistant/{MIRROR_PATH}"],
-        "web-bob": [f"{MIRROR_SOURCE}:/app/dls-assistant/{MIRROR_PATH}"],
+        "web-alice": [f"{MIRROR_SOURCE}:/app/dls_controls-assistant/{MIRROR_PATH}"],
+        "web-bob": [f"{MIRROR_SOURCE}:/app/dls_controls-assistant/{MIRROR_PATH}"],
     }
 
 

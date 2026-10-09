@@ -106,6 +106,17 @@ def test_top_level_key_written_in_place_with_comments_intact(runner, lifecycle_r
     assert _comment_lines(after) == _comment_lines(before)
 
 
+def test_project_name_is_renamed_in_place(runner, lifecycle_repo):
+    """``osprey set project_name=`` is how a deployment is renamed."""
+    result = _invoke(runner, lifecycle_repo, "project_name=als-renamed")
+
+    assert result.exit_code == 0, result.output
+    assert "unknown" not in result.output.lower()
+    after = _profile_text(lifecycle_repo)
+    assert "\nproject_name: als-renamed\n" in after
+    assert "\nproject_name: als-exemplar\n" not in after
+
+
 def test_one_key_produces_a_one_line_diff(runner, lifecycle_repo):
     """The write touches the key's line and nothing else in the document.
 
@@ -553,6 +564,7 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
     repo.mkdir()
     (repo / "profile.yml").write_text(
         "name: Honesty Table\n"
+        f"project_name: {name}\n"
         "data: data\n"
         "provider: cborg\n"
         "model: claude-haiku-4-5\n"

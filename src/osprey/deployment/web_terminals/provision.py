@@ -802,12 +802,13 @@ def auth_sidecar_local_tag(config: dict) -> str:
     """The image tag a local-mode deploy builds for the sidecar.
 
     Must equal what ``docker-compose.web.yml.j2`` renders when ``auth.image``
-    is unset (``<project>-assistant-auth:local``, ``<project>`` being the name
-    ``resolve_project_name()`` returns) — a mismatch would leave compose
-    referencing a tag nothing built, failing at ``up`` with an opaque "no such
-    image".
+    is unset (``{{ auth_image | default(project_name ~ "-auth:local", true) }}``)
+    — a mismatch would leave compose referencing a tag nothing built, failing
+    at ``up`` with an opaque "no such image". Keyed on the deployment's compose
+    project (:func:`resolve_project_name` of the facility config), like every
+    other host-visible name the deployment owns.
     """
-    return f"{resolve_project_name(config)}-assistant-auth:local"
+    return f"{resolve_project_name(config)}-auth:local"
 
 
 def _require_auth_sidecar_image(web_terminals: dict) -> None:
@@ -885,7 +886,7 @@ def build_auth_sidecar_image(
     *,
     repo_root: Path | str | None = None,
 ) -> None:
-    """Build the sidecar's ``<project>-assistant-auth:local`` image.
+    """Build the sidecar's ``<project_name>-auth:local`` image.
 
     The local-mode counterpart of :func:`_require_auth_sidecar_image`, and the
     only producer of that tag: the web compose overlay declares the sidecar with
@@ -1916,10 +1917,9 @@ def deploy_down_web_terminals(
     in its ``-f`` list (the two stacks stay separate invocations — see the WHY
     TWO INVOCATIONS note on :func:`deploy_up_web_terminals`), so the web stack
     needs this dedicated ``down``. Without it the web containers outlive every
-    ``osprey down`` — and because their ``container_name``s are fixed
-    host-global identifiers (``<prefix>-web-<user>``, ``<prefix>-nginx``),
-    the NEXT web-terminals deploy on the host, from any project, dies at
-    ``up`` with a container-name Conflict instead of reconciling.
+    ``osprey down`` and keep serving beside a stopped services stack, holding
+    their host-global ``container_name``s (``<project>-web-<user>``,
+    ``<project>-nginx``) and their host ports.
 
     A no-op when the repo has no rendered ``build/docker-compose.web.yml``
     (nothing was ever deployed from here, or ``build/`` was wiped).

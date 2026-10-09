@@ -53,6 +53,7 @@ from osprey.deployment.compose_generator import (
     repo_identity,
     resolve_repo_root,
 )
+from osprey.deployment.container_ownership import claims_row
 from osprey.deployment.graphdb_service import (
     CONTAINER_BOLT_PORT,
     CONTAINER_HTTP_PORT,
@@ -62,7 +63,7 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.deployment.host_binding import host_binding_of
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
-from osprey.deployment.qmd_service import QMD_SERVICE_NAME, dial_host
+from osprey.deployment.qmd_service import QMD_SERVICE_NAME, QMD_SERVICE_PREFIX, dial_host
 from osprey.deployment.runtime_helper import get_ps_command, runtime_env
 from osprey.deployment.web_terminals.personas import normalize_users
 from osprey.deployment.web_terminals.ports import allocate_ports, base_ports_from_config
@@ -189,10 +190,6 @@ _SLOT_CONTAINER_PORTS = {
 
 # Compose service key of worker ``i``, and the prefix its remedy is keyed on.
 _WORKER_SERVICE_PREFIX = "dispatch-worker"
-
-# Compose service key of the qmd sidecar of corpus ``<name>`` is ``qmd-<name>``;
-# every sidecar is in the one qmd band, moved by the one key.
-_QMD_SERVICE_PREFIX = "qmd"
 
 # Label compose stamps with the project a container belongs to. Two checkouts of
 # one deployment share it, which is why :data:`REPO_ID_LABEL` is read as well.
@@ -346,7 +343,7 @@ def _generic_service(service):
         ``"dispatch-worker"`` for any indexed worker, ``"qmd"`` for any corpus
         sidecar, otherwise ``service``.
     """
-    for prefix in (_WORKER_SERVICE_PREFIX, _QMD_SERVICE_PREFIX):
+    for prefix in (_WORKER_SERVICE_PREFIX, QMD_SERVICE_PREFIX):
         if service.startswith(f"{prefix}-"):
             return prefix
     return service
@@ -731,9 +728,8 @@ def derive_host_network_bindings(config):
 def _web_terminal_service(user):
     """Return the binding label of one user's terminal.
 
-    ``web-<user>`` is the container name (``<project>-web-<user>``, the project
-    being the name ``resolve_project_name()`` returns; see
-    :mod:`osprey.deployment.web_terminals.naming`) with that project prefix
+    ``web-<user>`` is the container name (``<project>-web-<user>``, see
+    :mod:`osprey.deployment.web_terminals.naming`) with the project name
     dropped, which is exactly the suffix :func:`_runs_service` matches a running
     container's name against — so this deployment's own terminal, still up from
     the previous deploy, is read as the idempotent redeploy it is.
@@ -1022,17 +1018,12 @@ def _deployment_identity(config):
 def _holder_is_ours(record, project_name, repo_id):
     """Whether a running container belongs to THIS deployment.
 
-    The repo-id label strengthens the older compose-project check without
-    replacing it, because the two answer different questions and only one of
-    them is always available:
-
-    * both this checkout and the container carry a repo-id: the labels decide,
-      outright. A container of ANOTHER checkout of the same repo shares this
-      deployment's compose project name, so the project check alone would call
-      a real collision an idempotent redeploy and wave it through.
-    * the container carries none (an older OSPREY created it, or it is not
-      OSPREY's at all): fall back to the compose project name, which is what
-      this check has always used.
+    The parsed row read through the one ownership rule,
+    :func:`~osprey.deployment.container_ownership.claims_row`: when both this
+    checkout and the container carry a repo-id the ids decide, because another
+    checkout of the same repo shares this deployment's compose project name and
+    the project alone would call a real collision an idempotent redeploy;
+    otherwise the compose project name decides.
 
     Args:
         record: One parsed ``ps`` row.
@@ -1042,9 +1033,12 @@ def _holder_is_ours(record, project_name, repo_id):
     Returns:
         ``True`` when the container is this deployment's own.
     """
-    if record.repo_id and repo_id:
-        return record.repo_id == repo_id
-    return bool(record.project) and record.project == project_name
+    return claims_row(
+        row_repo_id=record.repo_id,
+        row_project=record.project,
+        project=project_name,
+        repo_id=repo_id,
+    )
 
 
 def _runs_service(records, project_name, repo_id, service):

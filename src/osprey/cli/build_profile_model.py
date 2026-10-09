@@ -238,6 +238,84 @@ def provider_catalog_key_errors(config: Any) -> list[str]:
     ]
 
 
+def project_name_errors(project_name: Any) -> list[str]:
+    """Refuse a ``project_name:`` that is empty or not compose's own spelling.
+
+    The value is used verbatim as the compose project, the volume prefix and
+    the image-tag stem, so it must already be what compose would normalize it
+    to; a value compose would rewrite would name one thing in the profile and
+    another on the host. An absent value (``None``) is not judged here: a
+    bundled preset carries none, and ``osprey build`` refuses a repo without
+    one with the line to add.
+
+    Args:
+        project_name: The profile's top-level ``project_name:`` value.
+
+    Returns:
+        One error when the value is unusable, naming the normalized spelling;
+        empty when it is usable or absent.
+    """
+    from osprey.deployment.compose_generator import _normalize_compose_name
+
+    if project_name is None:
+        return []
+    if not isinstance(project_name, str) or not project_name.strip():
+        return [
+            f"Profile 'project_name' must be a non-empty name (got {project_name!r}). It "
+            f"names this deployment's compose project, volumes and images."
+        ]
+    normalized = _normalize_compose_name(project_name)
+    if not normalized:
+        return [
+            f"Profile 'project_name' {project_name!r} has no character a compose project "
+            f"name may use. Use lowercase letters, digits, '_' and '-'."
+        ]
+    if normalized != project_name:
+        return [
+            f"Profile 'project_name' {project_name!r} is not a valid compose project name. "
+            f"Write it as `project_name: {normalized}` — lowercase letters, digits, '_' and "
+            f"'-', starting and ending with a letter or digit."
+        ]
+    return []
+
+
+def persona_render_key_errors(config: Any) -> list[str]:
+    """Refuse a persona catalog entry that spells the render the build derives.
+
+    A catalog entry with a ``build_profile`` is a persona ``osprey build``
+    renders from a delta, and the build names that render from the top-level
+    ``project_name:`` (:func:`~osprey.deployment.web_terminals.persona_naming.
+    persona_project`) and writes its ``project`` / ``project_path`` into
+    ``build/config.yml``. A profile spelling of either is a second home for one
+    fact. An entry without ``build_profile`` points at a render the build does
+    not make, so its ``project_path`` is the operator's to state.
+
+    Args:
+        config: A profile's ``config:`` block, whatever shape it parsed as.
+
+    Returns:
+        One error per offending entry, naming its keys; empty when none.
+    """
+    modules = _expand_dotted(config).get("modules")
+    web_terminals = modules.get("web_terminals") if isinstance(modules, dict) else None
+    personas = web_terminals.get("personas") if isinstance(web_terminals, dict) else None
+    if not isinstance(personas, dict):
+        return []
+    errors: list[str] = []
+    for persona, entry in personas.items():
+        if not isinstance(entry, dict) or not entry.get("build_profile"):
+            continue
+        spelled = [key for key in ("project", "project_path") if key in entry]
+        if not spelled:
+            continue
+        named = ", ".join(f"modules.web_terminals.personas.{persona}.{key}" for key in spelled)
+        errors.append(
+            f"config: {named} {'is' if len(spelled) == 1 else 'are'} rendered by the build; "
+            f"the build derives them from project_name. Delete these lines from profile.yml."
+        )
+    return errors
+
+
 # VALID_CHANNEL_FINDER_MODES is imported from the build-time kernel
 # (osprey.build.modes) so the validators below can use it while the definition
 # lives below the cli layer.
@@ -248,6 +326,17 @@ class BuildProfile:
     """Complete build profile parsed from YAML."""
 
     name: str
+    project_name: str | None = None
+    """The deployment's own name (``project_name:``), tracked in the profile.
+
+    Every host-visible name derives from it: the compose project, the volume
+    prefix, the ``<project>:local`` image tags, and each persona render
+    ``build/<project_name>-<persona>``. Distinct from :attr:`name`, which is a
+    display label, and from the checkout's folder name, which ``osprey init``
+    reads once to propose a value. :meth:`validate` holds it to the spelling
+    compose itself would use. ``None`` only for a document no repo holds — a
+    bundled preset — which ``osprey build`` refuses to render.
+    """
     data: str | None = None
     """Facility data tree this profile carries, as a path relative to the
     profile directory (``data`` for a materialized profile, ``../data`` for a
@@ -1266,6 +1355,8 @@ class BuildProfile:
         if not self.name:
             errors.append("Profile 'name' is required")
 
+        errors.extend(project_name_errors(self.project_name))
+
         if not isinstance(self.deploy_services, bool):
             errors.append(
                 f"deploy_services must be a boolean (got {type(self.deploy_services).__name__})"
@@ -1310,6 +1401,9 @@ class BuildProfile:
         # one fact, and the render wins silently, so the second spelling is
         # refused here naming the field that supplies it.
         errors.extend(derived_key_errors(self.config))
+        # The persona catalog's render coordinates, which the build derives
+        # from `project_name` for every entry it renders from a delta.
+        errors.extend(persona_render_key_errors(self.config))
         # And the one derived branch whose source is a sibling FILE rather than
         # a field or the build's own layout.
         errors.extend(provider_catalog_key_errors(self.config))

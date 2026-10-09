@@ -1120,13 +1120,9 @@ volumes:
 {%- for lane_key in lane_keys %}
 {%- if not (services[lane_key].external | default(false)) %}
   {{ lane_key }}_queueserver_redis:
-    labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 {%- endif %}
 {%- endfor %}
 {%- endif %}
 {% if services.bluesky.tiled_enabled | default(false) %}
   bluesky_tiled_catalog:
-    labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 {% endif %}

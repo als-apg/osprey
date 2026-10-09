@@ -433,6 +433,15 @@ def build_ariel_status_repository(stats: dict[str, Any]) -> MagicMock:
     )
     repository.get_attachment_bytes = AsyncMock(return_value=8192)
     repository.get_attachment_copy_counts = AsyncMock(return_value=(1, {"too_large": 1}))
+    repository.get_caption_counts = AsyncMock(
+        return_value={
+            "over_cap": 0,
+            "older_prompt": 0,
+            "refresh_pending": 0,
+            "refresh_failed": 0,
+            "unrecorded_prompt": 0,
+        }
+    )
     return repository
 
 

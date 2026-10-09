@@ -888,6 +888,7 @@ async def run_sdk_query(
     max_budget_usd: float = 2.0,
     model: str | None = None,
     disallowed_tools: list[str] | None = None,
+    resume: str | None = None,
 ) -> SDKWorkflowResult:
     """Run a query via the Claude Agent SDK and collect full tool traces.
 
@@ -907,6 +908,9 @@ async def run_sdk_query(
             and over per-tool ``permissions_allow`` in ``.mcp.json``. Use this
             to architecturally force delegation to subagents (the main agent
             cannot call a disallowed tool even when settings would permit it).
+        resume: Optional session id of an earlier run (its
+            ``result.session_id``); the prompt is then the next turn of that
+            conversation. The traces collected are this turn's only.
 
     Returns:
         SDKWorkflowResult with all collected tool traces, text, and metadata.
@@ -925,6 +929,7 @@ async def run_sdk_query(
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
         disallowed_tools=disallowed_tools or [],
+        resume=resume,
     )
 
     workflow = SDKWorkflowResult()

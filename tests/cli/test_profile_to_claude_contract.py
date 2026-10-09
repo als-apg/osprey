@@ -1065,6 +1065,7 @@ def test_build_command_fails_on_violation(tmp_path, caplog):
         yaml.dump(
             {
                 "name": "Broken Profile",
+                "project_name": "broken-deployment",
                 # The preset carries the posture floor and the bundle; only the
                 # unbacked agent tool below is what this build should die on.
                 "extends": "hello-world",

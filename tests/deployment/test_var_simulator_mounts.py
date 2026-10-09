@@ -124,8 +124,8 @@ def test_every_web_terminal_mounts_it_with_a_simulated_target(
 
     assert terminals
     for service in terminals.values():
-        assert _simulator_mounts(service) == ["./var/simulator:/app/dls-assistant/var/simulator"]
-        assert _env(service)["OSPREY_SIMULATOR_LOG_DIR"] == "/app/dls-assistant/var/simulator"
+        assert _simulator_mounts(service) == ["./var/simulator:/app/dls_controls-assistant/var/simulator"]
+        assert _env(service)["OSPREY_SIMULATOR_LOG_DIR"] == "/app/dls_controls-assistant/var/simulator"
 
 
 def test_no_web_terminal_mounts_it_on_a_live_only_deployment() -> None:

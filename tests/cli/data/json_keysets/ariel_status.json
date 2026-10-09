@@ -10,6 +10,7 @@
   "attachments.render",
   "attachments.skipped",
   "attachments.view",
+  "captions",
   "database",
   "database.connected",
   "database.uri",

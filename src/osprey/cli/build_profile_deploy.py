@@ -318,8 +318,47 @@ def deploy_config_overrides(deploy: DeployConfig | None, config: Any) -> dict[st
     return overrides
 
 
+def build_lint_view(
+    deploy: DeployConfig | None, config: Any, project_name: str | None
+) -> dict[str, Any]:
+    """The config the profile lint judges: the ``config:`` block as the build renders it.
+
+    Three contributions over the profile's own entries, each one the build
+    also writes into ``build/config.yml``:
+
+    - what the ``deploy:`` block contributes (:func:`deploy_config_overrides`);
+    - every rendered persona's ``project`` / ``project_path``, derived from
+      ``project_name``
+      (:func:`~osprey.deployment.web_terminals.persona_naming.derived_persona_catalog`);
+    - ``project_name`` itself, at the root, where the rendered config carries
+      it — so the rules that compare a persona's project with the deployment's
+      own (the worker-image shadow, the persona collisions) judge real values
+      before any render exists.
+
+    Args:
+        deploy: The profile's parsed ``deploy:`` block, or ``None``.
+        config: The profile's ``config:`` block.
+        project_name: The profile's top-level ``project_name:``, or ``None``
+            when it states none (nothing is derived from an absent name).
+
+    Returns:
+        A flat bag of the profile's dotted keys with the derived ones laid over.
+    """
+    view: dict[str, Any] = {**config, **deploy_config_overrides(deploy, config)}
+    if project_name:
+        from osprey.deployment.web_terminals.persona_naming import derived_persona_catalog
+
+        view.update(derived_persona_catalog(config, project_name))
+        view["project_name"] = project_name
+    return view
+
+
 def deploy_aware_config_errors(
-    deploy: DeployConfig | None, config: Any, *, profile_root: Path | None = None
+    deploy: DeployConfig | None,
+    config: Any,
+    *,
+    profile_root: Path | None = None,
+    project_name: str | None = None,
 ) -> list[str]:
     """Lint a profile's web stack against the config the BUILD will render.
 
@@ -358,6 +397,8 @@ def deploy_aware_config_errors(
             ``osprey build`` from a subdirectory, and ``--repo`` from anywhere,
             used to pass a roster the profile gate exists to refuse. Every
             command surface passes it.
+        project_name: The profile's top-level ``project_name:``; see
+            :func:`build_lint_view` for what is derived from it.
 
     Returns:
         The lint messages that must fail the command, empty when it passes.
@@ -367,12 +408,16 @@ def deploy_aware_config_errors(
     from osprey.deployment.web_terminals.lint import profile_config_errors
 
     return profile_config_errors(
-        {**config, **deploy_config_overrides(deploy, config)}, profile_root=profile_root
+        build_lint_view(deploy, config, project_name), profile_root=profile_root
     )
 
 
 def deploy_aware_config_warnings(
-    deploy: DeployConfig | None, config: Any, *, profile_root: Path | None = None
+    deploy: DeployConfig | None,
+    config: Any,
+    *,
+    profile_root: Path | None = None,
+    project_name: str | None = None,
 ) -> list[str]:
     """The advisory half of :func:`deploy_aware_config_errors`, on the same merged view.
 
@@ -387,7 +432,7 @@ def deploy_aware_config_warnings(
     from osprey.deployment.web_terminals.lint import profile_config_warnings
 
     return profile_config_warnings(
-        {**config, **deploy_config_overrides(deploy, config)}, profile_root=profile_root
+        build_lint_view(deploy, config, project_name), profile_root=profile_root
     )
 
 

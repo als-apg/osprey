@@ -361,6 +361,8 @@ def _seed_one_user(
 ) -> bool | None:
     """Seed one user's container; never raise.
 
+    ``project_name`` is the deployment's compose project, which names the
+    user's container (:func:`~osprey.deployment.web_terminals.naming.web_container_name`).
     ``context_dir`` is the resolved overlay root (:func:`_context_dir`) this
     user's ``extra.md`` and ``skills/`` are read from.
 

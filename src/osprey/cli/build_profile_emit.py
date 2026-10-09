@@ -68,6 +68,7 @@ from .profile_root import PERSONA_DIRNAME
 _EXPLICIT_KEYS: frozenset[str] = frozenset(
     {
         "name",  # identifies the deployment; the emitter always sets it
+        "project_name",  # names the deployment on the host; init proposes it
         "deploy_services",  # self-contained vs attached project
         "config",  # config.yml overrides: the facility's main dial
         "services",  # container services the profile declares
@@ -126,8 +127,8 @@ _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
 )
 
 # Loader defaults for EXPLICIT members, used when the resolved profile lacks
-# one. `name`, `requires_osprey_version` and `provenance` are always set by the
-# emitter, so they need no fallback.
+# one. `name`, `project_name`, `requires_osprey_version` and `provenance` are
+# always set by the emitter, so they need no fallback.
 _EXPLICIT_DEFAULTS: dict[str, Any] = {
     "deploy_services": True,
     "config": {},
@@ -192,6 +193,13 @@ _ANNOTATIONS: dict[str, tuple[str, ...]] = {
         "# If `env:` already has children, add yours under it.",
     ),
 }
+
+# Always written beside `name:`, the field it is easiest to mistake it for: one
+# is a display label, the other the name every container, volume and image of
+# the deployment is derived from on the host.
+_PROJECT_NAME_COMMENT = (
+    "# Names the compose project, volumes, images, persona renders; not the folder."
+)
 
 # The stamp is always written, so it carries its explanation rather than a
 # synthesis rationale: it is a floor for readers, not a preset choice.
@@ -1210,9 +1218,17 @@ _ZONE_MAP = """\
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept"""
 
 
-def persona_catalog_layer(persona_names: Iterable[str], *, repo_name: str) -> dict[str, Any]:
+def persona_catalog_layer(persona_names: Iterable[str]) -> dict[str, Any]:
     """A raw profile fragment repointing each persona's ``build_profile`` at its
     emitted sibling profile.
+
+    The catalog stores the SOURCE of each render and nothing about where it
+    lands: ``osprey build`` derives every persona's ``project`` and
+    ``project_path`` from the profile's ``project_name:`` and writes them into
+    ``build/config.yml``
+    (:func:`~osprey.deployment.web_terminals.persona_naming.derived_persona_catalog`),
+    and :meth:`~osprey.cli.build_profile_model.BuildProfile.validate` refuses a
+    profile that spells them for an entry with a ``build_profile``.
 
     Written at the DEEPEST spelling on purpose. ``_collapse_config_prefixes``
     resolves a prefix pair deeper-key-wins, so these keys survive whatever
@@ -1223,23 +1239,12 @@ def persona_catalog_layer(persona_names: Iterable[str], *, repo_name: str) -> di
 
     Args:
         persona_names: Personas the profile's catalog declares.
-        repo_name: Directory name of the deployment repo. A persona render is
-            build output like every other render, so its ``project_path`` lands
-            under the repo's ``build/`` zone and its ``project`` is keyed off
-            the deployment's own name rather than the preset's. This is why a
-            shipped preset cannot spell either value correctly on its own —
-            neither is knowable until a repo has a name.
     """
     layer: dict[str, str] = {}
     for name in persona_names:
-        prefix = f"modules.web_terminals.personas.{name}"
-        layer[f"{prefix}.build_profile"] = f"{PERSONA_DIRNAME}/{name}.yml"
-        # `project` must equal `project_path`'s basename. Both are derived from
-        # the repo name here, and `osprey build` derives the render's own name
-        # the same way, which is how the render lands exactly where the catalog
-        # mounts it.
-        layer[f"{prefix}.project"] = f"{repo_name}-{name}"
-        layer[f"{prefix}.project_path"] = f"{BUILD_OUTPUT_DIR}/{repo_name}-{name}"
+        layer[f"modules.web_terminals.personas.{name}.build_profile"] = (
+            f"{PERSONA_DIRNAME}/{name}.yml"
+        )
     return {"config": layer}
 
 
@@ -1254,7 +1259,9 @@ def triggers_layer() -> dict[str, Any]:
     return {"dispatch": {"triggers": PROFILE_TRIGGERS_FILENAME}}
 
 
-def materialized_profile(preset_name: str, *, repo_name: str, profile_name: str) -> dict[str, Any]:
+def materialized_profile(
+    preset_name: str, *, project_name: str, profile_name: str
+) -> dict[str, Any]:
     """The profile ``osprey init`` writes for *preset_name* today, as data.
 
     The reference a materialized profile is compared with
@@ -1262,15 +1269,15 @@ def materialized_profile(preset_name: str, *, repo_name: str, profile_name: str)
     preset's raw layer, which no repo ever holds, but the document the emitter
     makes of it — ``extends`` resolved, defaults synthesized, ``config:``
     prefixes collapsed, the persona catalog and ``dispatch.triggers`` repointed
-    at the files a repo of this name owns. Produced by the emitter itself, so a
+    at the files the repo owns. Produced by the emitter itself, so a
     difference between this and the profile on disk is either an operator's
     edit or a change in the preset, never an artifact of how ``osprey init``
     spells things.
 
     Args:
         preset_name: Bundled preset, any CLI spelling.
-        repo_name: Directory name of the deployment repo, which the persona
-            catalog's ``project`` and ``project_path`` derive from.
+        project_name: The profile's ``project_name:``, copied in so it never
+            reads as a difference.
         profile_name: The profile's display ``name:``, copied in so it never
             reads as a difference.
 
@@ -1287,10 +1294,12 @@ def materialized_profile(preset_name: str, *, repo_name: str, profile_name: str)
     config = resolved.get("config")
     personas = persona_catalog(config if isinstance(config, Mapping) else {})
     layers: tuple[Mapping[str, Any], ...] = (
-        *((persona_catalog_layer(personas, repo_name=repo_name),) if personas else ()),
+        *((persona_catalog_layer(personas),) if personas else ()),
         *((triggers_layer(),) if isinstance(resolved.get("dispatch"), Mapping) else ()),
     )
-    text = emit_standalone_profile_yaml(preset_name, (), profile_name, extra_layers=layers)
+    text = emit_standalone_profile_yaml(
+        preset_name, (), profile_name, project_name=project_name, extra_layers=layers
+    )
     # Parsed the way the profile on disk is, so the comparison downstream sees
     # exactly the keys a build would load from this text.
     document = _parse_profile_document(text, f"materialized preset {preset_name!r}")
@@ -1304,6 +1313,8 @@ def emit_standalone_profile_yaml(
     extra_layers: tuple[Mapping[str, Any], ...] = (),
     include_flow_diagram: bool = False,
     providers_hash: str | None = None,
+    *,
+    project_name: str,
 ) -> str:
     """Render the standalone ``profile.yml`` text for ``osprey init``.
 
@@ -1313,6 +1324,8 @@ def emit_standalone_profile_yaml(
             each replacing the value at the key it names
             (:func:`~osprey.cli.build_profile_resolve.apply_cli_edits`).
         profile_name: Display name written to the profile's ``name:`` key.
+        project_name: The deployment's name, written to ``project_name:``
+            directly below ``name:``. The caller passes it compose-normalized.
         extra_layers: Raw profile fragments merged after the user's edits,
             through the :func:`_deep_merge` channel — so they win over the
             user's, and so nothing here is a second path into the resolved
@@ -1347,6 +1360,7 @@ def emit_standalone_profile_yaml(
     for layer in extra_layers:
         resolved = _deep_merge(resolved, dict(layer))
     resolved["name"] = profile_name
+    resolved["project_name"] = project_name
 
     # The schema floor a *reader* of this profile needs — pinned, never the
     # running version, which would let the emitting release satisfy its own gate
@@ -1410,6 +1424,13 @@ def emit_standalone_profile_yaml(
     for key in PRESET_ONLY_KEYS:
         _drop_key_and_pre_comment(doc, key)
 
+    # `project_name` sits directly below `name:`, the field it is most easily
+    # mistaken for. No preset carries it (the emitter sets it), so the sync
+    # below would otherwise append it at the end of the document.
+    if "project_name" not in doc and "name" in doc:
+        doc.insert(list(doc.keys()).index("name") + 1, "project_name", project_name)
+        _relocate_trailing(doc, "name", "project_name")
+
     _sync_to_resolved(doc, resolved)
 
     # Rationale above each synthesized key, so a reader can tell a deliberate
@@ -1429,6 +1450,8 @@ def emit_standalone_profile_yaml(
     for field, annotation in _ANNOTATIONS.items():
         if field in doc:
             _set_pre_comment(doc, field, list(annotation), 0)
+    if "project_name" in doc:
+        _set_pre_comment(doc, "project_name", [_PROJECT_NAME_COMMENT], 0)
     if "requires_osprey_version" in doc:
         _set_pre_comment(doc, "requires_osprey_version", [_REQUIRES_VERSION_COMMENT], 0)
     if "provenance" in doc:

@@ -441,7 +441,8 @@ the remedy.
    profile that rule has no unprivileged tier to send the default to, so it
    stays quiet there and the entries actually exposed are the ones named. A
    persona named by either check that the command cannot read at all — a
-   ``build_profile`` pointing outside ``personas/``, say — is refused rather
+   ``build_profile`` pointing outside ``personas/``, say, or an entry with no
+   ``build_profile`` whose ``project_path`` holds no ``config.yml`` — is refused rather
    than taken to hold nothing, naming the persona, the value it was given and
    the remedy — plus the path it tried, where the value resolved to one; where
    the unreadable persona is a shared card's, that refusal too stands whatever

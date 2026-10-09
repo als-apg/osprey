@@ -661,6 +661,47 @@ def test_resolve_personas_local_mode_entry_without_project_keeps_suffixed_tag() 
     assert result[0]["project"] == "demo-project-assistant"
 
 
+def test_resolve_personas_legacy_image_and_dir_follow_the_project_name() -> None:
+    """With no render of its own, the image and the in-container directory are
+    both named on the deployment's compose project."""
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "bare"}],
+        "default_persona": "bare",
+        "image_source": "local",
+        "personas": {"bare": {"project_path": "profiles/bare"}},
+    }
+
+    (entry,) = resolve_personas(web_terminals, _REGISTRY, "site")
+
+    assert entry["image"] == "site-assistant-bare:local"
+    assert entry["project"] == "site-assistant"
+    assert entry["container_project_dir"] == "/app/site-assistant"
+
+
+def test_resolve_personas_zero_migration_project_follows_the_project_name() -> None:
+    """A roster with no persona system names its project and its directory on
+    the compose project."""
+    (entry,) = resolve_personas({"users": ["alice"]}, _REGISTRY, "site")
+
+    assert entry["project"] == "site-assistant"
+    assert entry["container_project_dir"] == "/app/site-assistant"
+
+
+def test_resolve_personas_own_project_ignores_the_project_name() -> None:
+    """A persona with its own render is named and placed by that render alone."""
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "cli"}],
+        "default_persona": "cli",
+        "image_source": "local",
+        "personas": {"cli": {"project": "site-cli", "project_path": "build/site-cli"}},
+    }
+
+    (entry,) = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    assert entry["image"] == "site-cli:local"
+    assert entry["container_project_dir"] == "/app/site-cli"
+
+
 def test_resolve_personas_entry_without_persona_key_inherits_default_persona() -> None:
     """A roster entry with no `persona:` key inherits `default_persona`, resolving
     through the catalog rather than falling onto the no-persona legacy path."""

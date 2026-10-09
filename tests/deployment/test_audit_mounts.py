@@ -231,7 +231,7 @@ def test_the_audit_path_is_routed_through_the_shared_constant():
 
     source, target = _audit_mounts(services["web-alice"])[0].split(":")
     assert source == f"./{AUDIT_DIR_RELPATH}/alice"
-    assert target == f"/app/dls-assistant/{AUDIT_DIR_RELPATH}/alice"
+    assert target == f"/app/dls_controls-assistant/{AUDIT_DIR_RELPATH}/alice"
 
 
 def test_the_target_is_computed_per_persona_from_its_own_project_dir():

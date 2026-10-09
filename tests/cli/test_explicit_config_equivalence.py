@@ -1298,6 +1298,39 @@ def _middle_layer_index_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+#: The control-assistant persona catalog entries, each a ``build_profile``.
+_CATALOG_PERSONAS = ("admin", "knowledge", "logbook", "readonly", "readwrite")
+
+
+def _persona_catalog_project_deltas() -> tuple[Delta, ...]:
+    """The ``project``/``project_path`` leaves every persona catalog entry lost.
+
+    A catalog entry that names a ``build_profile`` takes its project name and
+    directory from that profile, so the preset no longer spells either beside
+    it. The fixtures were frozen with both stated. The root build still renders
+    both into its own catalog, from each persona's profile; the persona
+    documents, built from those profiles, no longer carry them.
+
+    Returns:
+        Two deltas per catalog entry per persona document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path=f"modules.web_terminals.personas.{persona}.{key}",
+            fixture=value,
+            live=ABSENT,
+        )
+        for document in _CONTROL_ASSISTANT_DOCUMENTS
+        if document != "root"
+        for persona in _CATALOG_PERSONAS
+        for key, value in (
+            ("project", f"osprey-freeze-{persona}"),
+            ("project_path", f"build/osprey-freeze-{persona}"),
+        )
+    )
+
+
 def _standalone_picker_deltas() -> tuple[Delta, ...]:
     """The picker setting a standalone preset that reaches no machine states.
 
@@ -1390,6 +1423,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
+    + _persona_catalog_project_deltas()
     + _in_context_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1422,6 +1456,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
+    + _persona_catalog_project_deltas()
     + _hierarchical_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1454,6 +1489,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
+    + _persona_catalog_project_deltas()
     + _middle_layer_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1485,7 +1521,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
-    + _probe_timeout_deltas(),
+    + _probe_timeout_deltas()
+    + _persona_catalog_project_deltas(),
 }
 
 

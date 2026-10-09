@@ -706,7 +706,10 @@ async def test_enhance_module_lock_held_elsewhere_prints_and_skips(monkeypatch) 
         _config(), module="image_caption", force=False, limit=10, progress=lines.append
     )
 
-    assert "image_caption: running in another process" in lines
+    assert (
+        "image_caption: skipped, another pass is running it (osprey ariel watch runs the picture modules on every poll)"
+        in lines
+    )
     assert caption.run_calls == [] and caption.health_calls == 0
 
 
@@ -882,4 +885,6 @@ async def test_retry_failed_runs_under_the_module_lock_and_skips_when_held(
     )
 
     assert reset == 0
-    assert lines == ["image_caption: running in another process"]
+    assert lines == [
+        "image_caption: skipped, another pass is running it (osprey ariel watch runs the picture modules on every poll)"
+    ]

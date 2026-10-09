@@ -187,7 +187,13 @@ def _build(tmp_path: Path, config: dict[str, Any]):
     (repo / "data").mkdir()
     (repo / "profile.yml").write_text(
         yaml.safe_dump(
-            {"name": "Demo Facility", "data": "data", "config": config}, sort_keys=False
+            {
+                "name": "Demo Facility",
+                "project_name": "demo-facility",
+                "data": "data",
+                "config": config,
+            },
+            sort_keys=False,
         ),
         encoding="utf-8",
     )

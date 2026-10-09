@@ -297,7 +297,8 @@ def _auth_config(method: str, users=("alice", "bob"), auth_image="reg/osprey-aut
     if auth_image is not None:
         auth["image"] = auth_image
     return {
-        "project_name": "demo-project",
+        "project_name": "als_controls",
+        "facility": {"prefix": "als"},
         "modules": {
             "web_terminals": {
                 "users": list(users),
@@ -891,7 +892,7 @@ def test_local_mode_builds_the_auth_image_the_compose_overlay_references(monkeyp
     assert len(recorded) == 1
     cmd = recorded[0]
     context_dir = tmp_path / provision.AUTH_BUILD_CONTEXT
-    assert cmd[:4] == ["podman", "build", "-t", "demo-project-assistant-auth:local"]
+    assert cmd[:4] == ["podman", "build", "-t", "als_controls-auth:local"]
     assert cmd[-1] == str(context_dir)
     assert "-f" in cmd and cmd[cmd.index("-f") + 1] == str(context_dir / "Dockerfile")
     # OSPREY_PROJECT_NAME is what stamps com.osprey.project on the image, the

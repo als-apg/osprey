@@ -134,7 +134,10 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
 #: so no preset states the leaf. ``facility.prefix`` is deleted:
 #: container names and persona projects come from the project name. The two
 #: ``simulation_file`` leaves are deleted: every connector serves the simulator
-#: view the build writes, so no connector block names a model file.
+#: view the build writes, so no connector block names a model file. The
+#: ``project``/``project_path`` leaves of each control-assistant persona entry
+#: are gone too: an entry that names a ``build_profile`` takes its project name
+#: and directory from that profile, so the catalog no longer spells them.
 _RETIRED_SINCE_THE_FREEZE = frozenset(
     {
         "web.docs_url",
@@ -147,6 +150,11 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
         "facility.prefix",
         "control_system.connector.mock.simulation_file",
         "control_system.connector.virtual_accelerator.simulation_file",
+        *(
+            f"modules.web_terminals.personas.{persona}.{key}"
+            for persona in ("admin", "knowledge", "logbook", "readonly", "readwrite")
+            for key in ("project", "project_path")
+        ),
     }
 )
 

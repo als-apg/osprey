@@ -1417,6 +1417,10 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     for stamped in ("name", "requires_osprey_version", "data"):
         d_preset.pop(stamped)
         d_new.pop(stamped)
+    # A preset names no deployment; the materialized profile names the one it
+    # deploys, after the directory it was materialized into.
+    assert d_preset.pop("project_name") is None
+    assert d_new.pop("project_name") == target.name
 
     preset_triggers = _take_dispatch_triggers(d_preset)
     # Rewritten to the profile's own copy wherever the preset declares dispatch.
@@ -1429,19 +1433,11 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     assert new_config == preset_config
     # Rewritten to this repo's own deltas and build zone for a profile that
     # deploys the stack; untouched for one that only inherits the catalog with
-    # the module off. `project` must equal `project_path`'s basename — the
-    # invariant the persona render relies on to land where the catalog mounts it.
+    # the module off. An entry that names a build_profile spells no
+    # `project`/`project_path`: the persona's profile is where those come from.
     rewrites = emits_persona_profiles(from_preset.config)
     assert new_personas == {
-        name: (
-            {
-                "build_profile": f"personas/{name}.yml",
-                "project": f"{target.name}-{name}",
-                "project_path": f"build/{target.name}-{name}",
-            }
-            if rewrites
-            else value
-        )
+        name: ({"build_profile": f"personas/{name}.yml"} if rewrites else value)
         for name, value in preset_personas.items()
     }
     assert d_new == d_preset

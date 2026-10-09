@@ -298,6 +298,15 @@ Everything a profile contributes lives inside the profile directory. That is
 what keeps a build reproducible: clone the deployment repository anywhere, and
 the same project renders.
 
+That includes its name. The compose project, the volumes, the images and the
+persona renders are all named from the tracked ``project_name:`` field, never
+from the folder the clone sits in, so a clone under any folder name renders and
+deploys the same deployment. The flip side is that two clones on one host are
+the same deployment until one of them says otherwise. A second clone that runs
+beside the original declares its own name in a variant overlay
+(:ref:`profile-host-variants`); without one, ``osprey up`` refuses to start over
+the original's containers.
+
 The build holds the convention directories to it. An entry that is a symlink
 resolving outside the profile is refused, with the remedy — copy the target in
 instead. ``osprey scaffold claim`` refuses the same shape before it moves
@@ -517,7 +526,11 @@ result with:
 
 ``profile.yml`` points at these files by path — its web-terminal catalog carries
 ``build_profile: personas/<name>.yml`` for each one — so keep the names in step
-if you rename one. ``osprey up`` reads the same catalog but renders nothing: a
+if you rename one. That line is the whole entry. The build derives where each
+persona renders, ``build/<project_name>-<name>``, and writes that into
+``build/config.yml`` itself; a ``project:`` or ``project_path:`` line beside a
+``build_profile`` would be a second copy of that fact, and the build refuses it
+with "delete these lines" as the remedy. ``osprey up`` reads the same catalog but renders nothing: a
 persona project missing from ``build/`` stops the start and points at
 ``osprey build`` as the remedy. A bundled preset
 name in that field is rejected, because a persona built from a preset of its own
@@ -681,6 +694,38 @@ Three cases worth knowing about:
   but switching ``.env.variant`` (or editing the selected overlay) marks the
   existing ``build/`` out of date, so ``osprey up`` names the stale render
   instead of starting it silently.
+
+Two checkouts on one host
+-------------------------
+
+The same mechanism covers a second checkout on the *same* host — a scratch
+clone beside the deployment, or a worktree. Both checkouts read the same
+tracked ``project_name:``, so without an overlay they are one deployment: same
+compose project, same volumes, same image tags. ``osprey up`` in the second
+checkout refuses while containers under that name were created from the
+first, and names both ways out (see :ref:`deploy-two-checkouts-one-host`).
+
+To run the second copy beside the first, give it its own name in an overlay
+and select it in that checkout only:
+
+.. code-block:: yaml
+
+   # profiles/scratch.yml
+   project_name: my-facility-scratch
+
+.. code-block:: bash
+
+   echo OSPREY_PROFILE_VARIANT=scratch > .env.variant
+   osprey build
+
+``project_name`` is a top-level field, so the overlay sets it the way it sets
+any other. The scratch copy then has its own containers, volumes and images,
+and starts with empty data. A clone that keeps the tracked name *is* the same
+deployment and shares its volumes by that declaration; the refusal guards
+against two copies running at once, not against moving a checkout.
+
+The port block is the other thing two copies on one host share; move it in the
+same overlay with ``config: deployment.port_base``.
 
 An overlay adds and replaces; it does not subtract. Lists are merged rather
 than swapped, so use :ref:`exclude: <profile-exclude>` to take something away

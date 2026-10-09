@@ -76,6 +76,7 @@ def _write_profile(
 
     profile: dict = {
         "name": "VA Build Step Test",
+        "project_name": "repo",
         "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",

@@ -217,8 +217,9 @@ def _repo_readme(name: str, seeded: tuple[str, ...] = (), facility_rule: bool = 
     return f"""\
 # {name}
 
-This folder is your OSPREY assistant. Everything it is made of lives here, and
-the folder name is the assistant's name.
+This folder is your OSPREY assistant. Everything it is made of lives here. Its
+name on this machine — the containers, volumes and images — is `project_name:`
+in `profile.yml`, not the folder name.
 
 ## What is in here
 
@@ -1270,7 +1271,8 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     "images left by a previous deployment of it, and re-materialize the source "
     "zone as --force does when the repo directory still exists. Removing a "
     "deployment's directory never removed its runtime state — it is keyed on "
-    "the project name and outlives the directory — so re-creating under a used "
+    "the project_name (proposed from the folder name and recorded in "
+    "profile.yml) and outlives the directory — so re-creating under a used "
     f"name inherits its stores. Discards their data. Never touches: {_PRESERVED_PROSE}.",
 )
 @click.option("--up", "start", is_flag=True, help="Build the deployment and start it.")
@@ -1292,8 +1294,9 @@ def init(
 ) -> None:
     """Create a deployment repo from a preset.
 
-    DIRECTORY is the repository the deployment lives in, and its name is the
-    deployment's name. Omit it to initialize the current directory in place,
+    DIRECTORY is the repository the deployment lives in. Its folder name is
+    proposed as project_name and recorded in profile.yml, and every container,
+    volume and image of the deployment is named from that. Omit it to initialize the current directory in place,
     which is how a repository cloned empty from a forge is filled in.
 
     The repo holds four zones — source you edit, secrets, disposable build
@@ -1489,6 +1492,40 @@ def init(
         print_summary_card(target, "running" if start else "created")
 
 
+def _reset_project_name(target: Path) -> str:
+    """The compose project ``--reset`` sweeps and names in its remedies.
+
+    The ``project_name:`` the repo's profile records — through the host's
+    variant overlay when one is selected, which may rename the instance — when
+    the profile can be read; otherwise the folder name, normalized the way
+    :func:`~osprey.deployment.compose_generator.resolve_project_name` normalizes
+    every fallback. The probe and every printed command read this one answer,
+    so a remedy never filters on a name the sweep did not use.
+    """
+    import yaml
+
+    from osprey.deployment.compose_generator import resolve_project_name
+
+    from .build_profile_resolve import PROFILE_FILENAME
+    from .variant_selection import active_variant_overlay
+
+    declared: object = None
+    for layer in (target / PROFILE_FILENAME, active_variant_overlay(target)):
+        if layer is None or not layer.is_file():
+            continue
+        try:
+            document = yaml.safe_load(layer.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if isinstance(document, dict) and document.get("project_name"):
+            declared = document["project_name"]
+    return str(
+        resolve_project_name(
+            {"project_name": str(declared)} if declared else {"project_root": str(target)}
+        )
+    )
+
+
 def _surviving_project_resources(target: Path, runtime: str) -> list[str]:
     """Containers and volumes still labelled for this project after a reset.
 
@@ -1508,10 +1545,9 @@ def _surviving_project_resources(target: Path, runtime: str) -> list[str]:
             the probe and the refusal that reports its findings can only ever
             name the same binary.
     """
-    from osprey.deployment.compose_generator import resolve_project_name
     from osprey.deployment.reset import RuntimeProbe
 
-    project = resolve_project_name({"project_name": target.name})
+    project = _reset_project_name(target)
     try:
         probe = RuntimeProbe(runtime)
         return [
@@ -1590,6 +1626,7 @@ def _abort_incomplete_reset(target: Path, survivors: list[str], runtime: str) ->
             with. The compose project LABEL keeps its ``com.docker.compose``
             name on every runtime — podman-compose writes it too.
     """
+    project = _reset_project_name(target)
     logger.error(
         "✗ --reset could not clear %s: %d resource(s) of this project remain.\n\n%s\n\n"
         "`osprey reset` removes only what carries this checkout's `com.osprey.repo-id` "
@@ -1606,10 +1643,10 @@ def _abort_incomplete_reset(target: Path, survivors: list[str], runtime: str) ->
         len(survivors),
         "\n".join(f"    {line}" for line in survivors),
         runtime,
-        target.name,
+        project,
         runtime,
         runtime,
-        target.name,
+        project,
         runtime,
     )
     raise click.Abort()

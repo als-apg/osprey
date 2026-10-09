@@ -347,8 +347,14 @@ the agent's memory under ``var/``, and the repository's ``.git`` history.
 ``data/`` in the build zone is re-materialized from the profile; the source
 zone is never touched by a build.
 
-Two guards make render drift visible:
+Three guards keep ``osprey up`` from starting something you did not mean to:
 
+* **Ownership refusal** — every container records which checkout created it.
+  Before ``osprey up`` touches a container, it checks the ones already running
+  under this deployment's ``project_name``; if they came from another checkout
+  of the repository, it refuses and names that checkout. Stop the deployment
+  there, or give this copy its own ``project_name`` in a variant overlay
+  (:ref:`deploy-two-checkouts-one-host`).
 * **Drift refusal** — ``osprey up`` recomputes a fingerprint over the resolved
   profile (stamped into ``.osprey-manifest.json`` at build time) and compares it
   with the stamp. If the profile has moved on, ``up`` refuses and says what

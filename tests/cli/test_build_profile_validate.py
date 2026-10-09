@@ -1140,7 +1140,7 @@ def _build_with_config(tmp_path: Path, config: dict[str, Any], name: str) -> Res
     (repo / "data").mkdir()
     (repo / "profile.yml").write_text(
         yaml.safe_dump(
-            {"name": "Demo Facility", "data": "data", "config": config},
+            {"name": "Demo Facility", "project_name": name, "data": "data", "config": config},
             sort_keys=False,
         ),
         encoding="utf-8",

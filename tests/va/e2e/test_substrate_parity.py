@@ -134,7 +134,14 @@ def _worker(request: dict) -> dict:
 
 if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
     print(json.dumps(_worker(json.loads(sys.argv[2])), default=str), flush=True)
-    raise SystemExit(0)
+    # Leave through ``os._exit`` for the reason every other bare-pyepics child
+    # in this directory does: a normal exit runs pyepics' ``finalize_libca``
+    # atexit hook, which can wedge in ``ca_context_destroy`` after the channels
+    # above were used. The answer is already on stdout; a wedged exit would
+    # only hold the parent's ``subprocess.run`` until its timeout, so one wedge
+    # reads as a container that never served.
+    sys.stdout.flush()
+    os._exit(0)
 
 import math  # noqa: E402
 import subprocess  # noqa: E402

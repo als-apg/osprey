@@ -188,7 +188,6 @@ config:
     personas:
       readwrite:
         build_profile: hello-world
-        project: demo-readwrite
 """
 
 

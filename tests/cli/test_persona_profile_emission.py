@@ -2,9 +2,10 @@
 
 A profile that stands up the multi-user web-terminal stack owns its personas
 too (D7a): ``osprey init`` emits a ``personas/<name>.yml`` per catalog entry
-beside the repo's ``profile.yml``, and rewrites the catalog's ``build_profile``,
-``project`` and ``project_path`` values to name those files and this repo's own
-build zone instead of bundled preset names.
+beside the repo's ``profile.yml``, and rewrites the catalog's ``build_profile``
+values to name those files instead of bundled preset names. Where each render
+lands (``project``/``project_path``) is the build's to derive from
+``project_name``, so the catalog never spells it.
 
 Each emitted file is a pure DELTA (FR-10) — the persona preset's own layer and
 nothing else, with no ``extends:``. Sitting in ``personas/`` beside the repo's
@@ -215,8 +216,9 @@ def test_catalog_is_rewritten_to_point_at_the_sibling_profiles(
     for name, entry in catalog.items():
         assert entry["build_profile"] == f"personas/{name}.yml"
         assert (target / entry["build_profile"]).is_file()
-        # Everything else the catalog entry carries survives untouched.
-        assert entry["project_path"].endswith(entry["project"])
+        # The render's coordinates are the build's to derive, never the catalog's.
+        assert "project" not in entry
+        assert "project_path" not in entry
 
 
 @pytest.mark.parametrize("preset", TRIGGER_PRESETS)
@@ -470,9 +472,7 @@ def test_persona_name_that_is_not_a_plain_file_name_is_rejected(
 ) -> None:
     """The catalog key becomes a file name under ``personas/``, so a separator
     (or a traversal) would write outside the directory."""
-    edit = _persona_edit(
-        {bad_name: {"project": "x", "project_path": "../x", "build_profile": "control-assistant"}}
-    )
+    edit = _persona_edit({bad_name: {"build_profile": "control-assistant"}})
     target = tmp_path / "my-facility"
 
     result = _new(runner, target, "control-assistant", *edit)
@@ -488,8 +488,6 @@ def test_persona_build_profile_that_does_not_resolve_is_rejected(
     edit = _persona_edit(
         {
             "ghost": {
-                "project": "g",
-                "project_path": "../g",
                 "build_profile": "no-such-preset",
             }
         }
@@ -521,8 +519,8 @@ def test_every_unusable_persona_is_reported_in_one_error(runner: CliRunner, tmp_
     first problem followed by another run and another problem."""
     edit = _persona_edit(
         {
-            "a/b": {"project": "x", "project_path": "../x", "build_profile": "control-assistant"},
-            "ghost": {"project": "g", "project_path": "../g", "build_profile": "no-such-preset"},
+            "a/b": {"build_profile": "control-assistant"},
+            "ghost": {"build_profile": "no-such-preset"},
         }
     )
     target = tmp_path / "my-facility"

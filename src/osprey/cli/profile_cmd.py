@@ -1679,6 +1679,26 @@ def _materialize_profile_directory(
     if name_override is not None:
         profile_name_default = str(name_override)
 
+    # The deployment's own name, recorded in the profile so every host and every
+    # clone derives the same compose project, volumes and images from it. The
+    # folder name is read here, once, to propose it; `--set project_name=`
+    # states it outright (and the resolution above has already held that
+    # spelling to compose's).
+    from osprey.deployment.compose_generator import _normalize_compose_name
+
+    project_name_override = edit.get("project_name")
+    project_name = (
+        str(project_name_override)
+        if project_name_override is not None
+        else _normalize_compose_name(target.name)
+    )
+    if not project_name:
+        raise click.UsageError(
+            f"Cannot propose a project_name from the folder name {target.name!r}: it has no "
+            f"character a compose project name may use. Pass one with "
+            f"`--set project_name=<name>` (lowercase letters, digits, '_' and '-')."
+        )
+
     manager = TemplateManager()
     # The packaged data this repo's `data/` is copied from: the app template's
     # `data/` plus the facility at `data/facility/`. Read off the preset chain,
@@ -1728,7 +1748,7 @@ def _materialize_profile_directory(
     persona_deltas = _parsed_persona_deltas(persona_texts)
 
     extra_layers: tuple[dict[str, Any], ...] = (
-        *((persona_catalog_layer(persona_texts, repo_name=target.name),) if persona_texts else ()),
+        *((persona_catalog_layer(persona_texts),) if persona_texts else ()),
         *((triggers_layer(),) if triggers_src is not None else ()),
     )
 
@@ -1757,6 +1777,7 @@ def _materialize_profile_directory(
         preset_name=normalized_preset,
         set_pairs=(*set_pairs, f"data={_PROFILE_DATA_DIRNAME}"),
         profile_name=profile_name_default,
+        project_name=project_name,
         extra_layers=extra_layers,
         include_flow_diagram=True,
         providers_hash=catalog.content_hash,

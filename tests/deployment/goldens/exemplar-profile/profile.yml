@@ -38,6 +38,8 @@
 #   osprey up -d      (both from the repo root)
 
 name: Demo Facility
+# Names the compose project, volumes, images, persona renders; not the folder.
+project_name: demo-facility
 
 # Default LLM provider and model. Override here, or with `osprey set`, which
 # writes the value into this profile. Every persona project is rendered from a
@@ -216,10 +218,10 @@ config:
   # for you. Saying it in both places is rejected: they are free to disagree,
   # and the disagreement decides whether the host builds images or pulls them.
   #
-  # Each persona's `project` equals its `project_path` basename. Both are
-  # derived from the repo's own directory name, and `osprey build` names each
-  # persona render the same way, which is how the render lands exactly where
-  # the catalog mounts it.
+  # Each persona's `project` and `project_path` are not written here: `osprey
+  # build` derives them from `project_name` (`demo-facility-readonly` under
+  # `build/`) and writes them into the rendered config, which is how the render
+  # lands exactly where the catalog mounts it.
   #
   # The `build_profile` values below are PRESET names, and are consumed only
   # here, at materialization: `osprey init` renders each one into a delta at
@@ -254,12 +256,8 @@ config:
         persona: readwrite
     personas:
       readonly:
-        project: demo-facility-readonly
-        project_path: ../demo-facility-readonly
         build_profile: personas/readonly.yml
       readwrite:
-        project: demo-facility-readwrite
-        project_path: ../demo-facility-readwrite
         build_profile: personas/readwrite.yml
 
 # ── Environment variables ────────────────────────────────────────────────────

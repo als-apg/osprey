@@ -8437,7 +8437,7 @@ WEB_TERMINAL_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
 }
 
 #: The lanes whose deploy builds the auth sidecar, which is ``<project>-auth``
-#: running ``<project>-assistant-auth:local``.
+#: running ``<project>-auth:local``.
 AUTH_SIDECAR_CLEANUP_STEPS = (
     ("auth-perimeter-e2e", "Clean up any stranded auth-perimeter resources"),
     ("full-chain-auth-e2e", "Clean up any stranded full-chain-auth resources"),
@@ -8490,7 +8490,7 @@ def test_web_terminal_cleanup_removes_only_project_named_containers(
 
 
 def test_auth_sidecar_cleanup_removes_project_named_sidecar(workflow: dict[str, Any]) -> None:
-    """The auth lanes remove ``<project>-auth`` and its ``<project>-assistant-auth:local``
+    """The auth lanes remove ``<project>-auth`` and its ``<project>-auth:local``
     image."""
     for job, step_name in AUTH_SIDECAR_CLEANUP_STEPS:
         (project,) = WEB_TERMINAL_CLEANUP_STEPS[(job, step_name)]
@@ -8498,8 +8498,8 @@ def test_auth_sidecar_cleanup_removes_project_named_sidecar(workflow: dict[str, 
         assert f"{project}-auth" in _CONTAINER_REMOVAL.findall(run), (
             f"'{job}' does not remove the {project}-auth container"
         )
-        assert f"rmi -f {project}-assistant-auth:local" in run, (
-            f"'{job}' does not remove the {project}-assistant-auth:local image"
+        assert f"rmi -f {project}-auth:local" in run, (
+            f"'{job}' does not remove the {project}-auth:local image"
         )
 
 
@@ -8533,9 +8533,7 @@ def test_auth_sidecar_cleanup_removes_project_named_sidecar__mutation_prefix_ima
         mutated, "full-chain-auth-e2e", "Clean up any stranded full-chain-auth resources"
     )
     original = step["run"]
-    step["run"] = original.replace(
-        "osprey-e2e-full-chain-auth-assistant-auth:local", "fullchain-assistant-auth:local"
-    )
+    step["run"] = original.replace("osprey-e2e-full-chain-auth-auth:local", "fullchain-auth:local")
     assert step["run"] != original, "no project-named sidecar image — mutation is stale"
     with pytest.raises(AssertionError):
         test_auth_sidecar_cleanup_removes_project_named_sidecar(mutated)

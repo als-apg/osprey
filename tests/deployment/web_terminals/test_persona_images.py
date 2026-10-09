@@ -629,20 +629,21 @@ def test_the_refusal_names_where_a_build_would_have_put_it(tmp_path, calls):
     """The second thing that can be wrong: the catalog names a path no build
     writes.
 
-    A build derives the render's location from the repo's name and the delta's
-    — it never reads the catalog — so a hand-edited ``project_path`` produces a
-    start that refuses after every successful build. The refusal names the
+    A build derives the render's location from the deployment's
+    ``project_name`` and the delta's name, so a config whose ``project_path``
+    names anything else was rendered by an older build. The refusal names the
     location a build actually uses, which is the only way to tell those two
     situations apart from the message.
     """
     repo = _repo(tmp_path, "ops")
     config = _persona_config(repo, project_path=str(repo / "build" / "somewhere-else"))
+    config["project_name"] = "demo"
 
     with pytest.raises(ValueError) as excinfo:
         persona_images.verify_persona_renders(config, _PERSONA_USERS, repo_root=repo)
 
     message = str(excinfo.value)
-    assert str(repo / "build" / f"{repo.name}-ops") in message
+    assert str(repo / "build" / "demo-ops") in message
     assert "project_path" in message
     assert calls == []
 

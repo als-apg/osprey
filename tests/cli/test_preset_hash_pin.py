@@ -270,27 +270,32 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # writes. A rebuilt project serves the same view and carries no mock
     # connector block. The five `extends` children inherit the change; the
     # other three presets stand still.
+    # The thirty-seventh move, and control-assistant's family alone: the root
+    # preset's persona catalog states each entry's `build_profile` only, because
+    # the build derives every persona's `project`/`project_path` from the
+    # profile's `project_name`. The five `extends` children inherit the
+    # catalog; the other three stand still.
     "ariel-standalone": ("sha256:31c1eace09974cac6b8dbfc744685b7d8e6f5b9cd58431b04659c79c93d3bb23"),
     "channel-finder-standalone": (
         "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
     ),
     "control-assistant": (
-        "sha256:83c190766e12feb9c95d1c19704cb42b95dd091dd50bb7807e6259a4d79c6a49"
+        "sha256:3f40af06684eb91dacf443325686f626a9be2b91f7567d5bffc8185b4f7832cf"
     ),
     "control-assistant-admin": (
-        "sha256:ce4e6703fd4c367f9e9d2e7b3a893567b00026a1c30d904fa316e8b113ffc818"
+        "sha256:1ab19bd74477afed4233d7f1e43db00be24baf55d789a0a4ab25a1fec4cdef58"
     ),
     "control-assistant-knowledge": (
-        "sha256:72c029dcf8b64cf50ff77cdd2a501ae26e6ffb3accad93cf952136051e503245"
+        "sha256:693dc0a5b3b38ace335e6bb5ec1097aa4ca2657ab105a6e9ff9806a85a234400"
     ),
     "control-assistant-logbook": (
-        "sha256:9533579abf1540b0ae9b075db565c3924b2a051e820ff35748fc245260608363"
+        "sha256:68773c2d0b41b2fba1135beb02325923e1cb0bc7fd2e177315607599d3364376"
     ),
     "control-assistant-readonly": (
-        "sha256:cd9a380af8380d5ad141b3ec80696e9b0303e8957762c30c10873e23e95f0e29"
+        "sha256:6211adf4e0701118681316be81d6b3567fffb387e48e0b8e924800daf4c8346a"
     ),
     "control-assistant-readwrite": (
-        "sha256:7c04bb244094fe536a1c572364409590b703d5701983c0b3fc7979c531184423"
+        "sha256:17d6c7ab3f56efaaf0d357b472c4b349dc3a01b1ff172fbd9010d9481cfff7ca"
     ),
     "hello-world": ("sha256:d9328877c94d4e066e6bb98e54f38f9bb2918025928ed37f598141c91082c5d7"),
 }

@@ -90,6 +90,11 @@ from osprey.deployment.compose_generator import (
     resolve_repo_root,
     resolve_user_volume_names,
 )
+from osprey.deployment.container_ownership import (
+    COMPOSE_SERVICE_LABEL,
+    container_label,
+    first_container_name,
+)
 from osprey.deployment.errors import CapturedProcessError, RemovalIncompleteError
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
@@ -109,7 +114,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     raise_if_env_auth_would_be_interpolated,
     set_auth_password,
 )
-from osprey.deployment.web_terminals.naming import web_container_name, web_container_prefix
+from osprey.deployment.web_terminals.naming import web_container_name, web_service_user
 from osprey.deployment.web_terminals.personas import (
     access_phrase,
     as_dict,
@@ -481,8 +486,8 @@ def remove_orphan_terminals(config: dict[str, Any]) -> dict[str, str]:
     host-port preflight that follows names the port it holds.
 
     Args:
-        config: Raw deploy config — the roster, the facility prefix, the runtime
-            and the compose project name are all read off it.
+        config: Raw deploy config — the roster, the runtime and the compose
+            project name are all read off it.
 
     Returns:
         ``{user: container_name}`` for every container removed, in no
@@ -1208,27 +1213,33 @@ def _discover_orphan_containers(
     """Read-only: list containers and return ``{user: container_name}`` for orphans.
 
     Uses ``ps -a --filter label=com.docker.compose.project=<project> --format
-    {{.Names}}`` — a listing, never a removal — so the ``-a`` here is not
-    subject to the "no ``-a``/``--all``" removal-argv guardrail. The label
-    filter scopes the listing to exactly this deployment's compose project
-    (the same project name :func:`osprey.deployment.runtime_helper.runtime_env`
-    pins as ``COMPOSE_PROJECT_NAME``), so a sibling OSPREY deployment on the
-    same host — even one whose project name shares a prefix with this one —
-    can never contribute a false match. Within that project-scoped listing,
-    only containers matching ``<project>-web-<user>`` are web-terminal
-    containers; anything else the project owns (nginx, base services, ...) is
-    ignored here.
+    json`` — a listing, never a removal — so the ``-a`` here is not subject to
+    the "no ``-a``/``--all``" removal-argv guardrail. The label filter scopes
+    the listing to exactly this deployment's compose project (the same project
+    name :func:`osprey.deployment.runtime_helper.runtime_env` pins as
+    ``COMPOSE_PROJECT_NAME``), so a sibling OSPREY deployment on the same host
+    — even one whose project name shares a prefix with this one — can never
+    contribute a false match.
+
+    Within that listing a container is a user's web terminal by its
+    ``com.docker.compose.service`` label (``web-<user>``), never by its name:
+    the label is stamped by compose from the service key, so a terminal
+    created under an earlier container-naming scheme is found exactly like
+    one created today. Anything else the project owns (nginx, the auth
+    sidecar, base services) is ignored here.
 
     Args:
         runtime: Runtime binary, e.g. ``"docker"`` or ``"podman"``.
         project: This deployment's compose project name (the label value to
-            filter on, and the container-name prefix).
+            filter on).
         roster_names: Current roster user names; matches are excluded.
         env: Environment for the subprocess call.
 
     Returns:
         Mapping of orphaned user name to their exact container name.
     """
+    from osprey.health.probes.container import _parse_ps_json
+
     result = subprocess.run(
         [
             runtime,
@@ -1237,20 +1248,17 @@ def _discover_orphan_containers(
             "--filter",
             f"label=com.docker.compose.project={project}",
             "--format",
-            "{{.Names}}",
+            "json",
         ],
         capture_output=True,
         text=True,
         env=env,
     )
-    prefix = web_container_prefix(project)
     orphans: dict[str, str] = {}
-    for line in result.stdout.splitlines():
-        name = line.strip()
-        if not name.startswith(prefix):
-            continue
-        user = name[len(prefix) :]
-        if user and user not in roster_names:
+    for row in _parse_ps_json(result.stdout or ""):
+        user = web_service_user(container_label(row, COMPOSE_SERVICE_LABEL) or "")
+        name = first_container_name(row)
+        if user and name and user not in roster_names:
             orphans[user] = name
     return orphans
 

@@ -108,6 +108,34 @@ def _reload_users(config_path):
     return data["modules"]["web_terminals"]["users"]
 
 
+def _service_of(name: str) -> str:
+    """The compose service key a listed container name stands for.
+
+    Read off the name's tail so a test can list containers under any naming
+    scheme (``<project>-web-<user>``, an earlier ``<prefix>-web-<user>``):
+    compose stamps the service label from the service key, never the name.
+    """
+    if "-web-" in name:
+        return "web-" + name.rsplit("-web-", 1)[1]
+    return name.rsplit("-", 1)[-1]
+
+
+def _ps_json(names, *, project: str = "demo-project") -> str:
+    """Docker-shaped ``ps --format json`` output (one object per line)."""
+    return "\n".join(
+        json.dumps(
+            {
+                "Names": name,
+                "Labels": (
+                    f"com.docker.compose.project={project},"
+                    f"com.docker.compose.service={_service_of(name)}"
+                ),
+            }
+        )
+        for name in names
+    )
+
+
 @pytest.fixture
 def fake_runtime(monkeypatch):
     """Patch subprocess.run + get_runtime_command; return the list of captured argvs."""
@@ -153,7 +181,7 @@ def fake_runtime_prune(monkeypatch):
     ):
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
-            stdout = "\n".join(listing["containers"])
+            stdout = _ps_json(listing["containers"])
         elif argv[1:3] == ["volume", "ls"]:
             stdout = "\n".join(listing["volumes"])
         else:
@@ -200,7 +228,7 @@ def fake_runtime_nuke(monkeypatch):
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
             return subprocess.CompletedProcess(
-                argv, returncode=0, stdout="\n".join(listing["containers"]), stderr=""
+                argv, returncode=0, stdout=_ps_json(listing["containers"]), stderr=""
             )
         if argv[1:3] == ["volume", "ls"]:
             return subprocess.CompletedProcess(
@@ -743,7 +771,7 @@ def test_prune_discovery_filters_by_compose_project_label(
             "--filter",
             "label=com.docker.compose.project=demo-project",
             "--format",
-            "{{.Names}}",
+            "json",
         ]
     ]
 
@@ -2146,14 +2174,14 @@ def test_nuke_auth_sidecar_image_is_removed_when_label_verified(
     calls, _listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(tmp_path, _auth_persona_config(["alice"]))
-    image_labels["demo-project-assistant-auth:local"] = "demo-project"
+    image_labels["demo-project-auth:local"] = "demo-project"
     image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
 
     removed = [c[3] for c in calls if c[1:3] == ["image", "rm"]]
-    assert "demo-project-assistant-auth:local" in removed
+    assert "demo-project-auth:local" in removed
 
 
 @pytest.mark.parametrize(
@@ -2172,14 +2200,14 @@ def test_nuke_auth_sidecar_image_is_not_a_candidate(
     calls, _listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(tmp_path, _auth_persona_config(["alice"], **kwargs))
-    image_labels["demo-project-assistant-auth:local"] = "demo-project"  # exists and is ours
+    image_labels["demo-project-auth:local"] = "demo-project"  # exists and is ours
     image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
 
     lifecycle.nuke_stack(str(config_path), assume_yes=True)
 
     inspected = [c[3] for c in calls if c[1:3] == ["image", "inspect"]]
-    assert "demo-project-assistant-auth:local" not in inspected, why
+    assert "demo-project-auth:local" not in inspected, why
 
 
 # =============================================================================
@@ -2694,9 +2722,78 @@ def test_up_reconcile_discovery_is_scoped_by_compose_project_label(
             "--filter",
             "label=com.docker.compose.project=demo-project",
             "--format",
-            "{{.Names}}",
+            "json",
         ]
     ]
+
+
+def test_up_reconcile_finds_an_off_roster_terminal_under_an_earlier_name(
+    tmp_path, monkeypatch, fake_runtime_prune
+):
+    """A terminal created when container names carried ``facility.prefix`` is
+    still this project's terminal: discovery reads the compose service label,
+    so the renamed scheme strands nothing. Its nginx and auth siblings are not
+    users, whatever they are called."""
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"])
+    listing["containers"] = ["dls-web-alice", "dls-web-eve", "dls-nginx", "dls-auth"]
+
+    removed = lifecycle.remove_orphan_terminals(config)
+
+    assert removed == {"eve": "dls-web-eve"}
+    assert [c for c in calls if c[1] == "rm"] == [["docker", "rm", "-f", "dls-web-eve"]]
+
+
+def test_up_reconcile_ignores_a_project_container_whose_name_merely_looks_like_a_terminal(
+    tmp_path, monkeypatch, fake_runtime_prune
+):
+    """A name is not evidence: a base service whose container happens to be
+    called ``<project>-web-<x>`` but whose service key is not ``web-<x>`` is
+    never removed as a terminal."""
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"])
+    row = {
+        "Names": "demo-project-web-eve",
+        "Labels": "com.docker.compose.project=demo-project,com.docker.compose.service=archiver",
+    }
+
+    def _run(argv, **kwargs):
+        calls.append(list(argv))
+        stdout = json.dumps(row) if argv[1:3] == ["ps", "-a"] else ""
+        return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+
+    assert lifecycle.remove_orphan_terminals(config) == {}
+    assert [c for c in calls if c[1] == "rm"] == []
+
+
+def test_up_reconcile_reads_podman_shaped_rows(tmp_path, monkeypatch, fake_runtime_prune):
+    """Podman answers ``ps --format json`` with one array, labels as an object
+    and names as a list; discovery reads both shapes alike."""
+    calls, _listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"])
+    rows = [
+        {
+            "Names": ["dls-web-eve"],
+            "Labels": {
+                "com.docker.compose.project": "demo-project",
+                "com.docker.compose.service": "web-eve",
+            },
+        }
+    ]
+
+    def _run(argv, **kwargs):
+        calls.append(list(argv))
+        stdout = json.dumps(rows) if argv[1:3] == ["ps", "-a"] else ""
+        return subprocess.CompletedProcess(argv, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+
+    assert lifecycle.remove_orphan_terminals(config) == {"eve": "dls-web-eve"}
 
 
 def test_up_reconcile_reports_a_failed_removal_instead_of_raising(
@@ -2723,7 +2820,7 @@ def test_up_reconcile_reports_a_failed_removal_instead_of_raising(
             return subprocess.CompletedProcess(argv, returncode=1, stdout="", stderr="busy")
         if argv[1:3] == ["ps", "-a"]:
             return subprocess.CompletedProcess(
-                argv, returncode=0, stdout="\n".join(listing["containers"]), stderr=""
+                argv, returncode=0, stdout=_ps_json(listing["containers"]), stderr=""
             )
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 

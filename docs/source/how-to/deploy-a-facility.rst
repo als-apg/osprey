@@ -150,6 +150,18 @@ commits nothing. It prints the handful of entries you edit: the profile, the
 data directory, the three personas it rendered, the two env files, and the
 README.
 
+The folder name is read once, here. ``osprey init`` records it in
+``profile.yml`` as the deployment's name on a host:
+
+.. code-block:: yaml
+
+   name: Demo Facility          # display text
+   project_name: demo-facility  # names the compose project, volumes and images
+
+From now on every container, volume and image this deployment creates is
+named from ``project_name:``, and the folder a checkout sits in no longer
+matters. A clone under another folder name is the same deployment.
+
 It says nothing about CI, which is expected: the profile ships with its
 ``deploy:`` block commented out, so there are no coordinates to render a
 pipeline from. Step 5 fills the block in and Step 7 renders the pipeline from
@@ -234,8 +246,9 @@ service to this list at build time. Naming ``openobserve`` explicitly is what
 keeps the packaged skeleton's ``postgresql`` *out* — declared is not deployed,
 and this list is what ``osprey up`` reads.
 
-The web tier's container names follow the project name, here the
-directory's: ``demo-facility-nginx``, ``demo-facility-web-alice``.
+The web tier is named from ``project_name`` like the rest of the deployment, so
+this one runs ``demo-facility-nginx`` and one ``demo-facility-web-<user>`` per
+operator (``demo-facility-web-alice``).
 
 ``system.timezone`` is the zone operator times are read in and every timestamp
 is shown in. Spell it exactly as the IANA time zone database does, case
@@ -260,29 +273,24 @@ and serve TLS — :doc:`web-terminal/multi-user/login` walks through both, and t
 sign-on if your site runs one.
 
 Then confirm the persona catalog, further down the same ``config:`` block
-under ``modules.web_terminals:``. ``osprey init`` derived these names from the
-repository name, so after Step 2's trim the block already reads:
+under ``modules.web_terminals:``. After Step 2's trim the block reads:
 
 .. code-block:: yaml
 
      personas:
        readonly:
-         project: demo-facility-readonly
-         project_path: build/demo-facility-readonly
          build_profile: personas/readonly.yml
        readwrite:
-         project: demo-facility-readwrite
-         project_path: build/demo-facility-readwrite
          build_profile: personas/readwrite.yml
 
-Nothing to edit — the block is shown so you know what you are looking at, and
-because its shape matters if you ever rename a persona or the repository:
-
-.. important::
-
-   Each persona's ``project`` must equal the basename of its ``project_path``.
-   ``osprey build`` derives a persona render's name the same way, which is how
-   it lands exactly where the web tier mounts it.
+Nothing to edit. Each entry names only the delta the persona is built from.
+``osprey build`` derives where it renders, ``build/<project_name>-<persona>``
+(here ``build/demo-facility-readonly``), and writes that into
+``build/config.yml``, which is where the web tier reads it. Renaming the
+deployment therefore moves every persona render with it, and there is no
+second copy of the name to keep in step. A ``project:`` or ``project_path:``
+line beside a ``build_profile`` is refused by the build, which says to delete
+it.
 
 
 .. _deploy-a-facility-own-service:
@@ -737,6 +745,29 @@ repository's git history. The source zone itself is never touched by a build.
 If you changed the ``deploy:`` block, run ``osprey scaffold ci`` again first
 so the pipeline and health check match the new coordinates.
 
+Renaming the deployment
+-----------------------
+
+The deployment's name on the host is ``project_name:`` in ``profile.yml``, not
+the folder the repository sits in. Moving or renaming the folder changes
+nothing. Changing ``project_name:`` renames the deployment, and everything
+named from it follows: the compose project, the volumes, the images, the web
+containers and the persona renders. Stop the stack under its old name first,
+because ``osprey down`` addresses the name the current ``build/`` was rendered
+with:
+
+.. code-block:: bash
+
+   osprey down
+   osprey set project_name=demo-control-room
+   osprey build
+   osprey up -d
+
+Data does not move with the name. The volumes are named
+``<project_name>_<volume>``, so the renamed deployment starts on new, empty
+volumes, and the old ones stay on the host under the old name until you copy
+what you need and remove them.
+
 
 Operating it
 ============
@@ -917,8 +948,10 @@ hand and correctly, everything ``osprey up`` assembles around compose:
 - The container runtime, which ``osprey up`` detects (or reads from the
   configuration) and then probes for the compose provider behind it; the
   supported providers do not take the same command line.
-- Everything that is not compose: the host-port check that refuses before it
-  touches a container, the drift check that refuses when ``build/`` no longer
+- Everything that is not compose: the ownership check that refuses to start
+  over containers another checkout of the repository created under the same
+  ``project_name``, the host-port check that refuses before it touches a
+  container, the drift check that refuses when ``build/`` no longer
   matches ``profile.yml``, minting any missing service credentials into
   ``.env``, the second compose invocation a multi-user deployment needs for its
   web tier, and ``scripts/verify.sh`` afterwards.

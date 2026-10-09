@@ -1753,3 +1753,28 @@ class TestWebTerminalConflicts:
         assert conflict.kind == "duplicate"
         assert conflict.service == "web-alice"
         assert conflict.holder == "service 'facility-api'"
+
+
+@pytest.mark.parametrize(
+    ("row_repo_id", "row_project", "repo_id"),
+    [
+        ("aaaaaaaaaaaa", "mine", "aaaaaaaaaaaa"),
+        ("bbbbbbbbbbbb", "mine", "aaaaaaaaaaaa"),
+        ("aaaaaaaaaaaa", "other", "aaaaaaaaaaaa"),
+        ("", "mine", "aaaaaaaaaaaa"),
+        ("", "other", "aaaaaaaaaaaa"),
+        ("bbbbbbbbbbbb", "mine", ""),
+        ("", "", ""),
+    ],
+)
+def test_the_port_preflight_attributes_a_holder_by_the_one_ownership_rule(
+    row_repo_id, row_project, repo_id
+):
+    """The parsed-row fast path and ``up``'s refusal cannot disagree about a container."""
+    from osprey.deployment.container_ownership import claims_row
+
+    record = host_ports._PsRecord(name="c", project=row_project, repo_id=row_repo_id)
+
+    assert host_ports._holder_is_ours(record, "mine", repo_id) is claims_row(
+        row_repo_id=row_repo_id, row_project=row_project, project="mine", repo_id=repo_id
+    )

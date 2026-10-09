@@ -12,12 +12,10 @@ idle close, a 2 s ready wait), so each case keeps its production meaning.
 from __future__ import annotations
 
 import asyncio
-import gc
 import io
 import os
 import sys
 import textwrap
-import warnings
 from pathlib import Path
 
 import pytest
@@ -180,27 +178,19 @@ async def test_real_worker_content_refusal_is_a_reply_not_a_failure(monkeypatch)
 def test_two_consecutive_asyncio_runs_both_succeed(monkeypatch):
     monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
     monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
-    first = asyncio.run(render.render_isolated(SOURCE))
-    first_pid = render.worker_pid()
-    second = asyncio.run(render.render_isolated(SOURCE))
-    second_pid = render.worker_pid()
+
+    async def render_once() -> tuple[render.RenderOutcome, int | None]:
+        outcome = await render.render_isolated(SOURCE)
+        return outcome, render.worker_pid()
+
+    first, first_pid = asyncio.run(render_once())
+    # The first loop's shutdown closed its worker before the loop went away.
+    assert render.worker_pid() is None
+    assert first_pid is not None and not _alive(first_pid)
+    second, second_pid = asyncio.run(render_once())
     assert first.rendition is not None
     assert second.rendition is not None
     assert first_pid != second_pid
-    # The worker of the first loop was killed when the second loop took over.
-    for _ in range(50):
-        if not _alive(first_pid):
-            break
-        import time
-
-        time.sleep(0.1)
-    assert not _alive(first_pid)
-    # The killed worker's transports belong to a closed loop and can only be
-    # collected; their unclosed-transport warning is expected here.
-    render._forget_worker()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", ResourceWarning)
-        gc.collect()
 
 
 async def test_probe_reports_a_healthy_worker():

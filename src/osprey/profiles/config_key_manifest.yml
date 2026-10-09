@@ -108,7 +108,7 @@ keys:
   project_name:
     evidence: 'config\.get\("project_name", project_dir\.name\)'
     default: derived
-    default_note: the project directory's own name
+    default_note: the profile's top-level `project_name:` field
   build_dir:
     evidence: 'config\.get\("build_dir", "\./build"\)'
     default: ./build
@@ -2163,7 +2163,10 @@ keys:
     evidence: '"max_images_per_entry", DEFAULT_MAX_IMAGES_PER_ENTRY'
     note: >-
       Viewable pictures captioned per entry, in attachment order; the rest are
-      recorded as over_image_cap with no model call. Commented in the presets.
+      recorded as over_image_cap with no model call. After raising it, `osprey
+      ariel enhance --module image_caption --retry-failed` captions the pictures
+      now within it; lowering it keeps existing captions. Commented in the
+      presets.
     default: 8
   ariel.enhancement_modules.image_caption.prompt_template:
     rendered: false
@@ -2171,7 +2174,10 @@ keys:
     note: >-
       Replaces the caption prompt; `{text}` is replaced by the entry text. A
       replacement must keep asking for the `Visible text:` list the reply is
-      split at. Commented in the presets.
+      split at. Changing it re-captions nothing by itself: `osprey ariel status`
+      counts the captions made with an older prompt and `osprey ariel enhance
+      --module image_caption --refresh-stale` makes them again. Commented in
+      the presets.
     default: derived
     default_note: the module's own DEFAULT_CAPTION_PROMPT
   ariel.enhancement_modules.image_caption.timeout_seconds:
@@ -3606,7 +3612,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 355
+  expected_union_size: 345
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

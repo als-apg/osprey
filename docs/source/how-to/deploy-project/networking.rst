@@ -140,3 +140,44 @@ check. The
 multi-user web terminals are covered the same way: every port of every roster
 index — terminal and companion panels alike — is checked, and a conflict names
 the user whose ``index`` to move.
+
+.. _deploy-two-checkouts-one-host:
+
+Two checkouts of one repository on one host
+-------------------------------------------
+
+Ports are not the only thing two copies can share. Every name a deployment
+puts on the host — compose project, volumes, images, web containers — comes
+from the tracked ``project_name:`` in ``profile.yml``, not from the folder the
+checkout sits in. A second clone or worktree of the same repository therefore
+reads the same name and, unless it says otherwise, *is* the same deployment.
+
+Each container records which checkout created it. Before ``osprey up`` touches
+a container it compares that record with the current checkout, and it refuses
+when containers under this name came from another one:
+
+.. code-block:: text
+
+   osprey up will not start over containers from another copy of this repo
+   2 containers are named 'uitf_controls_assistant', but they were created from a
+   different copy of this repo:
+       /home/x/code/uitf_controls_assistant  (still on disk)
+   -> stop that deployment where it lives: `osprey down --repo /home/x/code/uitf_controls_assistant`
+      or give this copy its own name:
+        profiles/scratch.yml:   project_name: uitf_controls_assistant-scratch
+        .env.variant:           OSPREY_PROFILE_VARIANT=scratch
+      then `osprey build` and start again. Nothing was deployed.
+
+The two remedies mean different things. Stopping the other copy and starting
+this one hands the deployment, and its data, to this checkout: volumes belong
+to the project by name, so they are kept. Giving this copy its own
+``project_name`` in a variant overlay makes it a separate deployment with its
+own containers, volumes and images, starting with empty data; move its ports
+in the same overlay with ``deployment.port_base``. See
+:ref:`profile-host-variants` for how the overlay is selected.
+
+Moving a checkout with ``mv`` looks the same from the host: its old containers
+now record a path that no longer exists. The refusal says so and prints the one
+command that frees the name, ``docker rm -f`` with the old containers' names.
+The volumes are untouched and keep their data, and the moved checkout picks
+them up on its next ``osprey up``.

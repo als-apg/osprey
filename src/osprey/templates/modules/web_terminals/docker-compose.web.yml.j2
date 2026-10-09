@@ -272,12 +272,11 @@
       applies.
     auth_image: str | None
       Registry-mode image for the sidecar. When unset, the local-build tag
-      `<project_name>-assistant-auth:local` is referenced instead — the
-      suffixed local-tag pattern personas.py keeps for entries without their
-      own render (`<project>-<suffix>:local`) applied to the sidecar, whose
-      `<project>` is resolve_personas()'s default `<project_name>-assistant`.
-      Producing that image is the runtime build's job; this template only
-      names the tag.
+      `<project_name>-auth:local` is referenced instead (provision.py's
+      `auth_sidecar_local_tag()` spells the same tag). Its `-auth` suffix keeps
+      it clear of the dispatch worker's `<project_name>:local` and of every
+      persona render's tag. Producing that image is the runtime build's job;
+      this template only names the tag.
     auth_oidc_issuer: str | None, auth_oidc_client_id_env / auth_oidc_client_secret_env: str
       Emitted only in `oidc` mode. The two `*_env` values are env-var NAMES, not
       credentials: the sidecar reads the named variable out of its `.env.auth`
@@ -667,7 +666,7 @@ services:
        runtime build produces this tag (see AUTH SIDECAR contract above). A
        registry-mode deployment that forgot `auth.image` is caught by the
        deploy preflight, not by silently building here. #}
-    image: {{ auth_image | default(project_name ~ "-assistant-auth:local", true) }}
+    image: {{ auth_image | default(project_name ~ "-auth:local", true) }}
     container_name: {{ project_name }}-auth
     restart: unless-stopped
     network_mode: host
@@ -1645,10 +1644,6 @@ services:
 volumes:
 {% for svc in services %}
   {{ svc.claude_config_volume }}:
-    labels:
-      com.osprey.repo-id: "{{ repo_id }}"
   {{ svc.user }}-agent-data:
-    labels:
-      com.osprey.repo-id: "{{ repo_id }}"
 {% endfor %}
 {% endif %}

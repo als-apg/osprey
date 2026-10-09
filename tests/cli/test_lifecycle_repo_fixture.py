@@ -275,16 +275,15 @@ def test_persona_delta_resolves_over_the_repo_profile(lifecycle_repo: Path, pers
     ) is (persona in ("readwrite", "admin"))
 
 
-def test_persona_renders_land_under_the_output_zone(lifecycle_repo: Path) -> None:
-    """Persona renders are build output; their paths must say so."""
+def test_persona_catalog_names_only_each_renders_source(lifecycle_repo: Path) -> None:
+    """The catalog names each persona's delta; the build derives where it lands."""
     profile, _ = resolve_build_profile(lifecycle_repo / "profile.yml", None)
     personas = profile.config["modules.web_terminals"]["personas"]
 
+    assert profile.project_name == "als-exemplar"
     for name, entry in personas.items():
-        assert entry["project_path"].startswith("build/"), name
-        # Both sides derive the name from the repo, which is why a render lands
-        # exactly where the roster mounts it.
-        assert entry["project"] == Path(entry["project_path"]).name
+        assert "project" not in entry, name
+        assert "project_path" not in entry, name
         assert entry["build_profile"] == f"personas/{name}.yml"
 
 

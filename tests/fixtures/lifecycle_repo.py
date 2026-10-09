@@ -144,6 +144,8 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #   preset content hash: @PRESET_HASH:control-assistant@
 
 name: Als Exemplar
+# Names the compose project, volumes, images, persona renders; not the folder.
+project_name: als-exemplar
 
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
@@ -1332,28 +1334,18 @@ config:
       # `osprey build` builds one of these per file in personas/, into build/.
       # `osprey up` builds nothing: if one is missing it stops and says so.
       readonly:
-        project: als-exemplar-readonly
-        project_path: build/als-exemplar-readonly
         build_profile: personas/readonly.yml
       readwrite:
-        project: als-exemplar-readwrite
-        project_path: build/als-exemplar-readwrite
         build_profile: personas/readwrite.yml
       admin:
-        project: als-exemplar-admin
-        project_path: build/als-exemplar-admin
         build_profile: personas/admin.yml
       logbook:
-        project: als-exemplar-logbook
-        project_path: build/als-exemplar-logbook
         build_profile: personas/logbook.yml
         # Puts this persona's users under their own landing-page heading
         # instead of in with the people. Presentation only — it changes
         # nothing about the container, its ports, or what it can do.
         landing_group: Standalone deployments
       knowledge:
-        project: als-exemplar-knowledge
-        project_path: build/als-exemplar-knowledge
         build_profile: personas/knowledge.yml
         landing_group: Standalone deployments
 
@@ -2312,8 +2304,9 @@ DISPATCH_WORKER_TOKEN=exemplar-worker-token
 README_MD = """\
 # Als Exemplar
 
-This folder is your OSPREY assistant. Everything it is made of lives here, and
-the folder name is the assistant's name.
+This folder is your OSPREY assistant. Everything it is made of lives here. Its
+name on this machine — the containers, volumes and images — is `project_name:`
+in `profile.yml`, not the folder name.
 
 ## What is in here
 
@@ -2708,15 +2701,24 @@ sys.exit(s.connect_ex(('$host', $port)))" 2>/dev/null; then
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # This deployment's compose project, named the way `osprey up` names it:
-# COMPOSE_PROJECT_NAME when the caller pins it, else the repo directory's name
-# in compose's alphabet — lower case, [a-z0-9_-], no leading or trailing _ or -.
+# COMPOSE_PROJECT_NAME when the caller pins it, else project_name in
+# build/config.yml. The built config is the source; the repo directory's
+# name is only a fallback for a repo that has no project_name there. Either is
+# put in compose's alphabet — lower case, [a-z0-9_-], no leading or trailing _ or -.
 compose_project() {
   if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
     printf '%s' "$COMPOSE_PROJECT_NAME"
     return
   fi
-  local name
-  name="$(basename "$REPO_ROOT" | LC_ALL=C tr '[:upper:]' '[:lower:]' \\
+  local name=""
+  if [ -f "$REPO_ROOT/build/config.yml" ]; then
+    name="$(sed -n "s/^project_name:[[:space:]]*[\\"']\\{0,1\\}\\([A-Za-z0-9_.-]*\\).*/\\1/p" \\
+      "$REPO_ROOT/build/config.yml" | head -n 1)"
+  fi
+  if [ -z "$name" ]; then
+    name="$(basename "$REPO_ROOT")"
+  fi
+  name="$(printf '%s' "$name" | LC_ALL=C tr '[:upper:]' '[:lower:]' \\
     | LC_ALL=C tr -cd 'a-z0-9_-' | sed -e 's/^[-_]*//' -e 's/[-_]*$//')"
   printf '%s' "${name:-unnamed-project}"
 }
@@ -3255,19 +3257,13 @@ def build_exemplar_repo(
 ) -> Path:
     """Materialize the gold-standard four-zone deployment repo at ``dest``.
 
-    ``dest`` is created if absent; it is the repo root, and its name is the
-    deployment name. The exemplar's own identity (``Als Exemplar``) is written
+    ``dest`` is created if absent; it is the repo root. The exemplar's own
+    identity (``name: Als Exemplar``, ``project_name: als-exemplar``) is written
     verbatim whatever the directory is called — two checkouts of one deployment
     at two paths is a real situation the lifecycle verbs have to tell apart,
-    and this is how a test stages it.
-
-    One consequence to know before materializing under a different name: the
-    persona catalog's ``project``/``project_path`` values are derived from the
-    deployment's directory name at emission (``als-exemplar-readonly``), so
-    they are the one part of this text that a rename would make stale. They are
-    frozen rather than templated because the byte comparison against a live
-    ``osprey init`` is what this fixture exists for, and that comparison runs
-    at :data:`EXEMPLAR_DIRNAME`.
+    and this is how a test stages it. Every host-visible name derives from
+    ``project_name``, so a checkout under another folder name is the SAME
+    deployment unless the test overrides that key.
 
     Args:
         dest: Directory to materialize into.

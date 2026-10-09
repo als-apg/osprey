@@ -59,9 +59,16 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 
+from osprey.services.ariel_search.database.search_fts import MIN_TERM_COVERAGE, coverage_terms
 from osprey.services.ariel_search.enhancement.qmd_export.writer import entry_id_from_path
 from osprey.services.ariel_search.exceptions import SearchConfigurationError
-from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
+from osprey.services.ariel_search.models import (
+    END_BOUND_DESCRIPTION,
+    START_BOUND_DESCRIPTION,
+    DiagnosticLevel,
+    SearchDiagnostic,
+    TimeBoundText,
+)
 from osprey.services.ariel_search.search import fusion
 from osprey.services.ariel_search.search.base import (
     ModuleOutput,
@@ -393,11 +400,28 @@ PICTURE_UNAVAILABLE_MESSAGE = (
     "known only by their pictures are missing."
 )
 
-#: Message of the diagnostic an image-only answer to a sidecar outage carries.
-TEXT_UNAVAILABLE_MESSAGE = (
-    "Text ranking unavailable — picture matches only; the qmd sidecar is not "
-    "answering, so entries matching on text are missing."
-)
+#: Opening of the diagnostic an image-only answer to a sidecar outage carries;
+#: :func:`_text_unavailable_message` completes it with the sidecar dialled.
+TEXT_UNAVAILABLE_MESSAGE = "Text ranking unavailable — picture matches only"
+
+
+def _sidecar_cause(qmd: QMDClient) -> str:
+    """Why *qmd* cannot rank text: no sidecar configured, or the one dialled is silent.
+
+    The URL is the one this process dialled, which inside a container is not
+    the address the config block publishes, so it is named rather than implied.
+    """
+    if not qmd.is_configured:
+        return "no qmd sidecar is configured for this deployment"
+    return f"the qmd sidecar at {qmd.base_url} is not answering"
+
+
+def _text_unavailable_message(qmd: QMDClient) -> str:
+    """The picture-only diagnostic, naming why the text lane is missing."""
+    return (
+        f"{TEXT_UNAVAILABLE_MESSAGE}; {_sidecar_cause(qmd)}, "
+        "so entries matching on text are missing."
+    )
 
 
 async def _ranked_search(
@@ -441,17 +465,13 @@ async def _ranked_search(
                     SearchDiagnostic(
                         level=DiagnosticLevel.WARNING,
                         source="hybrid",
-                        message=TEXT_UNAVAILABLE_MESSAGE,
+                        message=_text_unavailable_message(qmd),
                         category="text_ranking",
                     ),
                 ),
                 expansion=query_expansion.groups if query_expansion else (),
             )
-        raise QMDUnavailableError(
-            "no qmd sidecar is configured for this deployment"
-            if not qmd.is_configured
-            else f"the qmd sidecar at {qmd.base_url} is not answering"
-        )
+        raise QMDUnavailableError(_sidecar_cause(qmd))
 
     logger.info(
         f"hybrid_search: query={query!r}, max_results={max_results}, fetch_limit={fetch_limit}, "
@@ -538,8 +558,7 @@ async def _ranked_search(
             results,
             repository,
             config,
-            query_original=query,
-            query_flattened=query_expansion.flattened_text if query_expansion else query,
+            terms=coverage_terms(query, query_expansion),
         )
 
     logger.info(f"hybrid_search: returning {len(results)} results")
@@ -618,8 +637,7 @@ async def _fused_results(
             results,
             repository,
             config,
-            query_original=query,
-            query_flattened=query_expansion.flattened_text if query_expansion else query,
+            terms=coverage_terms(query, query_expansion),
         )
     for fused_hit, (entry, _score, _snippets) in zip(kept, results, strict=True):
         if fused_hit.attachment_id is None:
@@ -632,24 +650,19 @@ async def _fused_results(
     return results
 
 
-#: Share of the typed query's lexemes a caption must cover to count as matched.
-CAPTION_MIN_FRACTION = 0.5
-
-
 async def _attach_caption_matches(
     results: list[tuple[EnhancedLogbookEntry, float, list[str]]],
     repository: ARIELRepository,
     config: ARIELConfig,
     *,
-    query_original: str,
-    query_flattened: str,
+    terms: list[tuple[str, tuple[str, ...]]],
 ) -> None:
     """Mark each result with the ids of its attachments whose caption matched.
 
     One ``caption_matches`` call over the result ids in its coverage form: a
-    caption matches when it shares at least :data:`CAPTION_MIN_FRACTION` of the
-    typed query's lexemes, counted against the expanded query so a vocabulary
-    alternative counts as the term it expands. A result whose captions matched
+    caption matches when it holds at least :data:`MIN_TERM_COVERAGE` of the
+    query's words (`terms`), a word holding when it or one of its vocabulary
+    alternatives does. A result whose captions matched
     gets ``_matched_attachment_ids``; ordering and scores are untouched. The
     ids are supplementary evidence: a timeout or database failure logs one
     WARNING and marks nothing, so it never fails a search the sidecar answered.
@@ -664,9 +677,8 @@ async def _attach_caption_matches(
         matched = await repository.caption_matches(
             [entry["entry_id"] for entry, _score, _highlights in results],
             caption_model_id(config),
-            query_original=query_original,
-            query_flattened=query_flattened,
-            min_fraction=CAPTION_MIN_FRACTION,
+            terms=terms,
+            min_fraction=MIN_TERM_COVERAGE,
         )
     except (SearchTimeoutError, DatabaseQueryError) as e:
         logger.warning(f"hybrid_search: caption matching skipped: {e}")
@@ -955,14 +967,8 @@ class HybridSearchInput(BaseModel):
         le=50,
         description="Maximum results to return",
     )
-    start_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created after this time (inclusive)",
-    )
-    end_date: datetime | None = Field(
-        default=None,
-        description="Filter entries created before this time (inclusive)",
-    )
+    start_date: TimeBoundText = Field(default=None, description=START_BOUND_DESCRIPTION)
+    end_date: TimeBoundText = Field(default=None, description=END_BOUND_DESCRIPTION)
     expand_query: bool | None = Field(
         default=None,
         description=(

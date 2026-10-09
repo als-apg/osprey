@@ -41,6 +41,7 @@ def _write_profile(profile_dir: Path, **extra) -> Path:
 
     profile: dict = {
         "name": "Data Root Test",
+        "project_name": "data-root-test",
         "extends": "control-assistant",
         "data": "data",
         "provider": "cborg",

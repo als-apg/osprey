@@ -58,7 +58,7 @@ WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
     "users": [{"name": "operator", "index": 0, "persona": "readwrite"}],
     "default_persona": "readwrite",
-    "personas": {"readwrite": {"build_profile": "hello-world", "project": "demo-readwrite"}},
+    "personas": {"readwrite": {"build_profile": "hello-world"}},
 }
 
 
@@ -237,6 +237,7 @@ def _write_profile(
     """
     raw: dict[str, Any] = {
         "name": "Demo Facility",
+        "project_name": "demo-facility",
         "data": "data",
         "provider": "anthropic",
         "model": "claude-haiku-4-5",

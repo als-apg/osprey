@@ -153,7 +153,8 @@ def test_build_from_a_repo_whose_profile_extends_a_preset_by_name(
     repo.mkdir()
     (repo / "data").mkdir()
     (repo / "profile.yml").write_text(
-        "extends: hello-world\nname: ExtTest\ndata: data\n", encoding="utf-8"
+        "extends: hello-world\nname: ExtTest\nproject_name: ext-repo\ndata: data\n",
+        encoding="utf-8",
     )
 
     result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])

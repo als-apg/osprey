@@ -54,7 +54,7 @@ WEB_TERMINALS: dict[str, Any] = {
 WEB_TERMINALS_LOCAL: dict[str, Any] = {
     **WEB_TERMINALS,
     "default_persona": "readwrite",
-    "personas": {"readwrite": {"build_profile": "hello-world", "project": "demo-readwrite"}},
+    "personas": {"readwrite": {"build_profile": "hello-world"}},
 }
 
 
@@ -64,7 +64,12 @@ def runner() -> CliRunner:
 
 
 def _profile(deploy: dict[str, Any] | None, config: dict[str, Any] | None) -> dict[str, Any]:
-    raw: dict[str, Any] = {"name": "Demo", "extends": "hello-world", "data": "data"}
+    raw: dict[str, Any] = {
+        "name": "Demo",
+        "project_name": "demo",
+        "extends": "hello-world",
+        "data": "data",
+    }
     if deploy is not None:
         raw["deploy"] = deploy
     if config is not None:

@@ -77,9 +77,18 @@ Create a deployment repository from a bundled preset.
 
    osprey init [DIRECTORY] --preset NAME [OPTIONS]
 
-``DIRECTORY`` is the repository the deployment lives in, and its name *is* the
-deployment's name. Omit it to initialize the current directory in place, which
-is how a repository cloned empty from a forge is filled in.
+``DIRECTORY`` is the repository the deployment lives in. Omit it to initialize
+the current directory in place, which is how a repository cloned empty from a
+forge is filled in.
+
+The directory's name is proposed as the deployment's name: ``osprey init``
+normalizes it to a valid compose project name and records it in
+``profile.yml`` as ``project_name:``, beside the display ``name:``. That
+tracked value names the compose project, volumes, images and persona renders on
+every host from then on; the folder a later clone sits in plays no part. Change
+it in ``profile.yml``, or with ``osprey set project_name=NAME``, before the
+first ``osprey up`` if the folder name is not the name you want
+(:ref:`reference-profile`).
 
 The repository holds four zones — source you edit, secrets, disposable build
 output, and durable state:
@@ -429,6 +438,23 @@ at every start — its compose file, nginx config, landing page, and any persona
 whose project is missing. Those follow the user roster rather than the build, so
 a roster edit takes effect on the next start.
 
+Before it touches a container, ``up`` checks who created the ones already
+running under this deployment's ``project_name``. It refuses when containers
+named for this project were created from another checkout of the repository —
+a second clone or worktree on the same host reads the same tracked name — and
+names that checkout. Nothing is deployed. Either stop the deployment where it
+lives (``osprey down --repo <that checkout>``), or give this copy its own name
+in a variant overlay:
+
+.. code-block:: text
+
+   profiles/scratch.yml:   project_name: <project_name>-scratch
+   .env.variant:           OSPREY_PROFILE_VARIANT=scratch
+
+then ``osprey build`` and start again (:ref:`deploy-two-checkouts-one-host`).
+Containers with no checkout label count as this deployment's. ``osprey restart``
+runs the same check before it stops anything.
+
 Whether the deployment is reachable off-host is a property of the build, not of
 this command: the bind address is rendered into every published port. Change it
 with ``osprey set config.deployment.bind_address=0.0.0.0``, then rebuild.
@@ -505,7 +531,7 @@ osprey reset
 ------------
 
 Wipe this deployment back to a fresh state. It stops the stack, removes the
-containers, volumes and images carrying this checkout's identity, destroys the
+containers, volumes and images of this deployment, destroys the
 agent's memory under ``var/agent_data/``, strips the tokens ``osprey up`` minted
 out of ``.env``, and deletes ``build/``.
 
@@ -514,9 +540,13 @@ safety audit log, and everything in ``.env`` that a deploy did not mint — your
 provider keys. The source zone is never touched: ``profile.yml``, ``data/``,
 ``personas/``, ``triggers.yml`` and ``.git`` are exactly what they were.
 
-Reset removes a container or volume only when it also carries this repository's
-identity label, and refuses outright — removing nothing — when it finds
-same-named resources created from a different path.
+What belongs to this deployment is decided two ways. A container records the
+checkout that created it in a label, and reset refuses outright — removing
+nothing — when containers under this ``project_name`` were created from a
+different checkout; it names that checkout so you can reset from there. A
+container with no label at all counts as this deployment's. Volumes carry no
+such label: they belong to the project by name (``<project_name>_<volume>``),
+so once the containers check out, every volume under that name is removed.
 
 ``--dry-run`` — Show the removal plan and stop. Nothing is stopped, removed, or
 written.

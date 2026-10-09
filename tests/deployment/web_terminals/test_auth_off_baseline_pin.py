@@ -427,11 +427,11 @@ _LAYOUT_PORTS = frozenset(
 _ALLOWED_COMPOSE_LINES = Counter(
     {
         "      - OSPREY_AUDIT_IDENTITY=alice": 1,
-        "      - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/alice": 1,
-        "      - ./var/audit/alice:/app/dls-assistant/var/audit/alice": 1,
+        "      - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/alice": 1,
+        "      - ./var/audit/alice:/app/dls_controls-assistant/var/audit/alice": 1,
         "      - OSPREY_AUDIT_IDENTITY=bob": 1,
-        "      - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/bob": 1,
-        "      - ./var/audit/bob:/app/dls-assistant/var/audit/bob": 1,
+        "      - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/bob": 1,
+        "      - ./var/audit/bob:/app/dls_controls-assistant/var/audit/bob": 1,
         # The cookie-lifecycle feature — the deliberate THIRD exception to SC6,
         # stated in its PROPOSAL. The terminal's own session-cookie lifetime now
         # travels to every per-user container, under `token` as under every
@@ -453,24 +453,24 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # exactly where nothing else is watching either. The identity in the
         # path is the roster name, the same one OSPREY_AUDIT_IDENTITY above
         # already spells, so no account, role or claim reaches this render.
-        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/alice": 1,
-        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/bob": 1,
-        "      - ./var/agent_data/control_target/alice:/app/dls-assistant/var/agent_data/control_target/alice": 1,
-        "      - ./var/agent_data/control_target/bob:/app/dls-assistant/var/agent_data/control_target/bob": 1,
+        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/alice": 1,
+        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/bob": 1,
+        "      - ./var/agent_data/control_target/alice:/app/dls_controls-assistant/var/agent_data/control_target/alice": 1,
+        "      - ./var/agent_data/control_target/bob:/app/dls_controls-assistant/var/agent_data/control_target/bob": 1,
         # The simulator's model logs — the SEVENTH exception to SC6. The
         # reference roster's deployment runs the mock, so every terminal runs
         # the composite in process and appends its model logs to the one host
         # directory `osprey sim status` names. Like the audit pair it carries
         # no account, role or claim. Count 2 = alice + bob.
-        "      - OSPREY_SIMULATOR_LOG_DIR=/app/dls-assistant/var/simulator": 2,
-        "      - ./var/simulator:/app/dls-assistant/var/simulator": 2,
+        "      - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-assistant/var/simulator": 2,
+        "      - ./var/simulator:/app/dls_controls-assistant/var/simulator": 2,
         # The guarded-run directory — the EIGHTH exception to SC6. Every
         # terminal runs the agent, and a guarded run started in any of them
         # takes the one per-target lock and journal the deployment shares, so
         # the bind is unconditional. It carries no account, role or claim.
         # Count 2 = alice + bob.
-        "      - OSPREY_GUARDED_RUN_DIR=/app/dls-assistant/var/guarded_run": 2,
-        "      - ./var/guarded_run:/app/dls-assistant/var/guarded_run": 2,
+        "      - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-assistant/var/guarded_run": 2,
+        "      - ./var/guarded_run:/app/dls_controls-assistant/var/guarded_run": 2,
     }
 )
 
@@ -482,8 +482,8 @@ _REPLACED_COMPOSE_LINES = frozenset(
     {
         "      # This user's refusal audit log (`var/audit/<user>/` on the host), bound",
         "      # so the record survives a recreate and is readable from the host.",
-        "      - ./var/audit/alice:/app/dls-assistant/var/audit",
-        "      - ./var/audit/bob:/app/dls-assistant/var/audit",
+        "      - ./var/audit/alice:/app/dls_controls-assistant/var/audit",
+        "      - ./var/audit/bob:/app/dls_controls-assistant/var/audit",
     }
 )
 
@@ -706,8 +706,8 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
     # The identity-addressed target is the feature's marker; the baseline may
     # carry the interim root-of-`var/audit` bind it replaces (see the module
     # docstring), so the bare `/var/audit/` substring is not the test.
-    assert "/app/dls-assistant/var/audit/alice" not in compose
-    assert "/app/dls-assistant/var/audit/bob" not in compose
+    assert "/app/dls_controls-assistant/var/audit/alice" not in compose
+    assert "/app/dls_controls-assistant/var/audit/bob" not in compose
     assert "OSPREY_CONTROL_CONTEXT_DIR" not in compose
     assert "/var/agent_data/control_target/alice" not in compose
     for line in _REPLACED_COMPOSE_LINES:

@@ -38,9 +38,11 @@
 # ============================================================
 
 # ── Project layout ──────────────────────────────────────────
-# Taken from the repository this render was made in. `project_root` is the
-# REPO root, not this file's directory: every relative path below is anchored
-# on it, and build/ is wiped by each build.
+# `project_name` comes from profile.yml's top-level `project_name:` (a persona
+# render's is `<project_name>-<persona>`); it names the compose project,
+# volumes and images. The rest is taken from the repository this render was
+# made in. `project_root` is the REPO root, not this file's directory: every
+# relative path below is anchored on it, and build/ is wiped by each build.
 project_name: "{{ project_name }}"
 project_root: {{ project_root }}
 build_dir: ./build

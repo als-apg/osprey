@@ -376,13 +376,10 @@ def _shape_repo(repo: Path) -> None:
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     terminals = profile["config"]["modules.web_terminals"]
     terminals["users"] = [{"name": USER, "index": 0, "persona": PERSONA}]
-    terminals["personas"] = {
-        PERSONA: {
-            "project": PERSONA_PROJECT,
-            "project_path": f"build/{PERSONA_PROJECT}",
-            "build_profile": f"personas/{PERSONA}.yml",
-        }
-    }
+    # The delta is the entry's only source: the build derives the persona's
+    # `project` / `project_path` from the profile's `project_name` and refuses
+    # a profile that spells either.
+    terminals["personas"] = {PERSONA: {"build_profile": f"personas/{PERSONA}.yml"}}
     terminals["default_persona"] = PERSONA
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 

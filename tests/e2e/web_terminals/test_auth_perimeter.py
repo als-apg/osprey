@@ -150,7 +150,7 @@ BASE_PORTS = {
 #: back to the container that produced it.
 UPSTREAM_MARKER = "osprey-e2e-auth-perimeter upstream"
 
-AUTH_IMAGE_TAG = f"{PROJECT}-assistant-auth:local"
+AUTH_IMAGE_TAG = f"{PROJECT}-auth:local"
 # `<catalog project>:local`, exactly as resolve_personas derives a
 # local-mode persona tag. Teardown-only, but spelled the way the render spells
 # it so an `rmi` here removes the tag this deploy actually built.

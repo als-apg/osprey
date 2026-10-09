@@ -4111,7 +4111,7 @@ jobs:
         docker rm -f osprey-e2e-auth-perimeter-auth || true
         docker rm -f osprey-e2e-auth-perimeter-nginx || true
         docker compose -p osprey-e2e-auth-perimeter down || true
-        docker rmi -f osprey-e2e-auth-perimeter-assistant-auth:local || true
+        docker rmi -f osprey-e2e-auth-perimeter-auth:local || true
         docker rmi -f authe2e-operator:local || true
 
   terminal-auth-multiuser-e2e:
@@ -4375,7 +4375,7 @@ jobs:
         docker rm -f osprey-e2e-full-chain-auth-nginx || true
         docker volume ls -q --filter "name=^osprey-e2e-full-chain-auth_" \
           | xargs -r docker volume rm -f || true
-        docker rmi -f osprey-e2e-full-chain-auth-assistant-auth:local || true
+        docker rmi -f osprey-e2e-full-chain-auth-auth:local || true
         docker rmi -f fullchain-operator-operator:local || true
         docker rmi -f fullchain-probe-probe:local || true
 

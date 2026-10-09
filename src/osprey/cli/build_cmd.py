@@ -8,7 +8,7 @@ names). Nothing durable lives there, so it is wiped and re-rendered whole every
 time; ``rm -rf build/`` loses nothing.
 
 A repo with a ``personas/`` directory renders more than one project: the
-deployment's own, plus ``build/<repo>-<persona>/`` for every delta in there
+deployment's own, plus ``build/<project_name>-<persona>/`` for every delta in there
 (:func:`_render_persona_projects`). That is the whole of when a persona project
 is written — no start verb renders one — so ``build/`` is a complete account of
 what a deploy will run, personas included.
@@ -259,7 +259,7 @@ class _RenderZones(NamedTuple):
     """The OUTPUT zone, ``<repo>/build``. What the swap replaces."""
 
     stage: Path
-    """Where this render is written: ``<repo>/build/.tmp/<repo name>``.
+    """Where this render is written: ``<repo>/build/.tmp/<project_name>``.
 
     One level below the staging root because
     :meth:`~osprey.cli.templates.manager.TemplateManager.create_project`
@@ -280,15 +280,52 @@ class _RenderZones(NamedTuple):
         return self.stage.parent
 
 
-def _render_zones(repo_root: Path) -> _RenderZones:
-    """The paths one ``osprey build`` of *repo_root* moves between."""
+def _render_zones(repo_root: Path, project_name: str) -> _RenderZones:
+    """The paths one ``osprey build`` of *repo_root* moves between.
+
+    Args:
+        repo_root: The deployment repo.
+        project_name: The profile's ``project_name:`` — the staged render's
+            leaf, as it is every render's.
+    """
     build_dir = repo_root / BUILD_DIR_NAME
     return _RenderZones(
         repo_root=repo_root,
         build_dir=build_dir,
-        stage=build_dir / _STAGE_DIRNAME / repo_root.name,
+        stage=build_dir / _STAGE_DIRNAME / project_name,
         incoming=repo_root / STATE_DIR_NAME / _INCOMING_DIRNAME,
         outgoing=repo_root / STATE_DIR_NAME / _OUTGOING_DIRNAME,
+    )
+
+
+def _profile_project_name(project_name: str | None, repo_root: Path) -> str:
+    """The deployment's name, as the merged profile states it, or a refusal.
+
+    No fallback: a name the build derived from the checkout would differ
+    between two clones of one deployment, which is the failure a tracked name
+    exists to prevent. The refusal proposes the folder name, normalized the way
+    compose normalized it when it named this checkout's volumes, so adding the
+    printed line keeps every existing volume under the name it already has.
+
+    Args:
+        project_name: The merged profile's ``project_name:``, or ``None``.
+        repo_root: The deployment repo, whose folder name the remedy proposes.
+
+    Raises:
+        BuildProfileError: When the profile states no ``project_name``.
+    """
+    if project_name:
+        return project_name
+    from osprey.deployment.compose_generator import _normalize_compose_name
+
+    proposed = _normalize_compose_name(repo_root.name) or "my-deployment"
+    raise BuildProfileError(
+        f"{PROFILE_FILENAME} states no project_name. It names this deployment's compose "
+        f"project, volumes, images and persona renders on every host. Add this line at the "
+        f"top level of {PROFILE_FILENAME}, beside `name:`:\n\n"
+        f"    project_name: {proposed}\n\n"
+        f"That is the name this checkout has been deploying under, so existing volumes keep "
+        f"their names."
     )
 
 
@@ -1093,7 +1130,7 @@ def _render_compose_files(
         # one directory too high at deploy time.
         # ``persona_root`` for the same reason again: the persona renders this
         # build has already written sit in the staged tree, and the catalog's
-        # ``project_path`` (``build/<repo>-<persona>``) names where they will
+        # ``project_path`` (``build/<project_name>-<persona>``) names where they will
         # be once the swap lands — the previous build's personas until then.
         config, compose_files = prepare_compose_files(
             str(zones.stage / "config.yml"),
@@ -1124,41 +1161,60 @@ def _warn_if_deployment_running(config: dict[str, Any] | None, project_name: str
     believe the change is live, and find out at the worst possible moment that
     it is not.
 
+    The running containers are read through the same ownership rule every
+    verb uses, so a container another checkout created under this project
+    name is reported as that checkout's, never as this deployment's: a build
+    in a scratch clone must not claim that a colleague's running stack picks
+    up its render.
+
     Best-effort: no container runtime, or a runtime that cannot be asked, means
     no warning rather than a failed build.
     """
+    import functools
     import subprocess
 
     try:
-        from osprey.deployment.compose_generator import resolve_project_name
-        from osprey.deployment.runtime_helper import get_runtime_command
+        from osprey.deployment.compose_generator import (
+            repo_identity,
+            resolve_project_name,
+            resolve_repo_root,
+        )
+        from osprey.deployment.container_ownership import host_claim
+        from osprey.deployment.reset import RuntimeProbe
+        from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 
         project = resolve_project_name(config or {"project_name": project_name})
-        runtime = get_runtime_command(config)[0]
-        result = subprocess.run(
-            [
-                runtime,
-                "ps",
-                "--filter",
-                f"label=com.docker.compose.project={project}",
-                "--format",
-                "{{.Names}}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
+        probe = RuntimeProbe(
+            get_runtime_command(config)[0],
+            env=runtime_env(config, dict(os.environ)),
+            run=functools.partial(subprocess.run, timeout=15),
         )
-        running = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        claim = host_claim(
+            project, repo_identity(resolve_repo_root(config)), probe=probe, include_stopped=False
+        )
     except Exception as exc:  # a warning must never be the reason a build fails
         logger.debug("Running-container check skipped: %s", exc)
         return
 
+    if claim.foreign:
+        paths = sorted(
+            {resource.recorded_path or "a path no label records" for resource in claim.foreign}
+        )
+        logger.warning(
+            "  another checkout's deployment is running under the name %r: %s. "
+            "This build does not reach it.",
+            project,
+            ", ".join(paths),
+        )
+    running = sorted(
+        resource.name for resource in (*claim.containers.ours, *claim.containers.unidentified)
+    )
     if running:
         logger.warning(
             "  %d container(s) of this deployment are running (%s). The new build "
             "takes effect at the next `osprey up` or `osprey restart`.",
             len(running),
-            ", ".join(sorted(running)),
+            ", ".join(running),
         )
 
 
@@ -1952,12 +2008,19 @@ def _render_project(
         # the two ever name one key. The `modules.web_terminals` entry is
         # REFUSE-IF-CONTRADICTED: a spelling that agrees with it is accepted, and
         # health_url_key_errors refuses any other value at validation, so the
-        # overwrite never silently replaces a different value.
+        # overwrite never silently replaces a different value. The persona
+        # catalog's `project`/`project_path` are DERIVED for every entry with a
+        # `build_profile` (validation refuses a profile spelling of either), and
+        # empty for a render that stands up no persona stack of its own — a
+        # persona's render — so no render derives personas-of-a-persona.
+        from osprey.deployment.web_terminals.persona_naming import derived_persona_catalog
+
         derived_by_block = {
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
             "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
             "modules.web_terminals": health_config_overrides(build_profile.config),
             "graphdb": graphdb_corpus_fill(build_profile.config),
+            "project_name": derived_persona_catalog(build_profile.config, project_name),
             "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
             # Reads the render because the stand-in's probe channel is the sandbox
             # VA's: whatever the template put there is the fallback for a profile
@@ -2413,8 +2476,10 @@ def _persona_deltas(repo_root: Path) -> list[Path]:
     return deltas
 
 
-def _render_persona_projects(shared: _SharedRenderInputs, zones: _RenderZones) -> list[Path]:
-    """Render ``build/<repo>-<persona>/`` for every delta in ``personas/``.
+def _render_persona_projects(
+    shared: _SharedRenderInputs, zones: _RenderZones, project_name: str
+) -> list[Path]:
+    """Render ``build/<project_name>-<persona>/`` for every delta in ``personas/``.
 
     Personas are rendered HERE, by the build, and nowhere else. No start verb
     renders one: ``build/`` is the complete account of what a deploy will run,
@@ -2428,11 +2493,11 @@ def _render_persona_projects(shared: _SharedRenderInputs, zones: _RenderZones) -
     resolve fails the whole build and leaves the previous ``build/`` — every
     project in it — exactly as it was. Never a half-written set.
 
-    The naming is the catalog's, not this function's invention:
-    ``<repo>-<persona>`` is what ``osprey init`` writes into every catalog
-    entry's ``project`` and ``project_path``
-    (:func:`~osprey.cli.build_profile_emit.persona_catalog_layer`), which is how the
-    deploy finds the render this produced. Every delta is rendered whether the
+    The naming is :func:`~osprey.deployment.web_terminals.persona_naming.persona_project`'s,
+    the same call that writes every catalog entry's ``project`` and
+    ``project_path`` into the deployment's rendered config (see
+    :func:`_render_project`), which is how the deploy finds the render this
+    produced. Every delta is rendered whether the
     catalog names it or not — the catalog decides which personas are *deployed*,
     ``personas/`` decides which exist — so a delta added before its catalog entry
     is already built when the entry lands.
@@ -2440,6 +2505,8 @@ def _render_persona_projects(shared: _SharedRenderInputs, zones: _RenderZones) -
     Returns:
         The persona render directories, for the runtime-state prune.
     """
+    from osprey.deployment.web_terminals.persona_naming import persona_project
+
     from .build_profile import resolve_build_document
     from .profile_conventions import unknown_root_entries
 
@@ -2454,14 +2521,14 @@ def _render_persona_projects(shared: _SharedRenderInputs, zones: _RenderZones) -
 
     rendered: list[Path] = []
     for delta in deltas:
-        project_name = f"{shared.repo_root.name}-{delta.stem}"
-        logger.debug("  Rendering persona %r → %s/", delta.stem, project_name)
+        persona_name, _ = persona_project(project_name, delta.stem)
+        logger.debug("  Rendering persona %r → %s/", delta.stem, persona_name)
         rendered.append(
             _render_project(
                 shared,
                 resolve_build_document(delta, None, shared.profile_overlays),
                 profile_path=delta,
-                project_name=project_name,
+                project_name=persona_name,
                 output_dir=zones.stage,
                 deployment=False,
                 progress=logger.debug,
@@ -2890,10 +2957,10 @@ def _render_container_projects(
     and a persona image built from the deployment's render would come up with
     the deployment's config and none of that persona's, which is the difference
     between a read-only terminal and one that writes to hardware. The persona's
-    ``.mcp.json`` names ``/app/<repo>-<persona>/build/config.yml``, so its
-    servers read ITS config, and only its own image carries that file.
+    ``.mcp.json`` names ``/app/<project_name>-<persona>/build/config.yml``, so
+    its servers read ITS config, and only its own image carries that file.
 
-    The host-side persona renders at ``build/<repo>-<persona>/`` are untouched
+    The host-side persona renders at ``build/<project_name>-<persona>/`` are untouched
     and stay FLAT: the credential sweep
     (:func:`osprey.deployment.web_terminals.env_production._claude_code_auth_secret_vars`),
     the render check
@@ -2904,6 +2971,8 @@ def _render_container_projects(
 
     :returns: The image context roots, in build order.
     """
+    from osprey.deployment.web_terminals.persona_naming import persona_project
+
     from .build_profile import resolve_build_document
 
     contexts = [
@@ -2923,7 +2992,7 @@ def _render_container_projects(
                 resolve_build_document(delta, None, shared.profile_overlays),
                 zones,
                 profile_path=delta,
-                project_name=f"{shared.repo_root.name}-{delta.stem}",
+                project_name=persona_project(project_name, delta.stem)[0],
                 deployment=False,
             )
         )
@@ -3002,25 +3071,20 @@ def _build_repo(
 
     repo_root = find_repo_root(repo)
     profile_path = repo_root / PROFILE_FILENAME
-    # The repo is the deployment and its directory name is the deployment's
-    # name: it is what the compose project, the container labels and the local
-    # image tags are derived from. There is no name to pass and none to store.
-    name = repo_root.name
-    zones = _render_zones(repo_root)
 
     logger.debug("Building %s", repo_root)
 
     # The durable zone first: a fresh clone carries no git-ignored directory,
     # and the render below records paths into it.
     _ensure_state_zone(repo_root)
-    # Then anything a previous run left behind — including, in the one window
-    # where it can happen, a `build/` that a kill removed.
-    _repair_interrupted_swap(zones)
 
     # Both are reported after the swap, and both are only meaningful once it
     # has happened; named here so every exit path below has them.
     backup_dir: Path | None = None
     config: dict[str, Any] | None = None
+    # Known once the profile names the deployment, below.
+    zones: _RenderZones | None = None
+    name = ""
 
     try:
         # A mirror file at a path the facility build writes is its own one-line
@@ -3044,6 +3108,17 @@ def _build_repo(
         resolved = resolve_build_document(profile_path, None, profile_overlays)
         build_profile = resolved.profile
 
+        # The deployment's name is the profile's: every host-visible name — the
+        # compose project, volumes, image tags, each persona render — derives
+        # from it, so a clone under any folder name deploys as the same thing,
+        # and a host overlay renames the instance. Validation already held a
+        # stated value to compose's spelling.
+        name = _profile_project_name(build_profile.project_name, repo_root)
+        zones = _render_zones(repo_root, name)
+        # Then anything a previous run left behind — including, in the one
+        # window where it can happen, a `build/` that a kill removed.
+        _repair_interrupted_swap(zones)
+
         # The profile's own checks first, then the ones that need the config
         # this build is about to render (the `config:` block plus what the
         # `deploy:` block contributes to it).
@@ -3053,7 +3128,7 @@ def _build_repo(
         # read no persona delta at all and passed a roster the gate exists to
         # refuse.
         web_errors = deploy_aware_config_errors(
-            build_profile.deploy, build_profile.config, profile_root=repo_root
+            build_profile.deploy, build_profile.config, profile_root=repo_root, project_name=name
         )
         # A sibling call, exactly as `osprey validate` makes it — see the note
         # beside the same line in `validate_cmd.py`. Raising here, profile-side,
@@ -3069,7 +3144,7 @@ def _build_repo(
         if web_errors:
             raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
         web_warnings = deploy_aware_config_warnings(
-            build_profile.deploy, build_profile.config, profile_root=repo_root
+            build_profile.deploy, build_profile.config, profile_root=repo_root, project_name=name
         )
         # An authored `web.bar_items` entry the served default will not carry:
         # the server filters a panel-gated item whose panel this profile does
@@ -3305,7 +3380,7 @@ def _build_repo(
             # personas' rendered config.yml files for its per-persona grants
             # (the bluesky_web sidecar's roster secrets), and the start verbs
             # are as-built — a grant this pass misses reaches no container.
-            persona_renders = _render_persona_projects(shared, zones)
+            persona_renders = _render_persona_projects(shared, zones, name)
             if persona_renders:
                 phase.step(f"{len(persona_renders)} persona render(s)")
 
@@ -3403,7 +3478,7 @@ def _build_repo(
         # The staging tree never outlives the build that made it, however that
         # build ended. A successful swap has already moved it; anything left
         # here is the debris of one that did not.
-        if zones.stage_root.exists():
+        if zones is not None and zones.stage_root.exists():
             shutil.rmtree(zones.stage_root, ignore_errors=True)
 
     if backup_dir is not None:

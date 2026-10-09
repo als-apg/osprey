@@ -3,7 +3,7 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
-    container_name: dls-nginx
+    container_name: dls_controls-nginx
     restart: unless-stopped
     network_mode: host
     labels:
@@ -31,7 +31,7 @@ services:
 
   web-alice:
     image: git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest
-    container_name: dls-web-alice
+    container_name: dls_controls-web-alice
     restart: unless-stopped
     network_mode: host
     labels:
@@ -58,10 +58,10 @@ services:
       - OSPREY_HEALTH_PORT=9700
     volumes:
       - alice-claude-config:/data/claude-config
-      - alice-agent-data:/app/dls-assistant/var/agent_data
+      - alice-agent-data:/app/dls_controls-assistant/var/agent_data
       # This user's refusal audit log (`var/audit/<user>/` on the host), bound
       # so the record survives a recreate and is readable from the host.
-      - ./var/audit/alice:/app/dls-assistant/var/audit
+      - ./var/audit/alice:/app/dls_controls-assistant/var/audit
     healthcheck:
       # osprey web's own default listen port is the fixed constant 8087
       # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no
@@ -80,7 +80,7 @@ services:
 
   web-bob:
     image: git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest
-    container_name: dls-web-bob
+    container_name: dls_controls-web-bob
     restart: unless-stopped
     network_mode: host
     labels:
@@ -107,10 +107,10 @@ services:
       - OSPREY_HEALTH_PORT=9701
     volumes:
       - bob-claude-config:/data/claude-config
-      - bob-agent-data:/app/dls-assistant/var/agent_data
+      - bob-agent-data:/app/dls_controls-assistant/var/agent_data
       # This user's refusal audit log (`var/audit/<user>/` on the host), bound
       # so the record survives a recreate and is readable from the host.
-      - ./var/audit/bob:/app/dls-assistant/var/audit
+      - ./var/audit/bob:/app/dls_controls-assistant/var/audit
     healthcheck:
       # osprey web's own default listen port is the fixed constant 8087
       # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no
@@ -130,16 +130,8 @@ services:
 volumes:
 
   alice-claude-config:
-    labels:
-      com.osprey.repo-id: "@REPO_ID@"
   alice-agent-data:
-    labels:
-      com.osprey.repo-id: "@REPO_ID@"
 
   bob-claude-config:
-    labels:
-      com.osprey.repo-id: "@REPO_ID@"
   bob-agent-data:
-    labels:
-      com.osprey.repo-id: "@REPO_ID@"
 

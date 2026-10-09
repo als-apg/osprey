@@ -789,6 +789,26 @@ def _persona_render_dir(project_root: Any, project_path: str, persona_root: Any)
     return Path(persona_root, within_build_zone)
 
 
+def rendered_persona_config_file(
+    project_root: Any, project_path: str, persona_root: Any = None
+) -> Path:
+    """The ``config.yml`` a catalog entry's rendered project is read from.
+
+    The one join behind every reader of a persona's render — the credential
+    grants, the deploy-time lint belt, and the build-time belt for a persona
+    the build does not render itself (an entry with no ``build_profile``, whose
+    ``project_path`` points at a project rendered somewhere else). Spelling the
+    join once is what keeps the two altitudes reading the same file.
+
+    :param project_root: The repo root ``project_path`` is spelled against.
+    :param project_path: The catalog entry's ``project_path``, as written.
+    :param persona_root: :func:`_persona_render_dir`'s staging tree, or ``None``
+        for the published build zone.
+    :return: The path of that render's ``config.yml``; not checked to exist.
+    """
+    return _persona_render_dir(project_root, project_path, persona_root) / "config.yml"
+
+
 def _persona_configs(
     config: Any, project_root: Any, persona_root: Any = None
 ) -> Iterable[tuple[str, Any]]:
@@ -811,7 +831,7 @@ def _persona_configs(
         project_path = entry.get("project_path")
         if not isinstance(project_path, str) or not project_path:
             continue
-        config_yml = _persona_render_dir(project_root, project_path, persona_root) / "config.yml"
+        config_yml = rendered_persona_config_file(project_root, project_path, persona_root)
         if not config_yml.is_file():
             continue
         try:
@@ -3006,7 +3026,7 @@ def resolve_personas(
         else:
             image = f"{registry_url}/web-terminal-{persona_ref}:{image_tag}"
 
-        container_project_dir = f"/app/{project}"
+        container_project_dir = f"/app/{project}" if has_own_project else default_container_dir
 
         entry_resolved = _with_optional_fields(
             {

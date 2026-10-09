@@ -16,12 +16,14 @@ from jinja2 import Environment, Template
 from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
+from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
     allocate_ports,
     base_ports_from_config,
     resolve_nginx_port,
 )
+from osprey.deployment.web_terminals.provision import auth_sidecar_local_tag
 from osprey.deployment.web_terminals.render import (
     AUTH_ENV_DIGEST_LABEL,
     PROXY_ENV_NAMES,
@@ -119,7 +121,7 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
     if groups is not None:
         web_terminals["landing"] = {"groups": groups}
     return {
-        "project_name": "dls",
+        "project_name": "dls_controls",
         "facility": {
             "prefix": "dls",
         },
@@ -153,7 +155,7 @@ def test_render_refuses_registry_mode_without_a_registry_url(
         config["registry"] = registry
     if with_catalog:
         web_terminals = config["modules"]["web_terminals"]
-        web_terminals["personas"] = {"assistant": {"project": "dls-assistant"}}
+        web_terminals["personas"] = {"assistant": {"project": "dls_controls-assistant"}}
         web_terminals["default_persona"] = "assistant"
 
     # Act / Assert
@@ -168,14 +170,14 @@ def test_render_in_local_mode_needs_no_registry_url() -> None:
     del config["registry"]
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["image_source"] = "local"
-    web_terminals["personas"] = {"assistant": {"project": "dls-assistant"}}
+    web_terminals["personas"] = {"assistant": {"project": "dls_controls-assistant"}}
     web_terminals["default_persona"] = "assistant"
 
     # Act
     artifacts = render_web_terminals(config)
 
     # Assert
-    assert "image: dls-assistant:local" in artifacts["docker-compose.web.yml"]
+    assert "image: dls_controls-assistant:local" in artifacts["docker-compose.web.yml"]
 
 
 def test_render_returns_exactly_three_artifacts() -> None:
@@ -1725,8 +1727,8 @@ def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_an
     catalog_config["modules"]["web_terminals"]["default_persona"] = "assistant"
     catalog_config["modules"]["web_terminals"]["personas"] = {
         "assistant": {
-            "project": "dls-assistant",
-            "project_path": "../dls-assistant",
+            "project": "dls_controls-assistant",
+            "project_path": "../dls_controls-assistant",
             "build_profile": "profiles/assistant.yml",
         },
     }
@@ -1748,7 +1750,7 @@ def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_an
             catalog_svc["image"]
             == "git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest"
         )
-        assert f"{user}-agent-data:/app/dls-assistant/var/agent_data" in catalog_svc["volumes"]
+        assert f"{user}-agent-data:/app/dls_controls-assistant/var/agent_data" in catalog_svc["volumes"]
 
 
 def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
@@ -1762,8 +1764,8 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     web_terminals["default_persona"] = "assistant"
     web_terminals["personas"] = {
         "assistant": {
-            "project": "dls-assistant",
-            "project_path": "../dls-assistant",
+            "project": "dls_controls-assistant",
+            "project_path": "../dls_controls-assistant",
             "build_profile": "profiles/assistant.yml",
         },
         "gui": {
@@ -1798,14 +1800,14 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     # six mounts — the persona's list adds to them, never reorders them.
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
-        "alice-agent-data:/app/dls-assistant/var/agent_data",
-        "./var/audit/alice:/app/dls-assistant/var/audit/alice",
+        "alice-agent-data:/app/dls_controls-assistant/var/agent_data",
+        "./var/audit/alice:/app/dls_controls-assistant/var/audit/alice",
         (
             "./var/agent_data/control_target/alice"
-            ":/app/dls-assistant/var/agent_data/control_target/alice"
+            ":/app/dls_controls-assistant/var/agent_data/control_target/alice"
         ),
-        "./var/simulator:/app/dls-assistant/var/simulator",
-        "./var/guarded_run:/app/dls-assistant/var/guarded_run",
+        "./var/simulator:/app/dls_controls-assistant/var/simulator",
+        "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
     ]
 
 
@@ -1826,14 +1828,14 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
     for user in config["modules"]["web_terminals"]["users"]:
         assert compose["services"][f"web-{user}"]["volumes"] == [
             f"{user}-claude-config:/data/claude-config",
-            f"{user}-agent-data:/app/dls-assistant/var/agent_data",
-            f"./var/audit/{user}:/app/dls-assistant/var/audit/{user}",
+            f"{user}-agent-data:/app/dls_controls-assistant/var/agent_data",
+            f"./var/audit/{user}:/app/dls_controls-assistant/var/audit/{user}",
             (
                 f"./var/agent_data/control_target/{user}"
-                f":/app/dls-assistant/var/agent_data/control_target/{user}"
+                f":/app/dls_controls-assistant/var/agent_data/control_target/{user}"
             ),
-            "./var/simulator:/app/dls-assistant/var/simulator",
-            "./var/guarded_run:/app/dls-assistant/var/guarded_run",
+            "./var/simulator:/app/dls_controls-assistant/var/simulator",
+            "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
         ]
 
 
@@ -1858,7 +1860,7 @@ def test_agent_data_volume_mounts_where_the_container_resolves_its_agent_data_ro
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
     # Assert
-    expected = f"/app/dls-assistant/{agent_data_base_dir(config)}"
+    expected = f"/app/dls_controls-assistant/{agent_data_base_dir(config)}"
     for user in config["modules"]["web_terminals"]["users"]:
         assert f"{user}-agent-data:{expected}" in compose["services"][f"web-{user}"]["volumes"]
 
@@ -1882,7 +1884,7 @@ def test_a_relocated_agent_data_base_dir_moves_the_volume_mount_with_it() -> Non
     # Assert
     for user in config["modules"]["web_terminals"]["users"]:
         volumes = compose["services"][f"web-{user}"]["volumes"]
-        assert f"{user}-agent-data:/app/dls-assistant/state/agent" in volumes
+        assert f"{user}-agent-data:/app/dls_controls-assistant/state/agent" in volumes
         assert not any("var/agent_data" in mount for mount in volumes)
 
 
@@ -1905,7 +1907,7 @@ def test_an_absolute_agent_data_base_dir_is_not_re_anchored_under_the_project_di
     for user in config["modules"]["web_terminals"]["users"]:
         volumes = compose["services"][f"web-{user}"]["volumes"]
         assert f"{user}-agent-data:/srv/osprey-agent-data" in volumes
-        assert not any("/app/dls-assistant/srv" in mount for mount in volumes)
+        assert not any("/app/dls_controls-assistant/srv" in mount for mount in volumes)
 
 
 def test_nginx_mounts_resolve_into_the_repos_build_zone(tmp_path) -> None:
@@ -3684,13 +3686,36 @@ def test_auth_sidecar_service_serves_a_single_uvicorn_bound_to_loopback() -> Non
 
 def test_auth_sidecar_service_image_defaults_to_the_local_build_tag() -> None:
     """Local mode: no `auth.image`, so the service names the tag the runtime build
-    produces — the persona-image pattern (`<project>-<name>:local`) applied to the
-    sidecar, whose project is resolve_personas()'s default `<project>-assistant`."""
+    produces — `<project_name>-auth:local`, on the compose project and never on
+    `facility.prefix`, the same tag provision builds."""
     # Act
-    auth = _compose(_auth_config())["services"]["auth"]
+    config = _auth_config()
+    auth = _compose(config)["services"]["auth"]
 
     # Assert
-    assert auth["image"] == "dls-assistant-auth:local"
+    assert auth["image"] == "dls_controls-auth:local"
+    assert auth["image"] == auth_sidecar_local_tag(config)
+
+
+def test_every_web_container_is_named_on_the_compose_project() -> None:
+    """nginx, the auth sidecar and each terminal carry `<project_name>-…`, and
+    `facility.prefix` (`dls`) names none of them."""
+    services = _compose(_auth_config(["alice", "bob"]))["services"]
+
+    assert services["nginx"]["container_name"] == "dls_controls-nginx"
+    assert services["auth"]["container_name"] == "dls_controls-auth"
+    assert services["web-alice"]["container_name"] == web_container_name("dls_controls", "alice")
+    assert services["web-bob"]["container_name"] == "dls_controls-web-bob"
+
+
+def test_web_volumes_carry_no_checkout_label() -> None:
+    """A per-user volume is owned by the compose project by name; it carries no
+    path-derived label, so a second checkout under the same project never sees
+    a volume whose labels disagree with its compose file. Services keep it."""
+    compose = _compose(_config(["alice"]))
+
+    assert compose["volumes"] == {"alice-claude-config": None, "alice-agent-data": None}
+    assert "com.osprey.repo-id" in compose["services"]["web-alice"]["labels"]
 
 
 def test_containers_and_auth_image_are_named_by_the_project_not_the_facility() -> None:
@@ -3712,7 +3737,7 @@ def test_containers_and_auth_image_are_named_by_the_project_not_the_facility() -
     assert services["auth"]["container_name"] == "beamline-ops-auth"
     assert services["web-alice"]["container_name"] == "beamline-ops-web-alice"
     assert services["web-bob"]["container_name"] == "beamline-ops-web-bob"
-    assert services["auth"]["image"] == "beamline-ops-assistant-auth:local"
+    assert services["auth"]["image"] == "beamline-ops-auth:local"
     assert services["auth"]["image"] == auth_sidecar_local_tag(config)
     names = [service.get("container_name", "") for service in services.values()]
     assert not [name for name in names if name.startswith("dls-")]

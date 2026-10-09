@@ -8,16 +8,24 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from osprey.services.ariel_search.models import (
+    END_BOUND_DESCRIPTION,
+    START_BOUND_DESCRIPTION,
+    TimeBoundText,
+)
+
 
 class AttachmentResponse(BaseModel):
-    """One attachment of an entry: its summary plus the web-only ``display_url``.
+    """One attachment of an entry: its summary plus the web-only fields.
 
-    The fields other than ``display_url`` are the attachment summary keys
-    (``SUMMARY_KEYS``). ``url`` is the attachment's absolute http(s) source url,
-    when it has one; ``display_url`` is where the web page shows or downloads
-    the attachment from, or null when there is nowhere to: an absolute http(s)
-    url, or one of this API's attachment routes given relative to the API base
-    (``/attachments/{id}`` or ``/attachments/{id}/rendition``).
+    The fields other than ``display_url`` and ``skip_reason_text`` are the
+    attachment summary keys (``SUMMARY_KEYS``). ``url`` is the attachment's
+    absolute http(s) source url, when it has one; ``display_url`` is where the
+    web page shows or downloads the attachment from, or null when there is
+    nowhere to: an absolute http(s) url, or one of this API's attachment routes
+    given relative to the API base (``/attachments/{id}`` or
+    ``/attachments/{id}/rendition``). ``skip_reason_text`` is the operator text
+    of ``skip_reason``, or null when there is none.
     """
 
     attachment_id: str | None = None
@@ -31,6 +39,7 @@ class AttachmentResponse(BaseModel):
     visible_text: str | None = None
     url: str | None = None
     display_url: str | None = None
+    skip_reason_text: str | None = None
 
 
 class EntryResponse(BaseModel):
@@ -69,8 +78,10 @@ class SearchRequest(BaseModel):
     # the service's default mode.
     mode: str | None = Field(None, description="Search module name")
     max_results: int = Field(10, ge=1, le=100, description="Maximum results")
-    start_date: datetime | None = Field(None, description="Filter start date")
-    end_date: datetime | None = Field(None, description="Filter end date")
+    # Kept as text: a bare date and a midnight timestamp parse to the same
+    # datetime but close a window differently.
+    start_date: TimeBoundText = Field(None, description=START_BOUND_DESCRIPTION)
+    end_date: TimeBoundText = Field(None, description=END_BOUND_DESCRIPTION)
     author: str | None = Field(None, description="Filter by author")
     source_system: str | None = Field(None, description="Filter by source system")
     advanced_params: dict[str, Any] = Field(

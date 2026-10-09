@@ -19,7 +19,7 @@ and the question "is the mirror still moving?" is answered by the
 from inside a bridge-networked container names that container's own loopback.
 When this deployment co-deploys the store, the template says the address
 outright — the ``ariel-postgres`` network alias and postgres's container port on
-the bridge, the host loopback and the PUBLISHED port under ``network: host`` —
+the bridge, the interface it publishes on and the PUBLISHED port under ``network: host`` —
 following the ``OSPREY_ARCHIVER_MONGODB_HOST``/``PORT`` precedent in the dispatch
 worker. Those two variables apply only in ``resolve_ariel_dsn``'s DERIVED rung,
 so a deployment that authored its own ``ariel.database.uri`` (an external store)
@@ -284,7 +284,7 @@ def test_host_mode_with_co_deployed_store_dials_the_published_port() -> None:
     """
     rendered = _render(ariel_sync={"network": "host"}, postgresql={"port_host": 19800})
     env = _env(rendered)
-    assert env["ARIEL_DATABASE_HOST"] == "localhost"
+    assert env["ARIEL_DATABASE_HOST"] == "127.0.0.1"
     assert env["ARIEL_DATABASE_PORT"] == "19800"
 
 

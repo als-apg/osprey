@@ -99,8 +99,8 @@ def test_every_persona_less_user_gets_the_bundle():
     mounts = _bundle_mounts(_config())
 
     assert mounts == {
-        "web-alice": [f"{BUNDLE_SOURCE}:/app/dls-assistant/{BUNDLE_PATH}"],
-        "web-bob": [f"{BUNDLE_SOURCE}:/app/dls-assistant/{BUNDLE_PATH}"],
+        "web-alice": [f"{BUNDLE_SOURCE}:/app/dls_controls-assistant/{BUNDLE_PATH}"],
+        "web-bob": [f"{BUNDLE_SOURCE}:/app/dls_controls-assistant/{BUNDLE_PATH}"],
     }
 
 
@@ -154,7 +154,7 @@ def test_mount_is_read_write():
     the same directory is read-only."""
     mounts = _bundle_mounts(_config())["web-alice"]
 
-    assert mounts == [f"{BUNDLE_SOURCE}:/app/dls-assistant/{BUNDLE_PATH}"]
+    assert mounts == [f"{BUNDLE_SOURCE}:/app/dls_controls-assistant/{BUNDLE_PATH}"]
     assert not mounts[0].endswith(":ro")
 
 

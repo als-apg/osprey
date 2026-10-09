@@ -1198,28 +1198,18 @@ config:
       # `osprey build` builds one of these per file in personas/, into build/.
       # `osprey up` builds nothing: if one is missing it stops and says so.
       readonly:
-        project: control-assistant-readonly
-        project_path: build/control-assistant-readonly
         build_profile: control-assistant-readonly
       readwrite:
-        project: control-assistant-readwrite
-        project_path: build/control-assistant-readwrite
         build_profile: control-assistant-readwrite
       admin:
-        project: control-assistant-admin
-        project_path: build/control-assistant-admin
         build_profile: control-assistant-admin
       logbook:
-        project: control-assistant-logbook
-        project_path: build/control-assistant-logbook
         build_profile: control-assistant-logbook
         # Puts this persona's users under their own landing-page heading
         # instead of in with the people. Presentation only — it changes
         # nothing about the container, its ports, or what it can do.
         landing_group: Standalone deployments
       knowledge:
-        project: control-assistant-knowledge
-        project_path: build/control-assistant-knowledge
         build_profile: control-assistant-knowledge
         landing_group: Standalone deployments
 
