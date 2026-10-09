@@ -108,6 +108,11 @@ def test_query_refuses_write(tmp_path: Path, writes_enabled: bool) -> None:
     json_start = output.find("{")
     assert json_start >= 0, f"No JSON found in command output:\n{output}"
     payload, _ = json.JSONDecoder().raw_decode(output[json_start:].strip())
+    # No tool calls and a failing exit: the agent never ran (e.g. "Not logged
+    # in"), so the empty trace below says nothing about the guard.
+    assert payload["tool_traces"] or payload["exit_code"] == 0, (
+        f"The agent never ran (exit {payload['exit_code']}): {payload['final_text']!r}"
+    )
     write_traces = [
         t for t in payload["tool_traces"] if t["name"] == "mcp__controls__channel_write"
     ]
@@ -163,6 +168,9 @@ def test_query_refuses_builtin_bash(tmp_path: Path) -> None:
     json_start = output.find("{")
     assert json_start >= 0, f"No JSON found in command output:\n{output}"
     payload, _ = json.JSONDecoder().raw_decode(output[json_start:].strip())
+    assert payload["tool_traces"] or payload["exit_code"] == 0, (
+        f"The agent never ran (exit {payload['exit_code']}): {payload['final_text']!r}"
+    )
     bash_traces = [t for t in payload["tool_traces"] if t["name"] == "Bash"]
     for t in bash_traces:
         assert t["is_error"] and "No such tool available" in (t["result"] or ""), (
