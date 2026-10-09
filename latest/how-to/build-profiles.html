@@ -838,6 +838,14 @@ operator who has left — and nothing in it would ever be read.</p>
 <p>Everything a profile contributes lives inside the profile directory. That is
 what keeps a build reproducible: clone the deployment repository anywhere, and
 the same project renders.</p>
+<p>That includes its name. The compose project, the volumes, the images and the
+persona renders are all named from the tracked <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> field, never
+from the folder the clone sits in, so a clone under any folder name renders and
+deploys the same deployment. The flip side is that two clones on one host are
+the same deployment until one of them says otherwise. A second clone that runs
+beside the original declares its own name in a variant overlay
+(<a class="reference internal" href="#profile-host-variants"><span class="std std-ref">One repository, several hosts</span></a>); without one, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start over
+the original’s containers.</p>
 <p>The build holds the convention directories to it. An entry that is a symlink
 resolving outside the profile is refused, with the remedy — copy the target in
 instead. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span></code> refuses the same shape before it moves
@@ -1016,7 +1024,11 @@ result with:</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> points at these files by path — its web-terminal catalog carries
 <code class="docutils literal notranslate"><span class="pre">build_profile:</span> <span class="pre">personas/&lt;name&gt;.yml</span></code> for each one — so keep the names in step
-if you rename one. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads the same catalog but renders nothing: a
+if you rename one. That line is the whole entry. The build derives where each
+persona renders, <code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;name&gt;</span></code>, and writes that into
+<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> itself; a <code class="docutils literal notranslate"><span class="pre">project:</span></code> or <code class="docutils literal notranslate"><span class="pre">project_path:</span></code> line beside a
+<code class="docutils literal notranslate"><span class="pre">build_profile</span></code> would be a second copy of that fact, and the build refuses it
+with “delete these lines” as the remedy. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads the same catalog but renders nothing: a
 persona project missing from <code class="docutils literal notranslate"><span class="pre">build/</span></code> stops the start and points at
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> as the remedy. A bundled preset
 name in that field is rejected, because a persona built from a preset of its own
@@ -1163,11 +1175,37 @@ but switching <code class="docutils literal notranslate"><span class="pre">.env.
 existing <code class="docutils literal notranslate"><span class="pre">build/</span></code> out of date, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> names the stale render
 instead of starting it silently.</p></li>
 </ul>
+<section id="two-checkouts-on-one-host">
+<h3>Two checkouts on one host<a class="headerlink" href="#two-checkouts-on-one-host" title="Link to this heading">#</a></h3>
+<p>The same mechanism covers a second checkout on the <em>same</em> host — a scratch
+clone beside the deployment, or a worktree. Both checkouts read the same
+tracked <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>, so without an overlay they are one deployment: same
+compose project, same volumes, same image tags. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> in the second
+checkout refuses while containers under that name were created from the
+first, and names both ways out (see <a class="reference internal" href="deploy-project/networking.html#deploy-two-checkouts-one-host"><span class="std std-ref">Two checkouts of one repository on one host</span></a>).</p>
+<p>To run the second copy beside the first, give it its own name in an overlay
+and select it in that checkout only:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profiles/scratch.yml</span>
+<span class="nt">project_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-facility-scratch</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">echo</span><span class="w"> </span><span class="nv">OSPREY_PROFILE_VARIANT</span><span class="o">=</span>scratch<span class="w"> </span>&gt;<span class="w"> </span>.env.variant
+osprey<span class="w"> </span>build
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">project_name</span></code> is a top-level field, so the overlay sets it the way it sets
+any other. The scratch copy then has its own containers, volumes and images,
+and starts with empty data. A clone that keeps the tracked name <em>is</em> the same
+deployment and shares its volumes by that declaration; the refusal guards
+against two copies running at once, not against moving a checkout.</p>
+<p>The port block is the other thing two copies on one host share; move it in the
+same overlay with <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">deployment.port_base</span></code>.</p>
 <p>An overlay adds and replaces; it does not subtract. Lists are merged rather
 than swapped, so use <a class="reference internal" href="#profile-exclude"><span class="std std-ref">exclude:</span></a> to take something away
 on one host — that works in an overlay like anywhere else, and
 <code class="docutils literal notranslate"><span class="pre">exclude:</span> <span class="pre">{config:</span> <span class="pre">{deployed_services:</span> <span class="pre">[...]}}</span></code> is how one host deploys
 fewer services than the profile it builds from.</p>
+</section>
 </section>
 <section id="secrets">
 <span id="profile-secrets"></span><h2>Secrets<a class="headerlink" href="#secrets" title="Link to this heading">#</a></h2>
@@ -1496,7 +1534,10 @@ relax the constraint in the profile.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-something-a-profile-brings">Removing something a profile brings</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-repository-several-hosts">One repository, several hosts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-repository-several-hosts">One repository, several hosts</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#two-checkouts-on-one-host">Two checkouts on one host</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#secrets">Secrets</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#seeding-once">Seeding, once</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#who-else-writes-to-env">Who else writes to <code class="docutils literal notranslate"><span class="pre">.env</span></code></a></li>

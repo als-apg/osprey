@@ -508,13 +508,17 @@ what the agent thinks your devices are called.</p>
 page. With no value set, the project name is used.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code></p></td>
-<td><p>Short abbreviation the multi-user web stack puts in front of its
-container names. Nothing else reads it.</p></td>
+<td><p>The facility’s short token. The facility graph embeds it in every
+identifier it mints (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-ttl</span> <span class="pre">--facility</span></code>
+defaults to it), and a multi-user deployment without a <code class="docutils literal notranslate"><span class="pre">personas</span></code>
+catalog runs its terminals from <code class="docutils literal notranslate"><span class="pre">/app/&lt;prefix&gt;-assistant</span></code> inside the
+container. It names no container, volume or image; those come from the
+profile’s <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> (<a class="reference internal" href="profile.html#reference-profile"><span class="std std-ref">Build Profile — profile.yml</span></a>).</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">facility.ontology</span></code></p></td>
 <td><p>Path — relative to the project root — to this facility’s <strong>compiled
 ontology table</strong>, the JSON that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">compile-ontology</span></code>
-writes. See below.</p></td>
+writes.</p></td>
 </tr>
 </tbody>
 </table>

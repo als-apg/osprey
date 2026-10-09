@@ -747,25 +747,15 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 <span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Deployment</span><span class="nv"> </span><span class="s">Admin</span><span class="nv"> </span><span class="s">(Carol)&quot;</span>
 <span class="w">    </span><span class="nt">personas</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">readonly</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-readonly</span>
-<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/control-assistant-readonly</span>
 <span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readonly.yml</span>
 <span class="w">      </span><span class="nt">readwrite</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-readwrite</span>
-<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/control-assistant-readwrite</span>
 <span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readwrite.yml</span>
 <span class="w">      </span><span class="nt">admin</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-admin</span>
-<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/control-assistant-admin</span>
 <span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/admin.yml</span>
 <span class="w">      </span><span class="nt">logbook</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-logbook</span>
-<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/control-assistant-logbook</span>
 <span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/logbook.yml</span>
 <span class="w">        </span><span class="nt">landing_group</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Standalone deployments</span>
 <span class="w">      </span><span class="nt">knowledge</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-knowledge</span>
-<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/control-assistant-knowledge</span>
 <span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/knowledge.yml</span>
 <span class="w">        </span><span class="nt">landing_group</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Standalone deployments</span>
 </pre></div>
@@ -774,7 +764,16 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 repository — the file <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes under <code class="docutils literal notranslate"><span class="pre">personas/</span></code> and
 points the catalog at. The delta merges over <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, so every
 persona shares one data
-tree, one set of secrets, and one set of your own artifacts. A bundled
+tree, one set of secrets, and one set of your own artifacts. Where the
+persona renders is not stated here: the build derives
+<code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;persona&gt;</span></code> from the profile’s <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>
+and writes it into <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> as the persona’s <code class="docutils literal notranslate"><span class="pre">project</span></code> and
+<code class="docutils literal notranslate"><span class="pre">project_path</span></code>. Spelling either key beside a <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> is
+refused. An entry with no <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> — a persona rendered
+somewhere else — still names its <code class="docutils literal notranslate"><span class="pre">project_path</span></code> itself, and proves
+its tier by that render: the build reads the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> there, the
+same file <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads, so such a persona may be the
+<code class="docutils literal notranslate"><span class="pre">default_persona</span></code> or sit on a shared card like any other. A bundled
 preset name, an absolute path, or a path outside <code class="docutils literal notranslate"><span class="pre">personas/</span></code> is
 rejected by both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
@@ -940,7 +939,7 @@ instead.</p>
 </div>
 <section id="what-osprey-build-and-osprey-up-do-for-the-web-tier">
 <h3>What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> do for the web tier<a class="headerlink" href="#what-osprey-build-and-osprey-up-do-for-the-web-tier" title="Link to this heading">#</a></h3>
-<ol class="arabic simple">
+<ol class="arabic">
 <li><p><strong>The build renders the persona projects.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one
 project per <strong>delta</strong> in <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, into the build zone beside the main
 render (<code class="docutils literal notranslate"><span class="pre">build/control-assistant-readonly</span></code>,
@@ -956,18 +955,32 @@ is reported as a stale or partial build, with a rebuild as the remedy.</p></li>
 <li><p><strong>The start builds each persona’s image.</strong> In the preset’s local mode
 (<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each persona’s image
 (tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code> after the persona’s rendered project, e.g.
-<code class="docutils literal notranslate"><span class="pre">my-control-assistant-readwrite:local</span></code>) from that rendered project —
+<code class="docutils literal notranslate"><span class="pre">control-assistant-readwrite:local</span></code>) from that rendered project —
 no registry, no CI. Registry mode pulls them instead; see
 <a class="reference internal" href="#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>.</p></li>
-<li><p><strong>Brings up the web tier.</strong> An nginx reverse proxy (container <code class="docutils literal notranslate"><span class="pre">ca-nginx</span></code>)
-serves the landing page on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code>, and one Web Terminal
-container comes up per user — <code class="docutils literal notranslate"><span class="pre">ca-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">10100</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ca-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">10101</span></code>, <code class="docutils literal notranslate"><span class="pre">ca-web-logbook</span></code> on <code class="docutils literal notranslate"><span class="pre">10102</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ca-web-carol</span></code> on <code class="docutils literal notranslate"><span class="pre">10103</span></code> and <code class="docutils literal notranslate"><span class="pre">ca-web-knowledge</span></code> on <code class="docutils literal notranslate"><span class="pre">10104</span></code> — each
-reached
-through the landing page. (The
-<code class="docutils literal notranslate"><span class="pre">ca-</span></code> prefix is the preset’s <code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code>; change it for your
-site.)</p></li>
+<li><p><strong>Brings up the web tier.</strong> An nginx reverse proxy (container
+<code class="docutils literal notranslate"><span class="pre">control-assistant-nginx</span></code>) serves the landing page on
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code>, and one Web Terminal container comes up per
+user — <code class="docutils literal notranslate"><span class="pre">control-assistant-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">10100</span></code>,
+<code class="docutils literal notranslate"><span class="pre">control-assistant-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">10101</span></code>, <code class="docutils literal notranslate"><span class="pre">control-assistant-web-logbook</span></code>
+on <code class="docutils literal notranslate"><span class="pre">10102</span></code>, <code class="docutils literal notranslate"><span class="pre">control-assistant-web-carol</span></code> on <code class="docutils literal notranslate"><span class="pre">10103</span></code> and
+<code class="docutils literal notranslate"><span class="pre">control-assistant-web-knowledge</span></code> on <code class="docutils literal notranslate"><span class="pre">10104</span></code> — each reached through the
+landing page. With login on, the auth sidecar runs as
+<code class="docutils literal notranslate"><span class="pre">control-assistant-auth</span></code>, from a locally built
+<code class="docutils literal notranslate"><span class="pre">control-assistant-auth:local</span></code> image. Every one of these names is
+<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-…</span></code>, after the profile’s <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>, which
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> took from the folder name.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Upgrading a multi-user deployment</p>
+<p>Before this naming, the web containers and the auth image took their
+prefix from <code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code> (<code class="docutils literal notranslate"><span class="pre">ca-nginx</span></code>, <code class="docutils literal notranslate"><span class="pre">ca-web-alice</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ca-assistant-auth:local</span></code>). The first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> after upgrading
+replaces them with the <code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-…</span></code> containers and builds the auth
+image under its new tag; no old-named container is left running. The
+volumes keep their names, so every user’s workspace carries over.</p>
+</div>
+</li>
 </ol>
 <p>Stop the stack again with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>; check on it with
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code>.</p>
@@ -1008,7 +1021,8 @@ names it derives itself.</p>
 </table>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">&lt;persona&gt;</span></code> is the persona’s key in the <code class="docutils literal notranslate"><span class="pre">personas</span></code> catalog, not its
-<code class="docutils literal notranslate"><span class="pre">project</span></code>.
+<code class="docutils literal notranslate"><span class="pre">project</span></code>. The <code class="docutils literal notranslate"><span class="pre">project</span></code> is <code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;persona&gt;</span></code>, which the build
+derives from the profile’s <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>.
 The default persona keeps the unsuffixed name, so adding a catalog never
 renames the image its users already pull.</p>
 <p><code class="docutils literal notranslate"><span class="pre">&lt;tag&gt;</span></code> is <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_tag</span></code>, <code class="docutils literal notranslate"><span class="pre">latest</span></code> when unset.
@@ -1030,8 +1044,9 @@ A profile with no <code class="docutils literal notranslate"><span class="pre">d
 <p>The scaffolded pipeline builds only the facility’s own service images, not
 these, so the facility’s pipeline must push them.
 Put that job in <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> (see <a class="reference internal" href="../../deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>).
-Build each image from that persona’s rendered project: the same render
-<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> builds as <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code>.</p>
+Build each image from that persona’s rendered project,
+<code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;persona&gt;</span></code>: the same render <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>
+builds as <code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;persona&gt;:local</span></code>.</p>
 <p>Registry mode also pulls the auth sidecar from
 <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.image</span></code> when login is on; see <a class="reference internal" href="login.html"><span class="doc">Require a Login</span></a>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and
@@ -1055,12 +1070,8 @@ catalog.
 <span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
 <span class="w">    </span><span class="nt">personas</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">readonly</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo-readonly</span>
-<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/demo-readonly</span>
 <span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readonly.yml</span>
 <span class="w">      </span><span class="nt">readwrite</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo-readwrite</span>
-<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/demo-readwrite</span>
 <span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readwrite.yml</span>
 </pre></div>
 </div>

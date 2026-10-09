@@ -880,8 +880,14 @@ tokens and passwords your existing container volumes were initialized with),
 the agent’s memory under <code class="docutils literal notranslate"><span class="pre">var/</span></code>, and the repository’s <code class="docutils literal notranslate"><span class="pre">.git</span></code> history.
 <code class="docutils literal notranslate"><span class="pre">data/</span></code> in the build zone is re-materialized from the profile; the source
 zone is never touched by a build.</p>
-<p>Two guards make render drift visible:</p>
+<p>Three guards keep <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> from starting something you did not mean to:</p>
 <ul class="simple">
+<li><p><strong>Ownership refusal</strong> — every container records which checkout created it.
+Before <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> touches a container, it checks the ones already running
+under this deployment’s <code class="docutils literal notranslate"><span class="pre">project_name</span></code>; if they came from another checkout
+of the repository, it refuses and names that checkout. Stop the deployment
+there, or give this copy its own <code class="docutils literal notranslate"><span class="pre">project_name</span></code> in a variant overlay
+(<a class="reference internal" href="networking.html#deploy-two-checkouts-one-host"><span class="std std-ref">Two checkouts of one repository on one host</span></a>).</p></li>
 <li><p><strong>Drift refusal</strong> — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> recomputes a fingerprint over the resolved
 profile (stamped into <code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code> at build time) and compares it
 with the stamp. If the profile has moved on, <code class="docutils literal notranslate"><span class="pre">up</span></code> refuses and says what

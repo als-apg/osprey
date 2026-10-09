@@ -492,9 +492,26 @@ composition, and troubleshooting — see <a class="reference internal" href="../
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
 <td><p>string</p></td>
 <td><p><em>required</em></p></td>
-<td><p>Human-readable profile name.</p></td>
+<td><p>Human-readable profile name. It is display text only; no container,
+volume or image is named from it.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">project_name</span></code></p></td>
+<td><p>string</p></td>
+<td><p><em>required</em></p></td>
+<td><p>The deployment’s name on a host. It names the compose project, its
+volumes (<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;_&lt;volume&gt;</span></code>), the <code class="docutils literal notranslate"><span class="pre">:local</span></code> images, the web
+containers and the persona renders (<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;persona&gt;</span></code>).
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes it from the folder name, normalized to a valid
+compose project name; after that it is a tracked value, and the folder
+the repository is checked out into plays no part. It must already be a
+valid compose name (lowercase letters, digits, <code class="docutils literal notranslate"><span class="pre">-</span></code> and <code class="docutils literal notranslate"><span class="pre">_</span></code>, starting
+and ending with a letter or digit); the build refuses any other spelling and prints
+the normalized one. A second checkout that runs on the same host as the
+first sets its own value in a variant overlay (see
+<a class="reference internal" href="../../how-to/build-profiles.html#profile-host-variants"><span class="std std-ref">One repository, several hosts</span></a>). Changing it renames the deployment, and
+the volumes follow the new name.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
 <td><p>string</p></td>
 <td><p><em>required</em></p></td>
 <td><p>Facility data tree, relative to the profile directory (<code class="docutils literal notranslate"><span class="pre">data</span></code> in a
@@ -503,7 +520,7 @@ tree, so a profile that names none is refused. May resolve outside the
 profile directory; only existence and shape are checked
 (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-self-contained"><span class="std std-ref">A profile is self-contained</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provider</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provider</span></code></p></td>
 <td><p>string</p></td>
 <td><p><em>required</em></p></td>
 <td><p>LLM provider. Names an entry in <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>, the catalog beside
@@ -511,13 +528,13 @@ profile directory; only existence and shape are checked
 does not declare is refused, and the message lists the names it does.
 The build aborts if none is set.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>A model id the provider serves. Omitted: the provider entry’s
 <code class="docutils literal notranslate"><span class="pre">default_model</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>Channel finder pipeline (<code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>,
@@ -525,14 +542,14 @@ The build aborts if none is set.</p></td>
 store instead of a channel database, so it needs a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code>
 block (see <a class="reference internal" href="#profile-graph-mode"><span class="std std-ref">Graph-mode channel finding</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tier</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tier</span></code></p></td>
 <td><p>int</p></td>
 <td><p>derived</p></td>
 <td><p>Channel-database tier (1 or 3). Defaults from the channel finder mode;
 tier 1 is <code class="docutils literal notranslate"><span class="pre">in_context</span></code>-only. <code class="docutils literal notranslate"><span class="pre">graph</span></code> has no tiered artifacts at all —
 leave <code class="docutils literal notranslate"><span class="pre">tier</span></code> unset there.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">connector</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">connector</span></code></p></td>
 <td><p>string</p></td>
 <td><p><em>from preset</em></p></td>
 <td><p>Control-system connector (<code class="docutils literal notranslate"><span class="pre">mock</span></code>, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>, <code class="docutils literal notranslate"><span class="pre">epics</span></code>,
@@ -542,27 +559,27 @@ spellings on one command line is an error rather than a silent
 last-one-wins; a custom connector is still addressed by its dotted
 module path under <code class="docutils literal notranslate"><span class="pre">config</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web_panels</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web_panels</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
 <td><p>Panel tabs the web workspace offers beside the terminal. A framework
 panel is named by its id; your own is a list entry plus its address
 under <code class="docutils literal notranslate"><span class="pre">config:</span></code> (<code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.url</span></code> and its siblings).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">default_panel</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">default_panel</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>Panel id the web terminal opens on. Must be a built-in, an entry in
 <code class="docutils literal notranslate"><span class="pre">web_panels</span></code>, or a custom panel backed by a <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.url</span></code>
 setting. Renders <code class="docutils literal notranslate"><span class="pre">web.default_panel</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel_presets</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel_presets</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Named web-terminal layouts, as label to list of panel ids. Renders
 <code class="docutils literal notranslate"><span class="pre">web.presets</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Dot-notation settings for the generated <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. A materialized
@@ -571,49 +588,49 @@ deployment’s declarative configuration is read and edited. A handful of
 keys are the build’s to write rather than yours; spelling one here is
 refused (see <a class="reference internal" href="#profile-derived-keys"><span class="std std-ref">Keys the build renders</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">exclude</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">exclude</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Entries to subtract from what this profile would otherwise bring
 (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-exclude"><span class="std std-ref">Removing something a profile brings</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hooks</span></code> / <code class="docutils literal notranslate"><span class="pre">rules</span></code> / <code class="docutils literal notranslate"><span class="pre">skills</span></code> / <code class="docutils literal notranslate"><span class="pre">agents</span></code> / <code class="docutils literal notranslate"><span class="pre">output_styles</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">hooks</span></code> / <code class="docutils literal notranslate"><span class="pre">rules</span></code> / <code class="docutils literal notranslate"><span class="pre">skills</span></code> / <code class="docutils literal notranslate"><span class="pre">agents</span></code> / <code class="docutils literal notranslate"><span class="pre">output_styles</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
 <td><p>Built-in artifacts to install. Your own files go in the matching
 convention directory instead.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>MCP server definitions to inject.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">services</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">services</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Container services the deployment runs (see <a class="reference internal" href="#profile-services"><span class="std std-ref">Services</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Declares a simulated machine the deployment runs — and, optionally, a
 second copy of it standing in for the live target
 (see <a class="reference internal" href="#profile-virtual-accelerator"><span class="std std-ref">The virtual_accelerator block</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">va_archiver</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">va_archiver</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Declares a stored archive for a simulated machine: a MongoDB store and a
 recorder the deploy stands up, seeds and records into
 (see <a class="reference internal" href="#profile-va-archiver"><span class="std std-ref">The va_archiver block</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Commands to run at build phases (<code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>,
 <code class="docutils literal notranslate"><span class="pre">validate</span></code>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Variables the deployment needs: <code class="docutils literal notranslate"><span class="pre">required</span></code>, <code class="docutils literal notranslate"><span class="pre">defaults</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>,
@@ -622,34 +639,34 @@ host may not override; a deploy refuses rather than start on a
 contradicting value (see <a class="reference internal" href="../../how-to/deploy-project/env-chain.html#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>). Same name pattern
 as <code class="docutils literal notranslate"><span class="pre">required</span></code>, and a machine-minted name cannot be pinned.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
 <td><p>Python packages to install into the project venv.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Base interpreter the project environment is built from
 (see <a class="reference internal" href="#profile-environment"><span class="std std-ref">The execution environment</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>PEP 440 specifier (e.g. <code class="docutils literal notranslate"><span class="pre">&gt;=2026.5.0</span></code>). The build aborts if unsatisfied.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">local</span></code></p></td>
 <td><p>How to install OSPREY in the project venv: <code class="docutils literal notranslate"><span class="pre">local</span></code>, <code class="docutils literal notranslate"><span class="pre">pip</span></code>, or a
 PEP 508 spec.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">project</span></code></p></td>
 <td><p>Python used by MCP servers: <code class="docutils literal notranslate"><span class="pre">project</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, or an absolute path.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><em>written</em></p></td>
 <td><p>Which preset this profile was materialized from, that preset’s hash, and
@@ -808,14 +825,16 @@ refuse that line by name and say what supplies the value instead:</p>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">api.providers</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> beside the profile (<a class="reference internal" href="#profile-provider-catalog"><span class="std std-ref">The provider catalog — providers.yml</span></a>)</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">project_name</span></code>, <code class="docutils literal notranslate"><span class="pre">project_root</span></code>, <code class="docutils literal notranslate"><span class="pre">build_dir</span></code>, <code class="docutils literal notranslate"><span class="pre">file_paths</span></code>,
-<code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">project_name</span></code></p></td>
+<td><p>the top-level <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">project_root</span></code>, <code class="docutils literal notranslate"><span class="pre">build_dir</span></code>, <code class="docutils literal notranslate"><span class="pre">file_paths</span></code>, <code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code></p></td>
 <td><p>nothing — the build takes them from the repository it renders into</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">execution.environment.python</span></code> / <code class="docutils literal notranslate"><span class="pre">.packages</span></code> / <code class="docutils literal notranslate"><span class="pre">.inherit_exclude</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">execution.environment.python</span></code> / <code class="docutils literal notranslate"><span class="pre">.packages</span></code> / <code class="docutils literal notranslate"><span class="pre">.inherit_exclude</span></code></p></td>
 <td><p>the <code class="docutils literal notranslate"><span class="pre">environment:</span></code> block (<a class="reference internal" href="#profile-environment"><span class="std std-ref">The execution environment</span></a>)</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">artifact_server.port</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">artifact_server.port</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">deployment.port_base</span></code>, which moves the whole port block</p></td>
 </tr>
 </tbody>

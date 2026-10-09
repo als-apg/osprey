@@ -689,6 +689,40 @@ multi-user web terminals are covered the same way: every port of every roster
 index — terminal and companion panels alike — is checked, and a conflict names
 the user whose <code class="docutils literal notranslate"><span class="pre">index</span></code> to move.</p>
 </section>
+<section id="two-checkouts-of-one-repository-on-one-host">
+<span id="deploy-two-checkouts-one-host"></span><h2>Two checkouts of one repository on one host<a class="headerlink" href="#two-checkouts-of-one-repository-on-one-host" title="Link to this heading">#</a></h2>
+<p>Ports are not the only thing two copies can share. Every name a deployment
+puts on the host — compose project, volumes, images, web containers — comes
+from the tracked <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, not from the folder the
+checkout sits in. A second clone or worktree of the same repository therefore
+reads the same name and, unless it says otherwise, <em>is</em> the same deployment.</p>
+<p>Each container records which checkout created it. Before <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> touches
+a container it compares that record with the current checkout, and it refuses
+when containers under this name came from another one:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>osprey up will not start over containers from another copy of this repo
+2 containers are named &#39;uitf_controls_assistant&#39;, but they were created from a
+different copy of this repo:
+    /home/x/code/uitf_controls_assistant  (still on disk)
+-&gt; stop that deployment where it lives: `osprey down --repo /home/x/code/uitf_controls_assistant`
+   or give this copy its own name:
+     profiles/scratch.yml:   project_name: uitf_controls_assistant-scratch
+     .env.variant:           OSPREY_PROFILE_VARIANT=scratch
+   then `osprey build` and start again. Nothing was deployed.
+</pre></div>
+</div>
+<p>The two remedies mean different things. Stopping the other copy and starting
+this one hands the deployment, and its data, to this checkout: volumes belong
+to the project by name, so they are kept. Giving this copy its own
+<code class="docutils literal notranslate"><span class="pre">project_name</span></code> in a variant overlay makes it a separate deployment with its
+own containers, volumes and images, starting with empty data; move its ports
+in the same overlay with <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code>. See
+<a class="reference internal" href="../build-profiles.html#profile-host-variants"><span class="std std-ref">One repository, several hosts</span></a> for how the overlay is selected.</p>
+<p>Moving a checkout with <code class="docutils literal notranslate"><span class="pre">mv</span></code> looks the same from the host: its old containers
+now record a path that no longer exists. The refusal says so and prints the one
+command that frees the name, <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">rm</span> <span class="pre">-f</span></code> with the old containers’ names.
+The volumes are untouched and keep their data, and the moved checkout picks
+them up on its next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
+</section>
 </section>
 
 
@@ -740,6 +774,7 @@ the user whose <code class="docutils literal notranslate"><span class="pre">inde
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#network-attachment-bridge-or-host">Network attachment: <code class="docutils literal notranslate"><span class="pre">bridge</span></code> or <code class="docutils literal notranslate"><span class="pre">host</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-more-than-one-project-on-one-host">Running more than one project on one host</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-checkouts-of-one-repository-on-one-host">Two checkouts of one repository on one host</a></li>
 </ul>
   </nav></div>
 

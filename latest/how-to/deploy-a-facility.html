@@ -672,6 +672,15 @@ the limit.</p></td>
 commits nothing. It prints the handful of entries you edit: the profile, the
 data directory, the three personas it rendered, the two env files, and the
 README.</p>
+<p>The folder name is read once, here. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> records it in
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> as the deployment’s name on a host:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Demo Facility</span><span class="w">          </span><span class="c1"># display text</span>
+<span class="nt">project_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo-facility</span><span class="w">  </span><span class="c1"># names the compose project, volumes and images</span>
+</pre></div>
+</div>
+<p>From now on every container, volume and image this deployment creates is
+named from <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>, and the folder a checkout sits in no longer
+matters. A clone under another folder name is the same deployment.</p>
 <p>It says nothing about CI, which is expected: the profile ships with its
 <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so there are no coordinates to render a
 pipeline from. Step 5 fills the block in and Step 7 renders the pipeline from
@@ -737,9 +746,11 @@ block and the <code class="docutils literal notranslate"><span class="pre">servi
 service to this list at build time. Naming <code class="docutils literal notranslate"><span class="pre">openobserve</span></code> explicitly is what
 keeps the packaged skeleton’s <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> <em>out</em> — declared is not deployed,
 and this list is what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads.</p>
-<p><code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code> becomes the container-name prefix for the web tier
-(<code class="docutils literal notranslate"><span class="pre">demo-nginx</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-web-alice</span></code>), so keep it short and distinct from the
-project name.</p>
+<p><code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code> is the facility’s short token: the facility graph embeds it
+in every identifier it mints (<a class="reference internal" href="facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>). It
+does not name containers. The web tier is named from <code class="docutils literal notranslate"><span class="pre">project_name</span></code> like the
+rest of the deployment, so this one runs <code class="docutils literal notranslate"><span class="pre">demo-facility-nginx</span></code> and one
+<code class="docutils literal notranslate"><span class="pre">demo-facility-web-&lt;user&gt;</span></code> per operator (<code class="docutils literal notranslate"><span class="pre">demo-facility-web-alice</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">system.timezone</span></code> is the zone operator times are read in and every timestamp
 is shown in. Spell it exactly as the IANA time zone database does, case
 included (<code class="docutils literal notranslate"><span class="pre">America/Los_Angeles</span></code>, not <code class="docutils literal notranslate"><span class="pre">america/los_angeles</span></code>), or
@@ -761,27 +772,22 @@ host, set real passwords in <code class="docutils literal notranslate"><span cla
 and serve TLS — <a class="reference internal" href="web-terminal/multi-user/login.html"><span class="doc">Require a Login</span></a> walks through both, and through single
 sign-on if your site runs one.</p>
 <p>Then confirm the persona catalog, further down the same <code class="docutils literal notranslate"><span class="pre">config:</span></code> block
-under <code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> derived these names from the
-repository name, so after Step 2’s trim the block already reads:</p>
+under <code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code>. After Step 2’s trim the block reads:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">personas</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">readonly</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo-facility-readonly</span>
-<span class="w">    </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/demo-facility-readonly</span>
 <span class="w">    </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readonly.yml</span>
 <span class="w">  </span><span class="nt">readwrite</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo-facility-readwrite</span>
-<span class="w">    </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/demo-facility-readwrite</span>
 <span class="w">    </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readwrite.yml</span>
 </pre></div>
 </div>
-<p>Nothing to edit — the block is shown so you know what you are looking at, and
-because its shape matters if you ever rename a persona or the repository:</p>
-<div class="admonition important">
-<p class="admonition-title">Important</p>
-<p>Each persona’s <code class="docutils literal notranslate"><span class="pre">project</span></code> must equal the basename of its <code class="docutils literal notranslate"><span class="pre">project_path</span></code>.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives a persona render’s name the same way, which is how
-it lands exactly where the web tier mounts it.</p>
-</div>
+<p>Nothing to edit. Each entry names only the delta the persona is built from.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives where it renders, <code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;persona&gt;</span></code>
+(here <code class="docutils literal notranslate"><span class="pre">build/demo-facility-readonly</span></code>), and writes that into
+<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>, which is where the web tier reads it. Renaming the
+deployment therefore moves every persona render with it, and there is no
+second copy of the name to keep in step. A <code class="docutils literal notranslate"><span class="pre">project:</span></code> or <code class="docutils literal notranslate"><span class="pre">project_path:</span></code>
+line beside a <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> is refused by the build, which says to delete
+it.</p>
 </section>
 <section id="step-4-add-the-facility-s-own-container">
 <span id="deploy-a-facility-own-service"></span><h2>Step 4 — Add the facility’s own container<a class="headerlink" href="#step-4-add-the-facility-s-own-container" title="Link to this heading">#</a></h2>
@@ -1169,6 +1175,26 @@ framework owns and preserves what you own: <code class="docutils literal notrans
 repository’s git history. The source zone itself is never touched by a build.</p>
 <p>If you changed the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block, run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code> again first
 so the pipeline and health check match the new coordinates.</p>
+<section id="renaming-the-deployment">
+<h3>Renaming the deployment<a class="headerlink" href="#renaming-the-deployment" title="Link to this heading">#</a></h3>
+<p>The deployment’s name on the host is <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, not
+the folder the repository sits in. Moving or renaming the folder changes
+nothing. Changing <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> renames the deployment, and everything
+named from it follows: the compose project, the volumes, the images, the web
+containers and the persona renders. Stop the stack under its old name first,
+because <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code> addresses the name the current <code class="docutils literal notranslate"><span class="pre">build/</span></code> was rendered
+with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>down
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">project_name</span><span class="o">=</span>demo-control-room
+osprey<span class="w"> </span>build
+osprey<span class="w"> </span>up<span class="w"> </span>-d
+</pre></div>
+</div>
+<p>Data does not move with the name. The volumes are named
+<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;_&lt;volume&gt;</span></code>, so the renamed deployment starts on new, empty
+volumes, and the old ones stay on the host under the old name until you copy
+what you need and remove them.</p>
+</section>
 </section>
 <section id="operating-it">
 <h2>Operating it<a class="headerlink" href="#operating-it" title="Link to this heading">#</a></h2>
@@ -1322,8 +1348,10 @@ resolves those files at all.</p></li>
 <li><p>The container runtime, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> detects (or reads from the
 configuration) and then probes for the compose provider behind it; the
 supported providers do not take the same command line.</p></li>
-<li><p>Everything that is not compose: the host-port check that refuses before it
-touches a container, the drift check that refuses when <code class="docutils literal notranslate"><span class="pre">build/</span></code> no longer
+<li><p>Everything that is not compose: the ownership check that refuses to start
+over containers another checkout of the repository created under the same
+<code class="docutils literal notranslate"><span class="pre">project_name</span></code>, the host-port check that refuses before it touches a
+container, the drift check that refuses when <code class="docutils literal notranslate"><span class="pre">build/</span></code> no longer
 matches <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, minting any missing service credentials into
 <code class="docutils literal notranslate"><span class="pre">.env</span></code>, the second compose invocation a multi-user deployment needs for its
 web tier, and <code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code> afterwards.</p></li>
@@ -1414,7 +1442,10 @@ one needs.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-8-build-the-project">Step 8 — Build the project</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-9-deploy-and-check">Step 9 — Deploy and check</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-pipeline-does">What the pipeline does</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changing-something-later">Changing something later</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changing-something-later">Changing something later</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#renaming-the-deployment">Renaming the deployment</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#operating-it">Operating it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#starting-it-again-after-a-reboot">Starting it again after a reboot</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-home-directory-is-on-a-network-mount">When the home directory is on a network mount</a></li>

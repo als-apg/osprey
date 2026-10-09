@@ -529,9 +529,17 @@ deployment configures.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span><span class="o">[</span>DIRECTORY<span class="o">]</span><span class="w"> </span>--preset<span class="w"> </span>NAME<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">DIRECTORY</span></code> is the repository the deployment lives in, and its name <em>is</em> the
-deployment’s name. Omit it to initialize the current directory in place, which
-is how a repository cloned empty from a forge is filled in.</p>
+<p><code class="docutils literal notranslate"><span class="pre">DIRECTORY</span></code> is the repository the deployment lives in. Omit it to initialize
+the current directory in place, which is how a repository cloned empty from a
+forge is filled in.</p>
+<p>The directory’s name is proposed as the deployment’s name: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
+normalizes it to a valid compose project name and records it in
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> as <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>, beside the display <code class="docutils literal notranslate"><span class="pre">name:</span></code>. That
+tracked value names the compose project, volumes, images and persona renders on
+every host from then on; the folder a later clone sits in plays no part. Change
+it in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, or with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">project_name=NAME</span></code>, before the
+first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> if the folder name is not the name you want
+(<a class="reference internal" href="configuration/profile.html#reference-profile"><span class="std std-ref">Build Profile — profile.yml</span></a>).</p>
 <p>The repository holds four zones — source you edit, secrets, disposable build
 output, and durable state:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>DIRECTORY/
@@ -823,6 +831,20 @@ starting would deploy something other than what the profile now describes.</p>
 at every start — its compose file, nginx config, landing page, and any persona
 whose project is missing. Those follow the user roster rather than the build, so
 a roster edit takes effect on the next start.</p>
+<p>Before it touches a container, <code class="docutils literal notranslate"><span class="pre">up</span></code> checks who created the ones already
+running under this deployment’s <code class="docutils literal notranslate"><span class="pre">project_name</span></code>. It refuses when containers
+named for this project were created from another checkout of the repository —
+a second clone or worktree on the same host reads the same tracked name — and
+names that checkout. Nothing is deployed. Either stop the deployment where it
+lives (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span> <span class="pre">--repo</span> <span class="pre">&lt;that</span> <span class="pre">checkout&gt;</span></code>), or give this copy its own name
+in a variant overlay:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>profiles/scratch.yml:   project_name: &lt;project_name&gt;-scratch
+.env.variant:           OSPREY_PROFILE_VARIANT=scratch
+</pre></div>
+</div>
+<p>then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and start again (<a class="reference internal" href="../how-to/deploy-project/networking.html#deploy-two-checkouts-one-host"><span class="std std-ref">Two checkouts of one repository on one host</span></a>).
+Containers with no checkout label count as this deployment’s. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">restart</span></code>
+runs the same check before it stops anything.</p>
 <p>Whether the deployment is reachable off-host is a property of the build, not of
 this command: the bind address is rendered into every published port. Change it
 with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.deployment.bind_address=0.0.0.0</span></code>, then rebuild.</p>
@@ -883,16 +905,20 @@ osprey<span class="w"> </span>logs<span class="w"> </span>--tail<span class="w">
 <section id="osprey-reset">
 <h3>osprey reset<a class="headerlink" href="#osprey-reset" title="Link to this heading">#</a></h3>
 <p>Wipe this deployment back to a fresh state. It stops the stack, removes the
-containers, volumes and images carrying this checkout’s identity, destroys the
+containers, volumes and images of this deployment, destroys the
 agent’s memory under <code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code>, strips the tokens <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> minted
 out of <code class="docutils literal notranslate"><span class="pre">.env</span></code>, and deletes <code class="docutils literal notranslate"><span class="pre">build/</span></code>.</p>
 <p>Two things survive, and the plan says so before you confirm: <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>, the
 safety audit log, and everything in <code class="docutils literal notranslate"><span class="pre">.env</span></code> that a deploy did not mint — your
 provider keys. The source zone is never touched: <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">.git</span></code> are exactly what they were.</p>
-<p>Reset removes a container or volume only when it also carries this repository’s
-identity label, and refuses outright — removing nothing — when it finds
-same-named resources created from a different path.</p>
+<p>What belongs to this deployment is decided two ways. A container records the
+checkout that created it in a label, and reset refuses outright — removing
+nothing — when containers under this <code class="docutils literal notranslate"><span class="pre">project_name</span></code> were created from a
+different checkout; it names that checkout so you can reset from there. A
+container with no label at all counts as this deployment’s. Volumes carry no
+such label: they belong to the project by name (<code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;_&lt;volume&gt;</span></code>),
+so once the containers check out, every volume under that name is removed.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> — Show the removal plan and stop. Nothing is stopped, removed, or
 written.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-y,</span> <span class="pre">--yes</span></code> — Skip the typed confirmation. The plan is still printed.</p>
