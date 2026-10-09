@@ -288,7 +288,7 @@ SHOW_PICTURE_TAIL = (
 )
 SHOW_RULE_MAIN = (
     "To show the operator a logbook entry, call `entry_open` yourself with its entry id and an "
-    "`attachment_id`: " + SHOW_PICTURE_TAIL
+    "attachment id: " + SHOW_PICTURE_TAIL
 )
 SHOW_RULE_ARIEL = (
     "To show the operator an entry, call `entry_open` with its entry id and an "
