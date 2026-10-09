@@ -3132,16 +3132,17 @@ def test_recorder_and_store_agree_on_the_mongo_password_fallback() -> None:
     assert recorder == store == "${MONGO_ROOT_PASSWORD:-osprey}"
 
 
-def test_recorder_mounts_the_simulator_view_and_reads_no_channel_variable() -> None:
+def test_recorder_mounts_only_the_simulator_view_and_no_variable_names_it() -> None:
     """The channel list is the simulator view the build writes, mounted read-only.
 
-    No environment variable names it: the view sits at one place in every
-    render, so a variable could only say the same thing again or say something
-    else.
+    It is the only build data the recorder sees. No environment variable names
+    it, because the view sits at one place in every render.
     """
     svc = _recorder_service(va_co_deployed=True)
-    assert "./build/data/simulator:/data/simulator:ro" in svc["volumes"]
-    assert not any("build/data/simulation" in mount for mount in svc["volumes"]), svc["volumes"]
+    assert [m for m in svc["volumes"] if isinstance(m, str) and "build/data" in m] == [
+        "./build/data/simulator:/data/simulator:ro"
+    ]
+    assert not any("simulator" in str(value) for value in svc["environment"].values())
 
 
 def _host_path(volumes: list[str], container_path: str) -> str:

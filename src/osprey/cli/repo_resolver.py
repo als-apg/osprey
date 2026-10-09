@@ -65,8 +65,10 @@ REPO_FREE_COMMANDS: frozenset[str] = frozenset(
 #: rather than left unmentioned so that "no ``--repo`` here" reads as a recorded
 #: decision instead of an oversight.
 #:
-#: Two different reasons live here. ``knowledge``, ``ariel`` and ``artifacts``
-#: predate the lifecycle surface and were not rewired onto it.
+#: Two different reasons live here. ``ariel`` and ``artifacts`` predate the
+#: lifecycle surface and were not rewired onto it; ``knowledge`` is listed for
+#: its bundle verbs (``regen-index``, ``validate``), which act on the bundle
+#: path they are handed.
 #: ``health`` and ``channel-finder`` are here because a deployment repo is not
 #: the only subject they accept: both also act on a RENDERED project directory,
 #: which holds a ``config.yml`` at its own root and no ``profile.yml`` anywhere

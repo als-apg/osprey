@@ -3334,10 +3334,9 @@ orphan_sites:
     regex: 'presentation_mode'
     back_test: {base_matches: 9, branch_matches: 0}
     why: >-
-      the preview and validate tools' reads of the key and of the template
-      file's own `presentation_mode` field. Rooted at the tools so the template
-      loader, which keeps its own parameter until it is deleted, stays out of
-      scope.
+      the preview and validate tools' reads of the key and of a database
+      file's own `presentation_mode` field, the key's last readers; rooted at
+      the tools, where every read lived.
   - root:
     - src/osprey/templates/project
     - src/osprey/templates/apps

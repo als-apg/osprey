@@ -6247,7 +6247,7 @@ def test_no_live_va_suite_is_named_by_two_lanes__mutation_names_a_suite_in_both_
 # lane is pinned here by name, with the collection floor the run step's
 # comment promises of every module it names.
 CHAIN_BOOT_MODULE = f"{VA_LIVE_SUITE_DIR}/test_chain_boot.py"
-_CHAIN_BOOT_FLOOR_RE = re.compile(r"^MIN_COLLECTED_TESTS = (\d+)$", re.MULTILINE)
+_COLLECTED_FLOOR_RE = re.compile(r"^MIN_COLLECTED_TESTS = (\d+)$", re.MULTILINE)
 _CHAIN_BOOT_FLOOR_GUARD = "len(collected) >= MIN_COLLECTED_TESTS"
 
 
@@ -6274,26 +6274,32 @@ def test_chain_boot_suite_runs_in_the_va_live_run_step__mutation_moves_it_to_ano
         test_chain_boot_suite_runs_in_the_va_live_run_step(mutated)
 
 
-def _chain_boot_floor_errors(source: str) -> list[str]:
-    """What the chain boot module's collection floor is missing, read from its text."""
+def _collected_floor_errors(source: str, *, guard: str) -> list[str]:
+    """What a module's collection floor is missing, read from its text.
+
+    Read rather than imported: a lane module may resolve its lane at import,
+    and the floor is a fact about its source. ``guard`` is the text of the
+    module's own assertion of its collection against the floor.
+    """
     errors: list[str] = []
-    match = _CHAIN_BOOT_FLOOR_RE.search(source)
+    match = _COLLECTED_FLOOR_RE.search(source)
     if match is None or int(match.group(1)) < 1:
         errors.append("declares no positive MIN_COLLECTED_TESTS")
-    if _CHAIN_BOOT_FLOOR_GUARD not in source:
+    if guard not in source:
         errors.append("never asserts its collection against MIN_COLLECTED_TESTS")
     return errors
 
 
 def test_chain_boot_module_carries_its_collection_floor() -> None:
     source = (REPO_ROOT / CHAIN_BOOT_MODULE).read_text(encoding="utf-8")
-    assert _chain_boot_floor_errors(source) == []
+    assert _collected_floor_errors(source, guard=_CHAIN_BOOT_FLOOR_GUARD) == []
 
 
 def test_chain_boot_module_carries_its_collection_floor__mutation_drops_the_floor() -> None:
     source = (REPO_ROOT / CHAIN_BOOT_MODULE).read_text(encoding="utf-8")
-    assert _chain_boot_floor_errors(_CHAIN_BOOT_FLOOR_RE.sub("", source))
-    assert _chain_boot_floor_errors(source.replace(_CHAIN_BOOT_FLOOR_GUARD, "collected"))
+    guard = _CHAIN_BOOT_FLOOR_GUARD
+    assert _collected_floor_errors(_COLLECTED_FLOOR_RE.sub("", source), guard=guard)
+    assert _collected_floor_errors(source.replace(guard, "collected"), guard=guard)
 
 
 @pytest.mark.parametrize("job_name", sorted(VA_LIVE_LANE_RUN_STEPS))
@@ -6371,7 +6377,7 @@ ALS_LANE_STEP = "Run the real-facility lane on the NSLS-II stand-in"
 ALS_LANE_MODULE = "tests/cli/test_als_lane.py"
 ALS_STAND_IN_ENV = "OSPREY_ALS_LANE_STAND_IN"
 ALS_STAND_IN = "tests/fixtures/mml/nsls2"
-_MIN_COLLECTED_RE = re.compile(r"^MIN_COLLECTED_TESTS = (\d+)$", re.MULTILINE)
+_ALS_LANE_FLOOR_GUARD = "len(collected) >= MIN_COLLECTED_TESTS"
 
 
 def test_als_lane_runs_on_the_stand_in_in_the_va_live_job(
@@ -6429,31 +6435,16 @@ def test_als_lane_report_goes_through_the_zero_skip_gate__mutation_drops_it() ->
         test_als_lane_report_goes_through_the_zero_skip_gate(mutated)
 
 
-def _als_lane_floor_errors(source: str) -> list[str]:
-    """What the lane module's collection floor is missing, read from its text.
-
-    Read rather than imported: the module resolves its lane at import, and the
-    floor is a fact about its source.
-    """
-    errors: list[str] = []
-    match = _MIN_COLLECTED_RE.search(source)
-    if match is None or int(match.group(1)) < 1:
-        errors.append("declares no positive MIN_COLLECTED_TESTS")
-    if "len(collected) >= MIN_COLLECTED_TESTS" not in source:
-        errors.append("never asserts its collection against MIN_COLLECTED_TESTS")
-    return errors
-
-
 def test_als_lane_module_carries_its_collection_floor() -> None:
     source = (REPO_ROOT / ALS_LANE_MODULE).read_text(encoding="utf-8")
-    assert _als_lane_floor_errors(source) == []
+    assert _collected_floor_errors(source, guard=_ALS_LANE_FLOOR_GUARD) == []
 
 
 def test_als_lane_module_carries_its_collection_floor__mutation_drops_the_floor() -> None:
     source = (REPO_ROOT / ALS_LANE_MODULE).read_text(encoding="utf-8")
-    assert _als_lane_floor_errors(_MIN_COLLECTED_RE.sub("", source))
-    guard = "len(collected) >= MIN_COLLECTED_TESTS"
-    assert _als_lane_floor_errors(source.replace(guard, "collected"))
+    guard = _ALS_LANE_FLOOR_GUARD
+    assert _collected_floor_errors(_COLLECTED_FLOOR_RE.sub("", source), guard=guard)
+    assert _collected_floor_errors(source.replace(guard, "collected"), guard=guard)
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop, read_mapping
 from osprey.facility.layers.mml.wiring import _one_way
 from osprey.simulation.engines.calibration import Linear, Table
+from tests.fixtures.mml._trees import SUPPORTED
 
 at = pytest.importorskip("at")
 
@@ -28,10 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
 
 #: Each tree's exports, by the stem every file of one export is named after.
-TREES: dict[str, tuple[str, ...]] = {
-    "spear3": ("spear3.storagering",),
-    "nsls2": ("nsls2.storagering", "nsls2.ltb"),
-}
+TREES = {tree.name: tree.exports for tree in SUPPORTED if "A" in tree.check}
 
 #: The system each export stem carries, which names its model in both trees.
 SYSTEMS: dict[str, str] = {

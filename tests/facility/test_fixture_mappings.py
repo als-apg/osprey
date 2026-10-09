@@ -29,15 +29,12 @@ from osprey.facility.layers.mml.mapping import (
     require_decided,
 )
 from osprey.facility.layers.mml.systems import merge_inputs
+from tests.fixtures.mml._trees import SUPPORTED
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 
 #: Each tree's exports, by the stem every file of one export is named after.
-TREES: dict[str, tuple[str, ...]] = {
-    "spear3": ("spear3.storagering",),
-    "nsls2": ("nsls2.storagering", "nsls2.ltb"),
-    "synthetic": ("quokka.sr",),
-}
+TREES = {tree.name: tree.exports for tree in SUPPORTED}
 
 
 def _export(tree: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
