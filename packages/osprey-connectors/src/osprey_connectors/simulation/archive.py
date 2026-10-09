@@ -54,7 +54,6 @@ option index. ``lume`` is imported inside :func:`build` only.
 from __future__ import annotations
 
 import hashlib
-import json
 import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -79,6 +78,7 @@ from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     resolve_active_scenarios,
 )
+from osprey_connectors.simulation.view import VARIABLES_FILE, SimulatorView
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from zoneinfo import ZoneInfo
@@ -478,7 +478,7 @@ def scenario_events(
 
 
 def build(
-    view: Path | str,
+    view: SimulatorView | Path | str,
     active_set: Sequence[str],
     *,
     anchor_s: float | None = None,
@@ -491,7 +491,8 @@ def build(
     scenarios, as the composite serves it.
 
     Args:
-        view: The simulator view, ``<render>/data/simulator``.
+        view: The simulator view, ``<render>/data/simulator``, opened or as
+            its directory, which is opened with :meth:`SimulatorView.open`.
         active_set: The active scenario names; ``nominal`` is always active.
         anchor_s: The epoch seconds the set was applied at, from which an
             ``at_offset`` event is placed; ``None`` is the time of the build.
@@ -502,36 +503,26 @@ def build(
     Raises:
         RuntimeError: A physics model fails to build or read at the start
             state; the message names it and its engine's error.
+        NoSimulatorView: The directory holds no simulator view.
+        ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
     from osprey_connectors.config import get_facility_timezone
-    from osprey_connectors.simulation.composite import (
-        ADDRESSES_FILE,
-        SCENARIOS_FILE,
-        STATUS_OK,
-        VARIABLES_FILE,
-        Composite,
-    )
+    from osprey_connectors.simulation.composite import STATUS_OK, Composite
 
-    view_dir = Path(view)
-    variables = json.loads((view_dir / VARIABLES_FILE).read_text(encoding="utf-8"))
-    addresses = json.loads((view_dir / ADDRESSES_FILE).read_text(encoding="utf-8"))
-    scenarios = {
-        str(scenario["name"]): scenario
-        for scenario in json.loads((view_dir / SCENARIOS_FILE).read_text(encoding="utf-8"))[
-            "scenarios"
-        ]
+    if not isinstance(view, SimulatorView):
+        view = SimulatorView.open(view)
+    scenarios = {str(scenario["name"]): scenario for scenario in view.scenarios()}
+    records = {
+        str(channel["address"]): channel for channel in view.document(VARIABLES_FILE)["channels"]
     }
-    records = {str(channel["address"]): channel for channel in variables["channels"]}
-    archived = sorted(str(address) for address in addresses["channels"])
+    archived = sorted(view.channels())
     names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 
     state = tempfile.TemporaryDirectory(prefix="osprey-archive-")
     (Path(state.name) / ACTIVE_SCENARIOS_FILENAME).write_text(
         "".join(f"{name}\n" for name in names), encoding="utf-8"
     )
-    composite = Composite(
-        view_dir, state_dir=state.name, instance=_ARCHIVE_INSTANCE, model_log=False
-    )
+    composite = Composite(view, state_dir=state.name, instance=_ARCHIVE_INSTANCE, model_log=False)
     held = composite.held(archived)
     failed = {
         model: status
