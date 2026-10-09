@@ -25,7 +25,7 @@ from osprey_connectors.simulation.composite import (
     STATUS_MAX_BYTES,
     Composite,
 )
-from osprey_connectors.simulation.view import SCHEMAS
+from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -281,6 +281,26 @@ def test_supported_variables_are_the_channels_and_the_status(tmp_path: Path) -> 
     assert set(composite.supported_variables) == {*addresses["channels"], *addresses["status"]}
     assert composite.get(STATUS) == "ok"
     assert composite.models == ["M"]
+
+
+def test_an_opened_view_serves_as_its_path_does(tmp_path: Path) -> None:
+    view = SimulatorView.open(_view(tmp_path))
+    composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: T0)
+
+    assert composite.models == ["M"]
+    assert composite.get(["M:RB", "T:SP"]) == _composite(tmp_path).get(["M:RB", "T:SP"])
+
+
+def test_a_view_from_an_older_build_is_refused_with_rebuild(tmp_path: Path) -> None:
+    view = _view(tmp_path)
+    path = view / "variables.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(
+        json.dumps({**document, "schema": "osprey.facility.simulator/1"}), encoding="utf-8"
+    )
+
+    with pytest.raises(ViewSchemaError, match="rebuild"):
+        Composite(view, state_dir=tmp_path / "state", clock=lambda: T0)
 
 
 def test_a_childs_own_variables_are_reached_through_model_get_and_set(tmp_path: Path) -> None:
