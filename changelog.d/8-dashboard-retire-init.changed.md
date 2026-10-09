@@ -1,2 +1,2 @@
-Switching the lattice dashboard's model clears the previous model's figures and stops its workers until the figures are recomputed.
-A model the render does not serve draws optics only, and the dashboard refuses its other figures with 409 "not available: <model> is not served".
+Switching the lattice dashboard's model through `POST /api/models/select` clears no figure: each model's figures stay stored and are shown again when that model is selected again.
+A model the render does not serve draws every figure its deck allows; the dashboard refuses a figure only for a single-pass model.

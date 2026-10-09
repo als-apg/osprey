@@ -23,7 +23,7 @@ from tests.interfaces.conftest import _run_app_server
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from playwright.sync_api import Browser
+    from playwright.sync_api import Browser, Page
 
     from tests._builds import BuiltProject
 
@@ -62,6 +62,23 @@ _OPTICS_POINTS = """
 """
 
 
+def assert_selected_model_draws(page: Page, points: int | None = None) -> None:
+    """Assert the selected model draws its optics, its tunes and no unavailable panel.
+
+    Args:
+        page: The dashboard page, after the model was selected.
+        points: The optics sample count the plot must reach; any when None.
+    """
+    condition = f"=== {points}" if points is not None else "> 0"
+    page.wait_for_function(f"({_OPTICS_POINTS})() {condition}", timeout=FIGURE_TIMEOUT_MS)
+    expect(page.locator("#plot-optics .main-svg").first).to_be_visible()
+    for chip in ("#stat-nux", "#stat-nuy"):
+        expect(page.locator(f"{chip} .stat-value")).to_have_text(
+            re.compile(r"^\d+\.\d{4}$"), timeout=FIGURE_TIMEOUT_MS
+        )
+    expect(page.locator(".figure-unavailable")).to_have_count(0)
+
+
 def _serve(render_root: Path | None, workspace: Path):
     from osprey.interfaces.lattice_dashboard.app import create_app
 
@@ -83,15 +100,7 @@ def test_selected_sr_draws_its_optics_and_tunes(
         assert selected["body"]["model"] == "SR"
 
         # The optics solve samples each element's entrance and the lattice end.
-        page.wait_for_function(
-            f"({_OPTICS_POINTS})() === {SR_ELEMENTS + 1}", timeout=FIGURE_TIMEOUT_MS
-        )
-        expect(page.locator("#plot-optics .main-svg").first).to_be_visible()
-
-        for chip in ("#stat-nux", "#stat-nuy"):
-            expect(page.locator(f"{chip} .stat-value")).to_have_text(
-                re.compile(r"^\d+\.\d{4}$"), timeout=FIGURE_TIMEOUT_MS
-            )
+        assert_selected_model_draws(page, SR_ELEMENTS + 1)
         expect(page.locator("#model-notice")).to_be_hidden()
 
         page.close()
@@ -101,7 +110,11 @@ def test_selected_sr_draws_its_optics_and_tunes(
 def test_texture_only_lists_every_deck_model_unserved(
     tmp_path: Path, chromium_browser: Browser
 ) -> None:
-    """A view serving texture alone lists each deck-bearing model as unserved."""
+    """A view serving texture alone lists each deck-bearing model as unserved.
+
+    Whether the build serves a model is a mark only: a selected unserved deck
+    draws its figures.
+    """
     from tests.interfaces.lattice_dashboard.test_app import _write_render
 
     render = _write_render(
@@ -120,12 +133,16 @@ def test_texture_only_lists_every_deck_model_unserved(
         options = page.locator("#model-select option")
         expect(options).to_have_count(2, timeout=10_000)
         assert options.evaluate_all("els => els.map(e => e.value)") == ["BOOSTER", "SR"]
-        for text in options.all_text_contents():
-            assert "not served" in text, text
+        assert options.all_text_contents() == ["BOOSTER (not served)", "SR (not served)"]
 
         notice = page.locator("#model-notice")
         expect(notice).to_be_visible()
         expect(notice).to_have_text(NO_SERVED_MODEL_TEXT)
+
+        selected = page.evaluate(_SELECT, "BOOSTER")
+        assert selected["status"] == 200, selected
+        assert selected["body"]["model"] == "BOOSTER"
+        assert_selected_model_draws(page)
 
         page.close()
 
