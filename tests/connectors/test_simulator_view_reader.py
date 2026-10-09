@@ -121,9 +121,7 @@ def test_monitor_bindings_of_a_plane_are_the_element_reads_on_that_axis(demo_vie
     expected = [
         record["address"]
         for record in sr["wiring"]
-        if (record.get("element") or record.get("slices"))
-        and record["engine"].get("axis") == "x"
-        and record["engine"].get("attribute") is None
+        if record["role"] == "monitor" and record["plane"] == "x"
     ]
 
     found = [binding.address for binding in view.bindings(role="monitor", plane="x")]

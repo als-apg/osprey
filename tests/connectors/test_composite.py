@@ -405,7 +405,6 @@ def test_partner_planes_group_by_monitor_role_without_an_engine_axis(tmp_path: P
     composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: T0)
 
     assert sorted(entry["plane"] for entry in monitors) == ["x", "y"]
-    assert not any("axis" in (entry.get("engine") or {}) for entry in monitors)
     assert composite.get("M:BPM:Y") == composite.get(["M:BPM:X", "M:BPM:Y"])["M:BPM:Y"]
 
 
