@@ -22,7 +22,6 @@ next are this module's business, not the renderer's.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from osprey.deployment.subprocess_capture import SPOOL_DIR
@@ -46,11 +45,6 @@ _NEXT_STEPS = {
     "stopped": "osprey up -d · osprey status",
 }
 
-#: Where a rendered project keeps its simulator view. Relative to the build
-#: directory, which is the tree the build wrote, not the repo the operator is
-#: standing in.
-_SIMULATOR_VIEW_DIR = Path("data") / "simulator"
-
 #: The command that seeds the demo logbook from the scenarios' logbook
 #: narratives. Appended to the ``built`` card's next step, so the one next-step
 #: surface carries it instead of a line of its own.
@@ -58,27 +52,22 @@ _SEED_DEMO_LOGBOOK = "osprey sim apply nominal"
 
 
 def _scenarios_carry_a_logbook(build: Path) -> bool:
-    """True when the build's ``scenarios.json`` lists a scenario with a logbook.
+    """True when the build's simulator view lists a scenario with a logbook.
 
-    A missing or unreadable file answers False: the hint is advice, and a build
-    without the file has nothing for it to seed.
+    A missing or unreadable view answers False: the hint is advice, and a build
+    without a view has nothing for it to seed.
 
     :param build: The build directory.
     """
-    from osprey.facility.views.simulator import SCENARIOS_FILE, SCENARIOS_SCHEMA
+    from osprey_connectors.simulation.view import SimulatorView
 
     try:
-        document = json.loads(
-            (build / _SIMULATOR_VIEW_DIR / SCENARIOS_FILE).read_text(encoding="utf-8")
-        )
+        view = SimulatorView.find(build)
+        if view is None:
+            return False
+        return any(scenario.get("logbook") for scenario in view.scenarios())
     except (OSError, ValueError):
         return False
-    if not isinstance(document, dict) or document.get("schema") != SCENARIOS_SCHEMA:
-        return False
-    scenarios = document.get("scenarios")
-    if not isinstance(scenarios, list):
-        return False
-    return any(isinstance(s, dict) and s.get("logbook") for s in scenarios)
 
 
 def _next_step(root: Path, state: str) -> str:
