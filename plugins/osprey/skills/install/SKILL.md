@@ -232,7 +232,7 @@ init` argument; the other two are `osprey set` keys applied after it.
    call. The steps, the `derived` provenance and the commands are in
    `references/knowledge-starter.md`. Harvested material is curation owed, under Deferred.
    - A Middle Layer runs the chain in §3.1 of that file, in order:
-     `osprey scaffold pull control-assistant:data/mml/mml_export.m`; the user runs
+     `osprey facility import mml --print-exporter > mml_export.m`; the user runs
      `mml_export` once per sub-machine; `osprey mml import <machine>.<sub>.ao.json`;
      `osprey mml map --init`; fill every `null`; answer every slot of the
      `judgments:` block with the user; review every `derived` description,

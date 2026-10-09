@@ -534,6 +534,42 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
     an authored record source is present, or while the profile does not
     resolve. After the import it lists each scenario file that names
     something the facility no longer has, as rm lines, and deletes nothing.
+
+    The MATLAB exporter mml_export.m ships with OSPREY and writes the export
+    this command reads; no facility writes its own.
+
+    Get the script with osprey facility import mml --print-exporter >
+    mml_export.m, then copy it onto the MATLAB path of the Middle Layer host.
+
+    Run your Middle Layer setpath for one sub-machine, load its simulator
+    model, then run mml_export in MATLAB. The lattice is saved before the
+    export samples anything. To write to another folder, run
+    mml_export('/path/to/exports').
+
+    \b
+    Each run writes six files, named from AD.Machine and AD.SubMachine,
+    lowercased:
+      <machine>.<submachine>.lattice.mat    the lattice (THERING)
+      <machine>.<submachine>.ao.json        the Accelerator Objects (getao)
+      <machine>.<submachine>.ad.json        the Accelerator Data (getad)
+      <machine>.<submachine>.va.json        calibrations, energy facts, nominals
+      <machine>.<submachine>.response.json  the orbit response matrix
+      <machine>.<submachine>.model.json     tune, chromaticity, dispersion
+
+    Repeat the run for every sub-machine; each run writes its own six files.
+
+    Import the .ao.json files, for example osprey facility import mml
+    mymachine.storagering.ao.json mymachine.ltb.ao.json. Each one's siblings
+    are read from beside it, and its sub-machine becomes the system name.
+
+    The .model.json file is not imported.
+
+    \b
+    Requirements:
+      - MATLAB R2016b or newer, started with its Java runtime.
+      - The Middle Layer on the path and set up for the sub-machine.
+      - The sub-machine's simulator model loaded, so THERING holds its
+        lattice; the export refuses without it.
     """
     import shlex
 

@@ -1,7 +1,7 @@
-"""The shipped MATLAB Middle Layer exporter and its README.
+"""The shipped MATLAB Middle Layer exporter and the help text that explains it.
 
 No MATLAB runs here. The script is held to its written contract instead: it is
-pullable into a deployment, it encodes with the options that keep non-finite
+printed whole by ``--print-exporter``, it encodes with the options that keep non-finite
 values out of ``null``, it names the six files and ``_export`` keys the
 importer reads, it saves the model ring before anything samples the machine,
 it refuses a family rather than the whole export, and a document in exactly
@@ -38,12 +38,10 @@ from osprey.facility.layers.mml.normalize import normalize_family
 from osprey.facility.layers.mml.systems import resolve_system
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MML_DIR = REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data" / "mml"
 EXPORTER = REPO_ROOT / "src" / "osprey" / "facility" / "layers" / "mml" / "mml_export.m"
-README = MML_DIR / "README.md"
 PAIRED_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "mml" / "paired" / "quokka.ring.ao.json"
 
-PULL_LINE = "osprey scaffold pull control-assistant:data/mml/mml_export.m"
+PRINT_LINE = "osprey facility import mml --print-exporter"
 
 #: Every Middle Layer call that reaches into the live machine or the model.
 #: getpvmodel and measbpmresp mutate the ring to reach a solvable state, and
@@ -134,60 +132,52 @@ def exporter_source() -> str:
     return EXPORTER.read_text(encoding="utf-8")
 
 
+def _invoke(args: list[str]):
+    return CliRunner().invoke(cli, args)
+
+
 @pytest.fixture
-def repo(tmp_path: Path) -> Path:
-    """A deployment repo: a ``profile.yml`` marker and nothing else."""
-    root = tmp_path / "deployment"
-    root.mkdir()
-    (root / "profile.yml").write_text("", encoding="utf-8")
-    return root
-
-
-def _pull(repo: Path, target: str):
-    return CliRunner().invoke(cli, ["scaffold", "pull", target, "--repo", str(repo)])
+def help_text() -> str:
+    """What ``osprey facility import mml --help`` prints."""
+    result = _invoke(["facility", "import", "mml", "--help"])
+    assert result.exit_code == 0, result.output
+    return result.output
 
 
 # ---------------------------------------------------------------------------
-# Pulling
+# Printing
 # ---------------------------------------------------------------------------
 
 
-def test_pulling_the_directory_lands_both_files(repo: Path) -> None:
-    result = _pull(repo, "control-assistant:data/mml")
+def test_print_exporter_prints_the_exporter_byte_for_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The flag needs no deployment repo and no EXPORT argument."""
+    monkeypatch.chdir(tmp_path)
+    result = _invoke(PRINT_LINE.split()[1:])
 
     assert result.exit_code == 0, result.output
-    for source in (EXPORTER, README):
-        landed = repo / "data" / "mml" / source.name
-        assert landed.is_file(), result.output
-        assert landed.read_bytes() == source.read_bytes()
-
-
-def test_pulling_the_script_alone_lands_only_the_script(repo: Path) -> None:
-    result = _pull(repo, "control-assistant:data/mml/mml_export.m")
-
-    assert result.exit_code == 0, result.output
-    assert (repo / "data" / "mml" / "mml_export.m").read_bytes() == EXPORTER.read_bytes()
-    assert not (repo / "data" / "mml" / "README.md").exists()
+    assert result.output == EXPORTER.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
-# README
+# Help text
 # ---------------------------------------------------------------------------
 
 
-def test_readme_names_the_pull_line_and_it_resolves() -> None:
-    text = README.read_text(encoding="utf-8")
+def test_help_names_the_print_line_and_it_resolves(help_text: str) -> None:
+    text = " ".join(help_text.split())
 
-    assert PULL_LINE in text
-    scaffold_chains = {chain for chain in named_commands(text) if chain[:1] == ("scaffold",)}
-    assert scaffold_chains
-    assert [unresolvable(chain) for chain in scaffold_chains if unresolvable(chain)] == []
+    assert PRINT_LINE in text
+    facility_chains = {chain for chain in named_commands(text) if chain[:1] == ("facility",)}
+    assert facility_chains
+    assert [unresolvable(chain) for chain in facility_chains if unresolvable(chain)] == []
 
 
-def test_readme_states_the_one_command_usage_and_the_six_files() -> None:
-    text = README.read_text(encoding="utf-8")
+def test_help_states_the_one_command_usage_and_the_six_files(help_text: str) -> None:
+    text = " ".join(help_text.split())
 
-    assert "```matlab\nmml_export\n```" in text
+    assert "run mml_export in MATLAB" in text
     for suffix in EXPORT_SUFFIXES:
         assert f"<machine>.<submachine>{suffix}" in text, suffix
     assert "six files" in text
@@ -195,11 +185,11 @@ def test_readme_states_the_one_command_usage_and_the_six_files() -> None:
     assert "osprey facility import mml" in text
 
 
-def test_readme_states_what_the_export_needs_of_the_middle_layer() -> None:
+def test_help_states_what_the_export_needs_of_the_middle_layer(help_text: str) -> None:
     """A run without the simulator model loaded refuses; a reader should know why."""
-    text = README.read_text(encoding="utf-8")
+    text = " ".join(help_text.split())
 
-    assert "THERING" in text, "the model ring has to be loaded for the export to run"
+    assert "THERING" in text, "the model lattice has to be loaded for the export to run"
     assert "before the export samples anything" in text, "the lattice is saved first"
 
 

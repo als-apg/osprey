@@ -174,7 +174,6 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/facility/scenarios/rf-thermal/",
     "data/facility/scenarios/rf-thermal/plots/",
     "data/landing/",
-    "data/mml/",
     "web-terminal-context/",
     "data/README.md",
     "data/ariel/README.md",
@@ -230,8 +229,6 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/facility/scenarios/vacuum-burst.yaml",
     "data/facility/seeds.yaml",
     "data/landing/working-safely.md",
-    "data/mml/README.md",
-    "data/mml/mml_export.m",
     "web-terminal-context/base.md",
 ]
 
