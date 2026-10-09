@@ -60,6 +60,7 @@ import yaml
 
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
+    assert_agent_ran,
     init_project,
     is_claude_code_available,
     render_dir,
@@ -199,7 +200,7 @@ async def test_denied_tool_refused_in_persona_a(persona_a_denied_repo):
             f"  tool: {trace.name} is_error={trace.is_error} result={(trace.result or '')[:200]!r}"
         )
 
-    assert result.result is not None, "No ResultMessage received from SDK"
+    assert_agent_ran(result)
 
     # Attribution guard: the empty-tools signal below is only meaningful if the
     # osprey_workspace server (the one that owns facility_description) actually
@@ -213,6 +214,8 @@ async def test_denied_tool_refused_in_persona_a(persona_a_denied_repo):
     )
 
     denied_calls = result.tools_matching(_DENIED_TOOL_SHORT_NAME)
+    if not denied_calls:
+        pytest.skip("the model never called the denied tool; the persona deny was not exercised")
     successful_calls = [t for t in denied_calls if not t.is_error]
     assert len(successful_calls) == 0, (
         f"Per-persona permission deny breached: {len(successful_calls)} call(s) to "
