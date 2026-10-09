@@ -1654,7 +1654,14 @@ class TestWebTerminalContextShipped:
                 "project_name": "ctx-seed-hello",
                 "facility": {"name": "Demo", "prefix": "dls"},
                 "system": {"timezone": "UTC"},
-                "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
+                "modules": {
+                    "web_terminals": {
+                        "enabled": True,
+                        "users": ["alice"],
+                        "default_persona": "assistant",
+                        "personas": {"assistant": {"project": "ctx-seed-hello-assistant"}},
+                    }
+                },
             }
         )
 

@@ -1453,6 +1453,8 @@ class TestTemplateRendering:
                 "web_terminals": {
                     "enabled": True,
                     "users": ["alice"],
+                    "default_persona": "assistant",
+                    "personas": {"assistant": {"project": "dls-assistant"}},
                 }
             },
             # Same shape as the project-level config exercised above — present

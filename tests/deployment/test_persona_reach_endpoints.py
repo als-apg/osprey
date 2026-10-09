@@ -31,7 +31,6 @@ from osprey.build.claude_code_telemetry import (
     _resolve_telemetry_endpoint,
     openobserve_published_port,
 )
-from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.reach import project_attached_overrides, reach_dials, reach_errors
 from osprey.deployment.web_terminals.personas import resolve_personas
 from osprey.deployment.web_terminals.render import render_web_terminals
@@ -125,7 +124,6 @@ def test_host_networked_persona_telemetry_targets_loopback(built_persona_stack: 
     roster = resolve_personas(
         web_terminals,
         host_config.get("registry") or {},
-        resolve_project_name(host_config),
         strict=True,
     )
 

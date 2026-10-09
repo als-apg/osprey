@@ -2960,7 +2960,12 @@ keys:
   modules.web_terminals.image_source:
     evidence: 'web_terminals\.get\("image_source"\) == "local"'
     default: registry
-  modules.web_terminals.default_persona: {covered-by: modules.web_terminals, default: null}
+  modules.web_terminals.default_persona:
+    covered-by: modules.web_terminals
+    default: no-fallback
+    default_note: >-
+      resolve_personas refuses an enabled web_terminals block with no
+      default_persona (lint web_terminals.requires_catalog)
   modules.web_terminals.auth: {evidence: 'as_dict\(web_terminals\.get\("auth"\)\)', default: {}}
   modules.web_terminals.auth.method:
     evidence: 'method if isinstance\(method, str\) and method else "token"'
@@ -3058,7 +3063,10 @@ keys:
       read, never which tiers a facility declares. Each entry's leaves
       (`project`, `project_path`, `build_profile`, `landing_group`) are read by
       personas.resolve_personas from the entry it was handed.
-    default: {}
+    default: no-fallback
+    default_note: >-
+      resolve_personas refuses an enabled web_terminals block with no personas
+      catalog (lint web_terminals.requires_catalog)
   modules.web_terminals.users:
     evidence: 'normalize_users\(web_terminals\.get\("users"\)\)'
     note: >-

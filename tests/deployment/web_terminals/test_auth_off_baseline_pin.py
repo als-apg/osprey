@@ -18,7 +18,7 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly seven
+byte-for-byte what it rendered before this feature, with exactly nine
 exceptions:
 
   1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
@@ -85,6 +85,10 @@ exceptions:
      the ``./var/guarded_run`` bind on every per-user container. A guarded run keeps its per-target lock and journal
      there, shared with every other container that runs the agent; nothing
      about it depends on a login.
+  9. **the persona badge** — every user card names the persona it runs, here
+     the default persona every roster states. It names the image's project
+     tier, carries no account, role or claim, and renders the same under
+     every method.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -595,6 +599,9 @@ _ALLOWED_LANDING_LINES: Counter[str] = Counter(
             '            <span class="landing-card-token-hint">entered via a login link'
             " — <code>osprey users login-url bob</code></span>"
         ): 1,
+        # The persona badge — exception 9: one per user card, naming the
+        # default persona EXAMPLE_CONFIG's roster runs.
+        '            <span class="landing-card-sublabel">assistant</span>': 2,
     }
 )
 
@@ -892,7 +899,8 @@ def test_landing_page_adds_exactly_the_token_login_badge() -> None:
 
     What the pin becomes is the same guarantee one step weaker and stated
     exactly: today's `token` landing page is the frozen one PLUS the badge's
-    style rules and the two spans per user card, and nothing at all besides.
+    style rules and the two spans per user card, and the persona badge
+    (exception 9), and nothing at all besides.
     Anything else that appears on this page — a role, a login form, a claim —
     still fails here, which is what SC6 was ever protecting.
     """

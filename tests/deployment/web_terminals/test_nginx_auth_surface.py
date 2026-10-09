@@ -90,6 +90,8 @@ def _config(users: list) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "users": users,
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "demo-assistant"}},
             }
         },
     }

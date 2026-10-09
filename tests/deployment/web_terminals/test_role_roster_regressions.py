@@ -69,6 +69,7 @@ from osprey.cli.profile_cmd import _parsed_persona_deltas, _persona_profile_text
 from osprey.cli.users_cmd import _drop_user_from_profile_roster
 from osprey.deployment.web_terminals import env_production
 from osprey.deployment.web_terminals.lint import lint_profile_config, lint_web_terminals
+from osprey.deployment.web_terminals.persona_naming import persona_project
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX
 
@@ -179,15 +180,21 @@ def _profile_twins() -> tuple[dict[str, Any], dict[str, Any]]:
     return pinned, role_bound
 
 
+#: The deployment the twins render as.
+_PROJECT_NAME = "test"
+
+
 def _deploy_config(web_terminals: dict[str, Any]) -> dict[str, Any]:
     """A rendered-altitude deploy config around one web-terminal subtree.
 
     ``deploy.fqdn`` is required to render the landing URL once the roster is
     non-empty, and ``registry.url`` is what per-user image references are built
     from; both are identical for the two twins, so neither can be what makes an
-    artifact match.
+    artifact match. ``project_name`` is what the build names each persona's
+    project by.
     """
     return {
+        "project_name": _PROJECT_NAME,
         "facility": {"prefix": "test"},
         "deploy": {"fqdn": "terminals.example.org"},
         "registry": {"url": "registry.example.org/test"},
@@ -197,9 +204,17 @@ def _deploy_config(web_terminals: dict[str, Any]) -> dict[str, Any]:
 
 @pytest.fixture(scope="session")
 def exemplar_web_terminals() -> dict[str, Any]:
-    """The bundled ``control-assistant`` roster and catalog, as the preset ships it."""
+    """The bundled ``control-assistant`` roster and catalog, as the build writes it.
+
+    The build stamps each ``build_profile`` persona with the ``project`` and
+    ``project_path`` it renders it under; the deploy config carries them.
+    """
     resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
-    return effective_web_terminals(resolved.config)
+    web_terminals = effective_web_terminals(resolved.config)
+    for name, entry in web_terminals["personas"].items():
+        if entry.get("build_profile"):
+            entry["project"], entry["project_path"] = persona_project(_PROJECT_NAME, name)
+    return web_terminals
 
 
 @pytest.fixture(scope="session")

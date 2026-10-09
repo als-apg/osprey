@@ -216,9 +216,8 @@ def seed_user_containers(
 
     Each user's skills target directory is derived from their resolved
     persona's ``container_project_dir`` (via :func:`personas.resolve_personas`,
-    ``strict=True``) rather than a hardcoded ``<project>-assistant``
-    path, so a user on a non-default persona gets skills seeded into their
-    own project's render zone (``<project>/build/.claude/skills``, the
+    ``strict=True``), so every user's skills land in their own persona's
+    project's render zone (``<project>/build/.claude/skills``, the
     ``.claude/`` the CLI actually reads at project scope). ``CLAUDE.md`` seeding is unaffected by
     persona — the ``base.md``/``extra.md`` overlay convention and its target
     path are the same for every user regardless of persona.
@@ -276,8 +275,7 @@ def seed_user_containers(
     # per-user issue, so it raises here — before any container is touched — same
     # as the base.md check below.
     resolved_by_name = {
-        entry["name"]: entry
-        for entry in resolve_personas(web_terminals, registry_cfg, project, strict=True)
+        entry["name"]: entry for entry in resolve_personas(web_terminals, registry_cfg, strict=True)
     }
 
     # base.md is required only when at least one to-be-seeded user's persona

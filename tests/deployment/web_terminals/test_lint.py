@@ -53,6 +53,8 @@ _CLEAN_CONFIG = {
             "ariel_base_port": default_port("ariel", 0, base=_OVERRIDE_PORT_BASE),
             "lattice_base_port": default_port("lattice", 0, base=_OVERRIDE_PORT_BASE),
             "users": ["alice", "bob"],
+            "default_persona": "assistant",
+            "personas": {"assistant": {"project": "test-assistant"}},
         },
     },
 }
@@ -1378,10 +1380,9 @@ def test_lint_persona_seed_base_absent_is_accepted() -> None:
     assert not any(f.code == "web_terminals.persona_invalid_seed_base" for f in findings)
 
 
-def test_lint_no_personas_catalog_reports_no_persona_findings() -> None:
-    """A config predating persona catalogs (no `personas:` block, no `persona:`
-    keys, no `default_persona`) must resolve every entry on the no-persona path and
-    trip none of the new persona checks."""
+def test_lint_minimal_catalog_reports_no_persona_findings() -> None:
+    """The minimal catalog — one default persona stating its project, no
+    `persona:` keys on the roster — trips none of the per-persona checks."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
 
@@ -1511,36 +1512,94 @@ def test_lint_local_mode_with_registry_url_is_a_warning() -> None:
     assert any(f.code == "web_terminals.local_mode_unused_registry_url" for f in warnings)
 
 
-def test_lint_local_mode_without_catalog_is_an_error() -> None:
-    """`image_source: local` requires both a catalog and a default_persona —
-    the lint-side mirror of resolve_personas()'s strict ValueError guard."""
+@pytest.mark.parametrize("image_source", ["registry", "local"])
+def test_lint_without_catalog_is_an_error(image_source: str) -> None:
+    """Web terminals need a catalog in either image source — the lint-side
+    mirror of resolve_personas()'s strict ValueError guard."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["image_source"] = "local"
+    web = config["modules"]["web_terminals"]
+    web["image_source"] = image_source
+    del web["personas"]
+    del web["default_persona"]
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.local_mode_requires_catalog" for f in errors)
+    assert any(f.code == "web_terminals.requires_catalog" for f in errors)
 
 
-def test_lint_local_mode_without_default_persona_is_an_error() -> None:
-    """A catalog alone isn't enough for local mode; default_persona is also required."""
+@pytest.mark.parametrize("image_source", ["registry", "local"])
+def test_lint_without_default_persona_is_an_error(image_source: str) -> None:
+    """A catalog alone isn't enough; default_persona is also required."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["image_source"] = "local"
+    web = config["modules"]["web_terminals"]
+    web["image_source"] = image_source
+    del web["default_persona"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.requires_catalog" for f in errors)
+
+
+def test_lint_requires_catalog_fires_on_an_empty_roster() -> None:
+    """The refusal does not look at the roster, exactly as the render's does."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    web = config["modules"]["web_terminals"]
+    web["users"] = []
+    del web["personas"]
+    del web["default_persona"]
+
+    # Act
+    codes = [f.code for f in _errors(lint_web_terminals(config))]
+
+    # Assert
+    assert "web_terminals.requires_catalog" in codes
+
+
+@pytest.mark.parametrize("rendered_project", [False, True])
+def test_lint_ready_made_persona_without_project_is_an_error(rendered_project: bool) -> None:
+    """A referenced persona with neither build_profile nor project names no
+    directory, at either altitude."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["personas"] = {
-        "assistant": {"project": "als-assistant", "project_path": "/nonexistent"}
+        "assistant": {"project_path": "elsewhere/assistant"}
     }
 
     # Act
-    findings = lint_web_terminals(config)
+    findings = lint_web_terminals(config, rendered_project=rendered_project)
 
     # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.local_mode_requires_catalog" for f in errors)
+    errors = [f for f in _errors(findings) if f.code == "web_terminals.persona_missing_project"]
+    assert len(errors) == 1
+    assert "'assistant'" in errors[0].message
+
+
+@pytest.mark.parametrize("rendered_project", [False, True])
+def test_lint_build_profile_persona_without_project_is_not_missing_its_project(
+    rendered_project: bool,
+) -> None:
+    """The build derives a build_profile persona's project, so it is not
+    reported as missing one."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {
+        "assistant": {"build_profile": "personas/assistant.yml"}
+    }
+
+    # Act
+    findings = lint_web_terminals(config, rendered_project=rendered_project)
+
+    # Assert
+    assert not any(f.code == "web_terminals.persona_missing_project" for f in findings)
 
 
 def test_lint_local_mode_missing_project_path_is_an_error() -> None:
@@ -2369,32 +2428,6 @@ def test_lint_per_container_stdio_topology_reports_no_error() -> None:
     # Assert
     errors = _errors(findings)
     assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
-
-
-# --- project name the persona checks resolve against -------------------------
-
-
-def test_lint_resolves_personas_against_the_project_name(monkeypatch) -> None:
-    """Lint resolves the roster under the same project name provisioning addresses."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["project_name"] = "demo"
-    resolved: list[dict] = []
-    real_resolve = lint.resolve_personas
-
-    def _recording_resolve(*args, **kwargs):
-        entries = real_resolve(*args, **kwargs)
-        resolved.extend(entries)
-        return entries
-
-    monkeypatch.setattr(lint, "resolve_personas", _recording_resolve)
-
-    # Act
-    lint_web_terminals(config)
-
-    # Assert
-    assert resolved
-    assert {entry["project"] for entry in resolved} == {"demo-assistant"}
 
 
 def test_lint_omitted_mcp_topology_reports_no_error() -> None:
@@ -5030,7 +5063,8 @@ def _role_config(role_persona: str, *, catalog: dict | None = None) -> dict:
     web["users"] = [{"name": "alice", "index": 0, "role": "operator"}]
     web["authorization"] = {"roles": {"operator": {"persona": role_persona}}}
     if catalog is not None:
-        web["personas"] = catalog
+        # Beside the default persona, so the role's persona is not the default.
+        web["personas"] = {**web["personas"], **catalog}
         config["registry"] = {"url": "registry.example.org"}
     return config
 

@@ -185,11 +185,9 @@ class Lane:
     compose project and its volumes, and the port band
     decides what nginx and each terminal bind.
 
-    ``users`` holds roster entries as they are authored in the profile. The
-    ``open`` lane must use OBJECT entries: a bare-string entry runs no persona,
-    so the open-mode deploy gate reads the DEPLOY project's settings.json for it
-    (the no-persona sentinel) instead of the persona's, and refuses a
-    deployment whose persona is in fact clean.
+    ``users`` holds roster entries as they are authored in the profile. Every
+    entry runs a catalog persona, its own or the default, so the open-mode
+    deploy gate reads that persona's settings.json.
     """
 
     posture: str

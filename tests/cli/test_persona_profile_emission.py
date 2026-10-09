@@ -576,7 +576,7 @@ def test_the_build_renders_every_catalog_entry_the_emitter_wrote(
     # And the start path, which reads the catalog rather than the deltas, finds
     # every one of them. `up` chdirs into the repo before provisioning.
     monkeypatch.chdir(target)
-    users = resolve_personas(web_terminals, config.get("registry", {}), "test", strict=False)
+    users = resolve_personas(web_terminals, config.get("registry", {}), strict=False)
     persona_images.verify_persona_renders(config, users, repo_root=target)
 
 

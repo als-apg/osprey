@@ -142,6 +142,8 @@ def _rendered_config(project_name: str, facility_token: str) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "users": ["alice", "bob"],
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "demo-assistant"}},
                 "auth": {"method": "password", "allow_insecure_http": True},
             }
         },

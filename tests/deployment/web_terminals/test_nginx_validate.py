@@ -107,6 +107,8 @@ def _config(tls: dict | None = None, auth: dict | None = None, users: list | Non
     web_terminals: dict = {
         "enabled": True,
         "users": ["alice", "bob"] if users is None else users,
+        "default_persona": "assistant",
+        "personas": {"assistant": {"project": "demo-assistant"}},
     }
     if tls is not None:
         web_terminals["tls"] = tls

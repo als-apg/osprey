@@ -395,9 +395,7 @@ def _verified_volumes(
     listed_names = set(listed.values())
 
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
-    personas = resolve_personas(
-        web_terminals, as_dict(config.get("registry")), project, strict=False
-    )
+    personas = resolve_personas(web_terminals, as_dict(config.get("registry")), strict=False)
 
     targets: list[VolumeTarget] = []
     errors: list[VolumeError] = []

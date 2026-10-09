@@ -519,6 +519,8 @@ def _config(nginx_port: int, *, oidc_issuer: str | None = None) -> dict[str, Any
                 "enabled": True,
                 "nginx_port": nginx_port,
                 "users": users,
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "demo-assistant"}},
                 "auth": auth,
             }
         },

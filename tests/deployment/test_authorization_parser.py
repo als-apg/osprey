@@ -329,7 +329,7 @@ def test_an_empty_claims_stanza_is_inert_rather_than_refused(claims: Any) -> Non
 
 
 def test_the_reference_config_parses_to_inert_defaults() -> None:
-    """The no-personas reference facility config the goldens are rendered from
+    """The reference facility config the goldens are rendered from
     declares no authorization, and must keep meaning exactly that."""
     # Arrange
     web_terminals = copy.deepcopy(EXAMPLE_CONFIG)["modules"]["web_terminals"]
@@ -385,7 +385,7 @@ def test_the_reference_config_still_renders_all_three_artifacts() -> None:
     }
 
 
-def test_a_role_only_roster_renders_byte_identically_to_a_persona_less_one() -> None:
+def test_declaring_roles_alone_renders_byte_identically() -> None:
     """Declaring roles binds privileges; on its own it publishes nothing. The
     parser is the whole change at this stage, so the artifacts must not move."""
     # Arrange
@@ -485,6 +485,8 @@ _LINT_CONFIG: dict[str, Any] = {
         "web_terminals": {
             "enabled": True,
             "users": ["alice", "bob"],
+            "default_persona": "assistant",
+            "personas": {"assistant": {"project": "dls-assistant"}},
         }
     },
 }
@@ -648,10 +650,11 @@ def test_lint_accepts_a_roster_entry_naming_a_declared_role() -> None:
         copy.deepcopy(_AUTHORIZATION),
         users=[{"name": "alice", "index": 0, "role": "operator"}],
         personas={
+            "assistant": {"project": "dls-assistant"},
             "operator": {
                 "project": "dls-operator",
                 "build_profile": "personas/operator.yml",
-            }
+            },
         },
         registry={"url": "registry.example.org"},
     )

@@ -71,6 +71,8 @@ def _config(users: list[str], **auth: object) -> dict:
         "ariel_base_port": _ARIEL_BASE_PORT,
         "lattice_base_port": _LATTICE_BASE_PORT,
         "users": users,
+        "default_persona": "assistant",
+        "personas": {"assistant": {"project": "demo-assistant"}},
     }
     if auth:
         stanza = dict(auth)

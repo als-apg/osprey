@@ -59,7 +59,14 @@ def _config(users: list[str]) -> dict[str, Any]:
         "project_name": _PROJECT,
         "facility": {"prefix": "dls"},
         "registry": {"url": "registry.example.org/physics"},
-        "modules": {"web_terminals": {"enabled": True, "users": list(users)}},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "users": list(users),
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": f"{_PROJECT}-assistant"}},
+            }
+        },
     }
 
 
@@ -433,26 +440,6 @@ class TestVolumeReader:
         assert '-name "fb-*.json"' in script
         assert script.endswith("-exec cat {} +")
         assert "ctx-" not in script
-
-    def test_volume_read_names_a_persona_image_by_the_project_name(
-        self, fake_runtime: _FakeRuntime
-    ):
-        """A persona naming no project is read with ``<project>-assistant-<persona>``."""
-        config = _config([])
-        config["modules"]["web_terminals"].update(
-            {
-                "image_source": "local",
-                "users": [{"name": "alice", "index": 0, "persona": "control-room"}],
-                "personas": {"control-room": {"project_path": "/x"}},
-            }
-        )
-        fake_runtime.listed = [_agent_data("alice")]
-
-        read_volume_headers(config)
-
-        argv = fake_runtime.runs()[0]
-        assert f"{_PROJECT}-assistant-control-room:local" in argv
-        assert "dls-assistant-control-room:local" not in argv
 
     def test_volume_read_names_the_agent_data_volume_the_deployment_derives(self):
         """The suffix this reader filters on is the one compose actually uses."""

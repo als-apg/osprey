@@ -40,6 +40,8 @@ _NO_PORTS_CONFIG: dict[str, Any] = {
         "web_terminals": {
             "enabled": True,
             "users": ["alice", "bob"],
+            "default_persona": "assistant",
+            "personas": {"assistant": {"project": "demo-assistant"}},
         }
     },
 }
