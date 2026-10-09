@@ -1,8 +1,8 @@
 """The lattice dashboard app over a render's simulator view.
 
-Each app is built over a synthetic render under ``tmp_path``: ``facility.json``
-with its ``models``, and ``data/simulator/`` holding ``served_models.json`` and
-a pyAT JSON deck per deck-bearing model. Worker launches go to a recording
+Each app is built over a synthetic render under ``tmp_path``: its simulator
+view ``data/simulator/`` holds ``variables.json`` with the models and a pyAT
+JSON deck per deck-bearing model. Worker launches go to a recording
 ``Popen`` stand-in, so no subprocess runs.
 """
 
@@ -39,20 +39,38 @@ def _deck(kf: float = 1.0) -> at.Lattice:
 
 
 def _write_render(root, *, served, models):
-    """Write a render: ``models`` is ``{name: settings.pyat or None}`` (None = no deck)."""
-    decks = root / "data" / "simulator" / "decks"
-    decks.mkdir(parents=True)
-    records = [{"name": "texture", "engine": "texture"}]
+    """Write a render's simulator view.
+
+    ``models`` is ``{name: settings.pyat or None}`` (None = no deck); a model is
+    served when ``served`` names it, and the texture model is listed too.
+    """
+    view = root / "data" / "simulator"
+    (view / "decks").mkdir(parents=True, exist_ok=True)
+    records = [
+        {
+            "name": "texture",
+            "engine": "texture",
+            "served": "texture" in served,
+            "settings": {},
+            "deck": None,
+        }
+    ]
     for name, pyat in models.items():
-        record = {"name": name, "engine": "pyat"}
+        deck = None
         if pyat is not None:
-            record["deck"] = f"decks/{name}.json"
-            record["settings"] = {"pyat": pyat}
-            _deck().save(str(decks / f"{name}.json"))
-        records.append(record)
-    (root / "facility.json").write_text(json.dumps({"models": records}))
-    (root / "data" / "simulator" / "served_models.json").write_text(
-        json.dumps({"schema": "osprey.facility.served_models/1", "models": served})
+            deck = f"decks/{name}.json"
+            _deck().save(str(view / deck))
+        records.append(
+            {
+                "name": name,
+                "engine": "pyat",
+                "served": name in served,
+                "settings": {"pyat": pyat} if pyat is not None else {},
+                "deck": deck,
+            }
+        )
+    (view / "variables.json").write_text(
+        json.dumps({"schema": "osprey.facility.variables/1", "models": records, "channels": []})
     )
     return root
 
@@ -159,9 +177,21 @@ class TestModels:
         models = client.get("/api/models").json()
 
         assert models == [
-            {"name": "SR", "served": True, "solve": "periodic", "selected": True},
-            {"name": "TRANSFER", "served": True, "solve": "single_pass", "selected": False},
-            {"name": "BOOSTER", "served": False, "solve": "periodic", "selected": False},
+            {"name": "SR", "served": True, "solve": "periodic", "selected": True, "error": None},
+            {
+                "name": "TRANSFER",
+                "served": True,
+                "solve": "single_pass",
+                "selected": False,
+                "error": None,
+            },
+            {
+                "name": "BOOSTER",
+                "served": False,
+                "solve": "periodic",
+                "selected": False,
+                "error": None,
+            },
         ]
 
     def test_first_request_loads_the_first_served_deck(self, client, render, launched):
@@ -222,6 +252,31 @@ class TestModels:
         )
 
 
+class TestCatalog:
+    def test_bad_pyat_settings_name_the_engine_stop(self, tmp_path):
+        render = _write_render(
+            tmp_path / "render",
+            served=["SR", "BAD"],
+            models={"SR": {"solve": "periodic"}, "BAD": {"solve": "periodic", "bogus": 1}},
+        )
+        client = TestClient(create_app(workspace_root=tmp_path / "ws", render_root=render))
+
+        models = {m["name"]: m for m in client.get("/api/models").json()}
+
+        assert models["SR"]["error"] is None
+        assert models["BAD"]["solve"] is None
+        assert "engine-invalid" in models["BAD"]["error"]
+        assert "bogus" in models["BAD"]["error"]
+
+    def test_twiss_in_is_the_engine_normalised_one(self, client):
+        client.post("/api/models/select", json={"name": "TRANSFER"})
+
+        twiss_in = client.get("/api/state").json()["twiss_in"]
+
+        assert twiss_in["beta"] == TWISS_IN["beta"]
+        assert twiss_in["alpha"] == TWISS_IN["alpha"]
+
+
 _OPTICS_RAW = {"s_pos": [0.0, 1.0], "beta_x": [1.0, 2.0], "beta_y": [2.0, 1.0], "eta_x": [0.0, 0.1]}
 
 
@@ -278,7 +333,7 @@ class TestSinglePass:
         assert state["fast_figures"] == ["optics"]
         assert "tunes" not in state["summary"]
         assert "chromaticity" not in state["summary"]
-        assert state["twiss_in"] == TWISS_IN
+        assert state["twiss_in"]["beta"] == TWISS_IN["beta"]
 
     def test_refresh_launches_only_optics(self, transfer, launched):
         r = transfer.post("/api/refresh")

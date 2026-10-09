@@ -13,7 +13,10 @@ import logging
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from osprey.simulation.engines.pyat import Prepared
 
 logger = logging.getLogger("osprey.lattice_dashboard.state")
 
@@ -45,25 +48,11 @@ def figure_available(name: str, solve: str | None) -> bool:
     return name in OPTICS_ONLY or solve != SINGLE_PASS
 
 
-def twiss_in_arrays(twiss_in: dict[str, Any]) -> dict[str, Any]:
-    """Return *twiss_in* as the float arrays ``at.get_optics`` takes.
-
-    Each key is padded with zeros to the length the pyAT engine normalises
-    it to; a key the model omits is left for pyAT to default.
-    """
-    import numpy as np
-
-    from osprey.simulation.engines.pyat import TWISS_LENGTHS
-
-    arrays: dict[str, Any] = {}
-    for key, lengths in TWISS_LENGTHS.items():
-        if twiss_in.get(key) is None:
-            continue
-        values = np.asarray(twiss_in[key], dtype=float).reshape(-1)
-        if values.size < lengths[0]:
-            values = np.concatenate([values, np.zeros(lengths[0] - values.size)])
-        arrays[key] = values
-    return arrays
+def twiss_in_lists(prepared: Prepared) -> dict[str, list[float]] | None:
+    """Return *prepared*'s ``twiss_in`` as plain lists, or None when it states none."""
+    if prepared.twiss_in is None:
+        return None
+    return {key: [float(v) for v in values] for key, values in prepared.twiss_in.items()}
 
 
 DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
@@ -238,8 +227,7 @@ class LatticeState:
         lattice_path: str,
         *,
         model: str | None = None,
-        solve: str = PERIODIC,
-        twiss_in: dict[str, Any] | None = None,
+        prepared: Prepared | None = None,
         deck_sha256: str | None = None,
     ) -> dict[str, Any]:
         """Load a lattice file, discover magnet families, compute summary.
@@ -250,10 +238,10 @@ class LatticeState:
         Args:
             lattice_path: The deck to load.
             model: The model the deck belongs to, recorded for the dashboard.
-            solve: ``periodic`` or ``single_pass``. A ``single_pass`` deck's
-                optics start from *twiss_in* and its summary has no tunes or
-                chromaticity.
-            twiss_in: The model's ``settings.pyat.twiss_in``.
+            prepared: The model's settings as the pyAT engine prepared them;
+                None solves the deck periodically. A ``single_pass`` deck's
+                optics start from its ``twiss_in`` and its summary has no
+                tunes or chromaticity.
             deck_sha256: The deck's digest, recorded so a changed deck is noticed.
         """
         import at
@@ -261,9 +249,10 @@ class LatticeState:
 
         ring = at.load_lattice(lattice_path)
         refpts = range(len(ring) + 1)
+        solve = PERIODIC if prepared is None else prepared.solve
         single_pass = solve == SINGLE_PASS
-        if single_pass:
-            _, rd, ld = at.get_optics(ring, refpts=refpts, twiss_in=twiss_in_arrays(twiss_in or {}))
+        if single_pass and prepared is not None:
+            _, rd, ld = at.get_optics(ring, refpts=refpts, twiss_in=prepared.twiss_in)
         else:
             _, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
 
@@ -337,7 +326,7 @@ class LatticeState:
             "base_lattice": str(lattice_path),
             "model": model,
             "solve": solve,
-            "twiss_in": twiss_in if single_pass else None,
+            "twiss_in": twiss_in_lists(prepared) if prepared is not None else None,
             "deck_sha256": deck_sha256,
             "overrides": {},
             "summary": summary,

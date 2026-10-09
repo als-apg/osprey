@@ -237,8 +237,7 @@ def _file_signature(path: Path) -> tuple[int, int] | None:
 class _ModelLoader:
     """Keeps the dashboard state on the selected model's deck.
 
-    The catalog is re-read when ``served_models.json`` or ``facility.json``
-    changes, and a deck's digest when the deck file changes, so a rebuilt
+    The catalog is re-read when ``variables.json`` changes, and a deck's digest when the deck file changes, so a rebuilt
     render is picked up without re-reading it on every request.
 
     Args:
@@ -281,11 +280,12 @@ class _ModelLoader:
         return digest
 
     def _load(self, model: DashboardModel, digest: str) -> dict[str, Any]:
+        if model.error is not None:
+            raise ValueError(model.error)
         return self._state.initialize(
             str(model.deck),
             model=model.name,
-            solve=model.solve,
-            twiss_in=model.twiss_in,
+            prepared=model.prepared,
             deck_sha256=digest,
         )
 
@@ -421,6 +421,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
                 "served": model.served,
                 "solve": model.solve,
                 "selected": model.name == selected,
+                "error": model.error,
             }
             for model in loader.catalog().models
         ]
