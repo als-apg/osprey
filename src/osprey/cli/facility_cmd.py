@@ -128,7 +128,6 @@ def _build_in_memory(
     from .templates.manager import TemplateManager
 
     repo_root = find_repo_root(repo)
-    name = repo_root.name
     profile_path = repo_root / PROFILE_FILENAME
 
     mirror_stop = facility_mirror_violation(repo_root / PROJECT_MIRROR_DIR)
@@ -137,6 +136,7 @@ def _build_in_memory(
 
     resolved, overlays = _main_profile(repo_root)
     build_profile = resolved.profile
+    name = _project_name(resolved, repo_root)
     facility_dir = _facility_dir(resolved, repo_root)
     limits_stop = handwritten_limits_violation(facility_dir.parent, repo_root)
     if limits_stop is not None:
@@ -158,7 +158,7 @@ def _build_in_memory(
     if not report_responses(responses):
         ctx.exit(1)
 
-    build_dir = _render_zones(repo_root).build_dir
+    build_dir = _render_zones(repo_root, name).build_dir
     shared = _SharedRenderInputs(
         repo_root=repo_root,
         build_dir=build_dir,
@@ -420,6 +420,18 @@ def _main_profile(repo_root: Path) -> tuple[LoadedProfile, tuple[Path, ...]]:
     return resolve_build_document(repo_root / PROFILE_FILENAME, None, overlays), overlays
 
 
+def _project_name(resolved: LoadedProfile, repo_root: Path) -> str:
+    """The project's name as the build is given it.
+
+    The profile's ``project_name:`` when it states one. A facility tree is
+    checked and imported before any build, so a profile that states none is
+    read under the folder name rather than refused: the name only folds the
+    zero-source identity and leafs a scratch render here, never a container,
+    volume or image.
+    """
+    return resolved.profile.project_name or repo_root.name
+
+
 def _facility_dir(resolved: LoadedProfile, repo_root: Path) -> Path:
     """The ``data/facility`` directory under a resolved profile's data root."""
     data_root = resolved.profile.resolved_data_root(repo_root)
@@ -526,7 +538,8 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
 
     repo_root = find_repo_root(repo)
     try:
-        facility_dir = _facility_dir(_main_profile(repo_root)[0], repo_root)
+        resolved = _main_profile(repo_root)[0]
+        facility_dir = _facility_dir(resolved, repo_root)
     except (BuildProfileError, ValueError, RuntimeError) as error:
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
@@ -553,7 +566,9 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
         path
         for path in (
             facility_dir / _SCENARIOS_DIR / f"{name}.yaml"
-            for name in stale_scenarios(facility_dir, project_name=repo_root.name)
+            for name in stale_scenarios(
+                facility_dir, project_name=_project_name(resolved, repo_root)
+            )
         )
         if not _mml_seeded(path)
     )

@@ -106,7 +106,9 @@ def test_zero_sources_build_the_texture_model_alone(build_project: Build) -> Non
     facility = project.facility
     assert facility["models"] == [{"name": TEXTURE, "engine": TEXTURE}]
     assert facility["classes"] == []
-    assert facility["identity"] == {"code": "min_lab_v2", "name": "min-lab.v2"}
+    # The zero-source identity folds the profile's project_name, which init
+    # proposed from the folder name in compose's spelling (the dot dropped).
+    assert facility["identity"] == {"code": "min_labv2", "name": "min-labv2"}
     assert [facility[kind] for kind in ("places", "devices", "channels", "groups")] == [[]] * 4
 
 

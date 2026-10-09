@@ -141,7 +141,7 @@ def test_a_profile_naming_a_facility_is_refused(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
 def test_the_emitted_profile_carries_neither_the_key_nor_its_comment(preset: str) -> None:
-    text = emit_standalone_profile_yaml(preset, (), "Emitted")
+    text = emit_standalone_profile_yaml(preset, (), "Emitted", project_name="emitted")
 
     assert PRESET_FACILITY_KEY not in (yaml.safe_load(text) or {})
     assert "Which bundled facility this shows" not in text
