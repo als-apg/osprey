@@ -427,7 +427,11 @@ independently of the control system:
       field per channel sampled at that instant. A channel's field name is its
       address, with ``%``, ``.`` and NUL written as ``%25``, ``%2E`` and
       ``%00``, and a leading ``$`` as ``%24``; every other address is its own
-      field name. A site writing its own store names its fields the same way,
+      field name. An address equal to one of the collection's own fields
+      (``_id``, ``date``, ``expireAt``, ``osprey_densified``, or the seed
+      manifest's ``fingerprint``, ``seeded_at``, ``touched_windows``,
+      ``touched_anchor`` and ``coverage``) has its first character written the
+      same way, so a channel named ``date`` is stored as ``%64ate``. A site writing its own store names its fields the same way,
       so ``SR:MOT1.RBV`` is stored as ``SR:MOT1%2ERBV``.
 
       The password is only ever named, never written: ``auth.password_env`` is
