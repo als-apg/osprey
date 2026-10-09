@@ -1,8 +1,8 @@
 """The lattice dashboard app over a render's simulator view.
 
 Each app is built over a synthetic render under ``tmp_path``: its simulator
-view ``data/simulator/`` holds ``variables.json`` with the models and a pyAT
-JSON deck per deck-bearing model. Worker launches go to ``FakeSlots``
+view ``data/simulator/`` holds the view's documents, ``variables.json`` listing
+the models, and a pyAT JSON deck per deck-bearing model. Worker launches go to ``FakeSlots``
 (conftest), so no subprocess runs.
 """
 
@@ -29,6 +29,14 @@ from osprey.interfaces.lattice_dashboard.state import (
 )
 from osprey.interfaces.lattice_dashboard.workers._base import save_data
 from osprey_connectors.process import ExitCause
+from osprey_connectors.simulation.view import (
+    ADDRESSES_FILE,
+    SCHEMAS,
+    SEEDS_FILE,
+    SERVED_MODELS_FILE,
+    TEXTURE,
+    VARIABLES_FILE,
+)
 
 at = pytest.importorskip("at")
 
@@ -74,9 +82,16 @@ def _write_render(root, *, served, models):
                 "deck": deck,
             }
         )
-    (view / "variables.json").write_text(
-        json.dumps({"schema": "osprey.facility.variables/1", "models": records, "channels": []})
-    )
+    documents = {
+        SERVED_MODELS_FILE: {
+            "models": [name for name in served if name in models or name == TEXTURE]
+        },
+        ADDRESSES_FILE: {"channels": [], "status": []},
+        VARIABLES_FILE: {"code": "T", "models": records, "channels": []},
+        SEEDS_FILE: {"seeds": {}},
+    }
+    for name, document in documents.items():
+        (view / name).write_text(json.dumps({"schema": SCHEMAS[name], **document}))
     return root
 
 

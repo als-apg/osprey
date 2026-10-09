@@ -13,16 +13,21 @@ served models come first, in the view's order, then the others by name.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from osprey_connectors.simulation.view import (
+    TEXTURE,
+    VARIABLES_FILE,
+    VIEW_RELPATH,
+    NoSimulatorView,
+    SimulatorView,
+)
 
 if TYPE_CHECKING:
     from osprey.simulation.engines.pyat import Prepared
-
-#: The simulator view's directory under a render root.
-SIMULATOR_VIEW_DIR = Path("data") / "simulator"
+    from osprey_connectors.simulation.view import Model
 
 #: Shown when the render carries no simulator view.
 NO_VIEW_TEXT = "no simulator view in this build"
@@ -61,7 +66,7 @@ class ModelCatalog:
     """The models of one render, or the absence of a simulator view.
 
     Attributes:
-        has_view: Whether the render carries ``variables.json``.
+        has_view: Whether the render carries a simulator view.
         models: The switchable models, served first.
     """
 
@@ -91,27 +96,22 @@ def catalog_sources(render_root: Path) -> tuple[Path, ...]:
     Returns:
         ``data/simulator/variables.json``, alone.
     """
-    from osprey.facility.views.simulator import VARIABLES_FILE
-
-    return (Path(render_root) / SIMULATOR_VIEW_DIR / VARIABLES_FILE,)
+    return (Path(render_root) / VIEW_RELPATH / VARIABLES_FILE,)
 
 
-def _model(view: Path, record: dict[str, Any]) -> DashboardModel:
+def _model(model: Model, deck: Path) -> DashboardModel:
     from osprey.facility.errors import FacilityBuildError
     from osprey.simulation.engines import pyat
 
-    name = str(record["name"])
-    deck = view / str(record["deck"])
+    name = model.name
     try:
-        prepared: Prepared | None = pyat.prepare(deck, record.get("settings"), model=name)
+        prepared: Prepared | None = pyat.prepare(deck, dict(model.settings), model=name)
         error = None
     except FacilityBuildError as exc:
         prepared, error = None, str(exc)
     except (OSError, ValueError) as exc:
         prepared, error = None, f"{type(exc).__name__}: {exc}"
-    return DashboardModel(
-        name=name, served=bool(record.get("served")), deck=deck, prepared=prepared, error=error
-    )
+    return DashboardModel(name=name, served=model.served, deck=deck, prepared=prepared, error=error)
 
 
 def read_catalog(render_root: Path | None) -> ModelCatalog:
@@ -125,21 +125,22 @@ def read_catalog(render_root: Path | None) -> ModelCatalog:
 
     Returns:
         The catalog; ``has_view`` is False when *render_root* is None or holds
-        no ``data/simulator/variables.json``.
-    """
-    from osprey.facility import TEXTURE
+        no simulator view.
 
+    Raises:
+        ViewSchemaError: The render's view is from another schema.
+    """
     if render_root is None:
         return ModelCatalog(has_view=False)
-    (variables_path,) = catalog_sources(render_root)
-    if not variables_path.is_file():
+    try:
+        view = SimulatorView.of_render(render_root)
+    except NoSimulatorView:
         return ModelCatalog(has_view=False)
 
-    view = variables_path.parent
     found = [
-        _model(view, record)
-        for record in json.loads(variables_path.read_text()).get("models", [])
-        if record.get("engine") != TEXTURE and record.get("deck") and record.get("name")
+        _model(model, model.deck)
+        for model in view.models()
+        if model.engine != TEXTURE and model.deck is not None
     ]
     served = [model for model in found if model.served]
     unserved = sorted((model for model in found if not model.served), key=lambda m: m.name)
