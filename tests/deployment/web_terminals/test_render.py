@@ -1750,7 +1750,10 @@ def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_an
             catalog_svc["image"]
             == "git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest"
         )
-        assert f"{user}-agent-data:/app/dls_controls-assistant/var/agent_data" in catalog_svc["volumes"]
+        assert (
+            f"{user}-agent-data:/app/dls_controls-assistant/var/agent_data"
+            in catalog_svc["volumes"]
+        )
 
 
 def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
