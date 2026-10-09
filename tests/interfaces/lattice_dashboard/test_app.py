@@ -8,7 +8,11 @@ JSON deck per deck-bearing model. Worker launches go to ``FakeSlots``
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
+import time
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -23,6 +27,8 @@ from osprey.interfaces.lattice_dashboard.state import (
     SINGLE_PASS_UNAVAILABLE,
     VERIFICATION_FIGURES,
 )
+from osprey.interfaces.lattice_dashboard.workers._base import save_data
+from osprey_connectors.process import ExitCause
 
 at = pytest.importorskip("at")
 
@@ -95,9 +101,61 @@ def render(tmp_path):
     )
 
 
+def settle(client) -> dict:
+    """Return the state once no resolve is loading."""
+    deadline = time.monotonic() + 20
+    while True:
+        state = client.get("/api/state").json()
+        if state["selection"]["status"] != "loading":
+            return state
+        assert time.monotonic() < deadline, "the selection never resolved"
+        time.sleep(0.02)
+
+
+def select(client, name: str) -> dict:
+    """Select model *name* and return the state once it resolved."""
+    response = client.post("/api/models/select", json={"name": name})
+    assert response.status_code == 200, response.text
+    return settle(client)
+
+
+def job_spec(client, slots, name: str) -> dict:
+    """Return the job file figure *name*'s current job was started with."""
+    job = slots.current(name)
+
+    async def started():
+        for _ in range(500):
+            if job.argv is not None:
+                return
+            await asyncio.sleep(0.01)
+
+    client.portal.call(started)
+    return json.loads(Path(job.argv[-2]).read_text())
+
+
+def land(client, slots, name: str, data: dict | None = None, *, cause=ExitCause.COMPLETED):
+    """End figure *name*'s current job: write *data* as its output, then exit with *cause*."""
+    job = slots.current(name)
+
+    async def finish():
+        for _ in range(500):
+            if job.argv is not None or job._exit is not None:
+                break
+            await asyncio.sleep(0.01)
+        if data is not None:
+            spec = json.loads(Path(job.argv[-2]).read_text())
+            save_data(spec, data, Path(job.argv[-1]))
+        job.finish(cause, 0 if cause is ExitCause.COMPLETED else 1, "boom")
+        for _ in range(10):
+            await asyncio.sleep(0)
+
+    client.portal.call(finish)
+
+
 @pytest.fixture
 def client(tmp_path, render):
     with TestClient(create_app(workspace_root=tmp_path / "ws", render_root=render)) as client:
+        settle(client)
         yield client
 
 
@@ -120,35 +178,35 @@ class TestLaunch:
         assert response.status_code == 200
         assert response.json()["service"] == "lattice_dashboard"
         assert launched == []
-        assert not (tmp_path / "ws" / "lattice" / "state.json").exists()
+        assert not (tmp_path / "ws" / "lattice").exists()
 
 
 class TestNoView:
     def test_no_config_loaded_gives_the_no_view_state(self, tmp_path, monkeypatch, launched):
         monkeypatch.setattr(app_mod, "default_config_path", lambda: None)
-        client = TestClient(create_app(workspace_root=tmp_path))
+        with TestClient(create_app(workspace_root=tmp_path)) as client:
+            state = settle(client)
 
-        state = client.get("/api/state").json()
-
-        assert state["notice"] == NO_VIEW_TEXT
-        assert state["model"] is None
-        assert client.get("/api/models").json() == []
+            assert state["notice"] == NO_VIEW_TEXT
+            assert state["selection"]["model"] is None
+            assert state["selection"]["status"] == "none"
+            assert client.get("/api/models").json() == []
         assert launched == []
 
     def test_render_without_the_view(self, tmp_path, launched):
-        client = TestClient(create_app(workspace_root=tmp_path / "ws", render_root=tmp_path))
-
-        assert client.get("/api/state").json()["notice"] == NO_VIEW_TEXT
+        app = create_app(workspace_root=tmp_path / "ws", render_root=tmp_path)
+        with TestClient(app) as client:
+            assert settle(client)["notice"] == NO_VIEW_TEXT
         assert launched == []
 
     def test_texture_only_render(self, tmp_path, launched):
         render = _write_render(tmp_path / "render", served=["texture"], models={})
-        client = TestClient(create_app(workspace_root=tmp_path / "ws", render_root=render))
-
-        state = client.get("/api/state").json()
+        app = create_app(workspace_root=tmp_path / "ws", render_root=render)
+        with TestClient(app) as client:
+            state = settle(client)
 
         assert state["notice"] == NO_SERVED_MODEL_TEXT
-        assert state["model"] is None
+        assert state["selection"]["model"] is None
         assert launched == []
 
 
@@ -174,48 +232,44 @@ class TestModels:
             },
         ]
 
-    def test_first_request_loads_the_first_served_deck(self, client, render, launched):
+    def test_startup_selects_the_first_served_deck(self, client, launched):
         state = client.get("/api/state").json()
 
-        assert state["model"] == "SR"
-        assert state["base_lattice"] == str(render / "data/simulator/decks/SR.json")
+        assert state["selection"] == {
+            "model": "SR",
+            "deck_sha256": state["selection"]["deck_sha256"],
+            "status": "ready",
+            "error": None,
+            "capabilities": {
+                "figures": list(ALL_FIGURES),
+                "fast_figures": list(FAST_FIGURES),
+                "verify": True,
+            },
+        }
         assert state["notice"] is None
-        assert state["fast_figures"] == list(FAST_FIGURES)
-        assert "tunes" in state["summary"]
+        assert state["summary"]["energy_gev"] == pytest.approx(2.0)
+        assert "tunes" not in state["summary"]
         assert launched == list(FAST_FIGURES)
 
-    def test_second_request_does_not_reload(self, client, launched):
-        client.get("/api/state")
-        client.post("/api/state/param", json={"family": "QF", "value": 1.05})
-        launched.clear()
-
-        state = client.get("/api/state").json()
-
-        assert state["overrides"] == {"QF": 1.05}
-        assert launched == []
-
     def test_changed_deck_reloads(self, client, render, launched):
-        client.get("/api/state")
         client.post("/api/state/param", json={"family": "QF", "value": 1.05})
         _deck(kf=1.1).save(str(render / "data/simulator/decks/SR.json"))
         launched.clear()
 
-        state = client.get("/api/state").json()
+        client.get("/api/state")
+        state = settle(client)
 
         assert state["overrides"] == {}
         assert state["families"]["QF"]["value"] == pytest.approx(1.1)
         assert launched == list(FAST_FIGURES)
 
     def test_select_clears_overrides_and_keeps_settings(self, client):
-        client.get("/api/state")
         client.post("/api/state/param", json={"family": "QF", "value": 1.05})
         client.put("/api/settings", json={"settings": {"da": {"nturns": 1024}}})
 
-        r = client.post("/api/models/select", json={"name": "TRANSFER"})
-        assert r.status_code == 200
+        state = select(client, "TRANSFER")
 
-        state = client.get("/api/state").json()
-        assert state["model"] == "TRANSFER"
+        assert state["selection"]["model"] == "TRANSFER"
         assert state["overrides"] == {}
         assert state["baseline"]["overrides"] == {}
         assert state["settings"]["da"]["nturns"] == 1024
@@ -223,13 +277,42 @@ class TestModels:
             "TRANSFER"
         ]
 
+    def test_select_answers_at_once_with_the_model_loading(self, client):
+        body = client.post("/api/models/select", json={"name": "TRANSFER"}).json()
+
+        assert body["model"] == "TRANSFER"
+        assert body["status"] == "loading"
+
+    def test_select_answers_while_a_resolve_runs(self, client, monkeypatch):
+        release = threading.Event()
+        resolve = app_mod.resolve_selection
+
+        def blocked(*args, **kwargs):
+            release.wait(10)
+            return resolve(*args, **kwargs)
+
+        monkeypatch.setattr(app_mod, "resolve_selection", blocked)
+        try:
+            client.post("/api/models/select", json={"name": "TRANSFER"})
+            answers = []
+            second = threading.Thread(
+                target=lambda: answers.append(
+                    client.post("/api/models/select", json={"name": "SR"}).status_code
+                )
+            )
+            second.start()
+            second.join(timeout=5)
+
+            assert answers == [200]
+        finally:
+            release.set()
+        assert settle(client)["selection"]["model"] == "SR"
+
     def test_select_unknown_model_404(self, client):
         assert client.post("/api/models/select", json={"name": "SPARE"}).status_code == 404
 
     def test_select_unserved_model(self, client):
-        assert client.post("/api/models/select", json={"name": "BOOSTER"}).json()["model"] == (
-            "BOOSTER"
-        )
+        assert select(client, "BOOSTER")["selection"]["model"] == "BOOSTER"
 
 
 class TestCatalog:
@@ -239,62 +322,178 @@ class TestCatalog:
             served=["SR", "BAD"],
             models={"SR": {"solve": "periodic"}, "BAD": {"solve": "periodic", "bogus": 1}},
         )
-        client = TestClient(create_app(workspace_root=tmp_path / "ws", render_root=render))
-
-        models = {m["name"]: m for m in client.get("/api/models").json()}
+        app = create_app(workspace_root=tmp_path / "ws", render_root=render)
+        with TestClient(app) as client:
+            settle(client)
+            models = {m["name"]: m for m in client.get("/api/models").json()}
+            state = select(client, "BAD")
 
         assert models["SR"]["error"] is None
         assert models["BAD"]["solve"] is None
         assert "engine-invalid" in models["BAD"]["error"]
         assert "bogus" in models["BAD"]["error"]
+        assert state["selection"]["status"] == "failed"
+        assert state["selection"]["error"] == models["BAD"]["error"]
 
-    def test_twiss_in_is_the_engine_normalised_one(self, client):
-        client.post("/api/models/select", json={"name": "TRANSFER"})
+    def test_the_job_carries_the_engine_normalised_twiss_in(self, client, fake_slots):
+        select(client, "TRANSFER")
 
-        twiss_in = client.get("/api/state").json()["twiss_in"]
+        spec = job_spec(client, fake_slots, "optics")
 
+        twiss_in = spec["prepared"]["twiss_in"]
         assert twiss_in["beta"] == TWISS_IN["beta"]
-        assert twiss_in["alpha"] == TWISS_IN["alpha"]
+        assert twiss_in["closed_orbit"] == [0.0] * 6
+        assert spec["key"] == client.get("/api/state").json()["figures"]["optics"]["key"]
+        assert spec["job_id"] == fake_slots.current("optics").job
+        assert spec["baseline_overrides"] == {}
 
 
-_OPTICS_RAW = {"s_pos": [0.0, 1.0], "beta_x": [1.0, 2.0], "beta_y": [2.0, 1.0], "eta_x": [0.0, 0.1]}
+class TestSelection:
+    def test_get_state_launches_no_worker(self, client, launched):
+        launched.clear()
 
-
-class TestModelSwitch:
-    @pytest.fixture
-    def figures(self, tmp_path):
-        return tmp_path / "ws" / "lattice" / "figures"
-
-    def test_switch_clears_figures_until_the_worker_writes(self, client, figures):
         client.get("/api/state")
-        (figures / "optics.json").write_text(json.dumps(_OPTICS_RAW))
-        (figures / "da.json").write_text(json.dumps({"da_x": [], "da_y": [], "area_mm2": 0}))
+        client.get("/api/models")
+        settle(client)
+
+        assert launched == []
+
+    def test_model_gone_from_render_is_no_model(self, client, render):
+        select(client, "BOOSTER")
+        _write_render(
+            render,
+            served=["SR", "TRANSFER", "texture"],
+            models={"SR": {"solve": "periodic"}, "TRANSFER": {"solve": "periodic"}},
+        )
+
+        client.get("/api/state")
+        state = settle(client)
+
+        assert state["selection"]["model"] is None
+        assert state["selection"]["status"] == "none"
+        assert state["families"] == {}
+        assert client.get("/api/figures/optics").status_code == 404
+
+    def test_served_only_rebuild_reresolves(self, client, render, launched):
+        client.post("/api/state/param", json={"family": "QF", "value": 1.05})
+        launched.clear()
+        _write_render(
+            render,
+            served=["SR", "TRANSFER", "BOOSTER", "texture"],
+            models={
+                "BOOSTER": {"solve": "periodic"},
+                "SR": {"solve": "periodic"},
+                "TRANSFER": {"solve": "single_pass", "twiss_in": TWISS_IN},
+            },
+        )
+
+        client.get("/api/models")
+        state = settle(client)
+
+        served = {m["name"]: m["served"] for m in client.get("/api/models").json()}
+        assert served["BOOSTER"] is True
+        assert state["selection"]["model"] == "SR"
+        assert state["overrides"] == {"QF": 1.05}
+        assert launched == []
+
+    def test_load_failure_is_status_failed_not_500(self, client, render):
+        (render / "data/simulator/decks/BOOSTER.json").write_text("not a deck {")
+
+        response = client.post("/api/models/select", json={"name": "BOOSTER"})
+        state = settle(client)
+
+        assert response.status_code == 200
+        assert state["selection"]["model"] == "BOOSTER"
+        assert state["selection"]["status"] == "failed"
+        assert state["selection"]["error"]
+        assert client.get("/api/state").status_code == 200
+
+
+_OPTICS_RAW = {
+    "s_pos": [0.0, 1.0],
+    "beta_x": [1.0, 2.0],
+    "beta_y": [2.0, 1.0],
+    "eta_x": [0.0, 0.1],
+    "baseline": None,
+    "summary_updates": {"tunes": [0.31, 0.21], "chromaticity": [1.0, 2.0], "beta_max": [2, 2]},
+}
+
+
+class TestKeyedFigures:
+    def test_switch_answers_not_computed_until_the_new_key_lands(self, client, fake_slots):
+        land(client, fake_slots, "optics", _OPTICS_RAW)
         assert client.get("/api/figures/optics").status_code == 200
 
-        client.post("/api/models/select", json={"name": "TRANSFER"})
+        select(client, "TRANSFER")
 
         r = client.get("/api/figures/optics")
         assert r.status_code == 404
-        assert r.json()["detail"] == "Figure not yet computed: optics"
-        assert list(figures.glob("*.json")) == []
-        (figures / "optics.json").write_text(json.dumps(_OPTICS_RAW))
-        assert client.get("/api/figures/optics").status_code == 200
+        assert r.json()["status"] in ("computing", "not_computed")
+        land(client, fake_slots, "optics", _OPTICS_RAW)
+        r = client.get("/api/figures/optics")
+        assert r.status_code == 200
+        assert r.json()["key"] == client.get("/api/state").json()["figures"]["optics"]["key"]
 
-    def test_switch_broadcasts_no_figure_error(self, client, monkeypatch):
+    def test_reselect_unchanged_deck_serves_the_old_figure_again(self, client, fake_slots):
+        land(client, fake_slots, "optics", _OPTICS_RAW)
+        sr_key = client.get("/api/figures/optics").json()["key"]
+
+        select(client, "TRANSFER")
+        select(client, "SR")
+
+        r = client.get("/api/figures/optics")
+        assert r.status_code == 200
+        assert r.json()["key"] == sr_key
+
+    def test_override_makes_the_figure_stale_not_served(self, client, fake_slots):
+        land(client, fake_slots, "optics", _OPTICS_RAW)
+        assert client.get("/api/state").json()["summary"]["tunes"] == [0.31, 0.21]
+
+        client.post("/api/state/param", json={"family": "QF", "value": 1.05})
+
+        r = client.get("/api/figures/optics")
+        assert r.status_code == 404
+        assert r.json()["status"] == "stale"
+        state = client.get("/api/state").json()
+        assert state["figures"]["optics"]["status"] == "stale"
+        assert "tunes" not in state["summary"]
+
+    def test_failed_recompute_is_not_served_as_current(self, client, fake_slots):
+        land(client, fake_slots, "optics", _OPTICS_RAW)
+        client.post("/api/state/param", json={"family": "QF", "value": 1.05})
+        client.post("/api/refresh/optics")
+
+        land(client, fake_slots, "optics", cause=ExitCause.FAILED)
+
+        r = client.get("/api/figures/optics")
+        assert r.status_code == 404
+        assert r.json()["status"] == "failed"
+        assert r.json()["error"] == "Worker exited with code 1: boom"
+
+    def test_deck_change_via_sync_never_serves_the_old_deck(self, client, render, fake_slots):
+        land(client, fake_slots, "optics", _OPTICS_RAW)
+        _deck(kf=1.1).save(str(render / "data/simulator/decks/SR.json"))
+
         client.get("/api/state")
+        settle(client)
+
+        r = client.get("/api/figures/optics")
+        assert r.status_code == 404
+        assert r.json()["status"] in ("computing", "not_computed")
+
+    def test_select_broadcasts_no_figure_error(self, client, monkeypatch):
         events = []
         monkeypatch.setattr(
             app_mod._SSEBroadcaster, "broadcast", lambda self, data: events.append(data)
         )
 
-        client.post("/api/models/select", json={"name": "TRANSFER"})
-        client.get("/health")
+        select(client, "TRANSFER")
+        select(client, "SR")
 
         assert [e for e in events if e["type"] == "figure_error"] == []
 
-    def test_unknown_model_keeps_the_figures(self, client, figures):
-        client.get("/api/state")
-        (figures / "optics.json").write_text(json.dumps(_OPTICS_RAW))
+    def test_unknown_model_keeps_the_figures(self, client, fake_slots):
+        land(client, fake_slots, "optics", _OPTICS_RAW)
 
         assert client.post("/api/models/select", json={"name": "SPARE"}).status_code == 404
         assert client.get("/api/figures/optics").status_code == 200
@@ -303,18 +502,20 @@ class TestModelSwitch:
 class TestSinglePass:
     @pytest.fixture
     def transfer(self, client, launched):
-        client.get("/api/state")
-        client.post("/api/models/select", json={"name": "TRANSFER"})
+        select(client, "TRANSFER")
         launched.clear()
         return client
 
     def test_state_names_optics_only(self, transfer):
         state = transfer.get("/api/state").json()
 
-        assert state["fast_figures"] == ["optics"]
+        assert state["selection"]["capabilities"] == {
+            "figures": ["optics"],
+            "fast_figures": ["optics"],
+            "verify": False,
+        }
         assert "tunes" not in state["summary"]
         assert "chromaticity" not in state["summary"]
-        assert state["twiss_in"]["beta"] == TWISS_IN["beta"]
 
     def test_refresh_launches_only_optics(self, transfer, launched):
         r = transfer.post("/api/refresh")
@@ -326,7 +527,7 @@ class TestSinglePass:
         r = transfer.get("/api/figures/chromaticity")
 
         assert r.status_code == 409
-        assert r.json()["detail"] == SINGLE_PASS_UNAVAILABLE
+        assert r.json() == {"status": "unavailable", "reason": SINGLE_PASS_UNAVAILABLE}
 
     @pytest.mark.parametrize("name", [n for n in ALL_FIGURES if n != "optics"])
     def test_every_route_refuses_figures_beyond_optics(self, transfer, launched, name):
@@ -337,7 +538,7 @@ class TestSinglePass:
         ):
             r = getattr(transfer, method)(path)
             assert r.status_code == 409, path
-            assert r.json()["detail"] == SINGLE_PASS_UNAVAILABLE
+            assert r.json()["reason"] == SINGLE_PASS_UNAVAILABLE
         assert launched == []
 
     def test_verify_409(self, transfer, launched):
@@ -355,17 +556,16 @@ class TestSinglePass:
 class TestUnservedIsAMark:
     @pytest.fixture
     def booster(self, client, launched):
-        client.get("/api/state")
         launched.clear()
-        client.post("/api/models/select", json={"name": "BOOSTER"})
+        select(client, "BOOSTER")
         return client
 
     def test_state_names_every_fast_figure(self, booster):
-        state = booster.get("/api/state").json()
+        selection = booster.get("/api/state").json()["selection"]
 
-        assert state["model"] == "BOOSTER"
-        assert "served" not in state
-        assert state["fast_figures"] == list(FAST_FIGURES)
+        assert selection["model"] == "BOOSTER"
+        assert "served" not in selection
+        assert selection["capabilities"]["fast_figures"] == list(FAST_FIGURES)
 
     @pytest.mark.usefixtures("booster")
     def test_select_launches_every_fast_figure(self, launched):
@@ -375,7 +575,7 @@ class TestUnservedIsAMark:
         r = booster.get("/api/figures/resonance")
 
         assert r.status_code == 404
-        assert r.json()["detail"] == "Figure not yet computed: resonance"
+        assert r.json()["status"] in ("computing", "not_computed")
 
     def test_verify_launches_da_and_lma(self, booster, launched):
         launched.clear()

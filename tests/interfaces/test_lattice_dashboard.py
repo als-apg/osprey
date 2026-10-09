@@ -23,6 +23,9 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
     save_data,
 )
 
+#: The job fields ``save_data`` copies into the stored figure.
+_JOB = {"key": "k", "job_id": 1, "deck_sha256": "d"}
+
 STATIC_DIR = (
     Path(__file__).resolve().parents[2]
     / "src"
@@ -85,6 +88,12 @@ class TestNumpyDefault:
 class TestSaveData:
     """save_data() produces plain JSON with no numpy types or bdata."""
 
+    def test_wraps_the_data_in_the_jobs_key(self, tmp_path: Path) -> None:
+        out = tmp_path / "k.json"
+        save_data(_JOB, {"a": 1}, out)
+        assert json.loads(out.read_text()) == {**_JOB, "data": {"a": 1}}
+        assert [p.name for p in tmp_path.iterdir()] == ["k.json"]
+
     def test_plain_json_output(self, tmp_path: Path) -> None:
         data = {
             "x": np.array([1.0, 2.0, 3.0]),
@@ -93,10 +102,10 @@ class TestSaveData:
             "baseline": None,
         }
         out = tmp_path / "test.json"
-        save_data(data, out)
+        save_data(_JOB, data, out)
 
         raw_text = out.read_text()
-        parsed = json.loads(raw_text)
+        parsed = json.loads(raw_text)["data"]
 
         assert parsed["x"] == [1.0, 2.0, 3.0]
         assert parsed["y"] == [4.0, 5.0, 6.0]
@@ -106,7 +115,7 @@ class TestSaveData:
     def test_no_bdata_in_output(self, tmp_path: Path) -> None:
         data = {"arr": np.linspace(0, 1, 100)}
         out = tmp_path / "test.json"
-        save_data(data, out)
+        save_data(_JOB, data, out)
 
         raw_text = out.read_text()
         assert "bdata" not in raw_text
@@ -114,7 +123,7 @@ class TestSaveData:
 
     def test_creates_parent_dirs(self, tmp_path: Path) -> None:
         out = tmp_path / "sub" / "dir" / "test.json"
-        save_data({"a": 1}, out)
+        save_data(_JOB, {"a": 1}, out)
         assert out.exists()
 
     def test_nested_numpy_arrays(self, tmp_path: Path) -> None:
@@ -123,9 +132,9 @@ class TestSaveData:
             "info": {"val": np.float64(0.5)},
         }
         out = tmp_path / "test.json"
-        save_data(data, out)
+        save_data(_JOB, data, out)
 
-        parsed = json.loads(out.read_text())
+        parsed = json.loads(out.read_text())["data"]
         assert parsed["map"] == [[1.0, 2.0], [3.0, 4.0]]
         assert parsed["info"]["val"] == 0.5
 
@@ -175,8 +184,8 @@ class TestRawDataSchemas:
             "baseline": None,
         }
         out = tmp_path / "optics.json"
-        save_data(raw, out)
-        parsed = json.loads(out.read_text())
+        save_data(_JOB, raw, out)
+        parsed = json.loads(out.read_text())["data"]
         assert set(parsed.keys()) == {"s_pos", "beta_x", "beta_y", "eta_x", "baseline"}
 
     def test_optics_schema_with_baseline(self, tmp_path: Path) -> None:
@@ -193,8 +202,8 @@ class TestRawDataSchemas:
             },
         }
         out = tmp_path / "optics.json"
-        save_data(raw, out)
-        parsed = json.loads(out.read_text())
+        save_data(_JOB, raw, out)
+        parsed = json.loads(out.read_text())["data"]
         bl = parsed["baseline"]
         assert set(bl.keys()) == {"s_pos", "beta_x", "beta_y", "eta_x"}
 
@@ -206,8 +215,8 @@ class TestRawDataSchemas:
             "baseline_nuy": None,
         }
         out = tmp_path / "resonance.json"
-        save_data(raw, out)
-        parsed = json.loads(out.read_text())
+        save_data(_JOB, raw, out)
+        parsed = json.loads(out.read_text())["data"]
         assert set(parsed.keys()) == {"nux", "nuy", "baseline_nux", "baseline_nuy"}
         assert isinstance(parsed["nux"], float)
 
@@ -220,8 +229,8 @@ class TestRawDataSchemas:
             "baseline": None,
         }
         out = tmp_path / "da.json"
-        save_data(raw, out)
-        parsed = json.loads(out.read_text())
+        save_data(_JOB, raw, out)
+        parsed = json.loads(out.read_text())["data"]
         assert set(parsed.keys()) == {"da_x", "da_y", "area_mm2", "nturns", "baseline"}
 
     def test_fma_schema(self, tmp_path: Path) -> None:
@@ -233,8 +242,8 @@ class TestRawDataSchemas:
             "baseline_tune": None,
         }
         out = tmp_path / "fma.json"
-        save_data(raw, out)
-        parsed = json.loads(out.read_text())
+        save_data(_JOB, raw, out)
+        parsed = json.loads(out.read_text())["data"]
         assert set(parsed.keys()) == {
             "nux_map",
             "nuy_map",

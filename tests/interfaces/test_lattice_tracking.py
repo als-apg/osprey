@@ -2,7 +2,7 @@
 
 Covers:
 - unpack_tracking(): pyAT tuple → ndarray extraction + 4D→3D squeeze
-- state.initialize(): sextupole H vs quadrupole K detection order
+- state.describe_deck(): sextupole H vs quadrupole K detection order
 - compute_footprint(): merged diffusion computation
 - build_figure() for footprint: diffusion coloring + resonance overlay
 - add_resonance_overlay(): shared helper from _base
@@ -12,7 +12,6 @@ Covers:
 from __future__ import annotations
 
 import sys
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -74,12 +73,6 @@ class TestUnpackTracking:
 class TestSextupoleDetection:
     """Verify sextupoles are classified by H, not misclassified as K=0 quads."""
 
-    @pytest.fixture
-    def state(self, tmp_path):
-        from osprey.interfaces.lattice_dashboard.state import LatticeState
-
-        return LatticeState(tmp_path / "lattice")
-
     def _make_sextupole_elem(self, fam_name: str, h_val: float, k_val: float = 0.0):
         """Create mock element with both K and H attributes (like real sextupoles)."""
         elem = MagicMock()
@@ -96,7 +89,7 @@ class TestSextupoleDetection:
         elem.K = k_val
         return elem
 
-    def test_sextupole_classified_by_h(self, state):
+    def test_sextupole_classified_by_h(self):
         """Sextupoles with H!=0 and K=0 must be classified as sextupole."""
         sext = self._make_sextupole_elem("SD", h_val=21.54)
         quad = self._make_quadrupole_elem("QF", k_val=2.5)
@@ -107,17 +100,14 @@ class TestSextupoleDetection:
         ring.energy = 2e9
         ring.get_s_pos.return_value = np.array([100.0])
 
-        rd = SimpleNamespace(tune=np.array([0.3, 0.2]), chromaticity=np.array([1.0, 1.5]))
-        ld = SimpleNamespace(beta=np.array([[10.0, 5.0], [12.0, 6.0], [10.0, 5.0]]))
-
         mock_at = MagicMock()
         mock_at.load_lattice.return_value = ring
-        mock_at.get_optics.return_value = (None, rd, ld)
+
+        from osprey.interfaces.lattice_dashboard.state import describe_deck
 
         with patch.dict(sys.modules, {"at": mock_at}):
-            result = state.initialize("/fake/lattice.m")
+            families, _ = describe_deck("/fake/lattice.m")
 
-        families = result["families"]
         assert "SD" in families
         assert families["SD"]["type"] == "sextupole"
         assert families["SD"]["param"] == "H"

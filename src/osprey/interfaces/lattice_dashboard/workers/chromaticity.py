@@ -12,9 +12,9 @@ import plotly.graph_objects as go
 
 from osprey.interfaces.lattice_dashboard.workers._base import (
     load_baseline_ring,
+    load_job,
     load_ring,
     load_settings,
-    load_state,
     parse_args,
     save_data,
 )
@@ -128,11 +128,11 @@ def main() -> None:
     # surfaces it when a computation fails, so records need a handler here.
     configure_logging()
 
-    state_path, output_path = parse_args()
-    state = load_state(state_path)
+    job_path, output_path = parse_args()
+    job = load_job(job_path)
 
-    ring = load_ring(state)
-    settings = load_settings(state, "chromaticity")
+    ring = load_ring(job)
+    settings = load_settings(job, "chromaticity")
     dp_min = settings["dp_min_pct"] / 100.0
     dp_max = settings["dp_max_pct"] / 100.0
     n_steps = settings["n_steps"]
@@ -146,7 +146,7 @@ def main() -> None:
         "baseline": None,
     }
 
-    baseline_ring = load_baseline_ring(state_path, state)
+    baseline_ring = load_baseline_ring(job)
     if baseline_ring is not None:
         bdp, bnux, bnuy = compute_chromaticity(
             baseline_ring, dp_min=dp_min, dp_max=dp_max, n_steps=n_steps
@@ -157,7 +157,7 @@ def main() -> None:
             "nuy": bnuy.tolist(),
         }
 
-    save_data(raw, output_path)
+    save_data(job, raw, output_path)
 
 
 if __name__ == "__main__":

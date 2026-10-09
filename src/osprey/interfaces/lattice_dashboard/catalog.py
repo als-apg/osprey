@@ -6,7 +6,8 @@ render serves it, and the path of its deck copy under ``decks/``. The dashboard
 switches between the models that have a deck; engine ``texture`` is never one
 of them. Each model's settings are checked against its deck by the pyAT
 engine's ``prepare``, so the dashboard solves a deck exactly as the simulator
-does, and a model the engine stops on is listed with the stop's text. The
+does, and a model the engine stops on, or whose deck does not load, is listed
+with the reason. The
 served models come first, in the view's order, then the others by name.
 """
 
@@ -106,6 +107,8 @@ def _model(view: Path, record: dict[str, Any]) -> DashboardModel:
         error = None
     except FacilityBuildError as exc:
         prepared, error = None, str(exc)
+    except (OSError, ValueError) as exc:
+        prepared, error = None, f"{type(exc).__name__}: {exc}"
     return DashboardModel(
         name=name, served=bool(record.get("served")), deck=deck, prepared=prepared, error=error
     )

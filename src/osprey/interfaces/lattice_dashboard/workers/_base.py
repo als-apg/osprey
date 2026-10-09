@@ -3,15 +3,20 @@
 Each worker is invoked as::
 
     python -m osprey.interfaces.lattice_dashboard.workers.<name> \\
-        <state_path> <output_path>
+        <job_path> <output_path>
 
-This module provides the common boilerplate: argument parsing, ring
-loading (with overrides), baseline ring loading, and data saving.
+The job file is the launch's immutable input: the deck, the engine's prepared
+settings, the families' parameters, the overrides, the baseline overrides,
+the figure's settings group, the figure's key and the job id. A worker reads
+nothing else, and writes ``{key, job_id, deck_sha256, data}`` to the output.
+This module provides the common boilerplate: argument parsing, job loading,
+ring loading (with overrides), baseline ring loading, and data saving.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -21,16 +26,16 @@ import numpy as np
 import plotly.graph_objects as go
 
 
-def load_settings(state: dict[str, Any], group: str) -> dict[str, Any]:
-    """Load settings for a worker group, merged with defaults.
+def load_settings(job: dict[str, Any], group: str) -> dict[str, Any]:
+    """Return the job's settings group, merged over the group's defaults.
 
-    Workers call this as ``settings = load_settings(state, "da")``
-    to get a complete settings dict even if state.json is missing keys.
+    Workers call this as ``settings = load_settings(job, "da")`` to get a
+    complete settings dict even when the job carries fewer keys.
     """
     from osprey.interfaces.lattice_dashboard.state import DEFAULT_SETTINGS
 
     defaults = DEFAULT_SETTINGS.get(group, {})
-    saved = state.get("settings", {}).get(group, {})
+    saved = job.get("settings") or {}
     merged = dict(defaults)
     merged.update({k: v for k, v in saved.items() if k in defaults})
     return merged
@@ -50,51 +55,49 @@ def unpack_tracking(result: Any) -> np.ndarray:
 
 
 def parse_args() -> tuple[Path, Path]:
-    """Parse CLI args: state_path, output_path."""
+    """Parse CLI args: job_path, output_path."""
     if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <state_path> <output_path>", file=sys.stderr)
+        print(f"Usage: {sys.argv[0]} <job_path> <output_path>", file=sys.stderr)
         sys.exit(1)
     return Path(sys.argv[1]), Path(sys.argv[2])
 
 
-def load_state(state_path: Path) -> dict[str, Any]:
-    return cast(dict[str, Any], json.loads(state_path.read_text()))
+def load_job(job_path: Path) -> dict[str, Any]:
+    return cast(dict[str, Any], json.loads(job_path.read_text()))
 
 
-def load_ring(state: dict[str, Any]) -> at.Lattice:
-    """Load pyAT ring with parameter overrides applied."""
-    lattice_path = state["base_lattice"]
-    ring = at.load_lattice(lattice_path)
-    overrides = state.get("overrides", {})
-    families = state.get("families", {})
-
+def _lattice_with(job: dict[str, Any], overrides: dict[str, float]) -> at.Lattice:
+    ring = at.load_lattice(job["deck"])
+    families = job.get("families", {})
     for fam_name, value in overrides.items():
-        param = families.get(fam_name, {}).get("param", "K")
+        param = families.get(fam_name, "K")
         for elem in ring:
             if getattr(elem, "FamName", None) == fam_name:
                 setattr(elem, param, value)
     return ring
 
 
-def load_baseline_ring(state_path: Path, state: dict[str, Any]) -> at.Lattice | None:
-    """Load baseline ring if baseline.json exists alongside state.json."""
-    baseline_path = state_path.parent / "baseline.json"
-    if not baseline_path.exists():
+def load_ring(job: dict[str, Any]) -> at.Lattice:
+    """Load the job's deck with its overrides applied."""
+    return _lattice_with(job, job.get("overrides") or {})
+
+
+def load_baseline_ring(job: dict[str, Any]) -> at.Lattice | None:
+    """Load the job's deck with its baseline overrides applied, or None with no baseline."""
+    baseline_overrides = job.get("baseline_overrides")
+    if baseline_overrides is None:
         return None
+    return _lattice_with(job, baseline_overrides)
 
-    baseline = json.loads(baseline_path.read_text())
-    baseline_overrides = baseline.get("overrides", {})
 
-    lattice_path = state["base_lattice"]
-    ring = at.load_lattice(lattice_path)
-    families = state.get("families", {})
+def prepared_twiss_in(job: dict[str, Any]) -> dict[str, np.ndarray] | None:
+    """Return a ``single_pass`` job's prepared ``twiss_in`` as arrays, else None."""
+    from osprey.interfaces.lattice_dashboard.state import SINGLE_PASS
 
-    for fam_name, value in baseline_overrides.items():
-        param = families.get(fam_name, {}).get("param", "K")
-        for elem in ring:
-            if getattr(elem, "FamName", None) == fam_name:
-                setattr(elem, param, value)
-    return ring
+    prepared = job.get("prepared") or {}
+    if prepared.get("solve") != SINGLE_PASS or prepared.get("twiss_in") is None:
+        return None
+    return {key: np.asarray(values, dtype=float) for key, values in prepared["twiss_in"].items()}
 
 
 def _numpy_default(obj: Any) -> Any:
@@ -106,10 +109,21 @@ def _numpy_default(obj: Any) -> Any:
     raise TypeError(f"Not JSON serializable: {type(obj)}")
 
 
-def save_data(data: dict[str, Any], output_path: Path) -> None:
-    """Save raw physics data as plain JSON (no Plotly, no bdata)."""
+def save_data(job: dict[str, Any], data: dict[str, Any], output_path: Path) -> None:
+    """Save raw physics data as plain JSON (no Plotly, no bdata) under the job's key.
+
+    The file is written through a temporary file, so no reader sees half of it.
+    """
+    payload = {
+        "key": job.get("key"),
+        "job_id": job.get("job_id"),
+        "deck_sha256": job.get("deck_sha256"),
+        "data": data,
+    }
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(data, default=_numpy_default))
+    tmp = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(payload, default=_numpy_default))
+    tmp.replace(output_path)
 
 
 def figure_to_dict(fig: Any) -> dict[str, Any]:
