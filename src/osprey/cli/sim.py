@@ -24,7 +24,7 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -34,6 +34,9 @@ from osprey.utils.logger import get_logger
 from osprey_connectors.types import CONTROL_TARGETS
 
 from .repo_resolver import find_repo_root, repo_option
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.view import SimulatorView
 
 logger = get_logger("sim")
 
@@ -108,43 +111,31 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
     return repo_root, load_config(str(config_path))
 
 
-def _require_simulator_view(repo_root: Path) -> Path:
+def _require_simulator_view(repo_root: Path) -> SimulatorView:
     """The simulator view of the repo's render, ``<render>/data/simulator``.
 
-    Exits with a clear message when the render carries none.
+    Exits with a clear message when the render carries none, or carries one
+    an older OSPREY wrote.
     """
-    from osprey.facility.views.simulator import SCENARIOS_FILE, simulator_view
+    from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
 
-    view = simulator_view(repo_root)
-    if not (view / SCENARIOS_FILE).is_file():
+    try:
+        view = SimulatorView.find(repo_root)
+        if view is not None:
+            for name in SCHEMAS:
+                view.document(name)
+            view.models()
+    except ViewSchemaError as exc:
+        output.fail("The simulator view is from another OSPREY", str(exc))
+        raise SystemExit(1) from None
+    if view is None:
         output.fail(
-            f"No simulator view in {view}",
+            f"No simulator view in {SimulatorView.path_for_project(repo_root)}",
             "The simulator view is written by the build.",
             "run 'osprey build' first",
         )
         raise SystemExit(1)
     return view
-
-
-def _read_view_file(view: Path, name: str) -> dict[str, Any]:
-    document: dict[str, Any] = json.loads((view / name).read_text(encoding="utf-8"))
-    return document
-
-
-def _served_physics_models(view: Path) -> list[str]:
-    """The view's served models whose engine is not ``texture``, sorted by name."""
-    from osprey.facility import TEXTURE
-    from osprey.facility.views.simulator import SERVED_MODELS_FILE, VARIABLES_FILE
-
-    engines = {
-        str(record["name"]): record.get("engine")
-        for record in _read_view_file(view, VARIABLES_FILE)["models"]
-    }
-    return sorted(
-        str(name)
-        for name in _read_view_file(view, SERVED_MODELS_FILE)["models"]
-        if str(name) in engines and engines[str(name)] != TEXTURE
-    )
 
 
 async def _model_statuses(
@@ -168,14 +159,6 @@ async def _model_statuses(
         return {model: await read_model_status(connector, addresses[model]) for model in models}
     finally:
         await connector.disconnect()
-
-
-def _status_addresses(view: Path, models: list[str]) -> dict[str, str]:
-    """Each model's status address, from the facility code the view records."""
-    from osprey.facility.views.simulator import VARIABLES_FILE, status_address
-
-    code = str(_read_view_file(view, VARIABLES_FILE)["code"])
-    return {model: status_address(code, model) for model in models}
 
 
 def _overlap_records(log: Path) -> list[dict[str, Any]]:
@@ -244,7 +227,6 @@ def sim_group() -> None:
 @repo_option
 def list_command(repo: Path | None) -> None:
     """List available scenarios (the active set is marked with *)."""
-    from osprey.facility.views.simulator import SCENARIOS_FILE
     from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
     from osprey_connectors.workspace import resolve_simulation_state_dir
 
@@ -252,7 +234,7 @@ def list_command(repo: Path | None) -> None:
     view = _require_simulator_view(repo_root)
     names, _ = read_active_state(resolve_simulation_state_dir(config, repo_root))
     active = set(resolve_active_scenarios(names))
-    for scenario in _read_view_file(view, SCENARIOS_FILE)["scenarios"]:
+    for scenario in view.scenarios():
         name = str(scenario["name"])
         marker = "*" if name in active else " "
         output.report(f"{marker} {name}  (logbook: {'yes' if scenario.get('logbook') else 'no'})")
@@ -287,8 +269,8 @@ def status_command(repo: Path | None, target: str | None) -> None:
             output.fail(f"The {target} target is not configured", str(exc))
             raise SystemExit(1) from None
     view = _require_simulator_view(repo_root)
-    models = _served_physics_models(view)
-    addresses = None if connector_type == MOCK else _status_addresses(view, models)
+    models = [model.name for model in view.physics_models()]
+    addresses = None if connector_type == MOCK else dict(view.status_addresses())
     statuses = asyncio.run(_model_statuses(section, target, models, addresses))
     for model in models:
         output.report(f"{model}: {statuses[model]}")
