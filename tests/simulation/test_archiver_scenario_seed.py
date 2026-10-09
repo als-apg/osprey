@@ -36,6 +36,7 @@ import yaml
 
 from osprey.simulation.apply import (
     DENSIFIED_FIELD,
+    _dense_documents,
     active_archiver_events,
     apply_scenarios,
     archiver_collection,
@@ -1274,6 +1275,22 @@ class TestDottedChannel:
         )
         assert all(field in document for document in inside)
         assert all("SR:VAC:IP07" not in document for document in inside)
+
+
+class _ConstantArchive:
+    """An archive composite stand-in: every channel reads 1.0 at every moment."""
+
+    def series(self, _pv: str, moments: list[float]) -> list[float]:
+        return [1.0] * len(moments)
+
+
+class TestChannelNamedLikeTheMarker:
+    def test_a_densified_channel_named_like_the_marker_keeps_the_marker(self):
+        """The densify marker survives a channel of the same name in the same insert."""
+        [document] = _dense_documents(_ConstantArchive(), {}, {1.0e9: ("osprey_densified",)})
+
+        assert document[DENSIFIED_FIELD] is True
+        assert document["%6Fsprey_densified"] == 1.0
 
 
 class TestStoredTypes:

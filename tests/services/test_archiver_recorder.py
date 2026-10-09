@@ -829,38 +829,18 @@ def test_stored_documents_carry_the_shape_the_connector_reads(archive_collection
     assert doc["expireAt"].replace(tzinfo=UTC) == timestamp + timedelta(hours=48)
 
 
-async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
-    archive_collection,
+async def _connected_reader(
+    settings: RecorderSettings,
     mongodb_container,  # noqa: F811
+    password: str,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Write, store and read back through the connector, each under the channel's address.
-
-    The stored field is ``field_name`` of the address, so MongoDB never reads
-    the ``.`` as a path into a sub-document nor the leading ``$`` as an operator.
-    """
+):
+    """The agent's archive connector, connected to the collection ``settings`` names."""
     from osprey.connectors.archiver.mongodb_archiver_connector import (
         HOST_OVERRIDE_ENV,
         PORT_OVERRIDE_ENV,
         MongoDBArchiverConnector,
     )
-    from osprey_connectors.archiver.field_names import field_name
-
-    settings, collection, password = archive_collection
-    samples = {"SR:REC.RBV": 1.5, "SR:REC.HLS": 0.0, "$SR:LEAD": 2.0}
-    timestamp = datetime(2026, 8, 10, 12, 0, 10, tzinfo=UTC)
-    writer = ArchiveWriter(settings, password)
-    writer.connect()
-    try:
-        writer.write_sample(timestamp, samples)
-    finally:
-        writer.close()
-
-    doc = collection.find_one({"date": timestamp})
-    assert doc is not None
-    for address, value in samples.items():
-        assert doc[field_name(address)] == value
-    assert "SR:REC" not in doc
 
     monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
     monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
@@ -880,6 +860,38 @@ async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
             "timeout_s": 10,
         }
     )
+    return connector
+
+
+async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
+    archive_collection,
+    mongodb_container,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Write, store and read back through the connector, each under the channel's address.
+
+    The stored field is ``field_name`` of the address, so MongoDB never reads
+    the ``.`` as a path into a sub-document nor the leading ``$`` as an operator.
+    """
+    from osprey_connectors.archiver.field_names import field_name
+
+    settings, collection, password = archive_collection
+    samples = {"SR:REC.RBV": 1.5, "SR:REC.HLS": 0.0, "$SR:LEAD": 2.0}
+    timestamp = datetime(2026, 8, 10, 12, 0, 10, tzinfo=UTC)
+    writer = ArchiveWriter(settings, password)
+    writer.connect()
+    try:
+        writer.write_sample(timestamp, samples)
+    finally:
+        writer.close()
+
+    doc = collection.find_one({"date": timestamp})
+    assert doc is not None
+    for address, value in samples.items():
+        assert doc[field_name(address)] == value
+    assert "SR:REC" not in doc
+
+    connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
     try:
         frame = await connector.get_data(
             channels=list(samples),
@@ -893,6 +905,68 @@ async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
     read = dict(zip(frame["channel"], frame["value"], strict=True))
     assert read == samples
     assert availability == dict.fromkeys(samples, True)
+
+
+async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
+    archive_collection,
+    mongodb_container,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A channel named after a field of the archive's own documents keeps that field intact.
+
+    The sample document keeps its ``date``, ``expireAt`` and ``_id``; the seed
+    manifest beside it in the collection is never read as a channel's history.
+    """
+    from osprey_connectors.archiver.field_names import field_name
+    from osprey_connectors.simulation.archive import SeedReport, write_manifest
+
+    settings, collection, password = archive_collection
+    timestamp = datetime(2026, 8, 10, 12, 0, 10, tzinfo=UTC)
+    write_manifest(
+        collection,
+        {"schema_version": 2},
+        seeded_at=timestamp - timedelta(hours=1),
+        report=SeedReport(channels=1),
+    )
+    samples = {
+        "date": 1.5,
+        "expireAt": 2.0,
+        "_id": 3.0,
+        "osprey_densified": 4.0,
+        "fingerprint": 5.0,
+    }
+    writer = ArchiveWriter(settings, password)
+    writer.connect()
+    try:
+        writer.write_sample(timestamp, samples)
+    finally:
+        writer.close()
+
+    doc = collection.find_one({"date": timestamp})
+    assert doc is not None
+    assert doc["expireAt"].replace(tzinfo=UTC) == timestamp + timedelta(hours=48)
+    assert doc["_id"] != 3.0
+    assert "osprey_densified" not in doc
+    for address, value in samples.items():
+        assert doc[field_name(address)] == value
+
+    connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
+    try:
+        frame = await connector.get_data(
+            channels=list(samples),
+            start_date=timestamp - timedelta(seconds=5),
+            end_date=timestamp + timedelta(seconds=5),
+        )
+        availability = await connector.check_availability([*samples, "seeded_at"])
+        metadata = await connector.get_metadata("fingerprint")
+    finally:
+        await connector.disconnect()
+
+    read = dict(zip(frame["channel"], frame["value"], strict=True))
+    assert read == samples
+    assert availability == {**dict.fromkeys(samples, True), "seeded_at": False}
+    assert metadata.is_archived is True
+    assert metadata.archival_start.replace(tzinfo=UTC) == timestamp
 
 
 def test_writing_an_instant_twice_merges_and_never_restamps_expiry(archive_collection) -> None:
