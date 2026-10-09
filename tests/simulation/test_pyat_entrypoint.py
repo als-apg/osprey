@@ -487,56 +487,67 @@ class TestDescribe:
         [
             (
                 _describe_record("write", {"attribute": "KickAngle", "index": 0}, element="E"),
-                ("setpoint", "x", "pass"),
+                ("setpoint", "x", "pass", "kick"),
             ),
             (
                 _describe_record("write", {"attribute": "KickAngle", "index": 1}, element="E"),
-                ("setpoint", "y", "pass"),
+                ("setpoint", "y", "pass", "kick"),
             ),
             (
                 _describe_record("write", {"attribute": "PolynomB", "index": 0}, element="E"),
-                ("setpoint", None, "pass"),
+                ("setpoint", None, "pass", "strength"),
             ),
             (
                 _describe_record("write", {"attribute": "PolynomB", "index": 1}, element="E"),
-                ("setpoint", None, "pass"),
+                ("setpoint", None, "pass", "strength"),
             ),
             (
                 _describe_record("read", {"axis": "x"}, element="BPM1"),
-                ("monitor", "x", "pass"),
+                ("monitor", "x", "pass", "monitor"),
             ),
             (
                 _describe_record("read", {"axis": "y"}, slices=[{"element": "BPM1"}]),
-                ("monitor", "y", "pass"),
+                ("monitor", "y", "pass", "monitor"),
             ),
             (
                 _describe_record("read", {"attribute": "KickAngle", "index": 1}, element="E"),
-                ("readback", "y", "pass"),
+                ("readback", "y", "pass", "kick"),
             ),
             (
                 _describe_record("read", {"attribute": "PolynomB", "index": 1}, element="E"),
-                ("readback", None, "pass"),
+                ("readback", None, "pass", "strength"),
             ),
-            (_describe_record("read", {"attribute": "energy"}), ("readback", None, "pass")),
+            (
+                _describe_record("read", {"attribute": "energy"}),
+                ("readback", None, "pass", "energy"),
+            ),
+            (
+                _describe_record("write", {"attribute": "Frequency"}, element="RF"),
+                ("setpoint", None, "pass", "rf"),
+            ),
+            (
+                _describe_record("write", {"attribute": "energy"}),
+                ("setpoint", None, "pass", "energy"),
+            ),
             (
                 _describe_record("read", {"attribute": "tune", "axis": "y"}),
-                ("output", "y", "pass"),
+                ("output", "y", "pass", None),
             ),
             (
                 _describe_record("read", {"attribute": "tune", "index": 0}),
-                ("output", "x", "pass"),
+                ("output", "x", "pass", None),
             ),
             (
                 _describe_record("read", {"attribute": "tune", "index": 2}),
-                ("output", None, "pass"),
+                ("output", None, "pass", None),
             ),
             (
                 _describe_record("read", {"attribute": "chromaticity", "axis": "x"}),
-                ("output", "x", "periodic"),
+                ("output", "x", "periodic", None),
             ),
             (
                 _describe_record("read", {"attribute": "tune"}, value_type="waveform"),
-                ("output", None, "pass"),
+                ("output", None, "pass", None),
             ),
         ],
         ids=[
@@ -549,6 +560,8 @@ class TestDescribe:
             "readback-kick-y",
             "readback-element",
             "readback-energy",
+            "setpoint-frequency",
+            "setpoint-energy",
             "tune-by-axis",
             "tune-by-index-0",
             "tune-by-index-2",
@@ -556,14 +569,26 @@ class TestDescribe:
             "whole-output-waveform",
         ],
     )
-    def test_describe(self, record: dict[str, Any], expected: tuple[str, str | None, str]):
+    def test_describe(
+        self, record: dict[str, Any], expected: tuple[str, str | None, str, str | None]
+    ):
         described = engine.describe(record)
-        assert (described["role"], described["plane"], described["refresh"]) == expected
-        assert set(described) == {"role", "plane", "refresh"}
+        assert (
+            described["role"],
+            described["plane"],
+            described["refresh"],
+            described["kind"],
+        ) == expected
+        assert set(described) == {"role", "plane", "refresh", "kind"}
 
     def test_a_wiring_object_reads_like_a_mapping(self):
         record = Wiring("M/A", "A", element="BPM1", engine={"axis": "x"})
-        assert engine.describe(record) == {"role": "monitor", "plane": "x", "refresh": "pass"}
+        assert engine.describe(record) == {
+            "role": "monitor",
+            "plane": "x",
+            "refresh": "pass",
+            "kind": "monitor",
+        }
 
     @pytest.mark.parametrize(
         "record",

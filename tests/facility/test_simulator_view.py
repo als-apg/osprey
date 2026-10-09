@@ -309,7 +309,11 @@ def test_every_wiring_entry_carries_the_engines_description(
     roles = set()
     for entry in sr["wiring"]:
         record = {key: value for key, value in entry.items() if key not in DESCRIPTION_KEYS}
-        assert {key: entry[key] for key in DESCRIPTION_KEYS} == pyat.describe(record)
+        described = pyat.describe(record)
+        assert {key: entry[key] for key in DESCRIPTION_KEYS} == {
+            key: described[key] for key in DESCRIPTION_KEYS
+        }
+        assert "kind" not in entry
         roles.add(entry["role"])
     assert roles == {"setpoint", "readback", "monitor", "output"}
     facility_sr = next(m for m in built_control_assistant.facility["models"] if m["name"] == "SR")
