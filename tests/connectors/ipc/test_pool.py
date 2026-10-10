@@ -38,7 +38,7 @@ from osprey_connectors.ipc.pool import (
     PooledConnector,
 )
 from tests.connectors.ipc._pool_connectors import WRITE_LOG_ENV
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHONPATH = os.pathsep.join(
@@ -50,7 +50,7 @@ PYTHONPATH = os.pathsep.join(
 )
 
 _HELPERS = "tests.connectors.ipc._pool_connectors"
-SLOW = f"{_HELPERS}.SlowMockConnector"
+SLOW = f"{_HELPERS}.SlowInProcessConnector"
 FAILING = f"{_HELPERS}.FailingConnector"
 HANGING = f"{_HELPERS}.HangingConnector"
 SLOW_START = f"{_HELPERS}.SlowStartConnector"
@@ -96,7 +96,7 @@ def _section(connector_type: str, *, writes_enabled: bool = False, block=None) -
         "type": connector_type,
         "writes_enabled": writes_enabled,
         "connector": {
-            connector_type: mock_config(_VIEW["view"], response_delay_ms=1, **(block or {}))
+            connector_type: in_process_config(_VIEW["view"], response_delay_ms=1, **(block or {}))
         },
     }
 
@@ -981,6 +981,55 @@ async def test_a_child_whose_report_disagrees_with_the_derivation_is_refused_and
     assert process.returncode is not None
     assert not _alive(process.pid)
     assert pool.pids() == {}
+
+
+async def test_transport_mismatch_refused(pools, monkeypatch):
+    """A child that built the other venue is refused by the transport it echoes."""
+    _doctor_init_reports(monkeypatch, _with(transport="ca"))
+    pool = pools(_section(SLOW))
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("live")
+
+    assert caught.value.stage == "verify"
+    assert "reports transport 'ca' where None was derived." in str(caught.value)
+    assert pool.pids() == {}
+
+
+# ------------------------------------------------------- the simulator in process
+
+
+def _in_process_section() -> dict:
+    return {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": in_process_config(_VIEW["view"], response_delay_ms=1)},
+    }
+
+
+async def test_in_process_va_key_serves_from_the_composite(pools, spawns):
+    """``va`` on the simulator in process: a real child, no gateway, no network."""
+    pool = pools(_in_process_section())
+    va = await pool.connector("va")
+
+    reading = await asyncio.wait_for(va.read_channel("SR:A"), OK_TIMEOUT_S)
+    assert reading.value is not None
+    with pytest.raises(Exception, match="not in build/facility.json"):
+        await asyncio.wait_for(va.read_channel("NOT:SERVED"), OK_TIMEOUT_S)
+    assert len(spawns) == 1
+
+
+async def test_served_va_without_gateway_still_refused(pools, spawns):
+    """The served simulator is gated exactly as before: no gateway, no spawn."""
+    section = {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": {"timeout_s": 1.0}},
+    }
+    pool = pools(section)
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("va")
+
+    assert caught.value.stage == "config"
+    assert "broadcast" in str(caught.value)
+    assert spawns == []
 
 
 # ------------------------------------------------------------ lifetime, continued

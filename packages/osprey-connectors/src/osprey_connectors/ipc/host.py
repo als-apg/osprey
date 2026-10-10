@@ -78,6 +78,7 @@ asserts its own derivation against::
       "_epics_configured": bool,
       # diagnostics, alongside the five verification fields above
       "connector_type": str,     # what `target` resolved to
+      "transport":      str | None,  # the wire the built connector speaks
       "target":         str,
       "writes_enabled": bool,    # the posture the gateway selection was made
       "readonly_run":   bool,    # on, and the run mode (see below)
@@ -103,7 +104,7 @@ the reason.
 
 **A connector that configures no CA environment reports all five as
 null/false**, and that is a well-formed report rather than a degraded one: the
-mock connector talks to no gateway, so ``selected_role``, ``mode``, ``host``
+simulator served in process talks to no gateway, so ``selected_role``, ``mode``, ``host``
 and ``port`` are ``None`` and ``_epics_configured`` is ``False``. There is
 nothing for the parent to verify because there is no endpoint to get wrong.
 
@@ -519,6 +520,7 @@ def _post_connect_report(
         "port": port,
         "_epics_configured": bool(getattr(connector, "_epics_configured", False)),
         "connector_type": connector_type,
+        "transport": getattr(connector, "transport", None),
         "target": target,
         "writes_enabled": writes_enabled,
         "readonly_run": readonly_run,

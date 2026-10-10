@@ -46,7 +46,7 @@ from osprey.mcp_server.control_system.error_handling import connector_error_hand
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from osprey_connectors.ipc import frames
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 from tests.mcp_server._raising_connector import (
     BLOCKED_CHANNEL,
     BLOCKED_MESSAGE,
@@ -76,7 +76,7 @@ PYTHONPATH = os.pathsep.join(
 RAISING_TYPE = "tests.mcp_server._raising_connector.RaisingConnector"
 
 #: The mock connector, by dotted path, for the same reason.
-MOCK_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+IN_PROCESS_TYPE = "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
 
 #: Generous enough that a loaded machine is not a failure, tight enough that a
 #: wedged child fails this test rather than the run.
@@ -191,7 +191,7 @@ async def limits_pair(tmp_path):
         json.dumps({BOUNDED_CHANNEL: {"min_value": 0.0, "max_value": 100.0, "writable": True}})
     )
     control_system = {
-        "type": MOCK_TYPE,
+        "type": IN_PROCESS_TYPE,
         "writes_enabled": True,
         "limits_checking": {
             "enabled": True,
@@ -200,7 +200,7 @@ async def limits_pair(tmp_path):
             "on_violation": "error",
         },
         "connector": {
-            MOCK_TYPE: mock_config(
+            IN_PROCESS_TYPE: in_process_config(
                 served_tree(tmp_path / "served", [BOUNDED_CHANNEL]), response_delay_ms=0
             )
         },
@@ -423,7 +423,7 @@ async def test_the_seams_default_behaviour_is_still_a_context_invalidation(monke
 
 #: The pool tests' misbehaving mock, by dotted path: ``SLOW:`` reads hang in a
 #: child that still answers, ``WEDGE:`` reads block the child outright.
-SLOW_TYPE = "tests.connectors.ipc._pool_connectors.SlowMockConnector"
+SLOW_TYPE = "tests.connectors.ipc._pool_connectors.SlowInProcessConnector"
 
 #: The deadline the manager's children are given here, lowered from the
 #: reference value so a call that names no timeout misses it within the test.
@@ -449,8 +449,8 @@ async def served_from_a_child(tmp_path, monkeypatch, make_manager):
             "type": SLOW_TYPE,
             "writes_enabled": False,
             "connector": {
-                SLOW_TYPE: mock_config(view, response_delay_ms=0),
-                "virtual_accelerator": mock_config(view, response_delay_ms=0),
+                SLOW_TYPE: in_process_config(view, response_delay_ms=0),
+                "virtual_accelerator": in_process_config(view, response_delay_ms=0),
             },
         }
     }

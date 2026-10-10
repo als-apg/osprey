@@ -192,7 +192,7 @@ from osprey_connectors.ipc.verification import (
     verify_host_report,
 )
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
-from osprey_connectors.types import CHANNEL_ACCESS_TYPES
+from osprey_connectors.types import TRANSPORT_CA
 
 __all__ = [
     "READONLY",
@@ -794,7 +794,7 @@ class ConnectorHostPool:
         before it spawns, restated for what the pool can see — the
         ``control_system`` section, not the full project config:
 
-        * A Channel Access type must select a gateway. ``connect()`` configures
+        * A connector whose transport is Channel Access must select a gateway. ``connect()`` configures
           the process only ``if gateway_config:``, so a block with no gateway
           for the role this run selects sets no ``EPICS_CA_*`` variable at all
           — not even ``EPICS_CA_AUTO_ADDR_LIST=NO`` — and libca broadcasts its
@@ -811,16 +811,17 @@ class ConnectorHostPool:
           the refusal is the negative half — whatever the stand-in is, it is
           not the machine — with addresses compared as written, never resolved.
 
-        Types that talk to no gateway — the mock, and the test suite's mock
-        subclasses — derive no rows and are not Channel Access, so neither gate
-        applies to them.
+        A connector whose transport is in process — the simulator served inside
+        the child, and the test suite's dotted doubles, which have no transport
+        row — derives no rows and dials no gateway, so neither gate applies to
+        it.
         """
         target, _ = key
         connector_type = derivation.connector_type
         selected = derivation.selected_endpoint()
         block_key = f"control_system.connector.{connector_type}"
 
-        if connector_type in CHANNEL_ACCESS_TYPES and selected is None:
+        if derivation.transport == TRANSPORT_CA and selected is None:
             configured = sorted(derivation.endpoints) or "none"
             return (
                 f"it resolves to {connector_type!r}, which speaks Channel Access, and "
@@ -865,6 +866,12 @@ class ConnectorHostPool:
             raise failure(
                 STAGE_VERIFY,
                 f"reports connector_type {verification.got!r} where "
+                f"{verification.expected!r} was derived.",
+            )
+        if verification.field == "transport":
+            raise failure(
+                STAGE_VERIFY,
+                f"reports transport {verification.got!r} where "
                 f"{verification.expected!r} was derived.",
             )
         if verification.field == "readonly_run":
