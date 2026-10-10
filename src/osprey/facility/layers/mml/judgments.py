@@ -54,6 +54,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from osprey.facility.layers.mml.family import (
+    CHANNEL_KEYS,
     FAMILY_ARRAYS,
     FamilyView,
     family_views,
@@ -67,7 +68,6 @@ from osprey.facility.layers.mml.mapping import (
     RowAnswer,
     UnboundAnswer,
 )
-from osprey.services.channel_finder.databases.middle_layer import CHANNEL_KEYS
 
 __all__ = [
     "FIELD_METADATA_KEYS",
