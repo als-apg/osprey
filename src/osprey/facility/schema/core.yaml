@@ -281,6 +281,10 @@ classes:
         description: Absent means readback.
       pair:
         description: The readback address of a setpoint; absent means the setpoint itself.
+      tolerance:
+        range: Tolerance
+        inlined: true
+        description: "On a float setpoint: how close its readback (its pair, else itself) must come."
       "on":
         range: OnTarget
         inlined: true
@@ -363,6 +367,20 @@ classes:
         range: float
         minimum_value: 0
         description: Gaussian sigma as a fraction of the reading.
+
+  Tolerance:
+    description: >-
+      How close a readback must come to its setpoint's demand, stating exactly
+      one of `absolute`, `relative`.
+    attributes:
+      absolute:
+        range: float
+        minimum_value: 0
+        description: Largest |readback − demand| at which a move counts as done, in the channel's unit.
+      relative:
+        range: float
+        minimum_value: 0
+        description: The same bound as a fraction of the demand.
 
   Drift:
     attributes:

@@ -361,6 +361,21 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "value-invalid",
         "a scenario `noise` entry stating both terms",
     ),
+    ("value_invalid__tolerance_not_setpoint", "value-invalid", "`tolerance` on a non-setpoint"),
+    ("value_invalid__tolerance_non_float", "value-invalid", "`tolerance` on a non-float"),
+    ("value_invalid__tolerance_no_unit", "value-invalid", "`tolerance` on a channel with no unit"),
+    (
+        "value_invalid__tolerance_pair_unit",
+        "value-invalid",
+        "`tolerance` on a setpoint whose pair states another unit",
+    ),
+    ("value_invalid__tolerance_both_terms", "value-invalid", "a `tolerance` stating both terms"),
+    ("value_invalid__tolerance_not_finite", "value-invalid", "a `tolerance` not finite"),
+    (
+        "value_invalid__tolerance_relative_without_nominal",
+        "value-invalid",
+        "a relative `tolerance` on a setpoint without a seed `nominal`",
+    ),
     ("value_invalid__enum_bounds", "value-invalid", "enum bounds"),
     ("value_invalid__linear_wired", "value-invalid", "`linear` inputs wired"),
     ("value_invalid__linear_cyclic", "value-invalid", "`linear` inputs cyclic"),
@@ -392,6 +407,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "seed_invalid__relative_noise_without_nominal",
         "seed-invalid",
         "a relative `noise` on a seed without a `nominal`",
+    ),
+    (
+        "seed_invalid__seed_beyond_tolerance",
+        "seed-invalid",
+        "a readback's motion beyond its setpoint's tolerance",
     ),
     ("seed_invalid__paired_seed", "seed-invalid", "paired seed disagrees"),
     ("seed_invalid__int_nominal", "seed-invalid", "non-integral nominal on an int channel"),
@@ -1346,6 +1366,83 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "<fraction>}`"
         ),
     ),
+    "value_invalid__tolerance_not_setpoint": (
+        _plain(update("records/channels.yaml", 1, unit="A", tolerance={"absolute": 0.1})),
+        (
+            "facility: value-invalid: channel Q1:RB — a `tolerance` on a readback channel; fix: "
+            "remove `tolerance`; only a float setpoint carries one"
+        ),
+    ),
+    "value_invalid__tolerance_non_float": (
+        _plain(
+            append(
+                "records/channels.yaml",
+                {
+                    "id": "T:SP",
+                    "role": "setpoint",
+                    "value_type": "int",
+                    "unit": "A",
+                    "tolerance": {"absolute": 1.0},
+                },
+            )
+        ),
+        (
+            "facility: value-invalid: channel T:SP — a `tolerance` on a int channel; fix: remove "
+            "`tolerance`; only a float setpoint carries one"
+        ),
+    ),
+    "value_invalid__tolerance_no_unit": (
+        _plain(update("records/channels.yaml", 0, tolerance={"absolute": 0.1})),
+        (
+            "facility: value-invalid: channel Q1:SP — a `tolerance` on a channel that states no "
+            "`unit`; fix: state the channel's `unit`; the tolerance is in it"
+        ),
+    ),
+    "value_invalid__tolerance_pair_unit": (
+        _plain(
+            update("records/channels.yaml", 0, unit="A", tolerance={"absolute": 0.1}),
+            update("records/channels.yaml", 1, unit="mA"),
+        ),
+        (
+            "facility: value-invalid: channel Q1:SP — `unit` A differs from its pair Q1:RB's mA; "
+            "fix: give Q1:SP and Q1:RB the same `unit`; the tolerance is in it"
+        ),
+    ),
+    "value_invalid__tolerance_both_terms": (
+        _plain(
+            update(
+                "records/channels.yaml", 0, unit="A", tolerance={"absolute": 0.1, "relative": 0.01}
+            ),
+            update("records/channels.yaml", 1, unit="A"),
+        ),
+        (
+            "facility: value-invalid: channel Q1:SP — `tolerance` states both `absolute` and "
+            "`relative`; fix: write `tolerance: {absolute: <x>}` or `tolerance: {relative: "
+            "<fraction>}`"
+        ),
+    ),
+    "value_invalid__tolerance_not_finite": (
+        _plain(
+            update("records/channels.yaml", 0, unit="A", tolerance={"absolute": float("inf")}),
+            update("records/channels.yaml", 1, unit="A"),
+        ),
+        (
+            "facility: value-invalid: channel Q1:SP — `tolerance.absolute` is inf, not a finite "
+            "number; fix: write `tolerance: {absolute: <x>}` or `tolerance: {relative: "
+            "<fraction>}`"
+        ),
+    ),
+    "value_invalid__tolerance_relative_without_nominal": (
+        _plain(
+            update("records/channels.yaml", 0, unit="A", tolerance={"relative": 0.01}),
+            update("records/channels.yaml", 1, unit="A"),
+        ),
+        (
+            "facility: value-invalid: channel Q1:SP — a relative `tolerance` is taken of the "
+            "setpoint's seed `nominal`, which it does not state; fix: state `absolute`, or give "
+            "the setpoint a seed `nominal`"
+        ),
+    ),
     "value_invalid__enum_bounds": (
         _plain(
             append("records/channels.yaml", {"id": "T", "value_type": "enum", "options": ["ONLY"]})
@@ -1512,6 +1609,18 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: seed-invalid: channel BPM1:X — a relative `noise` is taken of the seed's "
             "`nominal`, which this seed does not state; fix: state `absolute`, or give the seed a "
             "`nominal`"
+        ),
+    ),
+    "seed_invalid__seed_beyond_tolerance": (
+        _plain(
+            update("records/channels.yaml", 0, unit="A", tolerance={"absolute": 0.01}),
+            update("records/channels.yaml", 1, unit="A"),
+            seeds(**{"Q1:RB": {"noise": {"absolute": 0.01}}}),
+        ),
+        (
+            "facility: seed-invalid: channel Q1:SP — the simulated readback Q1:RB moves up to "
+            "0.06 A, more than Q1:SP settles within (0.01 A); fix: lower the seed's "
+            "`noise`/`drift`, or widen `tolerance`"
         ),
     ),
     "seed_invalid__paired_seed": (
