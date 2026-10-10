@@ -113,6 +113,16 @@ per line:
      # consulted. Set it true, rebuild, and the two hooks below take over.
      control_system.writes_enabled: false
      # ...
+     # The SECOND guard: every write is checked against the records in
+     # data/facility/limits.yaml (per-channel min/max and writable flags).
+     control_system.limits_checking.enabled: true
+     # ...
+     # The THIRD guard: a write that passed the master switch and the limits check
+     # still pauses for a yes/no prompt. Applied by the approval hook, so it
+     # reaches only hook-wired tools; everything else is gated by the rendered
+     # settings.json permissions.
+     approval.enabled: true
+     # ...
 
 That ``control_system.writes_enabled: false`` line is the one this tutorial
 comes back to in Step 7. For everything the profile can hold, see
