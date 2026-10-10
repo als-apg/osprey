@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment.errors import DevModeUnavailableError
+from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.deployment.wheel_build import (
     _build_dev_wheel_cached,
     _copy_local_framework_for_override,
@@ -207,6 +208,71 @@ class TestStagingNeverSilentlyFallsBack:
             _copy_local_framework_for_override(str(editable_checkout))
 
         assert "disk on fire" in str(exc.value)
+
+    @staticmethod
+    def _add_members(checkout: Path, members) -> None:
+        for member in members:
+            root = checkout / "packages" / member
+            root.mkdir(parents=True)
+            (root / "pyproject.toml").write_text(f"[project]\nname='{member}'\n")
+
+    def test_every_workspace_member_wheel_is_staged(self, editable_checkout, monkeypatch, tmp_path):
+        """The framework requires each member, so each member's wheel ships beside it."""
+        import osprey.deployment.wheel_build as wb
+
+        self._add_members(editable_checkout, WORKSPACE_MEMBERS)
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        built: list[Path] = []
+
+        def _fake_build(root):
+            name = "osprey_framework" if root == editable_checkout else root.name.replace("-", "_")
+            wheel = cache / f"{name}-0.0.0-py3-none-any.whl"
+            wheel.write_bytes(b"")
+            built.append(Path(root))
+            return wheel
+
+        monkeypatch.setattr(wb, "_build_dev_wheel_cached", _fake_build)
+        monkeypatch.setattr(wb, "_write_local_requirements_manifest", lambda wheels, out: None)
+
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        assert _copy_local_framework_for_override(str(ctx)) is True
+
+        assert built == [editable_checkout] + [
+            editable_checkout / "packages" / m for m in WORKSPACE_MEMBERS
+        ]
+        staged = sorted(p.name.split("-", 1)[0] for p in ctx.glob("*.whl"))
+        assert staged == sorted(
+            ["osprey_framework"] + [m.replace("-", "_") for m in WORKSPACE_MEMBERS]
+        )
+
+    @pytest.mark.parametrize("missing", WORKSPACE_MEMBERS)
+    def test_missing_workspace_member_is_named(
+        self, editable_checkout, monkeypatch, tmp_path, missing
+    ):
+        import osprey.deployment.wheel_build as wb
+
+        self._add_members(editable_checkout, [m for m in WORKSPACE_MEMBERS if m != missing])
+        cache = tmp_path / "cache"
+        cache.mkdir()
+
+        def _fake_build(root):
+            wheel = cache / f"{Path(root).name.replace('-', '_')}-0.0.0-py3-none-any.whl"
+            wheel.write_bytes(b"")
+            return wheel
+
+        monkeypatch.setattr(wb, "_build_dev_wheel_cached", _fake_build)
+
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        with pytest.raises(DevModeUnavailableError) as exc:
+            _copy_local_framework_for_override(str(ctx))
+
+        assert missing in str(exc.value)
+        assert "workspace member" in str(exc.value)
+        assert f"packages/{missing}" in exc.value.remedy
+        assert not list(ctx.glob("*.whl")), "no wheel may be staged when a member is missing"
 
 
 class TestPrepareComposeFilesPreflight:

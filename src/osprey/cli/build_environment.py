@@ -876,6 +876,14 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
             # pip draws the same line uv does: see _pins_prerelease.
             cmd.append("--pre")
         cmd += all_deps
+        if osprey_spec.startswith((".", "~", "/")):
+            # A source checkout's framework depends on its workspace members,
+            # which uv resolves through the checkout's `[tool.uv.sources]`. pip
+            # reads no such table, so each member directory is named here.
+            from osprey.deployment.members import WORKSPACE_MEMBERS
+
+            source_root = Path(osprey_spec).expanduser()
+            cmd += [str(source_root / "packages" / member) for member in WORKSPACE_MEMBERS]
 
     from rich.live import Live
     from rich.spinner import Spinner

@@ -49,11 +49,12 @@ RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
 WORKDIR /opt/osprey
 COPY pyproject.toml README.md /opt/osprey/
 COPY src/ /opt/osprey/src/
-# The osprey-connectors workspace member rides along and installs from source
+# Every workspace member under packages/ rides along and installs from source
 # below, for the same reason osprey itself does: pip cannot see a uv workspace,
-# so without this the framework's `osprey-connectors` requirement would resolve
-# from PyPI -- a released snapshot beside checkout framework code, exactly the
-# version skew one image built from one checkout exists to rule out.
+# so without this the framework's requirement on each member would resolve from
+# PyPI -- a released snapshot beside checkout framework code (or nothing at all,
+# for a member that has never been published), exactly the version skew one
+# image built from one checkout exists to rule out.
 COPY packages/ /opt/osprey/packages/
 
 # osprey's version comes from the git tag (hatch-vcs), and the staged build
@@ -65,9 +66,9 @@ COPY packages/ /opt/osprey/packages/
 # ``_FOR_<DIST_NAME>`` form needs the backend to hand setuptools-scm a dist
 # name, which hatch-vcs does not, so that form is silently ignored and the
 # build fails as if nothing had been set. The un-scoped variable reaches both
-# source builds in this layer -- osprey and its osprey-connectors workspace
-# sibling -- and that is the point: the two version with the same calendar
-# stream, so one number is the correct answer for both. The build hook stamps
+# source builds in this layer -- osprey and each workspace member beside it --
+# and that is the point: they all version with the same calendar stream, so one
+# number is the correct answer for every one of them. The build hook stamps
 # whatever lands here into src/osprey/_version.py, which is what
 # ``osprey.__version__`` reports at runtime -- so a build that does not pass
 # OSPREY_VERSION yields an image that honestly reports an unknown version
@@ -102,11 +103,18 @@ ARG OSPREY_VERSION=0.0.0.dev0+unknown
 # would make it unnecessary, but that is a change to how the whole image
 # resolves, not a change to this pin.
 #
+# The members install one by one ahead of the framework, looping over packages/
+# rather than naming them so a new member is picked up the day it lands; none of
+# them depends on the framework, so each resolves on its own. `|| exit 1` keeps a
+# failed member build from being masked by the next iteration's success.
+#
 # Everything here installs from prebuilt manylinux_x86_64 wheels, so the image
 # carries no C toolchain at all.
 RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.8.0" \
-    && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
-       pip install --no-cache-dir ./packages/osprey-connectors \
+    && for member in ./packages/*/; do \
+           SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
+           pip install --no-cache-dir "$member" || exit 1; \
+       done \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
        pip install --no-cache-dir ".[virtual-accelerator]" --only-binary pcaspy
 

@@ -50,6 +50,7 @@ from uuid import uuid4
 import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
+from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.errors import BuildProfileError
 from osprey.facility.errors import FacilityBuildError
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
@@ -3878,6 +3879,11 @@ def _repo_render_context(
         # writes is derived from this value by the template manager, so no
         # consumer downstream falls back to the layout's own default.
         "port_base": _profile_port_base(build_profile),
+        # The workspace members a git+ OSPREY_PIP_SPEC pre-installs from the
+        # monorepo's packages/ subdirectories in Dockerfile.j2's deps layer. From
+        # the installed framework's constant, since a deployed framework has no
+        # monorepo pyproject.toml to read the workspace from.
+        "workspace_members": list(WORKSPACE_MEMBERS),
     }
     if build_profile.provider:
         context["default_provider"] = build_profile.provider

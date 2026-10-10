@@ -16,6 +16,7 @@ import pytest
 
 from osprey.cli.build_environment import _create_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
+from osprey.deployment.members import WORKSPACE_MEMBERS
 
 
 def _profile(
@@ -23,12 +24,13 @@ def _profile(
     dependencies: list[str] | None = None,
     python: str | None = None,
     packages: list[str] | None = None,
+    osprey_install: str = "osprey-framework==1.2.3",
 ) -> BuildProfile:
     """Build a minimal profile carrying the environment block under test."""
     return BuildProfile(
         name="test",
         dependencies=list(dependencies or []),
-        osprey_install="osprey-framework==1.2.3",
+        osprey_install=osprey_install,
         environment=EnvironmentConfig(python=python, packages=list(packages or [])),
     )
 
@@ -166,3 +168,40 @@ class TestEnvironmentPackages:
         _create_project_venv(tmp_path, _profile(dependencies=["pandas"]))
 
         assert calls[1][-2:] == ["osprey-framework==1.2.3", "pandas"]
+
+
+class TestWorkspaceMembersFromSource:
+    """A source-tree osprey spec carries its workspace members on the pip path.
+
+    uv resolves the members through the checkout's ``[tool.uv.sources]``; pip
+    reads no such table, so the pip command must name each member directory.
+    """
+
+    @pytest.mark.usefixtures("with_uv")
+    def test_uv_command_is_unchanged_for_a_source_spec(self, calls, tmp_path):
+        root = tmp_path / "osprey-src"
+
+        _create_project_venv(tmp_path, _profile(osprey_install=str(root), packages=["pyepics"]))
+
+        install_cmd = calls[1]
+        assert install_cmd[-2:] == [str(root), "pyepics"]
+        assert not any("packages/" in arg for arg in install_cmd)
+
+    @pytest.mark.usefixtures("without_uv")
+    def test_pip_command_appends_every_member_for_a_source_spec(self, calls, tmp_path):
+        root = tmp_path / "osprey-src"
+
+        _create_project_venv(tmp_path, _profile(osprey_install=str(root), packages=["pyepics"]))
+
+        install_cmd = calls[1]
+        members = [str(root / "packages" / name) for name in WORKSPACE_MEMBERS]
+        assert len(members) == 2
+        assert install_cmd[-(2 + len(members)) :] == [str(root), "pyepics", *members]
+
+    @pytest.mark.usefixtures("without_uv")
+    def test_pip_command_appends_no_member_for_a_pinned_spec(self, calls, tmp_path):
+        _create_project_venv(tmp_path, _profile(packages=["pyepics"]))
+
+        install_cmd = calls[1]
+        assert install_cmd[-2:] == ["osprey-framework==1.2.3", "pyepics"]
+        assert not any("packages/" in arg for arg in install_cmd)
