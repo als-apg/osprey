@@ -11,7 +11,9 @@ the byte identity of the pre-LINE channel-finder index copies.
 The copies are read to prove nothing was lost, never to fix the index's shape.
 The parity tests hold the hierarchical and middle-layer views, called as pure
 functions on the shared control-assistant build's facility file, to those
-copies: the same address set less the declared fingerprint additions, the
+copies: the same address set plus the declared fingerprint additions each
+view files (the middle-layer view files the transfer line's, which its
+devices hold, and leaves out those bound only to a place), the
 machine, system and family descriptions kept, every field and subfield
 sentence on the channels it described, every benchmark target indexed, and no
 fewer benchmark queries answerable by whole index cells than the copies answer. The in_context view,
@@ -471,7 +473,7 @@ def test_the_hierarchical_view_holds_the_pre_line_addresses(
 ) -> None:
     golden = {address for _path, address in hierarchical_leaves(pre_line_index("hierarchical"))}
     view = {address for _path, address in hierarchical_leaves(hierarchical_view)}
-    assert view - addition_addresses() == golden
+    assert view == golden | addition_addresses()
 
 
 @pytest.mark.slow
@@ -480,7 +482,8 @@ def test_the_middle_layer_view_holds_the_pre_line_addresses(
 ) -> None:
     golden = set().union(*middle_layer_cells(pre_line_index("middle_layer")))
     view = set().union(*middle_layer_cells(middle_layer_view))
-    assert view - addition_addresses() == golden
+    line = {address for address in addition_addresses() if address.startswith("LINE:")}
+    assert view == golden | line
 
 
 @pytest.mark.slow
