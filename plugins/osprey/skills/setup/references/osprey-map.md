@@ -17,7 +17,7 @@ Four forms, all of which put `osprey` on the PATH so every verb below runs the s
 
 `osprey --version` before and after. A source checkout (`git clone` + `uv sync --extra
 dev`) is the contributor's form, run as `uv run osprey …` from inside the clone; the
-install skill does not choose it, `/osprey:contribute` does.
+setup skill does not choose it, `/osprey:contribute` does.
 
 ## Ask the installation what exists
 
@@ -141,5 +141,5 @@ repository — outside the wheel, so the join above does not reach them.
 
 - `/osprey:panel` — web-panel authoring.
 - `/osprey:upstream-scout` — investigates a candidate framework gap; launched in the
-  background by the install skill, or on its own.
+  background by the setup skill, or on its own.
 - `/osprey:contribute` — the branch-to-PR journey the scout's branch path hands off to.

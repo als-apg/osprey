@@ -22,7 +22,7 @@ What the lanes pin:
   column can never land on the wrong magnet;
 - **the ``Status`` filter** -- the response file's own zero row is dropped and
   named, while the ``Status`` the AO carries is reported and never applied;
-- **the report** -- every section the install skill sends a reviewer to
+- **the report** -- every section the setup skill sends a reviewer to
   ``data/mml/VA-REPORT.md`` for, including the two things the emit lane had to
   decide quietly: the band a nominal widened and the nominals the model only
   seeds.
@@ -914,7 +914,7 @@ class TestTheReport:
         assert result.exit_code == 0, result.output
         return (emitted / "data" / "mml" / REPORT_FILENAME).read_text(encoding="utf-8")
 
-    def test_the_command_writes_it_where_the_install_skill_sends_the_reviewer(
+    def test_the_command_writes_it_where_the_setup_skill_sends_the_reviewer(
         self, emitted: Path, text: str
     ) -> None:
         assert (emitted / "data" / "mml" / "VA-REPORT.md").is_file()

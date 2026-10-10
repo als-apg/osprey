@@ -496,7 +496,7 @@ def test_nothing_to_judge_warns_nothing(config) -> None:
 
 
 # ---------------------------------------------------------------------------
-# artifact_menu_catalog — what the install skill offers
+# artifact_menu_catalog — what the setup skill offers
 # ---------------------------------------------------------------------------
 
 

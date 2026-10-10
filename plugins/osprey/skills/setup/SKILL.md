@@ -1,19 +1,19 @@
 ---
-name: install
+name: setup
 description: >
-  Installs OSPREY and sets up a deployment for an accelerator, beamline, or detector
-  through a guided conversation: the agentic installer. Installs the framework if it
-  is missing, inventories what already exists, and builds a deployment repository one
-  confirmed step at a time. Use when someone says "install OSPREY", "set up OSPREY for
-  my facility", "set up my agent", "create a deployment for my system", "interview
-  me", "onboard me", or needs an OSPREY project tailored to their control system. Also
-  handles migration from existing OSPREY projects (including LangGraph-era projects):
-  "migrate my project", "I have an existing project", "upgrade from old OSPREY",
-  "bring my project forward". Resume a previous run by invoking this skill inside a
-  deployment repo that contains an INTERVIEW.md.
+  Sets up an OSPREY deployment for an accelerator, beamline, or detector through a
+  guided conversation: the guided setup. Installs the framework if it is missing,
+  inventories what already exists, and builds a deployment repository one confirmed
+  step at a time. Use when someone says "set up OSPREY", "install OSPREY", "set up
+  OSPREY for my facility", "set up my agent", "create a deployment for my system",
+  "interview me", "onboard me", or needs an OSPREY project tailored to their control
+  system. Also handles migration from existing OSPREY projects (including
+  LangGraph-era projects): "migrate my project", "I have an existing project",
+  "upgrade from old OSPREY", "bring my project forward". Resume a previous run by
+  invoking this skill inside a deployment repo that contains an INTERVIEW.md.
 ---
 
-# OSPREY Install
+# OSPREY Setup
 
 You are helping someone who may not know OSPREY install it and set up a deployment for
 their facility. Two questions, then four gated phases — DISCOVER, MAP, BUILD, CLOSE —

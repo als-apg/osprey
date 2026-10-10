@@ -15,7 +15,7 @@ That surface carries obligations of its own:
   line hold the deployment to ``emit`` → ``verify`` → ``osprey build``: a tree
   ``emit`` has not written is refused by the name of every file it is missing,
   and a run that succeeds sends the reader to ``osprey build`` next;
-- **the report's shape** -- its six sections in the order the install skill
+- **the report's shape** -- its six sections in the order the setup skill
   walks a reviewer through them, a Verdict whose counts and percentage are the
   ones the command computed and printed, an orbit-response table that says of
   every block whether it carries a verdict and accounts for every entry the
@@ -69,7 +69,7 @@ pytest.importorskip("linkml_runtime")
 #: virtual accelerator for this verb to hold anything against.
 ONE_ZERO = FIXTURES / "paired"
 
-#: The report, relative to the deployment repo: where the install skill sends a
+#: The report, relative to the deployment repo: where the setup skill sends a
 #: reviewer between ``emit`` and ``osprey build``.
 REPORT = Path("data") / "mml" / REPORT_FILENAME
 
