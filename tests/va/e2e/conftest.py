@@ -180,9 +180,10 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
       :data:`STRING_NOMINAL`, so the served view holds a string channel the
       texture owns beside the physics model's status channel.
 
-    The shared container serves monitors without their declared motion, so a
-    suite whose oracle is the noiseless model reads the solved orbit; a caller
-    that needs the declared motion renders with ``still_monitors=False``.
+    The shared container serves monitors without their declared motion: the
+    scratch tree's ``nominal`` scenario stills them, so every container and
+    every applied set serves them still. A caller that needs the declared
+    motion renders with ``still_monitors=False``.
 
     Rendered rather than layered on with extra bind mounts because a bind
     mount INTO a read-only mount cannot create its own mountpoint: the runtime
@@ -192,8 +193,7 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
-    from osprey_connectors.simulation.view import VIEW_RELPATH
-    from tests.e2e._monitor_motion import still_monitor_motion
+    from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 
     with tempfile.TemporaryDirectory(prefix="osprey-va-e2e-facility-") as scratch:
         facility = Path(scratch) / "facility"
@@ -254,8 +254,12 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
             )
         with (facility / "seeds.yaml").open("a", encoding="utf-8") as seeds:
             seeds.write(yaml.safe_dump({STRING_CHANNEL: {"nominal": STRING_NOMINAL}}))
-        if still_monitors:
-            still_monitor_motion(Path(scratch))
+        monitors = _monitor_addresses(facility) if still_monitors else []
+        if monitors:
+            nominal = facility / "scenarios" / "nominal.yaml"
+            scenario = yaml.safe_load(nominal.read_text(encoding="utf-8")) or {}
+            scenario["still"] = monitors
+            nominal.write_text(yaml.safe_dump(scenario, sort_keys=False), encoding="utf-8")
         doc = build_facility(facility, project_name="control_assistant")
         write_simulator_view(
             root / VIEW_RELPATH.name,
@@ -267,7 +271,39 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
                 reported=None,
             ),
         )
+    view = SimulatorView.open(root / VIEW_RELPATH.name)
+    moving = {address for address in monitors if view.motion_envelope(address) != 0.0}
+    assert not moving, f"the nominal scenario leaves these monitors moving: {sorted(moving)}"
     return root
+
+
+def _monitor_addresses(facility: Path) -> list[str]:
+    """The monitor readings the facility's models wire, sorted.
+
+    A monitor reading is an address whose wiring record in ``models.yaml``
+    the model's engine describes as a ``monitor``, or as an ``output`` of one
+    plane (a tune or a chromaticity). The source states no direction, so each
+    record is described as a reading; a setting record then describes as its
+    readback and is not one.
+    """
+    from importlib import metadata
+
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.view import TEXTURE
+
+    models = yaml.safe_load((facility / "models.yaml").read_text(encoding="utf-8")) or []
+    monitors: set[str] = set()
+    for model in models:
+        if model.get("engine") == TEXTURE or not model.get("wiring"):
+            continue
+        describe = metadata.entry_points(group=ENTRY_POINT_GROUP)[str(model["engine"])].load()
+        for record in model["wiring"]:
+            described = describe.describe({**record, "direction": "read"})
+            if described["role"] == "monitor" or (
+                described["role"] == "output" and described["plane"] is not None
+            ):
+                monitors.add(str(record["address"]))
+    return sorted(monitors)
 
 
 def data_root_run_args(data_root: Path) -> tuple[str, ...]:
