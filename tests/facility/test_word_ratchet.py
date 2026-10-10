@@ -323,6 +323,7 @@ ENGINE_ZONES: dict[str, str] = {
     "src/osprey/interfaces/lattice_dashboard/state.py": "walks the pyAT elements of a deck",
     "src/osprey/interfaces/lattice_dashboard/workers/**": "walk the pyAT elements of a deck",
     "src/osprey/mcp_server/phoebus/tools/databrowser_tools.py": "Phoebus's own plot axis key",
+    "scripts/facility_demo/**": "the demo generator authors the example facility's decks in the engine's format",
 }
 
 
