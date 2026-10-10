@@ -366,7 +366,7 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"name": "DIPOLE01", "section": "SECT1"},
+    parameters={"name": "SR/DIPOLE01", "section": "SECT1"},
 )
 
 _BY_ADDRESS = ExampleQuery(

@@ -74,7 +74,7 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 DEMO_BINDING_PV = "SR:MAG:DIPOLE:01:CURRENT:SP"
 
 #: A demo device, addressed the way the shipped Cypher examples address one.
-DEMO_DEVICE_NAME = "BPM01"
+DEMO_DEVICE_NAME = "SR/BPM01"
 DEMO_DEVICE_SECTION = "SECT1"
 
 #: The SYSTEM token that device carries.  A monitor on purpose: SYSTEM is the

@@ -12,8 +12,7 @@ The parity tests hold the hierarchical and middle-layer views, called as pure
 functions on the shared control-assistant build's facility file, to those
 copies: the same address set less the declared fingerprint additions, the
 machine, system and family descriptions reachable, every benchmark target
-indexed, each copy's Family with an equal ``DeviceList``, and no fewer
-benchmark queries answerable by whole index cells than the copies answer. The in_context view,
+indexed, and no fewer benchmark queries answerable by whole index cells than the copies answer. The in_context view,
 called the same way, holds the in_context golden's address set, and every
 in_context benchmark target is one of its rows. Each query file is checked
 against the indexes its pipeline scores.
@@ -23,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from functools import cache
@@ -487,11 +487,59 @@ def test_every_in_context_benchmark_target_is_an_in_context_row(
         assert set(query["targeted_pv"]) <= rows, query["user_query"]
 
 
+def _digit_key(text: str) -> list[tuple[int, int | str]]:
+    """``text`` split into digit runs compared as numbers and other runs compared as text."""
+    return [(0, int(run)) if run.isdigit() else (1, run) for run in re.split(r"(\d+)", text) if run]
+
+
+def _derived_device_lists(facility: dict[str, Any]) -> dict[tuple[str, str], list[list[int]]]:
+    """Each (System, group id)'s ``DeviceList``, derived from the places and the members' ``s``."""
+    lowest: dict[str, float] = {}
+    for device in facility["devices"]:
+        parts = str(device.get("place") or "").split("/")
+        for depth in range(1, len(parts) + 1):
+            if "s" in device and parts[0]:
+                key = "/".join(parts[:depth])
+                lowest[key] = min(lowest.get(key, device["s"]), device["s"])
+    siblings: dict[tuple[str, Any], list[str]] = defaultdict(list)
+    for place in facility["places"]:
+        if "/" in place["id"]:
+            siblings[(place["id"].rsplit("/", 1)[0], place.get("level"))].append(place["id"])
+    index: dict[str, int] = {}
+    for ids in siblings.values():
+        ranked = sorted(ids, key=lambda i: (i not in lowest, lowest.get(i, 0.0), _digit_key(i)))
+        index.update({i: n for n, i in enumerate(ranked, 1) if len(ids) > 1})
+    devices = {device["id"]: device for device in facility["devices"]}
+    out: dict[tuple[str, str], list[list[int]]] = {}
+    for group in facility["groups"]:
+        by_system: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for member in group["members"]:
+            device = devices[member]
+            by_system[str(device.get("place") or "-").split("/")[0]].append(device)
+        for system, members in by_system.items():
+            members.sort(key=lambda d: (d.get("s") is None, d.get("s", 0.0), d["id"]))
+            seen: dict[str, int] = defaultdict(int)
+            rows = []
+            for n, device in enumerate(members, 1):
+                place = device.get("place")
+                if place in index:
+                    seen[place] += 1
+                    rows.append([index[place], seen[place]])
+                else:
+                    rows.append([n, 1])
+            out[(system, group["id"])] = rows
+    return out
+
+
 @pytest.mark.slow
-def test_every_pre_line_family_keeps_its_device_list(middle_layer_view: dict[str, Any]) -> None:
-    for system, family, golden in middle_layer_families(pre_line_index("middle_layer")):
-        view = middle_layer_view[system][family]["_setup"]["DeviceList"]
-        assert view == golden["_setup"]["DeviceList"], (system, family)
+def test_every_pre_line_family_s_device_list_is_derived_from_places(
+    built_control_assistant: BuiltProject, middle_layer_view: dict[str, Any]
+) -> None:
+    derived = _derived_device_lists(built_control_assistant.facility)
+    for system, family, _golden in middle_layer_families(pre_line_index("middle_layer")):
+        setup = middle_layer_view[system][family]["_setup"]
+        assert len(setup["DeviceList"]) == len(setup["CommonNames"]), (system, family)
+        assert setup["DeviceList"] == derived[(system, f"{system}/{family}")], (system, family)
 
 
 @pytest.mark.slow
