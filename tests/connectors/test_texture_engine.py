@@ -423,18 +423,47 @@ _COUPLING = [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]
 
 
 @pytest.mark.parametrize(
-    ("value_type", "seed", "couple", "noise", "expected"),
+    ("value_type", "seed", "couple", "noise", "stilled", "expected"),
     [
-        ("int", {"nominal": 1, "noise": {"absolute": 0.5}}, _COUPLING, {}, False),
-        ("float", {"nominal": 1.0}, None, {}, False),
-        ("float", {"nominal": 1.0, "drift": {"amplitude": 1.0, "period_s": 600}}, None, {}, True),
-        ("float", {"nominal": 1.0}, _COUPLING, {}, True),
-        ("float", {"nominal": 1.0, "noise": {"absolute": 0.5}}, None, {}, True),
-        ("float", {"nominal": 1.0, "noise": {"absolute": 0.5}}, None, {"absolute": 0.0}, False),
-        ("float", {"nominal": 1.0, "noise": {"absolute": 0.5}}, None, {"relative": 0.0}, False),
-        ("float", {"nominal": 1.0, "noise": {"absolute": 0.0}}, None, {}, False),
-        ("float", {"nominal": 1.0, "noise": {"relative": 0.5}}, None, {}, True),
-        ("float", {"nominal": 1.0}, None, {"absolute": 0.2}, True),
+        ("int", {"nominal": 1, "noise": {"absolute": 0.5}}, _COUPLING, {}, False, False),
+        ("float", {"nominal": 1.0}, None, {}, False, False),
+        (
+            "float",
+            {"nominal": 1.0, "drift": {"amplitude": 1.0, "period_s": 600}},
+            None,
+            {},
+            False,
+            True,
+        ),
+        ("float", {"nominal": 1.0}, _COUPLING, {}, False, True),
+        ("float", {"nominal": 1.0, "noise": {"absolute": 0.5}}, None, {}, False, True),
+        (
+            "float",
+            {"nominal": 1.0, "noise": {"absolute": 0.5}},
+            None,
+            {"absolute": 0.0},
+            False,
+            False,
+        ),
+        (
+            "float",
+            {"nominal": 1.0, "noise": {"absolute": 0.5}},
+            None,
+            {"relative": 0.0},
+            False,
+            False,
+        ),
+        ("float", {"nominal": 1.0, "noise": {"absolute": 0.0}}, None, {}, False, False),
+        ("float", {"nominal": 1.0, "noise": {"relative": 0.5}}, None, {}, False, True),
+        ("float", {"nominal": 1.0}, None, {"absolute": 0.2}, False, True),
+        (
+            "float",
+            {"nominal": 1.0, "noise": {"absolute": 0.5}, "drift": {"amplitude": 1, "period_s": 6}},
+            _COUPLING,
+            {"absolute": 0.2},
+            True,
+            False,
+        ),
     ],
     ids=[
         "non-float",
@@ -447,14 +476,19 @@ _COUPLING = [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]
         "zero-absolute-seed",
         "relative-seed",
         "replacement-noise",
+        "stilled",
     ],
 )
-def test_has_motion_mirrors_motion(value_type, seed, couple, noise, expected):
+def test_has_motion_mirrors_motion(value_type, seed, couple, noise, stilled, expected):
     variables, seeds = _view()
     variables["channels"].append(_channel("T:X", value_type=value_type))
     seeds["seeds"]["T:X"] = seed
     model = TextureModel(variables, seeds, clock=lambda: T0)
-    model.set_motion({"T:X": couple} if couple else {}, {"T:X": noise} if noise else {})
+    model.set_motion(
+        {"T:X": couple} if couple else {},
+        {"T:X": noise} if noise else {},
+        still=frozenset({"T:X"}) if stilled else frozenset(),
+    )
     times = T0 + np.arange(0.0, 50.0, 0.37)
 
     moved = bool(np.any(model.motion("T:X", times, base=1.0) != 0.0))
@@ -475,6 +509,52 @@ def test_has_motion_follows_set_motion():
     model.set_motion({}, {"T:CLAMPED": {"relative": 0.0}})
     assert model.has_motion("T:A") is False
     assert model.has_motion("T:CLAMPED") is False
+
+
+def _reads(model: TextureModel, clock: list[float], address: str) -> list[float]:
+    values = []
+    for step in range(32):
+        clock[0] = T0 + 0.25 * step
+        values.append(model.get(address))
+    return values
+
+
+def _clocked() -> tuple[TextureModel, list[float]]:
+    variables, seeds = _view()
+    clock = [T0]
+    return TextureModel(variables, seeds, clock=lambda: clock[0]), clock
+
+
+def test_a_stilled_reading_serves_its_held_value():
+    model, clock = _clocked()
+    model.set_motion({}, {}, still=frozenset({"T:NOISY", "T:CLAMPED"}))
+
+    assert set(_reads(model, clock, "T:NOISY")) == {10.0}
+    assert set(_reads(model, clock, "T:CLAMPED")) == {3.0}
+    assert not np.any(model.motion("T:NOISY", T0 + np.arange(8.0)))
+    assert model.has_motion("T:NOISY") is False
+
+
+def test_still_all_stills_every_float_reading():
+    model, clock = _clocked()
+    model.set_motion(
+        {"T:ZERO": [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]},
+        {"T:HEAT:RB": {"absolute": 1.0}},
+        still_all=True,
+    )
+
+    for address in ("T:NOISY", "T:CLAMPED", "T:ZERO", "T:HEAT:RB", "P:SERVED:RB"):
+        assert model.has_motion(address) is False
+        assert not np.any(model.motion(address, T0 + np.arange(8.0), base=1.0))
+    assert set(_reads(model, clock, "T:NOISY")) == {10.0}
+
+
+def test_an_unstilled_reading_keeps_its_samples():
+    plain, plain_clock = _clocked()
+    stilled, stilled_clock = _clocked()
+    stilled.set_motion({}, {}, still=frozenset({"T:CLAMPED"}))
+
+    assert _reads(stilled, stilled_clock, "T:NOISY") == _reads(plain, plain_clock, "T:NOISY")
 
 
 def test_active_writes_are_the_start_state_a_reset_returns_to():

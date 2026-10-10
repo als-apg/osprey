@@ -23,7 +23,8 @@ through :meth:`TextureModel.set_motion`: a coupled channel adds
 ``gain * (1 + gain_wander(t)) * driver(t)`` per coupling, where every channel
 coupled to one driver sees the same ``driver(t)``, and a scenario's noise
 record stands in for the seed's while it is held, drawing from its own
-stream.
+stream. A reading the active scenarios still serves its held value: no drift,
+couplings or noise.
 """
 
 from __future__ import annotations
@@ -208,6 +209,8 @@ class TextureModel(LUMEModel):
         self._held: dict[str, Any] = {}
         self._couple: dict[str, list[Mapping[str, Any]]] = {}
         self._noise: dict[str, Mapping[str, Any]] = {}
+        self._still: frozenset[str] = frozenset()
+        self._still_all = False
         self._active: dict[str, Any] = {}
         self.reset()
 
@@ -301,6 +304,9 @@ class TextureModel(LUMEModel):
         self,
         couple: Mapping[str, Sequence[Mapping[str, Any]]],
         noise: Mapping[str, Mapping[str, Any]],
+        *,
+        still: frozenset[str] = frozenset(),
+        still_all: bool = False,
     ) -> None:
         """Hold the active scenarios' motion until the next call.
 
@@ -312,9 +318,16 @@ class TextureModel(LUMEModel):
             noise: Noise records by address, each ``{absolute: <sigma>}`` or
                 ``{relative: <fraction>}``, standing in for the seed's.
                 Empty for the seeds' noise.
+            still: Addresses served without motion.
+            still_all: Every address is served without motion.
         """
         self._couple = {str(address): list(terms) for address, terms in couple.items()}
         self._noise = {str(address): dict(entry) for address, entry in noise.items()}
+        self._still = frozenset(str(address) for address in still)
+        self._still_all = still_all
+
+    def _stilled(self, address: str) -> bool:
+        return self._still_all or address in self._still
 
     def motion(self, address: str, t_s: Any, base: Any = 0.0) -> np.ndarray:
         """The motion of a channel at absolute epoch seconds.
@@ -333,13 +346,13 @@ class TextureModel(LUMEModel):
 
         Returns:
             A float64 array with the shape of ``t_s``; zero for a channel
-            without motion or not of type float.
+            without motion, stilled, or not of type float.
         """
         times = np.asarray(t_s, dtype=np.float64)
         flat = times.reshape(-1)
         total = np.zeros(flat.shape, dtype=np.float64)
         channel = self._channels.get(address)
-        if channel is None or not is_float_channel(channel):
+        if channel is None or not is_float_channel(channel) or self._stilled(address):
             return total.reshape(times.shape)
         seed = self._seeds.get(address) or {}
         key = series.channel_key_bytes(address)
@@ -363,11 +376,12 @@ class TextureModel(LUMEModel):
     def has_motion(self, address: str) -> bool:
         """Whether :meth:`motion` can be non-zero for *address*.
 
-        True exactly for a float channel with seed drift, a held coupling, or
-        a non-zero noise term under the held motion.
+        True exactly for a float channel the held motion does not still, with
+        seed drift, a held coupling, or a non-zero noise term under the held
+        motion.
         """
         channel = self._channels.get(address)
-        if channel is None or not is_float_channel(channel):
+        if channel is None or not is_float_channel(channel) or self._stilled(address):
             return False
         if self._couple.get(address):
             return True

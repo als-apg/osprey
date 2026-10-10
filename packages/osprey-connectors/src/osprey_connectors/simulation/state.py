@@ -239,7 +239,7 @@ def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
     still = scenario.get("still")
     if still == _STILL_ALL:
         targets.add(_STILLS_ALL)
-    elif isinstance(still, list):
+    elif still and not isinstance(still, str):
         targets.update(_STILLS + str(address) for address in still)
     return targets
 
