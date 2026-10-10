@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 from pathlib import Path
 from typing import Any
@@ -371,34 +372,20 @@ class TestRead:
 
 
 class TestRoles:
-    def test_write_is_a_setpoint_paired_with_the_monitor(self) -> None:
+    def test_write_is_a_setpoint_and_read_a_readback(self) -> None:
         roles = field_roles(parse_mapping(_document()))
-        assert roles["QF.Setpoint"] == FieldRole(role="setpoint", pair="Monitor")
-        assert roles["QF.Monitor"] == FieldRole(role="readback", pair=None)
-        assert roles["BPMx.Monitor"] == FieldRole(role="readback", pair=None)
+        assert roles["QF.Setpoint"] == FieldRole(role="setpoint")
+        assert roles["QF.Monitor"] == FieldRole(role="readback")
+        assert roles["BPMx.Monitor"] == FieldRole(role="readback")
 
-    def test_a_setpoint_without_a_monitor_is_its_own_pair(self) -> None:
-        document = _document()
-        del document["directions"]["QF.Monitor"]
-        roles = field_roles(parse_mapping(document))
-        assert roles["QF.Setpoint"] == FieldRole(role="setpoint", pair=None)
+    def test_field_roles_carry_no_pair(self) -> None:
+        assert [field.name for field in dataclasses.fields(FieldRole)] == ["role"]
 
-    def test_only_the_setpoint_field_takes_the_monitor(self) -> None:
-        document = _document()
-        document["directions"]["QF.Desired"] = {
-            "direction": "write",
-            "provenance": "stated",
-            "override": False,
-        }
-        roles = field_roles(parse_mapping(document))
-        assert roles["QF.Desired"] == FieldRole(role="setpoint", pair=None)
-        assert roles["QF.Setpoint"] == FieldRole(role="setpoint", pair="Monitor")
-
-    def test_a_written_monitor_is_no_pair(self) -> None:
+    def test_a_written_monitor_is_a_setpoint(self) -> None:
         document = _document()
         document["directions"]["QF.Monitor"]["direction"] = "write"
         roles = field_roles(parse_mapping(document))
-        assert roles["QF.Setpoint"] == FieldRole(role="setpoint", pair=None)
+        assert roles["QF.Monitor"] == FieldRole(role="setpoint")
 
     def test_a_null_direction_stops_the_import(self) -> None:
         document = _document()
@@ -1005,6 +992,19 @@ class TestDraft:
         mapping = parse_mapping(draft_mapping(ao))
         assert mapping.families["QF"].fields["Setpoint"].signal == "current_setpoint"
         assert check_mapping(mapping, ao) == []
+
+    def test_two_write_current_fields_draft_no_signal(self) -> None:
+        ao = _typed_export()
+        ao["SR"]["QF"]["Setpoint"]["HWUnits"] = "A"
+        ao["SR"]["QF"]["Monitor"]["HWUnits"] = "A"
+        ao["SR"]["QF"]["Desired"] = {"HWUnits": "A", "MemberOf": ["Setpoint"]}
+        ao["SR"]["QF"]["Desired"]["ChannelNames"] = ["QF1:D", "QF2:D", "QF3:D", "QF4:D"]
+        document = draft_mapping(ao)
+        assert document["directions"]["QF.Desired"]["direction"] == "write"
+        fields = document["families"]["QF"]["fields"]
+        assert fields["Setpoint"]["signal"] is None
+        assert fields["Desired"]["signal"] is None
+        assert fields["Monitor"]["signal"] == "current_readback"
 
     def test_a_field_the_export_does_not_decide_drafts_no_signal_role(self) -> None:
         ao = _typed_export()

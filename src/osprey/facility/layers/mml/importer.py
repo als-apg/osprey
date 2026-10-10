@@ -19,16 +19,16 @@ What is written, relative to ``data/facility/``:
   ``devices`` answer says where the export names none, slots naming one
   device being one record; typed by the mapping's family ``class`` (the nearest class
   every such family's class descends from); its ``label`` is the export's
-  ``CommonNames`` slot, and it carries no ``attributes``.
+  ``CommonNames`` slot, its ``s`` the export's ``Position`` slot with its
+  ``model``, where the family states a finite one per device, and it carries
+  no ``attributes``.
 * ``imported/mml/channels.yaml``: one channel per address, ``on`` the one
   device that binds it, or, bound by several, naming each in ``endpoint_of``
   and ``on`` none; its ``role`` follows the field's direction
   (:func:`~osprey.facility.layers.mml.mapping.field_roles`): an address any
-  ``write`` field names is a setpoint, whichever field named it first. A
-  setpoint that reads back through its family's ``Monitor`` names that
-  device's ``Monitor`` address as its ``pair``, unless that address reads back
-  several setpoints of the field, when it pairs none. A field the mapping
-  gives a ``signal`` role writes it on each of its channels. A channel's
+  ``write`` field names is a setpoint, whichever field named it first. No
+  channel carries a ``pair``: the build pairs each setpoint. A field the
+  mapping gives a ``signal`` role writes it on each of its channels. A channel's
   description is ``<device>: <field sentence>``, the device named by its
   label, else its id, and a shared endpoint by each of its devices.
 * ``imported/mml/groups.yaml``: one group per physical family, id the family's
@@ -155,7 +155,6 @@ _CHANNEL_KEYS = (
     "endpoint_of",
     "on",
     "role",
-    "pair",
     "tolerance",
     "signal",
     "value_type",
@@ -481,7 +480,8 @@ def _write_records(
     export_rows: list[dict[str, Any]] = []
     for view, slot_ids in zip(views, ids, strict=True):
         family = mapping.families[view.raw_name]
-        for device_id, device in zip(slot_ids, _devices(view, family.class_), strict=True):
+        model = systems[view.system]
+        for device_id, device in zip(slot_ids, _devices(view, family.class_, model), strict=True):
             _add_device(devices, device_id, device, branches)
     for view, slot_ids in zip(views, ids, strict=True):
         for device_id, row in zip(slot_ids, _export_rows(view), strict=True):
@@ -569,12 +569,14 @@ def _integer(value: Any) -> int | None:
     return None
 
 
-def _devices(view: FamilyView, klass: str | None) -> Iterable[dict[str, Any]]:
+def _devices(view: FamilyView, klass: str | None, model: str) -> Iterable[dict[str, Any]]:
     """The fields of each device of one family, in device order.
 
-    A device's ``label`` is its ``CommonNames`` entry.
+    A device's ``label`` is its ``CommonNames`` entry; a device whose
+    ``Position`` slot holds a finite number carries it as ``s`` in ``model``.
     """
     names = view.aligned("CommonNames")
+    positions = view.aligned("Position")
     for index in range(view.n_devices):
         device: dict[str, Any] = {}
         if klass is not None:
@@ -582,6 +584,10 @@ def _devices(view: FamilyView, klass: str | None) -> Iterable[dict[str, Any]]:
         name = _text(names[index]) if names is not None else None
         if name is not None:
             device["label"] = name
+        s = exported_number(positions[index]) if positions is not None else None
+        if s is not None:
+            device["model"] = model
+            device["s"] = s
         yield device
 
 
@@ -606,8 +612,8 @@ def _add_device(
 ) -> None:
     """Record one slot's device, or fold it into the device its id already names.
 
-    The first slot's label stands; the class is the nearest one every slot's
-    family class descends from, absent when they share none.
+    The first slot's label, model and s stand; the class is the nearest one
+    every slot's family class descends from, absent when they share none.
     """
     found = devices.get(device_id)
     if found is None:
@@ -617,7 +623,7 @@ def _add_device(
     merged: dict[str, Any] = {"id": device_id}
     if klass is not None:
         merged["class"] = klass
-    for key in ("label",):
+    for key in ("label", "model", "s"):
         value = found.get(key, device.get(key))
         if value is not None:
             merged[key] = value
@@ -669,8 +675,8 @@ def _channels(
     An address one device binds is ``on`` it; an address several devices bind
     names each in ``endpoint_of`` and belongs to no device. An address a
     ``write`` field names is a setpoint: when an earlier field wrote its
-    channel as anything else, the channel takes the setpoint role, its pair
-    and the write field's unit, tolerance and description, and keeps the rest.
+    channel as anything else, the channel takes the setpoint role and the
+    write field's signal, unit, tolerance and description, and keeps the rest.
     A setpoint takes its ``tolerance`` from the write field's ``Tolerance``
     in the field's unit; one whose export states no usable tolerance is added
     to ``untoleranced``. A channel is described as ``<owner>: <field
@@ -682,24 +688,16 @@ def _channels(
         described = family.fields.get(fld.name)
         description = described.description if described is not None else None
         signal = described.signal if described is not None else None
-        paired = view.fields.get(role.pair) if role is not None and role.pair else None
-        shared = _shared_pairs(fld, paired, view.n_devices)
         for key in fld.keys:
-            pairs = paired.slots(key) if paired is not None and key in paired.keys else []
             for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
                 address = _text(slot)
                 if address is None:
                     continue
                 writes = role is not None and role.role == SETPOINT_ROLE
-                pair = _text(pairs[index]) if index < len(pairs) else None
-                if pair in shared:
-                    pair = None
                 found = channels.get(address)
                 if found is not None:
                     if writes and found.get("role") != SETPOINT_ROLE:
                         found["role"] = SETPOINT_ROLE
-                        if pair is not None and pair != address:
-                            found["pair"] = pair
                         if signal is not None:
                             found["signal"] = signal
                         unit = _field_scalar(fld, "HWUnits", index, view.n_devices)
@@ -724,8 +722,6 @@ def _channels(
                     channel["on"] = {"device": bound[0]}
                 if role is not None:
                     channel["role"] = role.role
-                    if writes and pair is not None and pair != address:
-                        channel["pair"] = pair
                 if signal is not None:
                     channel["signal"] = signal
                 unit = _field_scalar(fld, "HWUnits", index, view.n_devices)
@@ -751,21 +747,6 @@ def _described(channel: dict[str, Any], sentence: str, devices: dict[str, dict[s
     owned = [on["device"]] if on.get("device") else list(channel.get("endpoint_of") or [])
     owner = ", ".join(str(devices.get(d, {}).get("label") or d) for d in owned)
     return f"{owner}: {sentence}" if owner else sentence
-
-
-def _shared_pairs(fld: FieldView, paired: FieldView | None, devices: int) -> set[str]:
-    """The addresses of ``paired`` that read back more than one address of ``fld``."""
-    if paired is None:
-        return set()
-    read: dict[str, set[str]] = {}
-    for key in fld.keys:
-        if key not in paired.keys:
-            continue
-        for slot, back in zip(fld.slots(key)[:devices], paired.slots(key), strict=False):
-            address, pair = _text(slot), _text(back)
-            if address is not None and pair is not None and pair != address:
-                read.setdefault(pair, set()).add(address)
-    return {pair for pair, addresses in read.items() if len(addresses) > 1}
 
 
 def _tune_channels(tune: TuneBlock | None, channels: dict[str, dict[str, Any]]) -> None:

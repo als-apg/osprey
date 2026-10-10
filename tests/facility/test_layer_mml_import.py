@@ -11,6 +11,7 @@ import json
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ import yaml
 from osprey.facility.layers.mml.importer import LAYER_DIR, MappingProblems, import_mml
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop
 from osprey.facility.validate import run_stages
+from tests.facility._mml_built import BuiltModel
 from tests.facility.test_word_ratchet import OUTSIDE_FORMAT_FILES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -142,16 +144,109 @@ def test_each_family_is_a_group_of_its_devices(spear3: Path) -> None:
     assert hcm["description"]
 
 
-def test_a_setpoint_pairs_with_its_family_monitor(spear3: Path) -> None:
+def _built(mml_built: Callable[[str, str], BuiltModel], tree: str) -> dict[str, Any]:
+    """The tree's facility file, built once per session."""
+    return mml_built(tree, TREES[tree][0]).document
+
+
+@pytest.mark.xdist_group("mml_built")
+def test_the_build_pairs_a_setpoint_with_its_monitor(
+    spear3: Path, mml_built: Callable[[str, str], BuiltModel]
+) -> None:
     ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
-    channels = _by_id(_rows(spear3, "channels.yaml"))
+    imported = _by_id(_rows(spear3, "channels.yaml"))
     setpoint = ao["HCM"]["Setpoint"]["ChannelNames"][0].strip()
     monitor = ao["HCM"]["Monitor"]["ChannelNames"][0].strip()
-    assert channels[setpoint]["role"] == "setpoint"
-    assert channels[setpoint]["pair"] == monitor
-    assert channels[setpoint]["on"] == {"device": f"StorageRing/{ao['HCM']['CommonNames'][0]}"}
-    assert channels[monitor]["role"] == "readback"
-    assert "pair" not in channels[monitor]
+    assert imported[setpoint]["role"] == "setpoint"
+    assert "pair" not in imported[setpoint]
+    assert imported[setpoint]["on"] == {"device": f"StorageRing/{ao['HCM']['CommonNames'][0]}"}
+    assert imported[monitor]["role"] == "readback"
+    built = _by_id(_built(mml_built, "spear3")["channels"])
+    assert built[setpoint]["pair"] == monitor
+    assert "pair" in built[setpoint]["provenance"]["defaults"]
+
+
+@pytest.mark.xdist_group("mml_built")
+def test_a_two_coil_corrector_pairs_each_coil_with_its_own_readback(
+    mml_built: Callable[[str, str], BuiltModel],
+) -> None:
+    channels = _by_id(_built(mml_built, "nsls2")["channels"])
+    coil = "SR:C02-MG{PS:CH1A}I:"
+    for setpoint, readback in (("Sp1-SP", "Ps1DCCT1-I"), ("Sp2-SP", "Ps2DCCT1-I")):
+        channel = channels[coil + setpoint]
+        assert channel["on"] == {"device": "StorageRing/ch1g2c02a"}
+        assert channel["pair"] == coil + readback
+        assert "pair" in channel["provenance"]["defaults"]
+
+
+def _first_device(facility: Path, family: str) -> tuple[str, float]:
+    """The device of a spear3 family's first export row, and that row's ``Position``."""
+    from osprey.facility.layers.mml.rows import read_rows
+
+    ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
+    row = tuple(ao[family]["DeviceList"][0])
+    return read_rows(facility)["StorageRing", family][row], ao[family]["Position"][0]
+
+
+@pytest.mark.xdist_group("mml_built")
+def test_a_device_carries_the_exports_position(
+    spear3: Path, mml_built: Callable[[str, str], BuiltModel]
+) -> None:
+    device_id, position = _first_device(spear3, "IonGauge")
+    imported = _by_id(_rows(spear3, "devices.yaml"))[device_id]
+    assert (imported["s"], imported["model"]) == (position, "StorageRing")
+    built = _by_id(_built(mml_built, "spear3")["devices"])[device_id]
+    assert built["s"] == position
+    assert "place" not in built
+    assert "ordinalInModel" in built
+    assert "s" not in built["provenance"]["defaults"]
+
+
+@pytest.mark.xdist_group("mml_built")
+@pytest.mark.parametrize(("tree", "count"), [("spear3", 509), ("nsls2", 817)])
+def test_every_wired_position_agrees_with_the_deck(
+    tree: str, count: int, mml_built: Callable[[str, str], BuiltModel]
+) -> None:
+    """A wired device's stated ``s`` agrees with its deck, else the build stops."""
+    model = mml_built(tree, TREES[tree][0])
+    built = _by_id(model.document["devices"])
+    wired = _wired_devices(model.document)
+    stated = {
+        row["id"]: row["s"]
+        for row in _rows(model.facility, "devices.yaml")
+        if "s" in row and row["id"] in wired
+    }
+    assert len(stated) == count
+    assert {device: built[device]["s"] for device in stated} == stated
+
+
+@pytest.mark.xdist_group("mml_built")
+@pytest.mark.parametrize(("tree", "count"), [("spear3", 142), ("nsls2", 246)])
+def test_unwired_devices_gain_s(
+    tree: str, count: int, mml_built: Callable[[str, str], BuiltModel]
+) -> None:
+    document = _built(mml_built, tree)
+    wired = _wired_devices(document)
+    assert wired
+    assert len([d for d in document["devices"] if "s" in d and d["id"] not in wired]) == count
+
+
+def _wired_devices(document: dict[str, Any]) -> set[str]:
+    """The devices an element of some deck-bearing model's wiring belongs to."""
+    channels = {channel["id"]: channel for channel in document["channels"]}
+    wired: set[str] = set()
+    for model in document["models"]:
+        if "deck" not in model:
+            continue
+        for record in model.get("wiring", []):
+            on = channels.get(record["address"], {}).get("on") or {}
+            own = on.get("device")
+            if "element" in record and own is not None:
+                wired.add(own)
+            for piece in record.get("slices") or []:
+                if piece.get("device", own) is not None:
+                    wired.add(piece.get("device", own))
+    return wired
 
 
 def test_an_address_a_write_field_names_is_a_setpoint_whichever_field_named_it_first(
@@ -458,7 +553,10 @@ def test_a_readback_several_setpoints_share_pairs_none_of_them(tmp_path: Path) -
     import_mml([FIXTURES / "paired" / "quokka.ring.ao.json"], facility)
     channels = _by_id(_rows(facility, "channels.yaml"))
     assert channels["QK:R12:HCM:RB"]["endpoint_of"] == ["RING/hcm_1", "RING/hcm_2"]
+    result = run_stages(facility, project_name="demo")
+    assert not result.errors
+    built = _by_id(result.validated.document["channels"])
     for setpoint in ("QK:R1:HCM1:SP", "QK:R2:HCM1:SP"):
         assert channels[setpoint]["role"] == "setpoint"
         assert "pair" not in channels[setpoint], setpoint
-    assert not run_stages(facility, project_name="demo").errors
+        assert built[setpoint]["pair"] == setpoint

@@ -198,7 +198,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet.
         provenance: stated
-        signal: current_readback
+        signal: current_x_readback
       RBKL:
         description: Integrated kick readback per corrector (rad), the strength companion of Monitor.
         provenance: stated
@@ -208,7 +208,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet.
         provenance: stated
-        signal: current_setpoint
+        signal: current_x_setpoint
       Fault:
         description: Power-supply summary fault status per LTB device (boolean monitor).
         provenance: stated
@@ -228,7 +228,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet.
         provenance: stated
-        signal: current_readback
+        signal: current_y_readback
       RBKL:
         description: Integrated kick readback per corrector (rad), the strength companion of Monitor.
         provenance: stated
@@ -238,7 +238,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet.
         provenance: stated
-        signal: current_setpoint
+        signal: current_y_setpoint
       Fault:
         description: Power-supply summary fault status per LTB device (boolean monitor).
         provenance: stated
@@ -684,9 +684,11 @@ families:
       Monitor:
         description: Master-oscillator frequency readback (MHz).
         provenance: stated
+        signal: frequency_readback
       Setpoint:
         description: Master-oscillator frequency setpoint (MHz).
         provenance: stated
+        signal: frequency_setpoint
   TUNE:
     branch: Instrumentation
     class: TuneMonitor
