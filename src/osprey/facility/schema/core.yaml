@@ -282,7 +282,10 @@ classes:
         range: role_enum
         description: Absent means readback.
       pair:
-        description: The readback address of a setpoint; absent means the setpoint itself.
+        description: >-
+          The readback address of a setpoint. Absent, the build pairs the setpoint
+          with the one readback on the same device, place or nothing whose signal
+          names the same quantity, else with itself.
       tolerance:
         range: Tolerance
         inlined: true

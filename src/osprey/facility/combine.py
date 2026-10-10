@@ -12,7 +12,9 @@ the conflict check runs over what is left: two present unequal values on a
 field no ``set`` names stop the build (``layer-conflict``). Last, the schema
 defaults are filled and recorded in each record's provenance: a channel that
 states no description but names a signal is given one composed from its
-owner, its signal and its unit, recorded as a default.
+owner, its signal and its unit, recorded as a default; a setpoint that
+states no ``pair`` is paired by the rule of ``pairing.py``, else with itself,
+recorded as a default.
 
 ``fixes.yaml``::
 
@@ -47,6 +49,7 @@ import yaml
 
 from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
+from osprey.facility.pairing import derive_pairs
 from osprey.facility.provenance import build_provenance
 from osprey.facility.sources import AUTHORED, COMPUTED_SLOTS, Sources
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
@@ -682,10 +685,16 @@ class _Combiner:
     def _emit(self) -> dict[str, Any]:
         merged = {key: self._merged(record) for key, record in sorted(self.records.items())}
         devices = {rid: fields for (kind, rid), (fields, _) in merged.items() if kind == "device"}
-        for (kind, rid), (fields, defaults) in merged.items():
+        for (kind, _rid), (fields, defaults) in merged.items():
             if kind == "channel":
-                _channel_defaults(rid, fields, defaults)
+                _channel_defaults(fields, defaults)
                 _channel_description(fields, defaults, devices)
+        channels = {rid: fields for (kind, rid), (fields, _) in merged.items() if kind == "channel"}
+        derived = derive_pairs(channels)
+        for (kind, rid), (fields, defaults) in merged.items():
+            if kind == "channel" and fields["role"] == "setpoint" and "pair" not in fields:
+                fields["pair"] = derived.get(rid, rid)
+                defaults.add("pair")
         for (kind, rid), (fields, defaults) in merged.items():
             if kind == "wiring":
                 channel = merged.get(("channel", rid.partition("/")[2]))
@@ -736,7 +745,7 @@ class _Combiner:
         )
 
 
-def _channel_defaults(address: str, fields: dict[str, Any], defaults: set[str]) -> None:
+def _channel_defaults(fields: dict[str, Any], defaults: set[str]) -> None:
     """Fill a channel's schema defaults, each recorded as a default."""
     if "role" not in fields:
         fields["role"] = _ROLE
@@ -746,9 +755,6 @@ def _channel_defaults(address: str, fields: dict[str, Any], defaults: set[str]) 
         defaults.add("value_type")
     if "on" not in fields:
         defaults.add("on")
-    if fields["role"] == "setpoint" and "pair" not in fields:
-        fields["pair"] = address
-        defaults.add("pair")
     if fields["value_type"] == "bool" and "options" not in fields:
         fields["options"] = list(DEFAULT_BOOL_OPTIONS)
         defaults.add("options")

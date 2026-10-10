@@ -570,6 +570,7 @@ def _nominal_band(run: _Run) -> None:
                     setpoint,
                     theirs,
                     stating_files(channels[readback], "simulation", _MODELS_FILE),
+                    derived="pair" in channels[setpoint].get("provenance", {}).get("defaults", []),
                 )
             )
 
