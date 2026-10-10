@@ -2046,12 +2046,12 @@ describe('classifyQueueAddResponse', () => {
   test('cannot_execute falls back to the refusal sentence when no capability rides along', () => {
     expect(
       classifyQueueAddResponse(409, {
-        detail: { code: 'browse_only_connector', detail: 'the mock connector cannot move hardware' },
+        detail: { code: 'browse_only_connector', detail: 'This deployment serves the simulator in process, which speaks no Channel Access' },
       })
     ).toEqual({
       type: 'cannot_execute',
       reason: 'browse_only_connector',
-      detail: 'the mock connector cannot move hardware',
+      detail: 'This deployment serves the simulator in process, which speaks no Channel Access',
       // No capability record rode along, so no lane did either: the outcome
       // reports what it was told, and was told nothing about a lane.
       lane: null,
@@ -2171,7 +2171,12 @@ describe('queueOutcomeBanner', () => {
   });
 
   test('the cannot-execute banner carries the capability detail verbatim (it holds the flip command)', () => {
-    const detail = 'run `osprey set connector=virtual_accelerator` and redeploy.';
+    const detail =
+      'This deployment serves the simulator in process, which speaks no Channel Access, ' +
+      'so plans can be composed and validated but not executed. To execute plans, ' +
+      'serve it from its container ' +
+      '(`osprey set config.control_system.connector.virtual_accelerator.serving=served`) ' +
+      'and redeploy.';
     expect(
       queueOutcomeBanner({
         type: 'cannot_execute',
@@ -2214,7 +2219,11 @@ describe('classifyCapability', () => {
 
   test('a browse-only deployment keeps the flip command verbatim', () => {
     const detail =
-      'This deployment uses the mock connector … run `osprey set connector=virtual_accelerator` and redeploy.';
+      'This deployment serves the simulator in process, which speaks no Channel Access, ' +
+      'so plans can be composed and validated but not executed. To execute plans, ' +
+      'serve it from its container ' +
+      '(`osprey set config.control_system.connector.virtual_accelerator.serving=served`) ' +
+      'and redeploy.';
     expect(
       classifyCapability(200, {
         status: 'ok',
@@ -2325,7 +2334,12 @@ describe('capabilityBanner', () => {
   });
 
   test('the bridge sentence is shown verbatim — it carries the flip command', () => {
-    const detail = 'run `osprey set connector=virtual_accelerator` and redeploy.';
+    const detail =
+      'This deployment serves the simulator in process, which speaks no Channel Access, ' +
+      'so plans can be composed and validated but not executed. To execute plans, ' +
+      'serve it from its container ' +
+      '(`osprey set config.control_system.connector.virtual_accelerator.serving=served`) ' +
+      'and redeploy.';
     expect(capabilityBanner(cannot('browse_only_connector', detail))?.message).toBe(detail);
   });
 
