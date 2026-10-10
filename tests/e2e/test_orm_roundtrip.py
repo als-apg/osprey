@@ -32,9 +32,10 @@ queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
       row buffer is gone, the route can only answer from the Tiled catalog,
       and the figure it draws from there matches the one it drew live.
 
-No physics fault is seeded on this stack and every reading it serves --
-monitors and corrector readbacks alike -- serves without declared motion, so
-every BPM and corrector carries the identity error state.
+No physics fault is seeded on this stack and the stack starts in the ``still``
+scenario, so every reading it serves -- monitors and corrector readbacks alike
+-- serves without motion and every BPM and corrector carries the identity
+error state. No seed is edited.
 The measured/model agreement is therefore bounded only by AT numerical-solve
 reproducibility and the JSON/HTTP round trip, not a physical noise floor --
 see ``MATCH_ATOL``.
@@ -82,9 +83,10 @@ import yaml
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
+from osprey_connectors.simulation.state import STILL_SCENARIO, read_active_state
+from osprey_connectors.workspace import rendered_config_path, resolve_simulation_state_dir
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
-from tests.e2e._monitor_motion import MOTION_KEYS, still_model_motion
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
@@ -171,8 +173,8 @@ TILED_FIGURE_TIMEOUT_SEC = 60.0
 PARITY_RTOL = 1e-9
 PARITY_ATOL = 1e-12
 
-# No physics fault is seeded on this stack and its monitors serve without
-# declared motion (see module docstring), so there is no physical noise floor
+# No physics fault is seeded on this stack and it starts in the `still`
+# scenario (see module docstring), so there is no physical noise floor
 # to size this against. The bound below is float round-trip/AT numerical-solve
 # reproducibility margin, kept generous relative to the in-process figure
 # (4.9e-15 relative) to absorb the extra JSON/HTTP/container hop.
@@ -187,18 +189,29 @@ def _get(path: str) -> tuple[int, Any]:
 def _assert_selected_readings_still(
     repo: Path, correctors: dict[str, tuple[str, str]], bpms: dict[str, str]
 ) -> None:
-    """Fail before deploying if a reading this test compares still declares motion."""
-    seeds = yaml.safe_load((repo / "data" / "facility" / "seeds.yaml").read_text("utf-8")) or {}
+    """Fail before deploying if a reading this test compares moves under the `still` scenario."""
+    view = _orm_stack.repo_view(repo)
+    assert STILL_SCENARIO in {str(scenario["name"]) for scenario in view.scenarios()}, (
+        f"the staged view lists no {STILL_SCENARIO!r} scenario: rebuild the render"
+    )
     readings = sorted({rb for _, rb in correctors.values()} | set(bpms.values()))
     moving = {
-        address: sorted(key for key in MOTION_KEYS if key in (seeds.get(address) or {}))
+        address: band
         for address in readings
-        if any(key in (seeds.get(address) or {}) for key in MOTION_KEYS)
+        if (band := view.motion_envelope(address, active=(STILL_SCENARIO,))) != 0.0
     }
     assert not moving, (
-        f"selected readings still declare motion in the deployed seeds: {moving} -- the "
-        "oracle comparison and the corrector settle wait would both be measuring seed "
-        "motion, not the model"
+        f"selected readings still move under {STILL_SCENARIO!r}: {moving} -- the oracle "
+        "comparison and the corrector settle wait would both be measuring motion, not the model"
+    )
+
+
+def _assert_deployment_starts_still(repo: Path) -> None:
+    """Fail when the deployed stack's active set does not name the `still` scenario."""
+    config = yaml.safe_load(rendered_config_path(repo).read_text(encoding="utf-8")) or {}
+    names, _anchor = read_active_state(resolve_simulation_state_dir(config, repo))
+    assert STILL_SCENARIO in names, (
+        f"the deployment's active scenarios are {names}, not the {STILL_SCENARIO!r} start set"
     )
 
 
@@ -220,20 +233,17 @@ class DeployedOrmStack:
 def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedOrmStack]:
     base = tmp_path_factory.mktemp("orm_roundtrip_build")
 
-    def still_model(repo: Path) -> None:
-        # The oracle is the noiseless model (see MATCH_RTOL), and the plan
-        # settles on the corrector readbacks and fits against their setpoints,
-        # so every reading the model serves -- monitors and corrector readbacks
-        # alike -- serves without the drift and noise the facility's seeds give it.
-        still_model_motion(repo / "data")
-
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
     repo = _orm_stack.build_project_subprocess(
         PROJECT_NAME,
         output_dir=base,
         timeout=BUILD_TIMEOUT_SEC,
-        pre_build=still_model,
+        # The oracle is the noiseless model (see MATCH_RTOL), and the plan
+        # settles on the corrector readbacks and fits against their setpoints,
+        # so the stack starts in the `still` scenario: every reading serves
+        # without motion.
+        extra_config={"config": {"simulation.default_scenarios": [STILL_SCENARIO]}},
         # This module's own thousand-port block (see test_dispatch_deploy.py's
         # 20700 note): everything not pinned explicitly follows it instead of
         # landing on a real deployment's default 10000 block.
@@ -282,6 +292,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
             _queue_drive.wait_for_worker_environment(BRIDGE_URL)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
+        _assert_deployment_starts_still(repo)
         yield DeployedOrmStack(repo=repo, correctors=correctors, bpms=bpms)
     finally:
         down = subprocess.run(
@@ -767,7 +778,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     # deployed orm plan itself computes (plans_core/orm.py's build_plan), so
     # the model is driven identically to how the plan drove the real stack.
     # The plan kicks each corrector about its own pre-run working point; every
-    # reading this stack serves is stilled, so the VA's correctors idle at 0 A,
+    # reading this stack serves is still, so the VA's correctors idle at 0 A,
     # here those kicks ARE these absolute currents and the model needs no
     # offset of its own.
     step = (2 * SPAN_A) / (NUM_POINTS - 1)
