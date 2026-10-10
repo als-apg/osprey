@@ -216,11 +216,11 @@ class DictConnector(ControlSystemConnector):
 
 
 @pytest.fixture
-def guarded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Journal]:
-    """A journaled guarded run on ``live`` in a throwaway deployment repo, for the test.
+def guarded_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A throwaway deployment repo, the working directory, with no target stamp.
 
-    The repo holds only its ``profile.yml``, so the run's lock and durable journal
-    live under ``<tmp>/repo/var/guarded_run/live/``.
+    The repo holds only its ``profile.yml``, so a guarded run's lock and durable
+    journal live under ``<tmp>/repo/var/guarded_run/live/``.
     """
     root = tmp_path / "repo"
     root.mkdir()
@@ -229,6 +229,12 @@ def guarded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Journal
     monkeypatch.delenv(ENV_CONTROL_TARGET, raising=False)
     monkeypatch.delenv(ENV_CONTROL_TARGET_GENERATION, raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    return root
+
+
+@pytest.fixture
+def guarded(guarded_repo: Path) -> Iterator[Journal]:  # noqa: ARG001 - the run needs its repo
+    """A journaled guarded run on ``live`` in a throwaway deployment repo, for the test."""
     with journaled_run("live") as journal:
         yield journal
     assert active_journals() == ()
