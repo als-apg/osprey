@@ -1173,3 +1173,59 @@ def podman_compose_provider_advisory(runtime: str, provider: ComposeProvider) ->
         "password that was never sent. Images already present locally are unaffected, "
         "so a build with nothing to fetch still succeeds."
     )
+
+
+def buildkit_missing(runtime: str, env: Mapping[str, str]) -> str | None:
+    """Say what this host lacks to build the service images, if anything.
+
+    The service Dockerfiles use ``RUN --mount=type=cache``, which only BuildKit
+    parses. podman's builder parses it natively. Docker reaches BuildKit through
+    the buildx CLI plugin: without it ``compose build`` falls back to the legacy
+    builder, which stops partway through on a Dockerfile parse error that names
+    neither BuildKit nor the plugin.
+
+    ``DOCKER_BUILDKIT`` is read first because it settles the question without
+    asking the host: ``0`` forces the legacy builder whatever is installed, and
+    ``1`` is the operator stating that this host builds with BuildKit -- which a
+    Compose release that links BuildKit in, rather than calling the plugin, does
+    with no buildx present.
+
+    Total: a probe that cannot run or does not answer reports nothing. A host
+    whose runtime is not answering is :func:`verify_runtime_is_running`'s to
+    refuse, and it says so far better than a note about a plugin could.
+
+    :param runtime: The resolved container runtime (``docker`` or ``podman``).
+    :param env: The environment the build will run with.
+    :returns: Operator-facing text naming the missing piece and its remedy, or
+        ``None`` when the host can build.
+    """
+    if runtime != "docker":
+        return None
+
+    switch = env.get("DOCKER_BUILDKIT")
+    if switch == "0":
+        return (
+            "The service images use BuildKit-only Dockerfile syntax "
+            "(RUN --mount=type=cache), and DOCKER_BUILDKIT=0 forces Docker's legacy "
+            "builder, which cannot parse it. Unset DOCKER_BUILDKIT and deploy again."
+        )
+    if switch == "1":
+        return None
+
+    try:
+        result = _await_runtime_answer([runtime, "buildx", "version"])
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode == 0:
+        return None
+
+    return (
+        "The service images use BuildKit-only Dockerfile syntax "
+        "(RUN --mount=type=cache), and this Docker has no buildx: "
+        "`docker buildx version` fails, so the build would fall back to the legacy "
+        "builder and stop on a Dockerfile parse error.\n"
+        "Install the docker-buildx plugin -- Docker Desktop ships it; on a Linux "
+        "Docker Engine it is the docker-buildx-plugin package -- then deploy again.\n"
+        "If this host's Compose builds with BuildKit without the plugin, set "
+        "DOCKER_BUILDKIT=1 to skip this check. podman needs nothing extra."
+    )

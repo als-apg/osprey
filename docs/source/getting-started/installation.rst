@@ -310,6 +310,11 @@ OSPREY is installed and ready to use. Here's what to do next:
 
             docker --version
             docker compose version
+            docker buildx version
+
+         OSPREY's service images need BuildKit: Docker Desktop includes it; on a
+         Linux Docker Engine install the ``docker-buildx-plugin`` package. Podman
+         needs nothing extra.
 
       .. tab-item:: Podman
 
