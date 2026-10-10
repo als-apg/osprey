@@ -18,9 +18,8 @@ What is written, relative to ``data/facility/``:
   ``CommonNames`` entry at the slot's position, or what the mapping's
   ``devices`` answer says where the export names none, slots naming one
   device being one record; typed by the mapping's family ``class`` (the nearest class
-  every such family's class descends from); its ``names`` carry the export's
-  ``CommonNames`` slot and its ``attributes`` the export's ``DeviceList`` row
-  and ``ElementList`` slot, each only when the family states one per device.
+  every such family's class descends from); its ``label`` is the export's
+  ``CommonNames`` slot, and it carries no ``attributes``.
 * ``imported/mml/channels.yaml``: one channel per address, ``on`` the one
   device that binds it, or, bound by several, naming each in ``endpoint_of``
   and ``on`` none; its ``role`` follows the field's direction
@@ -39,6 +38,9 @@ What is written, relative to ``data/facility/``:
   readback channel, the record a family field wrote where one did; a waveform
   block's address is ``value_type: waveform`` with ``shape`` its number of
   planes.
+* ``imported/mml/rows.json``: the device each export ``DeviceList`` row
+  became, per model and family (:mod:`~osprey.facility.layers.mml.rows`),
+  which the response check reads.
 * ``imported/mml/models.yaml``: one ``pyat`` model per imported system, named
   by the mapping. A transport line (``state.is_transport`` of the export's
   ``<stem>.model.json``, else ``MachineType: Transport`` in its AD) runs
@@ -105,7 +107,8 @@ from osprey.facility.layers.mml.mapping import (
     field_roles,
     load_or_draft,
 )
-from osprey.facility.response_check import RESPONSE_SUFFIX
+from osprey.facility.layers.mml.response_check import RESPONSE_SUFFIX
+from osprey.facility.layers.mml.rows import write_rows
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
     from osprey.facility.layers.mml.family import FamilyView, FieldView
@@ -472,10 +475,21 @@ def _write_records(
     channels: dict[str, dict[str, Any]] = {}
     groups: dict[str, dict[str, Any]] = {}
     untoleranced: set[str] = set()
+    export_rows: list[dict[str, Any]] = []
     for view, slot_ids in zip(views, ids, strict=True):
         family = mapping.families[view.raw_name]
         for device_id, device in zip(slot_ids, _devices(view, family.class_), strict=True):
             _add_device(devices, device_id, device, branches)
+        for device_id, row in zip(slot_ids, _export_rows(view), strict=True):
+            if row is not None:
+                export_rows.append(
+                    {
+                        "model": systems[view.system],
+                        "family": view.raw_name,
+                        "device_list": row,
+                        "device": device_id,
+                    }
+                )
         _channels(view, slot_ids, owners, mapping, roles, channels, untoleranced)
         _group(groups, mapping.mapped(view.raw_name), mapping, view.raw_name, slot_ids)
 
@@ -497,6 +511,7 @@ def _write_records(
         _dump(layer / "channels.yaml", _sorted(channels.values(), "id")),
         _dump(layer / "groups.yaml", _sorted(groups.values(), "id")),
         _dump(layer / "models.yaml", _sorted(models, "name")),
+        write_rows(layer, export_rows),
     ]
     decks = [write_deck(deck, facility_dir, name) for name, deck in served]
     written.extend(decks)
@@ -552,31 +567,30 @@ def _integer(value: Any) -> int | None:
 def _devices(view: FamilyView, klass: str | None) -> Iterable[dict[str, Any]]:
     """The fields of each device of one family, in device order.
 
-    A device's one names entry is its ``CommonNames`` entry: a device's common
-    name is its last names entry and its source name its first, so one entry
-    is both.
+    A device's ``label`` is its ``CommonNames`` entry.
     """
     names = view.aligned("CommonNames")
-    elements = view.aligned("ElementList")
-    rows = view.device_rows
     for index in range(view.n_devices):
         device: dict[str, Any] = {}
         if klass is not None:
             device["class"] = klass
         name = _text(names[index]) if names is not None else None
         if name is not None:
-            device["names"] = [name]
-        attributes: dict[str, Any] = {}
-        if rows is not None:
-            row = [_integer(part) for part in rows[index]]
-            if None not in row:
-                attributes["DeviceList"] = row
-        element = _integer(elements[index]) if elements is not None else None
-        if element is not None:
-            attributes["ElementList"] = element
-        if attributes:
-            device["attributes"] = attributes
+            device["label"] = name
         yield device
+
+
+def _export_rows(view: FamilyView) -> list[list[int] | None]:
+    """Each device slot's export ``DeviceList`` row, ``None`` where it is not all integers."""
+    rows = view.device_rows
+    out: list[list[int] | None] = []
+    for index in range(view.n_devices):
+        if rows is None:
+            out.append(None)
+            continue
+        row = [_integer(part) for part in rows[index]]
+        out.append(None if None in row else [part for part in row if part is not None])
+    return out
 
 
 def _add_device(
@@ -587,8 +601,8 @@ def _add_device(
 ) -> None:
     """Record one slot's device, or fold it into the device its id already names.
 
-    The first slot's names and attributes stand; the class is the nearest one
-    every slot's family class descends from, absent when they share none.
+    The first slot's label stands; the class is the nearest one every slot's
+    family class descends from, absent when they share none.
     """
     found = devices.get(device_id)
     if found is None:
@@ -598,7 +612,7 @@ def _add_device(
     merged: dict[str, Any] = {"id": device_id}
     if klass is not None:
         merged["class"] = klass
-    for key in ("names", "attributes"):
+    for key in ("label",):
         value = found.get(key, device.get(key))
         if value is not None:
             merged[key] = value

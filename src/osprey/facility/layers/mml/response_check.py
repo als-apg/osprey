@@ -25,9 +25,11 @@ agreement is not counted: its model entries there are the deck's coupling, at
 the noise level, so whether their sign matches the export's says nothing about
 the model.
 
-**Rows are matched by device.** A response export states a ``DeviceList`` per
-side; each row is matched to the device carrying that ``DeviceList`` and to
-that device's wiring record of the family's engine words. A row the export
+**Rows are matched through the import's row table.** A response export states
+a ``DeviceList`` per side; each row is matched to the device the import
+recorded for that family's row in ``imported/mml/rows.json``
+(:mod:`~osprey.facility.layers.mml.rows`) and to that device's wiring record
+of the family's engine words. A row the export
 marks ``Status`` 0 is the export's own exclusion and is not compared. A row no
 wired device answers to, a column with no finite width and a column whose
 sweep leaves the deck without a solve are left out of the comparison too, and
@@ -75,6 +77,7 @@ from osprey.facility.layers.mml.mapping import (
     exported_number,
     read_mapping,
 )
+from osprey.facility.layers.mml.rows import read_rows
 
 __all__ = [
     "FLOOR_FRACTION",
@@ -651,27 +654,20 @@ def _well_shaped(block: Mapping[str, Any]) -> bool:
 def _family_records(
     document: Mapping[str, Any],
     model: Mapping[str, Any],
-    group_id: str,
+    family_rows: Mapping[tuple[int, ...], str],
     engine: Any,
     direction: str,
 ) -> dict[tuple[int, ...], Mapping[str, Any]]:
-    """One family's wiring records in a model, keyed by their device's ``DeviceList``.
+    """One family's wiring records in a model, keyed by the export row of their device.
 
-    A record belongs to the family when its address sits on one device of the
-    family's group and its engine block is the one the mapping wires the
-    family through. A device carrying no such record, or several, and a
-    ``DeviceList`` several wired devices state, binds nothing.
+    ``family_rows`` is the family's ``{row: device id}`` from the import's row
+    table. A record belongs to the family when its address sits on one of
+    those devices and its engine block is the one the mapping wires the family
+    through. A device carrying no such record, or several, binds nothing.
     """
-    members: set[str] = set()
-    for group in document.get("groups", []):
-        if group.get("id") == group_id:
-            members = set(group.get("members", []))
-    rows = {
-        device["id"]: key
-        for device in document.get("devices", [])
-        if device["id"] in members
-        and (key := _row_key((device.get("attributes") or {}).get("DeviceList"))) is not None
-    }
+    rows: dict[str, list[tuple[int, ...]]] = {}
+    for key, owner in family_rows.items():
+        rows.setdefault(owner, []).append(key)
     on_device = {
         channel["id"]: (channel.get("on") or {}).get("device")
         for channel in document.get("channels", [])
@@ -684,7 +680,8 @@ def _family_records(
             continue
         if dict(record.get("engine") or {}) != words:
             continue
-        found.setdefault(rows[device], []).append(record)
+        for key in rows[device]:
+            found.setdefault(key, []).append(record)
     return {key: records[0] for key, records in found.items() if len(records) == 1}
 
 
@@ -799,11 +796,14 @@ def compare(
         {},
     )
 
+    table = read_rows(facility_dir)
+
     def records(family: str, direction: str) -> dict[tuple[int, ...], Mapping[str, Any]]:
         wired = wiring.get(family)
         if wired is None or wired.engine is None or family not in mapping.families:
             return {}
-        return _family_records(document, model, mapping.mapped(family), wired.engine, direction)
+        family_rows = table.get((str(name), family), {})
+        return _family_records(document, model, family_rows, wired.engine, direction)
 
     def plane(family: str, direction: str) -> str | None:
         """The transverse plane the model's engine says a family's records work in."""

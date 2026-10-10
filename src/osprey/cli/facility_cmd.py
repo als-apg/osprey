@@ -114,9 +114,9 @@ def _build_in_memory(
 
     from osprey.errors import BuildProfileError
     from osprey.facility.build import LATER_STAGES
+    from osprey.facility.layers.mml.response_check import check_responses
+    from osprey.facility.layers.mml.response_check import report as report_responses
     from osprey.facility.render import facility_digest
-    from osprey.facility.response_check import check_responses
-    from osprey.facility.response_check import report as report_responses
     from osprey.facility.validate import report, run_stages
 
     from .build_cmd import _render_project, _render_zones, _rendered_config, _SharedRenderInputs

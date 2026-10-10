@@ -97,7 +97,8 @@ def test_each_device_is_its_common_name_at_its_slot(spear3: Path) -> None:
         ao["BPMx"]["CommonNames"], ao["BPMx"]["Monitor"]["ChannelNames"], strict=True
     ):
         device = f"StorageRing/{name}"
-        assert devices[device]["names"] == [name]
+        assert devices[device]["label"] == name
+        assert "names" not in devices[device]
         assert channels[address.strip()]["on"] == {"device": device}
 
 
