@@ -302,11 +302,10 @@ def test_a_dead_run_restores_in_max_step_writes_before_the_run(
     assert "restored 1 addresses from a dead run (pid 4242)" in capsys.readouterr().out
 
 
-def test_an_incomplete_restore_keeps_the_journal_and_does_not_start(
+def test_an_incomplete_restore_keeps_what_stayed_displaced_and_does_not_start(
     channels: _Channels, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = _plant({"Q": 0.0, "S": 4.0})
-    before = path.read_bytes()
 
     def refuse_q(address: str, value: Any, **kwargs: Any) -> None:
         if address == "Q":
@@ -321,7 +320,9 @@ def test_an_incomplete_restore_keeps_the_journal_and_does_not_start(
 
     assert caught.value.entries == (("Q", "outside the band", 3.0),)
     assert "Q: outside the band (left at 3.0)" in str(caught.value)
-    assert path.read_bytes() == before, "the journal stays byte-unchanged"
+    pending = read_pending_journal(path)
+    assert pending is not None
+    assert pending.values == {"Q": 0.0}, "the journal holds exactly the refused entry"
     assert channels.writes == [("S", 4.0)]
 
 
@@ -329,7 +330,7 @@ def test_a_journal_for_another_generation_is_stale(channels: _Channels) -> None:
     path = _plant({"Q": 0.0}, generation=GENERATION - 1)
     before = path.read_bytes()
 
-    with pytest.raises(OspreyStaleJournal, match="call any guarded tool under approval"):
+    with pytest.raises(OspreyStaleJournal, match="after checking the listed setpoints"):
         with lock("live"):
             pytest.fail("a stale journal stops the run")
 

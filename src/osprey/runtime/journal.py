@@ -54,6 +54,7 @@ __all__ = [
     "active_journals",
     "guarded_write",
     "journaled_write",
+    "parse_pending_journal",
     "read_map",
     "read_pending_journal",
 ]
@@ -381,26 +382,42 @@ class OspreyStaleJournal(Exception):
         *,
         target: str | None,
         generation: int | None,
+        approval: bool,
     ) -> None:
+        """Name the dead run, its journal and the remedy.
+
+        Args:
+            pending: What the dead run left.
+            path: The journal file.
+            target: This run's control target.
+            generation: This run's generation.
+            approval: Whether a guarded tool's call is put to a human. The
+                remedy is that call's prompt when it is; otherwise it is
+                removing the journal after checking the listed setpoints.
+        """
         self.path = str(path)
         self.target = pending.target
         self.generation = pending.generation
         self.addresses = tuple(pending.values)
         who = "unknown" if pending.pid is None else str(pending.pid)
+        remedy = (
+            "call any guarded tool under approval: its prompt lists and restores these setpoints."
+            if approval
+            else f"remove {path} after checking the listed setpoints."
+        )
         super().__init__(
             f"a dead run (pid {who}) left the journal {path} for target {pending.target!r} "
             f"generation {pending.generation}, which this run (target {target!r} generation "
             f"{generation}) cannot replay; it holds {len(self.addresses)} addresses: "
-            f"{', '.join(self.addresses)}; call any guarded tool under approval: its prompt "
-            "lists and restores these setpoints."
+            f"{', '.join(self.addresses)}; {remedy}"
         )
 
 
 class OspreyRestoreIncomplete(Exception):
     """A dead run's journal could not be fully restored; this run did not start.
 
-    The journal is left byte-unchanged, so the next run lists and restores it
-    again.
+    The journal is left holding exactly the entries named here, so the next run
+    lists and restores those again.
 
     Attributes:
         path: The journal file.
@@ -459,6 +476,18 @@ def read_pending_journal(path: Path) -> PendingJournal | None:
         raw = path.read_bytes()
     except FileNotFoundError:
         return None
+    return parse_pending_journal(raw, path)
+
+
+def parse_pending_journal(raw: bytes, path: Path) -> PendingJournal | None:
+    """Parse the bytes *raw* of the journal at *path*; ``None`` when it holds no record.
+
+    The rules are :func:`read_pending_journal`'s; *path* only names the file in
+    an error.
+
+    Raises:
+        ValueError: A line other than the last is not a header or record.
+    """
     complete = raw.split(b"\n")[:-1]  # anything after the last newline is torn
     parsed: list[Any] = []
     for index, line in enumerate(complete):

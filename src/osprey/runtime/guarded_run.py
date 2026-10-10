@@ -25,16 +25,28 @@ on the deployment's own baseline target, and resolve to its name.
 (pid, start time) in the lock file; a second run on the target, from this or
 any other process, raises :class:`OspreyRunBusy` before it starts. Under the
 lock it reads what a killed run left in the journal: the free lock proves that
-run dead. A journal for this run's target and generation is restored and then
-cleared; one the restore could not finish stays byte-unchanged and the run
-refuses to start with :class:`~osprey.runtime.journal.OspreyRestoreIncomplete`;
-one for another generation raises
-:class:`~osprey.runtime.journal.OspreyStaleJournal`. ``execute`` and
-``execute_file`` hold :func:`lock` over user code and never journal.
-:func:`journaled_run` adds the durable journal and is the only context in which
-:func:`osprey.runtime.journal.guarded_write` writes; it clears the journal on
-every exit it survives, so only a killed run leaves records. A readonly run
-raises before it takes the lock.
+run dead. Which journal it restores is bound to the approved call. A guarded tool's
+approval prompt lists the pending journal and hands the call its digest and
+target (:data:`ENV_APPROVED_JOURNAL_SHA256`, :data:`ENV_APPROVED_TARGET`); the
+sandbox wrapper binds them to this process before user code runs
+(:func:`_open_approved_call`). A run whose stamped target is not the approved
+one refuses before any write. A pending journal is restored only when its
+sha256 equals the approved digest; any other journal, or any journal under the
+digest ``none``, raises :class:`OspreyJournalChanged` and is left untouched for
+the next prompt to list. A call that carries no digest refuses when its tool's
+approval policy asks (:func:`approval_asks`); otherwise a journal for this
+run's target and generation is restored and one for another generation raises
+:class:`~osprey.runtime.journal.OspreyStaleJournal`. After a restore the journal
+is cleared when every entry is back; otherwise it is rewritten to hold exactly
+the refused and failed entries and the run refuses to start with
+:class:`~osprey.runtime.journal.OspreyRestoreIncomplete`. Every restore prints
+one :data:`RESTORE_REPORT_TAG` line.
+
+``execute`` and ``execute_file`` hold :func:`lock` over user code and never
+journal. :func:`journaled_run` adds the durable journal and is the only context
+in which :func:`osprey.runtime.journal.guarded_write` writes; it clears the
+journal on every exit it survives, so only a killed run leaves records. A
+readonly run raises before it takes the lock.
 
 A journal is restored without forcing anything: each displaced address is
 written back through ``osprey.runtime.write_channel`` like any other write, so
@@ -51,9 +63,11 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import hashlib
 import json
 import math
 import os
+import sys
 import time
 from collections.abc import Iterator
 from contextvars import ContextVar
@@ -68,19 +82,26 @@ from osprey.runtime.journal import (
     OspreyStaleJournal,
     OspreyWriteFailed,
     OspreyWriteRefused,
+    PendingJournal,
     _journaled_level,
+    parse_pending_journal,
     read_map,
-    read_pending_journal,
 )
 
 __all__ = [
+    "APPROVED_NO_JOURNAL",
+    "ENV_APPROVED_JOURNAL_SHA256",
+    "ENV_APPROVED_TARGET",
     "GUARDED_RUN_DIR",
     "GUARDED_RUN_DIR_MODE",
     "JOURNAL_FILE_NAME",
     "LOCK_FILE_NAME",
+    "RESTORE_REPORT_TAG",
     "GuardedRunDirError",
+    "OspreyJournalChanged",
     "OspreyRunBusy",
     "RestoreReport",
+    "approval_asks",
     "guarded_run_dir",
     "guarded_run_target",
     "journaled_run",
@@ -106,6 +127,25 @@ GUARDED_RUN_DIR_MODE = 0o2775
 #: marker every readonly refusal shares.
 _READONLY_REASON = "readonly execution mode: a guarded run needs execution_mode='readwrite'"
 
+#: The sha256 of the pending journal the approved call's prompt listed. Written
+#: into the sandbox by the executor, which spells the same name, and read once
+#: by :func:`_open_approved_call` before user code runs.
+ENV_APPROVED_JOURNAL_SHA256 = "OSPREY_APPROVED_JOURNAL_SHA256"
+
+#: The control target the approved call's prompt named. Carried like
+#: :data:`ENV_APPROVED_JOURNAL_SHA256`.
+ENV_APPROVED_TARGET = "OSPREY_APPROVED_TARGET"
+
+#: The approved digest when the prompt listed no pending journal.
+APPROVED_NO_JOURNAL = "none"
+
+#: Prefix of the one line every restore prints: the tag, one space, then the
+#: :class:`RestoreReport` as a single JSON object.
+RESTORE_REPORT_TAG = "OSPREY_GUARDED_RUN_RESTORE"
+
+#: The hook script whose ``PreToolUse`` rule puts a guarded tool's call to a human.
+_APPROVAL_HOOK_SCRIPT = "osprey_approval.py"
+
 #: The executor's spelling of "no recorded control target". It names no
 #: machine, so it is never a directory; it resolves to the baseline's name.
 _BASELINE_STAND_IN = "baseline"
@@ -113,6 +153,45 @@ _BASELINE_STAND_IN = "baseline"
 
 class GuardedRunDirError(RuntimeError):
     """The guarded-run directory for a target cannot be resolved or written."""
+
+
+class OspreyJournalChanged(Exception):
+    """The pending journal is not the one the approved call's prompt listed.
+
+    Nothing was written and the journal is left as it is, for the next prompt
+    to list afresh.
+
+    Attributes:
+        path: The journal file.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = str(path)
+        super().__init__(
+            f"the pending journal {path} is not the one this call was approved with; "
+            "nothing was written. Call the tool again: its prompt lists the journal as it is now."
+        )
+
+
+@dataclass(frozen=True)
+class _ApprovedCall:
+    """The tool call this process runs for, as the approval hook bound it.
+
+    Attributes:
+        tool: The guarded tool's short name, as ``approval.tools`` keys it.
+        journal_sha256: The approved journal digest, :data:`APPROVED_NO_JOURNAL`
+            when the prompt listed none, ``None`` when the call carries none.
+        target: The approved control target, ``None`` when the call carries none.
+    """
+
+    tool: str
+    journal_sha256: str | None
+    target: str | None
+
+
+#: The call bound by :func:`_open_approved_call`; ``None`` in a process no
+#: guarded tool started. Process-wide, so a thread user code starts sees it.
+_APPROVED: _ApprovedCall | None = None
 
 
 class OspreyRunBusy(Exception):
@@ -569,26 +648,196 @@ def _clear_journal(path: Path) -> None:
         durable.close()
 
 
-def _replay_dead_run(path: Path, target: str) -> None:
-    """Restore what a killed run's journal at ``path`` recorded, then clear it.
+def _hook_wired(settings_path: Path) -> bool:
+    """Whether the settings at *settings_path* run the approval hook before a tool call.
 
-    Called with the run lock held and no journal active, so the restore writes
-    are not journaled. A journal with no record is cleared.
+    True when a ``PreToolUse`` rule has a hook whose command names
+    :data:`_APPROVAL_HOOK_SCRIPT`. A missing or unreadable file runs no hook.
+    """
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    hooks = settings.get("hooks") if isinstance(settings, dict) else None
+    rules = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
+    for rule in rules if isinstance(rules, list) else ():
+        entries = rule.get("hooks") if isinstance(rule, dict) else None
+        for entry in entries if isinstance(entries, list) else ():
+            command = entry.get("command") if isinstance(entry, dict) else None
+            if isinstance(command, str) and _APPROVAL_HOOK_SCRIPT in command:
+                return True
+    return False
+
+
+def approval_asks(tool: str | None) -> bool:
+    """Whether a call of the guarded *tool* is put to a human before it runs.
+
+    The rendered ``config.yml`` decides the policy and the render's
+    ``.claude/settings.json``, beside it, whether the approval hook is wired at
+    all (a ``PreToolUse`` rule whose command names ``osprey_approval.py``);
+    both are handed to :func:`osprey.cli.build_posture_check.ask_capable`, the
+    rule the build checks profiles with. The render is the config's directory
+    in every layout: ``build/`` in a host repo, the project root in a
+    container. One reading answers both what a call without an approved digest
+    does and which remedy a stale journal names.
+
+    Args:
+        tool: The tool's short name, as ``approval.tools`` keys it. ``None``,
+            for a process no guarded tool started, asks whether any guarded
+            tool's call is put to a human.
+
+    Returns:
+        ``True`` when the approval hook asks about such a call.
+    """
+    from osprey.cli.build_posture_check import APPROVAL_HOOK, GUARDED_TOOLS, ask_capable
+    from osprey_connectors.workspace import load_osprey_config, resolve_config_path
+
+    config = load_osprey_config()
+    settings_path = resolve_config_path().parent / ".claude" / "settings.json"
+    selected = [APPROVAL_HOOK] if _hook_wired(settings_path) else []
+    tools = GUARDED_TOOLS if tool is None else (tool,)
+    return any(ask_capable(config, selected, name) for name in tools)
+
+
+def _open_approved_call(tool: str) -> None:
+    """Bind this process to the *tool* call it runs for, and replay what it approved.
+
+    Called once by the sandbox wrapper of a readwrite run, before user code.
+    The approved digest and target are taken out of the environment
+    (:data:`ENV_APPROVED_JOURNAL_SHA256`, :data:`ENV_APPROVED_TARGET`) and kept
+    in this module, so nothing user code later sets in the environment changes
+    them. When the call carries an approved digest the target's lock is taken
+    and released once, which restores the approved journal whether or not the
+    code itself takes the guarded run.
+
+    Args:
+        tool: The guarded tool's short name.
 
     Raises:
-        OspreyStaleJournal: The journal's target or generation differs from this
-            run's; nothing is written and the file is left.
+        RuntimeError: A call is already bound in this process.
+        Exception: Whatever :func:`lock` raises.
+    """
+    global _APPROVED
+    if _APPROVED is not None:
+        raise RuntimeError("a guarded tool call is already bound to this process")
+    digest = os.environ.pop(ENV_APPROVED_JOURNAL_SHA256, "").strip() or None
+    target = os.environ.pop(ENV_APPROVED_TARGET, "").strip() or None
+    _APPROVED = _ApprovedCall(tool=tool, journal_sha256=digest, target=target)
+    if digest is not None:
+        with lock(None):
+            pass
+
+
+def _check_approved_call(target: str) -> None:
+    """Refuse a guarded run on *target* the bound call was not approved for.
+
+    A process no guarded tool started has nothing to check. A call carrying
+    the approved digest and target is checked against the run's target. A call
+    missing either refuses when its tool's approval policy asks: the comparison
+    is never skipped for a tool whose calls are put to a human.
+
+    Raises:
+        OspreyWriteRefused: The approved target is not the run's, or the call
+            carries no approved digest or target while its tool asks.
+    """
+    call = _APPROVED
+    if call is None:
+        return
+    if call.journal_sha256 is None or call.target is None:
+        if approval_asks(call.tool):
+            raise OspreyWriteRefused(
+                f"a guarded run of `{call.tool}` needs the journal digest and target its "
+                "approval prompt hands the call, and this call carries none"
+            )
+        return
+    if call.target != target:
+        raise OspreyWriteRefused(
+            f"this call was approved for target {call.target!r}; the run is on {target!r}"
+        )
+
+
+def _print_report(report: RestoreReport) -> None:
+    """Print *report* as the one :data:`RESTORE_REPORT_TAG` line, on stderr."""
+    print(f"{RESTORE_REPORT_TAG} {report.to_json()}", file=sys.stderr, flush=True)
+
+
+def _left_displaced(report: RestoreReport) -> list[str]:
+    """The addresses *report* refused or failed, in report order."""
+    return [address for address, _r, _v in report.refused] + [a for a, _r in report.failed]
+
+
+def _rewrite_journal(path: Path, raw: bytes, pending: PendingJournal, keep: list[str]) -> None:
+    """Replace the journal at *path* with its header and the entries for *keep*.
+
+    *raw* is the file's content, whose first line is kept byte for byte; each
+    kept address gets its journaled value from *pending*. Written to a
+    temporary file in the same directory, synced, and renamed over the journal,
+    so a reader sees the old journal or the new one, never a mix.
+    """
+    header = raw.split(b"\n", 1)[0] + b"\n"
+    records = b"".join(
+        (json.dumps({"address": a, "value": pending.values[a]}, allow_nan=True) + "\n").encode(
+            "utf-8"
+        )
+        for a in keep
+    )
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o664)
+    try:
+        os.fchmod(fd, 0o664)
+        os.write(fd, header + records)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(temporary, path)
+    from osprey.runtime.journal import _fsync_directory
+
+    _fsync_directory(path.parent)
+
+
+def _replay_dead_run(path: Path, target: str) -> None:
+    """Restore what a killed run's journal at ``path`` recorded.
+
+    Called with the run lock held and no journal active, so the restore writes
+    are not journaled. A journal with no record is cleared. Under an approved
+    digest the journal is restored when its sha256 matches, whatever target
+    generation it was left under; with no digest only a journal of this run's
+    target and generation is. A complete restore clears the journal; one that
+    refused or failed an entry rewrites it to hold exactly those entries.
+
+    Raises:
+        OspreyJournalChanged: The journal's sha256 is not the approved digest,
+            or the digest is ``none``; nothing is written and the file is left.
+        OspreyStaleJournal: No digest was approved and the journal's target or
+            generation differs from this run's; nothing is written and the file
+            is left.
         OspreyRestoreIncomplete: The restore refused or failed an address; the
-            file is left byte-unchanged.
+            journal now holds exactly those entries.
         ValueError: The journal is unreadable before its last line; it is left.
     """
-    pending = read_pending_journal(path)
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return
+    pending = parse_pending_journal(raw, path)
     if pending is None:
         _clear_journal(path)
         return
-    generation = _stamped_generation()
-    if (pending.target, pending.generation) != (target, generation):
-        raise OspreyStaleJournal(pending, path, target=target, generation=generation)
+    call = _APPROVED
+    digest = None if call is None else call.journal_sha256
+    if digest is not None:
+        if digest == APPROVED_NO_JOURNAL or hashlib.sha256(raw).hexdigest() != digest:
+            raise OspreyJournalChanged(path)
+    else:
+        generation = _stamped_generation()
+        if (pending.target, pending.generation) != (target, generation):
+            raise OspreyStaleJournal(
+                pending,
+                path,
+                target=target,
+                generation=generation,
+                approval=approval_asks(None if call is None else call.tool),
+            )
     journal = Journal()
     journal.record(list(pending.values), list(pending.values.values()))
     report = _restore(journal, aborted=True)
@@ -599,7 +848,9 @@ def _replay_dead_run(path: Path, target: str) -> None:
     if left:
         line += "; not restored: " + "; ".join(left)
     print(line, flush=True)
+    _print_report(report)
     if report.refused or report.failed:
+        _rewrite_journal(path, raw, pending, _left_displaced(report))
         raise OspreyRestoreIncomplete(path, report.refused, report.failed)
     _clear_journal(path)
 
@@ -621,12 +872,16 @@ def lock(target: str | None) -> Iterator[Path]:
         The target's guarded-run directory.
 
     Raises:
-        OspreyWriteRefused: This is a readonly run; no lock was taken.
+        OspreyWriteRefused: This is a readonly run, or the bound call was not
+            approved for this target (see :func:`_check_approved_call`); no
+            lock was taken.
         GuardedRunDirError: The guarded-run directory cannot be resolved.
         OspreyRunBusy: Another guarded run holds the target's lock.
-        OspreyStaleJournal: A killed run's journal is for another generation.
+        OspreyJournalChanged: A killed run's journal is not the approved one.
+        OspreyStaleJournal: A killed run's journal is for another generation
+            and no digest was approved.
         OspreyRestoreIncomplete: A killed run's journal could not be fully
-            restored; it is left byte-unchanged.
+            restored; it holds the entries left displaced.
         ValueError: A killed run's journal is unreadable before its last line;
             it is left in place.
         OSError: The lock or the journal could not be opened.
@@ -636,6 +891,7 @@ def lock(target: str | None) -> Iterator[Path]:
     if is_readonly_run():
         raise OspreyWriteRefused(_READONLY_REASON)
     name = guarded_run_target(target)
+    _check_approved_call(name)
     directory = guarded_run_dir(name)
     lock_path = directory / LOCK_FILE_NAME
     created = not lock_path.exists()
