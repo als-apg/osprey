@@ -32,8 +32,9 @@ from pyaml.control.deviceaccesslist import DeviceAccessList
 
 import osprey.runtime
 from osprey.errors import ChannelWriteBlockedError, ChannelWriteFailedError
+from osprey.runtime import journal as runtime_journal
 from osprey.runtime.journal import guarded_write
-from pyaml_cs_osprey.device import OspreyDevice, indexed_element, unknown_unit
+from pyaml_cs_osprey.device import OUTSIDE_A_RUN, OspreyDevice, indexed_element, unknown_unit
 from pyaml_cs_osprey.errors import (
     OspreyReadFailed,
     OspreyWriteFailed,
@@ -144,7 +145,9 @@ class OspreyDeviceList(DeviceAccessList):
                 address is given two different values; nothing was written.
             OspreyReadFailed: A prior setpoint could not be read; nothing was written.
             OspreyWriteRefused: The batch was refused whole before anything was
-                sent (limits, write gate, control-target change); nothing was written.
+                sent (limits, write gate, control-target change), or no journaled
+                guarded run is open (:data:`OUTSIDE_A_RUN`, naming the batch's first
+                address); nothing was written.
             OspreyWriteFailed: A write was attempted and not confirmed, or one
                 channel of a multi-channel batch was refused after the connector
                 sent the others. The message names the failing address and every
@@ -173,13 +176,19 @@ class OspreyDeviceList(DeviceAccessList):
                 return _batch_failure(exc, list(batch))
             return map_write_error(exc)
 
-        guarded_write(
-            list(batch),
-            lambda **kwargs: osprey.runtime.write_channels(batch, **kwargs),
-            map_error,
-            map_read=map_read_error,
-            confirm=confirm,
-        )
+        try:
+            guarded_write(
+                list(batch),
+                lambda **kwargs: osprey.runtime.write_channels(batch, **kwargs),
+                map_error,
+                map_read=map_read_error,
+                confirm=confirm,
+            )
+        except OspreyWriteRefused:
+            raise
+        except runtime_journal.OspreyWriteRefused as exc:
+            # The runtime's own refusal, raised before any read: no run is open.
+            raise OspreyWriteRefused(OUTSIDE_A_RUN, next(iter(batch), None)) from exc
 
     def set_and_wait(self, value: Any) -> None:
         """Write the setpoints and confirm each channel holds its value."""
