@@ -181,8 +181,8 @@ REASON_GATEWAYS_MISSING = "gateways_missing"
 REASON_SELECTED_ROLE_MISSING = "selected_role_missing"
 REASON_PROBE_CHANNEL_MISSING = "probe_channel_missing"
 REASON_STANDIN_NOT_DEPLOYED = "standin_not_deployed"
-#: A target that is never the real machine — the virtual accelerator, the
-#: stand-in, the mock — selects an endpoint the live machine derives.
+#: A target that is never the real machine — the simulator or the stand-in —
+#: selects an endpoint the live machine derives.
 REASON_REACHES_LIVE_MACHINE = "reaches_live_machine"
 REASON_INVENTED_HISTORY = "invented_history"
 REASON_OPERATOR_ACK_MISSING = "operator_ack_missing"
@@ -459,8 +459,8 @@ def evaluate_eligibility(
        derives from the same config (:data:`REASON_REACHES_LIVE_MACHINE`);
     6. honesty: pointing a session at a machine this deployment stands up for
        itself — the virtual accelerator or the stand-in — while the archiver
-       resolves to the mock would pair an invented present with an invented
-       past;
+       synthesizes its history would pair an invented present with an
+       invented past;
     7. FR-8 posture, only for a switch *toward* ``live``: the operator
        acknowledgment. The stand-in's equivalent was said at build time by
        ``virtual_accelerator.live_standin``

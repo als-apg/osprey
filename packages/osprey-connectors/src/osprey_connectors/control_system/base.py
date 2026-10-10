@@ -192,8 +192,8 @@ def values_match(sent: Any, observed: Any, *, enum_label: str | None = None) -> 
     1. A string against a reported ``enum_label`` compares as text: an enum
        channel written as ``"Open"`` reads back as its integer index, and the
        label the connector resolved for that reading is what the text is
-       compared with. A connector that reports no ``enum_label`` (Mock, DOOCS)
-       falls through to the ordinary comparison.
+       compared with. A connector that reports no ``enum_label`` (DOOCS) falls
+       through to the ordinary comparison.
     2. A length-1 sequence is unwrapped to its element, on both sides.
     3. After unwrapping, exactly one side a sequence is ``False``: a scalar is
        not a vector. This is what stops a numpy broadcast
@@ -863,7 +863,7 @@ class ControlSystemConnector(ABC):
     Abstract base class for control system connectors.
 
     Implementations provide interfaces to different control systems
-    (EPICS, LabVIEW, Tango, Mock, etc.) using a unified API.
+    (EPICS, LabVIEW, Tango, the simulator, etc.) using a unified API.
 
     Example:
         >>> connector = await ConnectorFactory.create_control_system_connector()

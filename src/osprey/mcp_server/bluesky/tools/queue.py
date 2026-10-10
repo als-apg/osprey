@@ -1085,8 +1085,8 @@ async def _lane_status_view(situation: LaneSituation) -> dict:
 async def queue_status() -> str:
     """Whether this deployment can execute plans at all. Reaches NO hardware.
 
-    Ask this BEFORE composing a plan you intend to run. A deployment wired to
-    a mock connector can list plans, author them, validate them and fill the
+    Ask this BEFORE composing a plan you intend to run. A browse-only
+    deployment can list plans, author them, validate them and fill the
     draft, but it cannot execute — and the queue refuses to hold items it
     could never run, so ``queue_add`` fails there rather than at start time.
     Knowing that up front is the difference between telling the human "this

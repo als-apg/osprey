@@ -132,10 +132,10 @@ restating ``osprey_connectors.types.session_posture`` — the deployment's
 CONFIGURED targets where it renders the target switch, and otherwise the single
 type ``control_system.type`` builds, read by TYPE under the baseline target that
 names it. Iterating the target vocabulary instead would answer for a machine no
-session here ever reaches: a mock deployment carrying one ``epics`` block
-resolves ``live`` to that block, while the connector the runtime built is the
-mock, and a deployment with no ``live_standin`` block would grow a ``standin``
-slot for a soft IOC nobody stood up.
+session here ever reaches: without the switch, ``live`` names a block the
+connector the runtime built never serves, and a deployment with no
+``live_standin`` block would grow a ``standin`` slot for a soft IOC nobody
+stood up.
 
 What this module adds on top of the framework's booleans is a THIRD state:
 ``None``, for a section that expresses no posture at all — no deployment-wide
@@ -913,10 +913,10 @@ def _switch_capable(section):
 
     The stdlib restatement of ``osprey_connectors.types.switch_capable``, whose
     two conditions are mirrored here in order: the deployment's OWN type is
-    what its baseline target resolves back to, which is what keeps a mock that
-    happens to carry an ``epics`` block out of the multi-target world; and at
-    least two targets are configured (:func:`_configured_targets`, the same
-    enumeration every roster walks).
+    what its baseline target resolves back to, so a session starts on the
+    machine the config selected (a deployment baselined on the simulator in
+    process is on ``va``); and at least two targets are configured
+    (:func:`_configured_targets`, the same enumeration every roster walks).
 
     Which two is deliberately not asked, in step with the framework: a
     stand-in beside a simulator with no live machine authored is exactly the

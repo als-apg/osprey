@@ -282,8 +282,8 @@ def _color_mode(cv) -> str | None:
     non-empty string naming the mode, and a plain ``int`` holding the
     areaDetector enum code (0 Mono, 1 Bayer, 2 RGB1, 3 RGB2, 4 RGB3), which is
     translated to the matching name. Booleans are not codes, and an unknown code
-    reads as nothing reported. Anything else - a placeholder, a mock, an empty
-    string - leaves the layout to be inferred from the shape, which is strictly
+    reads as nothing reported. Anything else - a placeholder, an invented value,
+    an empty string - leaves the layout to be inferred from the shape, which is strictly
     better than acting on a value the control system never sent.
     """
     raw = getattr(getattr(cv, "metadata", None), "raw_metadata", None)

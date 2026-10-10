@@ -1,4 +1,4 @@
-"""The simulated machine behind OSPREY's mock connectors.
+"""The simulated machine behind OSPREY's simulator connectors.
 
 The package root holds only what every reader needs without loading a model:
 the tick period, value coercion, char-waveform decoding, the active-scenario

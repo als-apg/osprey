@@ -1893,7 +1893,8 @@ class ConnectorHostManager:
 def _name_probed_gateway(error: SwitchError, derivation: TargetDerivation) -> SwitchError:
     """The same probe failure, naming the gateway the probe ran through.
 
-    A target that derives no endpoint (the mock, a gatewayless deployment) has
+    A target that derives no endpoint (the simulator in process, a gatewayless
+    deployment) has
     nothing to add, and the error passes through unchanged.
     """
     endpoint = derivation.selected_endpoint()

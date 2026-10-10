@@ -35,7 +35,8 @@ by :func:`~osprey.mcp_server.control_system.connector_host_manager.switch_capabl
   :class:`~osprey.mcp_server.control_system.connector_host_manager.NoConnectorHostError`
   and every control-system-routed operation refuses with that reason until one
   is running again.
-* **Everything else** — a mock deployment, a single-target EPICS deployment,
+* **Everything else** — a deployment on the simulator in process alone, a
+  single-target EPICS deployment,
   any config that never named a second target — keeps the in-process cached
   connector, unchanged and untouched by any of this.
 
