@@ -50,6 +50,13 @@ def test_the_flat_paradigms_list_of_channels_is_refused_rather_than_read_as_empt
         MiddleLayerDatabase(_write(tmp_path, body))
 
 
+def test_the_document_keys_are_not_systems(tmp_path: Path) -> None:
+    body = {"schema": "x", "count": 1, "SR": {"BPM": {"X": {"ChannelNames": ["A"]}}}}
+    db = MiddleLayerDatabase(_write(tmp_path, body))
+    assert sorted(db.channel_map) == ["A"]
+    assert [system["name"] for system in db.list_systems()] == ["SR"]
+
+
 def test_metadata_keys_are_tolerated_at_every_level(tmp_path: Path) -> None:
     body = {
         "_meta": {"tier": 3, "generated": "today"},

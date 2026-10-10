@@ -69,11 +69,18 @@ def test_a_tagged_subset_narrows_the_index_and_a_label_names_its_row() -> None:
 
     assert document == {
         "schema": CHANNEL_FINDER_SCHEMA,
+        "count": 2,
         "channels": [
             {"channel": "A:RB", "address": "A:RB", "description": "alpha"},
             {"channel": "Beta", "address": "B:RB", "description": "beta"},
         ],
     }
+
+
+def test_the_count_is_the_number_of_rows_written() -> None:
+    document = in_context_document({"channels": [_channel("B:RB"), _channel("A:RB")]})
+
+    assert document["count"] == 2 == len(document["channels"])
 
 
 def test_an_untagged_facility_indexes_every_channel() -> None:
@@ -162,6 +169,8 @@ def test_a_render_that_selects_another_index_names_none(
 
 
 def test_the_writer_writes_the_index_with_its_header(tmp_path: Path) -> None:
+    from osprey.services.channel_finder.databases.flat import ChannelDatabase
+
     root = tmp_path / "data" / "channel_finder"
     written = write_in_context(
         root, _inputs({"channels": [_channel("A:RB", label="A", tags=["in_context"])]})
@@ -171,6 +180,8 @@ def test_the_writer_writes_the_index_with_its_header(tmp_path: Path) -> None:
     raw = written[0].read_bytes()
     assert raw.endswith(b"}\n")
     assert json.loads(raw)["schema"] == CHANNEL_FINDER_SCHEMA
+    assert json.loads(raw)["count"] == 1
+    assert len(ChannelDatabase(str(written[0])).get_all_channels()) == 1
 
 
 def test_a_facility_with_no_channel_stops_with_view_unsupported(tmp_path: Path) -> None:
@@ -195,9 +206,11 @@ def test_the_demo_index_holds_the_569_golden_rows(
     golden = load_golden("in_context_size.json")
     (target,) = write_in_context(tmp_path, _inputs(built_control_assistant.facility))
 
-    rows = json.loads(target.read_bytes())["channels"]
+    document = json.loads(target.read_bytes())
+    rows = document["channels"]
 
     assert len(rows) == golden["size"] == 569
+    assert document["count"] == 569
     assert {row["address"] for row in rows} == {row["address"] for row in golden["rows"]}
     assert all(row["channel"] == row["address"] for row in rows)
     assert all(row["description"] for row in rows)

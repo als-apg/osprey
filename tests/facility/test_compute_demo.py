@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
+
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
@@ -131,7 +133,7 @@ def test_no_middle_layer_family_mixes_line_and_sr_channels(
     mixed = [
         (system, family, field)
         for system, families in middle_layer.items()
-        if system != "schema"
+        if system not in DOCUMENT_KEYS
         for family, node in families.items()
         if not family.startswith("_")
         for field, addresses in _cells(node)
@@ -140,7 +142,7 @@ def test_no_middle_layer_family_mixes_line_and_sr_channels(
     line_cells = [
         (system, family)
         for system, families in middle_layer.items()
-        if system != "schema"
+        if system not in DOCUMENT_KEYS
         for family, node in families.items()
         if not family.startswith("_")
         for _field, addresses in _cells(node)

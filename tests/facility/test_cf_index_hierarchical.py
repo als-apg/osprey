@@ -119,6 +119,7 @@ def test_two_bare_addresses_sit_under_no_class_and_no_device(tmp_path: Path) -> 
             },
         }
     }
+    assert document["count"] == 2
     assert sorted(database.channel_map) == ["LAB:TEMP:01", "LAB:TEMP:02"]
     _assert_every_channel_is_its_address(database, 3)
 
@@ -198,6 +199,12 @@ def test_every_channel_of_a_synthetic_tree_sits_at_one_depth(tmp_path: Path) -> 
     ]
     assert sorted(database.channel_map) == sorted(c["id"] for c in SYNTHETIC["channels"])
     _assert_every_channel_is_its_address(database, 5)
+
+
+def test_the_count_is_the_number_of_leaves_the_loader_reads(tmp_path: Path) -> None:
+    document, database = _written(tmp_path, SYNTHETIC)
+
+    assert document["count"] == len(database.channel_map) == len(SYNTHETIC["channels"])
 
 
 def test_the_options_at_each_level_build_back_each_address(tmp_path: Path) -> None:
@@ -361,7 +368,9 @@ def test_zero_channels_write_an_empty_tree(tmp_path: Path) -> None:
 
     (target,) = write_hierarchical(tmp_path, _inputs({"channels": []}))
 
-    assert json.loads(target.read_bytes())["tree"] == {}
+    document = json.loads(target.read_bytes())
+    assert document["tree"] == {}
+    assert document["count"] == 0
 
 
 @pytest.mark.parametrize(
@@ -509,6 +518,7 @@ def test_the_demo_index_holds_every_channel_at_one_depth(
     levels = [level["name"] for level in document["hierarchy"]["levels"]]
 
     assert levels == ["machine", "sector", "class", "device", "leaf"]
+    assert document["count"] == len(facility["channels"])
     assert sorted(database.channel_map) == sorted(c["id"] for c in facility["channels"])
     _assert_every_channel_is_its_address(database, len(levels))
     assert [
