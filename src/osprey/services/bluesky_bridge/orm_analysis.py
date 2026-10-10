@@ -31,7 +31,7 @@ at the fit's x-mean, so it carries zero leverage on the polyfit slope no
 matter what BPM reading that row actually carries (driven by whichever OTHER
 corrector was being swept at the time). The idle value is NOT assumed to be
 zero — the plan sweeps each corrector about its own pre-scan working point,
-which on a ring running corrected orbit is nonzero, and restores it there.
+which on a machine running corrected orbit is nonzero, and restores it there.
 `build_response_matrix` checks this per corrector and raises
 `DegenerateFitError` if it's violated — see its docstring below.
 
@@ -116,7 +116,7 @@ def build_response_matrix(
     carries (driven by whichever OTHER corrector was being swept at the
     time). Note the invariant is "centred on the idle value", not "centred on
     zero": zero is simply where a machine with no orbit to correct happens to
-    idle, and a real ring's correctors do not.
+    idle, and a real machine's correctors do not.
 
     Before fitting, each corrector's collected regressor values are checked
     against that invariant (see `_SWEEP_SYMMETRY_TOL`) by comparing their mean to
