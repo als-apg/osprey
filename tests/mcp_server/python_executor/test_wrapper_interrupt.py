@@ -157,6 +157,7 @@ class _Child:
             _provision_deployment(workdir)
             env.pop("OSPREY_CONFIG", None)
             env.update(_STAMP)
+            env["OSPREY_GUARDED_RUN_REPORT_NONCE"] = _NONCE
 
         def ignore_sigint() -> None:
             # The disposition an asyncio child of a process that ignores SIGINT
@@ -242,8 +243,12 @@ def _provision_deployment(workdir: Path) -> None:
     )
 
 
+#: The report nonce a deployment child is handed, as the executor hands one.
+_NONCE = "c0ffee" * 5 + "c0"
+
+
 def _tagged(text: str) -> list[dict[str, Any]]:
-    prefix = RESTORE_REPORT_TAG + " "
+    prefix = f"{RESTORE_REPORT_TAG} {_NONCE} "
     return [
         json.loads(line[len(prefix) :]) for line in text.splitlines() if line.startswith(prefix)
     ]
@@ -274,7 +279,7 @@ def test_sigint_mid_run_tool_persists_report(child: Callable[..., _Child], tmp_p
     assert metadata["restore_report"] == report
 
     ledger = tmp_path / "audit" / "executor.jsonl"
-    reports = _record_restore_report(out, err, run.execution_folder, ledger)
+    reports = _record_restore_report(out, err, run.execution_folder, _NONCE, ledger)
     assert reports == [report]
     saved = json.loads((run.execution_folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
     assert saved == [report]
@@ -353,16 +358,17 @@ def test_restore_report_parsed_to_ledger_and_folder(tmp_path: Path) -> None:
     }
     stdout = (
         "hello\n"
-        f"{RESTORE_REPORT_TAG} {json.dumps(first)}\n"
-        f"{RESTORE_REPORT_TAG} not json\n"
+        f"{RESTORE_REPORT_TAG} {_NONCE} {json.dumps(first)}\n"
+        f"{RESTORE_REPORT_TAG} {_NONCE} not json\n"
+        f"{RESTORE_REPORT_TAG} {json.dumps(second)}\n"
         f"not a {RESTORE_REPORT_TAG} line\n"
     ).encode()
-    stderr = f"warning\n{RESTORE_REPORT_TAG} {json.dumps(second)}\n"
+    stderr = f"warning\n{RESTORE_REPORT_TAG} {_NONCE} {json.dumps(second)}\n"
     folder = tmp_path / "execution_x"
     folder.mkdir()
     ledger = tmp_path / "audit" / "executor.jsonl"
 
-    reports = _record_restore_report(stdout, stderr, folder, ledger)
+    reports = _record_restore_report(stdout, stderr, folder, _NONCE, ledger)
 
     assert reports == [first, second]
     assert json.loads((folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8")) == [
@@ -382,12 +388,15 @@ def test_restore_report_parsed_to_ledger_and_folder(tmp_path: Path) -> None:
     quiet = tmp_path / "execution_y"
     quiet.mkdir()
     other_ledger = tmp_path / "audit" / "other.jsonl"
-    assert _record_restore_report(b"plain\n", b"", quiet, other_ledger) == []
+    assert _record_restore_report(b"plain\n", b"", quiet, _NONCE, other_ledger) == []
+    assert _record_restore_report(stdout, stderr, quiet, None, other_ledger) == []
+    assert _record_restore_report(stdout, stderr, quiet, "0" * 32, other_ledger) == []
     assert not (quiet / RESTORE_REPORT_FILE).exists()
     assert not other_ledger.exists()
 
     # Never raises, even on an unusable folder.
-    assert _record_restore_report(stdout, "", tmp_path / "missing" / "dir", ledger) == [first]
+    missing = tmp_path / "missing" / "dir"
+    assert _record_restore_report(stdout, "", missing, _NONCE, ledger) == [first]
 
 
 def test_restore_report_tag_matches_the_guarded_run() -> None:

@@ -75,14 +75,16 @@ def _stub(folder: Path, markers: Path, on_sigint: str, *, ignore_sigint: bool = 
         if ignore_sigint
         else "signal.signal(signal.SIGINT, on_sigint)"
     )
-    report_line = f"{RESTORE_REPORT_TAG} {json.dumps(REPORT)}"
+    report_json = json.dumps(REPORT)
     return (
         textwrap.dedent(
             f"""
             import glob, os, signal, sys, time
             FOLDER = {str(folder)!r}
             MARKERS = {str(markers)!r}
-            REPORT_LINE = {report_line!r}
+            REPORT_LINE = " ".join(
+                [{RESTORE_REPORT_TAG!r}, os.environ[{executor.ENV_RESTORE_REPORT_NONCE!r}], {report_json!r}]
+            )
 
             def note(name, text=""):
                 with open(os.path.join(FOLDER, name), "w") as fh:
@@ -153,7 +155,7 @@ class _Run:
             async def runner() -> None:
                 with scope:
                     self.outcome["result"] = await executor._execute_via_local(
-                        "print('never runs')", "readonly", {"timeout": timeout}, self.folder
+                        "print('never runs')", "readwrite", {"timeout": timeout}, self.folder
                     )
                 self.outcome["cancelled_caught"] = scope.cancelled_caught
 
