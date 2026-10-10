@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import copy
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
@@ -293,6 +293,7 @@ class SimulatorView:
         self._documents: dict[str, Mapping[str, Any]] = {}
         self._models: tuple[Model, ...] | None = None
         self._channel_records: Mapping[str, Channel] | None = None
+        self._envelopes: dict[tuple[str, ...], dict[str, float]] = {}
         if not (self.path / ADDRESSES_FILE).is_file():
             raise NoSimulatorView(NO_VIEW_MESSAGE.format(path=self.path))
         self.document(ADDRESSES_FILE)
@@ -505,6 +506,30 @@ class SimulatorView:
         """Every scenario of ``scenarios.json``, sorted by name."""
         scenarios: tuple[Mapping[str, Any], ...] = self.document(SCENARIOS_FILE)["scenarios"]
         return scenarios
+
+    def motion_envelope(self, address: str, active: Sequence[str] = ()) -> float:
+        """The band ``address``'s served motion keeps it within around its held value.
+
+        Args:
+            address: A channel address.
+            active: The active scenario names, in order; none for the seeds'
+                own motion.
+
+        Returns:
+            The channel's envelope under ``active``
+            (:func:`osprey_connectors.simulation.envelope.active_envelopes`);
+            0.0 for a channel that declares no motion.
+        """
+        from osprey_connectors.simulation.envelope import active_envelopes
+
+        key = tuple(active)
+        if key not in self._envelopes:
+            self._envelopes[key] = active_envelopes(
+                self.document(SEEDS_FILE)["seeds"],
+                {str(scenario["name"]): scenario for scenario in self.scenarios()},
+                key,
+            )
+        return self._envelopes[key].get(address, 0.0)
 
     def scenario_dir(self, name: str) -> Path:
         """The view's copy of a scenario's attached files, ``scenarios/<name>/``."""

@@ -112,6 +112,24 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     assert view.document(VARIABLES_FILE)["schema"] == variables["schema"]
 
 
+def test_a_channels_motion_envelope_follows_its_seed_and_the_active_scenarios(
+    demo_view: Path,
+) -> None:
+    from osprey_connectors.simulation.envelope import active_envelopes, motion_envelope
+
+    view = SimulatorView.open(demo_view)
+    seeds = _raw(demo_view, "seeds.json")["seeds"]
+    scenarios = {entry["name"]: entry for entry in _raw(demo_view, "scenarios.json")["scenarios"]}
+    noisy = next(address for address, seed in sorted(seeds.items()) if seed.get("drift"))
+    live = active_envelopes(seeds, scenarios, ["rf-thermal-live"])
+    replaced = sorted(scenarios["rf-thermal-live"]["noise"])[0]
+
+    assert view.motion_envelope(noisy) == motion_envelope(seeds[noisy]) > 0.0
+    assert view.motion_envelope("NO:SUCH:CHANNEL") == 0.0
+    assert view.motion_envelope(replaced, active=("rf-thermal-live",)) == live[replaced]
+    assert live[replaced] != motion_envelope(seeds.get(replaced))
+
+
 def test_monitor_bindings_of_a_plane_are_the_element_reads_on_that_axis(demo_view: Path) -> None:
     view = SimulatorView.open(demo_view)
     (sr,) = [m for m in _raw(demo_view, VARIABLES_FILE)["models"] if m["name"] == "SR"]
