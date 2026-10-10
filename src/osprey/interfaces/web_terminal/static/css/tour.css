@@ -4,7 +4,7 @@
  * scrims included (--overlay-black-*).
  */
 
-/* The spotlight ring: positioned over the anchor, and its box-shadow paints
+/* The spotlight frame: positioned over the anchor, and its box-shadow paints
    the page-wide scrim, so the hole and the dimming can never disagree. */
 .tour-spot {
   position: fixed;

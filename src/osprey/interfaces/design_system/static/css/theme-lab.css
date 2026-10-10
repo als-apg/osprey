@@ -734,9 +734,9 @@ body {
   border-radius: var(--radius-md);
 }
 
-/* Static stand-in for :focus-visible — the preview must show the ring without
+/* Static stand-in for :focus-visible — the preview must show the focus outline without
    the mock ever actually taking focus. */
-.ms-focus-ring {
+.ms-focus-outline {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 3px var(--accent-tint-30);
 }
