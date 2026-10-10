@@ -143,8 +143,8 @@ Two distinct patterns — pick by what the question asks:
 
 ```python
 # Linear optics at every element (tunes, beta, alpha, dispersion, phase):
-_, ringdata, elemdata = at.get_optics(lattice4d, refpts=range(len(lattice4d)))
-tunes = ringdata.tune            # fractional tunes [nu_x, nu_y]
+_, latticedata, elemdata = at.get_optics(lattice4d, refpts=range(len(lattice4d)))
+tunes = latticedata.tune         # fractional tunes [nu_x, nu_y]
 beta  = elemdata.beta            # (N, 2) beta_x, beta_y along the lattice
 disp  = elemdata.dispersion      # dispersion function
 ```
@@ -160,7 +160,7 @@ modulo 1 when checking against a reference. `find_orbit4` gives the 4D closed or
 `get_optics` on the 4D lattice gives beta/alpha/dispersion/phase.
 
 For chromaticity, call `at.get_optics(lattice4d, get_chrom=True, dp=1e-6)` and read
-`ringdata.chromaticity`.
+`latticedata.chromaticity`.
 
 ## Scope and Compute Bounding
 
