@@ -47,7 +47,8 @@ from dataclasses import dataclass
 from enum import Enum
 
 from osprey.connectors.types import (
-    MOCK,
+    UNSET_TYPE_WARNING,
+    VIRTUAL_ACCELERATOR,
     WRITES_ENABLED_KEY,
     baseline_target,
     target_writes_enabled,
@@ -118,8 +119,9 @@ class ExecutionControlConfig:
 
     :param control_system_writes_enabled: Whether control system write operations are permitted for :attr:`active_target`
     :type control_system_writes_enabled: bool
-    :param control_system_type: Type of control system (epics, mock, tango, etc.).
-        Defaults to mock so an under-specified config never claims a live system.
+    :param control_system_type: Type of control system (epics, virtual_accelerator, tango, etc.).
+        Defaults to the simulator, served in process, so an under-specified config
+        never claims a live system.
     :type control_system_type: str
     :param active_target: Control target whose posture ``control_system_writes_enabled``
         answers, or ``None`` when the config was built without reading one.
@@ -147,7 +149,8 @@ class ExecutionControlConfig:
 
     # Control system settings
     control_system_writes_enabled: bool = False
-    control_system_type: str = MOCK  # Fail-closed: never assume a live system
+    # Fail-closed: never assume a live system; the simulator, served in process.
+    control_system_type: str = VIRTUAL_ACCELERATOR
     active_target: str | None = None
     writes_enabled_key: str = WRITES_ENABLED_KEY
 
@@ -201,11 +204,8 @@ def get_execution_control_config(target: str | None = None) -> ExecutionControlC
         # unset (or blank) key must not be read as a live control system.
         control_system_type = control_system_config.get("type")
         if not control_system_type:
-            logger.warning(
-                f"control_system.type is not set; defaulting to '{MOCK}'. "
-                f"Set control_system.type explicitly to select a connector."
-            )
-            control_system_type = MOCK
+            logger.warning(UNSET_TYPE_WARNING)
+            control_system_type = VIRTUAL_ACCELERATOR
 
         # Build typed config with defaults
         execution_control = ExecutionControlConfig(

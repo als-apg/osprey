@@ -36,8 +36,9 @@ class TestConfigFields:
         cfg = ExecutionControlConfig()
         # Fail-safe default: writes disabled unless explicitly enabled.
         assert cfg.control_system_writes_enabled is False
-        # Fail-closed default: an unspecified type is mock, never a live system.
-        assert cfg.control_system_type == "mock"
+        # Fail-closed default: an unspecified type is the simulator in process,
+        # never a live system.
+        assert cfg.control_system_type == "virtual_accelerator"
 
     def test_modern_field_is_honoured(self):
         cfg = ExecutionControlConfig(control_system_writes_enabled=True)
@@ -78,12 +79,12 @@ class TestGetExecutionControlConfigFactory:
     def test_reads_writes_enabled_true(self, monkeypatch):
         def fake_get_config_value(path, _default=None, _config_path=None):
             assert path == "control_system"
-            return {"writes_enabled": True, "type": "mock"}
+            return {"writes_enabled": True, "type": "epics"}
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
         cfg = get_execution_control_config()
         assert cfg.control_system_writes_enabled is True
-        assert cfg.control_system_type == "mock"
+        assert cfg.control_system_type == "epics"
 
     def test_defaults_when_writes_key_missing(self, monkeypatch):
         monkeypatch.setattr(
@@ -92,8 +93,8 @@ class TestGetExecutionControlConfigFactory:
         )
         cfg = get_execution_control_config()
         assert cfg.control_system_writes_enabled is False
-        # Type falls back to mock, not to a live control system.
-        assert cfg.control_system_type == control_mod.MOCK
+        # Type falls back to the simulator in process, not to a live control system.
+        assert cfg.control_system_type == control_mod.VIRTUAL_ACCELERATOR
 
     def test_exception_falls_back_to_safe_defaults(self, monkeypatch):
         def boom(_path, _default=None, _config_path=None):
@@ -104,7 +105,7 @@ class TestGetExecutionControlConfigFactory:
         # On any failure the factory must return a write-disabled config on a
         # non-live control system.
         assert cfg.control_system_writes_enabled is False
-        assert cfg.control_system_type == control_mod.MOCK
+        assert cfg.control_system_type == control_mod.VIRTUAL_ACCELERATOR
 
 
 class TestPerTargetPosture:
@@ -172,7 +173,14 @@ class TestPerTargetPosture:
         # A mock deployment has never named a real machine, so 'live' resolves
         # to no type at all and the only posture it has ever had is the global
         # one — which is also the key its refusal must name.
-        self._config(monkeypatch, {"type": "mock", "writes_enabled": True})
+        self._config(
+            monkeypatch,
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "writes_enabled": True,
+            },
+        )
 
         cfg = get_execution_control_config(target="live")
 
