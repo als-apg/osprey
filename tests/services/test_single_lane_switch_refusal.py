@@ -47,6 +47,7 @@ from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import owner, write_control_context
+from tests._control_system import IN_PROCESS, section_for
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 _MOD = "osprey.mcp_server.bluesky.tools.queue"
@@ -56,11 +57,10 @@ _TOKEN = "genuinely-valid-token"
 # rather than hitting a real process the test machine happens to be running.
 _DEAD_PID = 999_999_999
 
-# The connector type each deployment baseline is rendered from. `mock` is in
-# here on purpose: a mock deployment can never be switched in practice, but the
-# comparison still runs on every queue_add, so it has to produce `live` rather
-# than crash.
-_BASELINE_TYPES = {"live": "epics", "va": "virtual_accelerator", "live-from-mock": "mock"}
+# The connector type each deployment baseline is rendered from. The simulator in
+# process is in here on purpose: its lanes are browse-only, but the comparison
+# still runs on every queue_add, so it has to produce `va` rather than crash.
+_BASELINE_TYPES = {"live": "epics", "va": "virtual_accelerator", "va-in-process": IN_PROCESS}
 
 
 @pytest.fixture(autouse=True)
@@ -79,7 +79,7 @@ def deployment(tmp_path, monkeypatch):
     """
 
     def _stage(baseline: str) -> None:
-        control_system = {"type": _BASELINE_TYPES[baseline], "writes_enabled": True}
+        control_system = {**section_for(_BASELINE_TYPES[baseline]), "writes_enabled": True}
 
         # The baseline comes from the shared resolver reading the deployment
         # config; the tool module reads the write posture separately.
@@ -338,22 +338,22 @@ async def test_a_record_whose_owner_is_dead_still_names_the_deployments_target(d
     assert ctx["envelope"]["details"]["control_target"] == "va"
 
 
-async def test_a_mock_deployment_resolves_to_live_and_still_compares(deployment):
-    """The comparison must not crash on a deployment that cannot be switched.
+async def test_an_in_process_deployment_resolves_to_va_and_still_compares(deployment):
+    """The comparison must not crash on a deployment whose lanes are browse-only.
 
-    `mock` is not a target; the baseline it implies is `live`, so a record
-    naming `va` is a mismatch there like anywhere else.
+    The simulator in process baselines on `va`, so a record naming `live` is a
+    mismatch there like anywhere else.
     """
-    root = deployment("live-from-mock")
-    _deployment_on(root, "live")
-    _switch_to(root, "va")
+    root = deployment("va-in-process")
+    _deployment_on(root, "va")
+    _switch_to(root, "live")
 
     with patch(f"{_MOD}._http_post_json") as post:
         with assert_raises_error(error_type=qb.REASON_CONTROL_TARGET_MISMATCH) as ctx:
             await _add()
 
     assert not post.called
-    assert "live" in ctx["envelope"]["error_message"]
+    assert "va" in ctx["envelope"]["error_message"]
 
 
 # =========================================================================

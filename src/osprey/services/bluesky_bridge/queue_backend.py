@@ -13,8 +13,8 @@ Two responsibilities beyond pass-through:
 **Environment ownership.** Queueserver's worker environment is opened and closed
 by the bridge and nobody else — it is never exposed to panels or MCP. The bridge
 opens it at startup (with bounded retry; connecting devices can take tens of
-seconds) when the resolved ``control_system.type`` is EPICS-like, and never on a
-mock deployment, where a closed environment is the correct, healthy steady
+seconds) when the resolved connector speaks Channel Access, and never on a
+deployment serving the simulator in process, where a closed environment is the correct, healthy steady
 state. :meth:`QueueBackend.ensure_environment` is both the startup call and the
 re-open path when something else closed the environment underneath a deployment
 that is supposed to be able to execute.
@@ -234,11 +234,12 @@ DEFAULT_LANE = "bluesky"
 # The one-line flip that turns a browse-only deployment into an executing one.
 # Carried in the capability detail so the refusal tells the operator exactly
 # what to do rather than only what went wrong.
-FLIP_COMMAND = "osprey set connector=virtual_accelerator"
+FLIP_COMMAND = "osprey set config.control_system.connector.virtual_accelerator.serving=served"
 
 # Same exception set `_resolve_control_system_type` treats as "no readable
 # config" — see `_resolve_connector_type` for why this module probes for it
-# separately instead of accepting that helper's fail-safe "mock".
+# separately instead of accepting that helper's fail-safe type, the simulator in
+# process.
 _CONFIG_READ_ERRORS = (FileNotFoundError, KeyError, RuntimeError)
 
 
@@ -246,34 +247,52 @@ def _resolve_control_system_type() -> str:
     """Read ``control_system.type`` from the bridge's mounted project config.
 
     Single source of truth (Connector = the single control-system interface):
-    one config line flips the whole Bluesky stack between the mock connector and
-    real Channel Access (virtual accelerator or live hardware) — see the
+    the type and the simulator's ``serving`` leaf decide whether the Bluesky
+    stack runs over real Channel Access (the simulator served from its container,
+    or live hardware) or browses the simulator in process — see the
     ``control-assistant`` preset's ``config.control_system.type`` comment.
 
-    Fail-SAFE default: ``"mock"`` whenever the config can't be read at all (no
-    project config context — most unit-test environments — or a transient
-    lookup failure), never ``"virtual_accelerator"``/``"epics"`` — the mock
-    connector never touches Channel Access, so an unreadable config can never
-    silently be reported as able to move hardware.
+    Fail-SAFE default: the factory's own fallback,
+    ``resolve_control_system_type(None)``, whenever the config can't be read at
+    all (no project config context — most unit-test environments — or a
+    transient lookup failure). That is the simulator, which an unreadable config
+    serves in process (:func:`_resolve_lane_transport`), so it never touches
+    Channel Access and can never silently be reported as able to move hardware.
     """
     from osprey.utils.config import get_config_value
+    from osprey_connectors.types import resolve_control_system_type
 
+    fallback = resolve_control_system_type(None)
     try:
-        control_system_type = get_config_value("control_system.type", "mock")
+        control_system_type = get_config_value("control_system.type", None)
     except _CONFIG_READ_ERRORS:
-        return "mock"
+        return fallback
 
     if not isinstance(control_system_type, str) or not control_system_type:
-        return "mock"
+        return fallback
     return control_system_type
+
+
+def _resolve_lane_transport(connector_type: str) -> str | None:
+    """The wire this lane's worker speaks, for the lane's *connector_type*.
+
+    In process when the config cannot be read, or when its ``serving`` leaf
+    holds a value no reader accepts: the fail-safe side, which never claims a
+    lane can move hardware.
+    """
+    from osprey_connectors.types import TRANSPORT_IN_PROCESS, connector_transport
+
+    try:
+        return connector_transport(_control_system_section(), connector_type)
+    except ValueError:
+        return TRANSPORT_IN_PROCESS
 
 
 def _baseline_lane_target() -> str:
     """The target a lane with no declared one serves: the deployment baseline.
 
-    ``va`` for a virtual accelerator, ``standin`` for the live stand-in, and
-    ``live`` for everything else — including the mock, which serves no virtual
-    accelerator and whose deployment can never be switched in practice. That is
+    ``va`` for the simulator in either venue, ``standin`` for the live
+    stand-in, and ``live`` for everything else. That is
     not this module's rule to invent: it is exactly what
     ``target_banner.resolve_baseline_target`` answers host-side, and the host is
     what refuses ``queue_add`` when the recorded control target differs from the
@@ -344,7 +363,8 @@ def resolve_lane_connector_type() -> tuple[str, str | None]:
        so it keeps working, with the write posture that type inherits from the
        deployment-wide key. The mismatch is *reported* rather than absorbed:
        the lane addresses one machine with a type the config tied to another.
-    4. Nothing usable at all: ``mock``, which never touches Channel Access.
+    4. Nothing usable at all: the fail-safe type, the simulator, which an
+       unreadable config serves in process, so it never touches Channel Access.
 
     Never raises, for the same reason :func:`resolve_lane_identity` does not.
 
@@ -513,8 +533,8 @@ class Capability:
         can_execute: True only when a reachable manager is backed by a connector
             that can drive real Channel Access.
         reason: Machine-readable code — one of the ``REASON_*`` constants.
-        detail: Operator-facing explanation. For a browse-only mock deployment
-            it names the exact command that flips it.
+        detail: Operator-facing explanation. For a browse-only in-process
+            deployment it names the exact command that flips it.
         lane: The plan lane this bridge is — its own service key
             (``bluesky``/``bluesky_va``/``bluesky_live``).
         lane_target: The control target that lane serves, one of
@@ -553,18 +573,19 @@ def _resolve_connector_type() -> str | None:
     """The deployment's ``control_system.type``, or ``None`` when it can't be read.
 
     Delegates the actual lookup to :func:`_resolve_control_system_type`, which
-    fails safe to ``"mock"`` when the project config is unreadable. That is the right *safety*
-    answer — an unreadable config must never connect to hardware — but it
-    collapses two situations the capability record needs to keep apart:
-    a deployment that is deliberately mock (flip the connector to fix it) and
-    one whose config the bridge simply could not read (fix the mount). So read
-    the config once to learn whether it is readable at all, then let the shared
-    helper produce the value.
+    fails safe to the simulator in process when the project config is
+    unreadable. That is the right *safety* answer — an unreadable config must
+    never connect to hardware — but it collapses two situations the capability
+    record needs to keep apart: a deployment that deliberately serves the
+    simulator in process (serve it from its container to fix it) and one whose
+    config the bridge simply could not read (fix the mount). So read the config
+    once to learn whether it is readable at all, then let the shared helper
+    produce the value.
     """
     from osprey.utils.config import get_config_value
 
     try:
-        get_config_value("control_system.type", "mock")
+        get_config_value("control_system.type", None)
     except _CONFIG_READ_ERRORS:
         return None
     return _resolve_control_system_type()
@@ -1445,8 +1466,9 @@ class QueueBackend:
 
         Fail-closed at every step, and ordered so the operator gets the most
         actionable answer: the connector is checked before the manager, so a
-        mock deployment is told to flip the connector rather than that some
-        queue server it was never meant to have is unreachable.
+        deployment serving the simulator in process is told to serve it from its
+        container rather than that some queue server it was never meant to have
+        is unreachable.
 
         The lane identity rides on every branch, including the refusals: a
         consumer looking at a "no" needs to know WHICH lane said it. It is
@@ -1459,7 +1481,7 @@ class QueueBackend:
         connector than the one plans will actually run against would be a
         capability describing some other lane.
         """
-        from osprey_connectors.types import CHANNEL_ACCESS_TYPES
+        from osprey_connectors.types import TRANSPORT_CA, TRANSPORT_IN_PROCESS
 
         lane, lane_target = resolve_lane_identity()
         if _resolve_connector_type() is None:
@@ -1475,8 +1497,9 @@ class QueueBackend:
                 ),
             )
         connector_type, lane_degraded = resolve_lane_connector_type()
+        transport = _resolve_lane_transport(connector_type)
 
-        if connector_type == "mock":
+        if transport == TRANSPORT_IN_PROCESS:
             return Capability(
                 can_execute=False,
                 reason=REASON_BROWSE_ONLY_CONNECTOR,
@@ -1484,13 +1507,14 @@ class QueueBackend:
                 lane_target=lane_target,
                 lane_degraded=lane_degraded,
                 detail=(
-                    "This deployment uses the mock connector, which cannot move hardware, "
-                    "so plans can be composed and validated but not executed. To "
-                    f"execute plans, run `{FLIP_COMMAND}` and redeploy."
+                    "This deployment serves the simulator in process, which speaks no "
+                    "Channel Access, so plans can be composed and validated but not "
+                    "executed. To execute plans, serve it from its container "
+                    f"(`{FLIP_COMMAND}`) and redeploy."
                 ),
             )
 
-        if connector_type not in CHANNEL_ACCESS_TYPES:
+        if transport != TRANSPORT_CA:
             return Capability(
                 can_execute=False,
                 reason=REASON_UNSUPPORTED_CONNECTOR,

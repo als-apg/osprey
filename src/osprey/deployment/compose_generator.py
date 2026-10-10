@@ -2066,7 +2066,7 @@ def _inject_project_metadata(config):
             config_with_labels["services"] = services
 
     # The simulated machine's tick period, resolved through the one function the
-    # mock connector and the build's profile check call, so every surface
+    # in-process simulator and the build's profile check call, so every surface
     # serving the composite ticks at the period the config states. Rendered as
     # a value rather than a ``${...}`` passthrough: the config is the only
     # source of the tick.
@@ -3281,8 +3281,8 @@ def simulator_log_mount_sources():
 def simulated_target_configured(config):
     """Whether a session on this deployment can be pointed at a simulated machine.
 
-    True when the deployment's own control system is the mock, the Virtual
-    Accelerator or the live stand-in, or when the ``va`` or ``standin`` target
+    True when the deployment's own control system is the simulator, in either
+    venue, or the live stand-in, or when the ``va`` or ``standin`` target
     has its connector block. Every such target is served by the composite, in
     process or in a Virtual Accelerator container, and so writes model logs.
 
@@ -3758,8 +3758,8 @@ def _discard_staged_devices(staged_path):
     """Remove a device file an earlier build left in this context.
 
     The incremental path reuses the directory, so a deployment that stops having
-    a device set — the Bluesky lane dropped, the control system switched to
-    mock — would otherwise keep mounting the previous render's
+    a device set — the Bluesky lane dropped, the simulator moved in process —
+    would otherwise keep mounting the previous render's
     devices into a worker that is now supposed to be browse-only.
 
     :param staged_path: Where the device file would have been staged
@@ -3836,7 +3836,8 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     like ``channel_snapshot`` and dev_mode's wheel: the compose template may
     only mount a file that was actually written.
 
-    A **mock** control system drives no channels, so its lanes are browse-only:
+    The simulator **served in process** speaks no Channel Access, so its lanes
+    are browse-only:
     the view is written but never staged. Whenever nothing is staged, a file an
     earlier build left in ``out_dir`` is removed, so neither an incremental
     rebuild nor a re-render goes on mounting a device set the deployment no
@@ -3859,15 +3860,15 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     if os.path.basename(source_dir) != _BLUESKY_DEVICES_SERVICE:
         return False
 
-    from osprey.connectors.types import MOCK, resolve_control_system_type
+    from osprey.connectors.types import talks_to_network
     from osprey.facility.views.bluesky import BLUESKY_DEVICES_FILE
 
     staged_path = os.path.join(out_dir, BLUESKY_DEVICES_FILENAME)
     view_path = f"data/{BLUESKY_DEVICES_FILE}"
 
-    if resolve_control_system_type(config.get("control_system")) == MOCK:
+    if not talks_to_network(config.get("control_system")):
         _discard_staged_devices(staged_path)
-        _report_fact("bluesky plans browse-only: a mock control system drives no channels")
+        _report_fact("bluesky plans browse-only: the simulator in process serves no Channel Access")
         return False
 
     view = _render_anchor_dir(config) / view_path

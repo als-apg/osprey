@@ -69,6 +69,7 @@ from osprey.services.bluesky_bridge.session_upload import (
 from osprey.services.bluesky_bridge.validation_record import validation_records
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
+from tests._control_system import IN_PROCESS, section_for
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
@@ -454,9 +455,14 @@ def connector(monkeypatch: pytest.MonkeyPatch) -> Callable[[str | Exception], No
     """Set — or break — the ``control_system.type`` the capability check reads."""
 
     def _set(value: str | Exception) -> None:
-        def fake_get_config_value(_key: str, _default: Any = None) -> Any:
+        def fake_get_config_value(key: str, _default: Any = None) -> Any:
             if isinstance(value, Exception):
                 raise value
+            section = section_for(value)
+            if key == "control_system.type":
+                return section["type"]
+            if key == "control_system":
+                return section
             return value
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
@@ -1434,7 +1440,7 @@ def _make_incapable(
     deployment itself, where retrying changes nothing.
     """
     if reason == qb.REASON_BROWSE_ONLY_CONNECTOR:
-        connector("mock")
+        connector(IN_PROCESS)
     elif reason == qb.REASON_UNSUPPORTED_CONNECTOR:
         connector("tango")
     elif reason == qb.REASON_CONFIG_UNREADABLE:
@@ -1525,7 +1531,7 @@ def test_a_browse_only_refusal_names_the_command_that_flips_it(
     """The mock-connector refusal is the one an operator meets most, so it
     carries the remediation, not just the diagnosis."""
     revision = _draft_revision(client)
-    connector("mock")
+    connector(IN_PROCESS)
 
     detail = client.post("/queue/items", json={"draft_revision": revision}).json()["detail"]
 
@@ -1542,7 +1548,7 @@ def test_a_browse_only_deployment_cannot_be_started_either(
     """Capability gates the start too — an armed caller on a browse-only
     deployment is refused before the manager is asked to start anything."""
     monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
-    connector("mock")
+    connector(IN_PROCESS)
 
     resp = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
 

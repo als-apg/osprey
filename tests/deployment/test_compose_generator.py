@@ -8220,15 +8220,19 @@ def _devices_config(
     *,
     control_system_type: str = "virtual_accelerator",
     lanes: tuple[str, ...] = ("bluesky",),
+    in_process: bool = False,
 ) -> dict:
     """The slice of render config the staging step reads."""
+    control_system: dict = {"type": control_system_type, "writes_enabled": False}
+    if in_process:
+        control_system["connector"] = {"virtual_accelerator": {"serving": "in_process"}}
     return {
         "project_name": "hwt-fixture",
         "config_dir": str(config_dir),
         "project_root": str(config_dir),
         "services": {lane: {"path": "./services/bluesky"} for lane in lanes},
         "deployed_services": list(lanes),
-        "control_system": {"type": control_system_type, "writes_enabled": False},
+        "control_system": control_system,
     }
 
 
@@ -8274,29 +8278,31 @@ def test_the_view_is_read_from_the_config_directory(tmp_path: Path) -> None:
     assert (out_dir / "bluesky_devices.yml").read_bytes() == view.read_bytes()
 
 
-def test_mock_stages_nothing(tmp_path: Path, devices_facts: list[str]) -> None:
+def test_the_simulator_in_process_stages_nothing(tmp_path: Path, devices_facts: list[str]) -> None:
     _write_view(tmp_path)
     out_dir = _devices_out_dir(tmp_path)
 
-    staged = _stage_devices(_devices_config(tmp_path, control_system_type="mock"), out_dir)
+    staged = _stage_devices(_devices_config(tmp_path, in_process=True), out_dir)
 
     assert staged is False
     assert not (out_dir / "bluesky_devices.yml").exists()
-    assert devices_facts == ["bluesky plans browse-only: a mock control system drives no channels"]
+    assert devices_facts == [
+        "bluesky plans browse-only: the simulator in process serves no Channel Access"
+    ]
 
 
-def test_mock_removes_a_file_an_earlier_render_staged(tmp_path: Path) -> None:
+def test_the_simulator_in_process_removes_a_file_an_earlier_render_staged(tmp_path: Path) -> None:
     _write_view(tmp_path)
     out_dir = _devices_out_dir(tmp_path)
     (out_dir / "bluesky_devices.yml").write_text("settables: []\n", encoding="utf-8")
 
-    staged = _stage_devices(_devices_config(tmp_path, control_system_type="mock"), out_dir)
+    staged = _stage_devices(_devices_config(tmp_path, in_process=True), out_dir)
 
     assert staged is False
     assert not (out_dir / "bluesky_devices.yml").exists()
 
 
-def test_a_control_system_without_a_type_is_the_mock(tmp_path: Path) -> None:
+def test_a_control_system_without_a_type_is_the_simulator_in_process(tmp_path: Path) -> None:
     _write_view(tmp_path)
     config = _devices_config(tmp_path)
     config["control_system"].pop("type")
@@ -8439,7 +8445,7 @@ def test_both_render_paths_stage_the_view_and_carry_the_gate(
 
 @pytest.mark.parametrize("entry_point", ["full", "incremental"])
 @pytest.mark.usefixtures("devices_facts")
-def test_both_render_paths_gate_the_mount_off_under_mock(
+def test_both_render_paths_gate_the_mount_off_in_process(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     entry_point: str,
@@ -8447,7 +8453,8 @@ def test_both_render_paths_gate_the_mount_off_under_mock(
     repo = _devices_render_repo(tmp_path, monkeypatch)
     _write_view(repo)
     config = _devices_render_config(repo)
-    config["control_system"]["type"] = "mock"
+    config["control_system"]["type"] = "virtual_accelerator"
+    config["control_system"]["connector"] = {"virtual_accelerator": {"serving": "in_process"}}
     out_dir = _render_devices_service(entry_point, repo, config)
 
     assert not (out_dir / "bluesky_devices.yml").exists()

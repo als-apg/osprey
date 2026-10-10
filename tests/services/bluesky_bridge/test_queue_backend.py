@@ -29,6 +29,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     QueueUnavailableError,
 )
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
+from tests._control_system import IN_PROCESS, section_for
 
 
 class FakeManager:
@@ -97,9 +98,14 @@ def connector(monkeypatch: pytest.MonkeyPatch):
     """
 
     def _set(value: str | Exception) -> None:
-        def fake_get_config_value(_key: str, _default: Any = None) -> Any:
+        def fake_get_config_value(key: str, _default: Any = None) -> Any:
             if isinstance(value, Exception):
                 raise value
+            section = section_for(value)
+            if key == "control_system.type":
+                return section["type"]
+            if key == "control_system":
+                return section
             return value
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
@@ -636,7 +642,7 @@ async def test_capability_is_executable_on_a_virtual_accelerator(connector) -> N
 
 
 async def test_capability_on_mock_names_the_flip_command(connector) -> None:
-    connector("mock")
+    connector(IN_PROCESS)
     capability = await QueueBackend(FakeManager(status=status_doc())).capability()
 
     assert capability.can_execute is False
@@ -645,7 +651,7 @@ async def test_capability_on_mock_names_the_flip_command(connector) -> None:
 
 
 async def test_capability_never_probes_the_manager_on_mock(connector) -> None:
-    connector("mock")
+    connector(IN_PROCESS)
     manager = FakeManager(status=status_doc())
     await QueueBackend(manager).capability()
 
@@ -709,7 +715,7 @@ def test_capability_serializes_to_the_wire_shape() -> None:
 
 
 async def test_mock_deployments_never_open_the_environment(connector, fast_backend) -> None:
-    connector("mock")
+    connector(IN_PROCESS)
     manager = FakeManager(status=status_doc(worker_environment_exists=False))
     backend = fast_backend(manager)
 
@@ -786,7 +792,7 @@ async def test_ensure_environment_survives_a_refused_open(connector, fast_backen
 async def test_ensure_environment_for_execute_refuses_a_browse_only_deployment(
     connector, fast_backend
 ) -> None:
-    connector("mock")
+    connector(IN_PROCESS)
     backend = fast_backend(FakeManager(status=status_doc()))
 
     with pytest.raises(ExecutionUnavailableError) as excinfo:

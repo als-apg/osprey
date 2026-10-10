@@ -82,7 +82,7 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
 # =========================================================================
 
 
-@pytest.mark.parametrize("control_system_type", ["mock", "epics", "virtual_accelerator", "doocs"])
+@pytest.mark.parametrize("control_system_type", ["epics", "virtual_accelerator", "doocs"])
 def test_a_lane_with_no_declared_target_builds_control_system_type(
     deployment, control_system_type
 ) -> None:
@@ -93,8 +93,8 @@ def test_a_lane_with_no_declared_target_builds_control_system_type(
     assert qb.resolve_lane_connector_type()[1] is None
 
 
-def test_an_unreadable_config_still_builds_the_mock(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The documented fail-safe: the mock connector never touches Channel Access."""
+def test_an_unreadable_config_still_builds_the_simulator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The documented fail-safe: the simulator, which an unreadable config serves in process."""
 
     def _raise(*_: Any, **__: Any) -> Any:
         raise FileNotFoundError("no project config context")
@@ -102,7 +102,7 @@ def test_an_unreadable_config_still_builds_the_mock(monkeypatch: pytest.MonkeyPa
     monkeypatch.delenv(qb.LANE_ENV, raising=False)
     monkeypatch.setattr("osprey.utils.config.get_config_value", _raise)
 
-    assert qserver_startup.resolve_control_system_type() == "mock"
+    assert qserver_startup.resolve_control_system_type() == "virtual_accelerator"
     assert qserver_startup.worker_writes_enabled() is False
 
 

@@ -360,7 +360,7 @@ def test_the_facility_file_resolves_through_config_dir(repo, tmp_path, rendered_
 # over.
 #
 # `_stage_bluesky_devices` answers a richer question than the snapshot's
-# (authored / derived / mock / nothing), but the property that has to hold
+# (authored / derived / in process / nothing), but the property that has to hold
 # across the two renderers is identical: one decision, one boolean in the
 # context, one set of bytes in the build context, and nothing left behind when
 # the decision goes the other way.
@@ -389,14 +389,22 @@ readables:
 """
 
 
-def _devices_config(repo: Path, *, authored: bool, mock: bool = False) -> dict:
+def _devices_config(repo: Path, *, authored: bool, in_process: bool = False) -> dict:
     """The config slice the device staging reads.
 
-    The control-system type is read first, because a mock deployment drives no
-    channels and is browse-only whatever file is lying around.
+    The connector's wire is read first, because the simulator in process serves
+    no Channel Access and is browse-only whatever file is lying around.
     """
     config = _config(repo)
-    config["control_system"] = {"type": "mock" if mock else "epics", "writes_enabled": False}
+    config["control_system"] = (
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            "writes_enabled": False,
+        }
+        if in_process
+        else {"type": "epics", "writes_enabled": False}
+    )
     if authored:
         document = repo / DEVICES_RELPATH
         document.parent.mkdir(parents=True, exist_ok=True)
@@ -475,13 +483,13 @@ def test_device_paths_agree_when_no_file_is_configured(repo, rendered_contexts):
     assert _staged_device_mounts() == []
 
 
-def test_a_mock_deployment_stages_no_devices_on_either_path(repo, rendered_contexts):
-    """A mock control system drives no channels, authored file or not.
+def test_an_in_process_deployment_stages_no_devices_on_either_path(repo, rendered_contexts):
+    """The simulator in process serves no Channel Access, authored file or not.
 
     Decided before the file is even looked at, so an authored document cannot
-    make a mock deployment look like it can steer anything.
+    make an in-process deployment look like it can steer anything.
     """
-    config = _devices_config(repo, authored=True, mock=True)
+    config = _devices_config(repo, authored=True, in_process=True)
 
     _run_full_bluesky(config)
     assert rendered_contexts[0]["bluesky_devices"] is False
@@ -505,7 +513,7 @@ def test_a_rebuild_drops_a_stale_device_file(repo, rendered_contexts, run):
 
     The incremental path reuses the directory, and the full path can be handed
     one a previous build wrote — so a deployment that stops having devices (the
-    authored file deleted, the control system switched to mock) must stop
+    authored file deleted, the simulator moved in process) must stop
     mounting the previous render's, on either path.
     """
     DEVICES_OUT_DIR.mkdir(parents=True, exist_ok=True)

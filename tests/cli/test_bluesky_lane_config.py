@@ -94,11 +94,22 @@ approval:
 """
 
 
+#: The ``cs_type`` that writes the simulator served in process.
+IN_PROCESS = "in_process"
+
+
 def _write_config(project_path: Path, cs_type: str = "epics") -> None:
     project_path.mkdir(parents=True, exist_ok=True)
-    (project_path / "config.yml").write_text(
-        CONFIG_TEMPLATE.format(cs_type=cs_type), encoding="utf-8"
-    )
+    text = CONFIG_TEMPLATE.format(cs_type=cs_type)
+    if cs_type == IN_PROCESS:
+        text = text.replace(
+            f'  type: "{IN_PROCESS}"\n',
+            '  type: "virtual_accelerator"\n'
+            "  connector:\n"
+            "    virtual_accelerator:\n"
+            "      serving: in_process\n",
+        )
+    (project_path / "config.yml").write_text(text, encoding="utf-8")
 
 
 def _read_config(project_path: Path) -> dict:
@@ -135,12 +146,12 @@ def test_schema_default_is_single_lane() -> None:
     assert BlueskyConfig().second_lane is False
 
 
-@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator", "mock"])
+@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator", IN_PROCESS])
 def test_single_lane_block_is_unchanged(tmp_path: Path, cs_type: str) -> None:
     """Default config renders exactly today's block, on any baseline.
 
     The regression pin for every project built before the lane axis existed:
-    the keys, their values, and the absence of every lane key. A ``mock``
+    the keys, their values, and the absence of every lane key. An in-process
     baseline is included because a single-lane deploy needs no switchable
     target at all — only the second lane does.
     """
@@ -364,9 +375,9 @@ def test_authored_env_is_carried_on_both_lanes(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("cs_type", ["mock", "doocs"])
+@pytest.mark.parametrize("cs_type", [IN_PROCESS, "doocs"])
 def test_second_lane_refuses_an_unswitchable_baseline(tmp_path: Path, cs_type: str) -> None:
-    """A ``mock``/``doocs`` deployment has no second target to serve."""
+    """An in-process or ``doocs`` deployment has no Channel Access lane to serve."""
     project = tmp_path / "project"
     _write_config(project, cs_type=cs_type)
 
