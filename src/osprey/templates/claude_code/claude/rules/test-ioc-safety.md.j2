@@ -1,4 +1,4 @@
-{% if control_system_type in ('epics', 'virtual_accelerator') %}# Test IOC Safety — Mandatory Port Isolation for EPICS
+{% if control_system_type in ('epics', 'virtual_accelerator') and control_system_transport == 'ca' %}# Test IOC Safety — Mandatory Port Isolation for EPICS
 
 > **Read this in full before starting, stopping, or configuring any test IOC.**
 >
