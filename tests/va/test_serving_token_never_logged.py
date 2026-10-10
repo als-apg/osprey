@@ -1,7 +1,9 @@
 """The model write token never reaches text, asserted against the syntax tree.
 
 This one check stays static: it must cover every line that could log,
-print, warn, format or raise the token, which no behavioural test can.
+print, warn, format or raise the token, which no behavioural test can. It
+scans the serving package and the entrypoint the token enters the process
+through.
 """
 
 from __future__ import annotations
@@ -11,7 +13,11 @@ from pathlib import Path
 
 import pytest
 
-SERVING = Path(__file__).resolve().parents[2] / "src/osprey/services/virtual_accelerator/serving"
+VIRTUAL_ACCELERATOR = (
+    Path(__file__).resolve().parents[2] / "src/osprey/services/virtual_accelerator"
+)
+SERVING = VIRTUAL_ACCELERATOR / "serving"
+ENTRYPOINT = VIRTUAL_ACCELERATOR / "entrypoint.py"
 
 #: A reference to the model write token, by every name it has in the serving
 #: package: the runner's constructor argument and the attribute it is kept
@@ -26,9 +32,23 @@ _OUTPUT_METHODS = frozenset(
 
 
 def _mentions_token(node: ast.AST) -> bool:
+    """Whether the token can reach the text *node* emits.
+
+    A token that is only the test of a conditional expression chooses which
+    text is emitted and never joins it, so it is not a mention.
+    """
+    tests = {
+        id(each)
+        for conditional in ast.walk(node)
+        if isinstance(conditional, ast.IfExp)
+        for each in ast.walk(conditional.test)
+    }
     return any(
-        (isinstance(each, ast.Name) and each.id in _TOKEN_NAMES)
-        or (isinstance(each, ast.Attribute) and each.attr in _TOKEN_NAMES)
+        id(each) not in tests
+        and (
+            (isinstance(each, ast.Name) and each.id in _TOKEN_NAMES)
+            or (isinstance(each, ast.Attribute) and each.attr in _TOKEN_NAMES)
+        )
         for each in ast.walk(node)
     )
 
@@ -59,8 +79,8 @@ def _token_leaks(tree: ast.AST) -> list[str]:
 
 @pytest.fixture(scope="module")
 def serving_modules() -> list[Path]:
-    modules = sorted(SERVING.glob("*.py"))
-    assert modules
+    modules = [*sorted(SERVING.glob("*.py")), ENTRYPOINT]
+    assert ENTRYPOINT.is_file()
     return modules
 
 
@@ -91,6 +111,15 @@ def test_the_leak_check_catches_a_leak(leak: str) -> None:
     """The check above is only as good as its detector: each of these would
     put the token into text, and each is caught."""
     assert _token_leaks(ast.parse(leak))
+
+
+def test_a_token_that_only_chooses_the_text_is_not_a_leak() -> None:
+    """A conditional's test picks which text is emitted; the token joins none of it."""
+    chooses = ast.parse("print('armed' if model_write_token else 'disabled')")
+    assert _token_leaks(chooses) == []
+    # The same token inside a branch is emitted text, and is caught.
+    emits = ast.parse("print(model_write_token if model_write_token else 'disabled')")
+    assert _token_leaks(emits)
 
 
 def test_the_leak_check_lets_the_token_be_passed_on() -> None:
