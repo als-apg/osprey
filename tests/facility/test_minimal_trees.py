@@ -3,7 +3,9 @@
 A project whose ``data/facility/`` holds only two authored channel addresses
 builds a facility file with those two channels and nothing else, each a
 readback by default; the same two addresses imported as a header-less channel
-list build the same channels. A project whose ``data/facility/`` is empty builds one
+list build the same channels. A channel list that states the position of a
+device the tree declares nowhere else creates that device at its position, and
+the span containing it places it. A project whose ``data/facility/`` is empty builds one
 with no records at all: only the built-in ``texture`` model, no classes, and an
 identity folded from the project name. Both render a simulator view that serves
 texture alone, with no status address. The mock connector serving a minimal
@@ -111,14 +113,19 @@ def test_two_authored_addresses_build_two_readbacks(build_project: Build) -> Non
         assert "role" in channel["provenance"]["defaults"]
 
 
-def _import_list(tmp_path: Path, text: str) -> tuple[BuiltProject, Result]:
-    """Init a repo with no ``data/facility/``, import a channel list into it and build."""
+def _import_list(
+    tmp_path: Path, text: str, tree: dict[str, Any] | None = None
+) -> tuple[BuiltProject, Result]:
+    """Init a repo whose ``data/facility/`` holds ``tree``, import a channel list and build."""
     from osprey.cli.main import cli
     from tests._builds import init_project, run_build
+    from tests.facility._synthetic_trees import write_tree
     from tests.facility.conftest import BuiltProject
 
     repo = init_project(tmp_path, "hello-world", "demo")
     shutil.rmtree(repo / "data" / "facility")
+    if tree is not None:
+        write_tree(repo / "data" / "facility", tree)
     listing = tmp_path / "two.csv"
     listing.write_text(text, encoding="utf-8")
     imported = CliRunner().invoke(
@@ -152,6 +159,58 @@ def test_two_listed_addresses_build_the_same_two_readbacks(
         {**channel, "provenance": {**channel["provenance"], "sources": []}}
         for channel in authored.facility["channels"]
     ]
+
+
+def _line_with_a_span() -> dict[str, Any]:
+    """Model LINE on a single-pass deck whose place LINE/G spans [M0, M1), M1 at 4.2 m."""
+    from tests.facility._synthetic_trees import LINE_TWISS, SETTING, Deck
+
+    return {
+        "records/places.yaml": [
+            {"id": "LINE", "span": {"model": "LINE", "from_marker": "M0"}},
+            {"id": "LINE/G", "span": {"model": "LINE", "from_marker": "M0", "to_marker": "M1"}},
+        ],
+        "records/devices.yaml": [{"id": "LINE/Q1", "class": "Quadrupole"}],
+        "records/channels.yaml": [{"id": "LQ:SP", "role": "setpoint", "on": {"device": "LINE/Q1"}}],
+        "models.yaml": [
+            {
+                "name": "LINE",
+                "engine": "pyat",
+                "deck": "decks/line.json",
+                "settings": {"pyat": {"solve": "single_pass", "twiss_in": dict(LINE_TWISS)}},
+                "wiring": [{"address": "LQ:SP", "element": "Q1", "engine": dict(SETTING)}],
+            }
+        ],
+        "decks/line.json": Deck(
+            lambda at: [
+                at.Marker("M0"),
+                at.Drift("DL", 2.0),
+                at.Quadrupole("Q1", 0.2, 0.9),
+                at.Drift("DL2", 2.0),
+                at.Marker("M1"),
+                at.Drift("DL3", 1.0),
+            ]
+        ),
+    }
+
+
+def test_a_listed_position_places_a_device_declared_nowhere_else(tmp_path: Path) -> None:
+    pytest.importorskip("at")
+    project, result = _import_list(
+        tmp_path,
+        "address,role,device,s,model\nL:G1:SP,setpoint,L/G1,3.5,LINE\nL:G1:RB,,L/G1,3.5,LINE\n",
+        _line_with_a_span(),
+    )
+
+    assert result.exit_code == 0, result.output
+    device = next(d for d in project.facility["devices"] if d["id"] == "L/G1")
+    assert (device["s"], device["model"], device["place"]) == (3.5, "LINE", "LINE/G")
+    provenance = device["provenance"]
+    assert provenance["place_from"] == "span"
+    assert provenance["sources"] == [
+        {"layer": "list", "file": "imported/list/devices.yaml", "fields": ["model", "s"]}
+    ]
+    assert "s" not in provenance["defaults"]
 
 
 def test_zero_sources_build_the_texture_model_alone(build_project: Build) -> None:
