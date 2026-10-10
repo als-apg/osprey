@@ -75,7 +75,8 @@ class ChatSessionPool:
     ``is_busy``/``last_activity``/``started_commands``/``teardown``.
     ``factory(cwd, env, session_key)`` returns
     an unstarted session; the pool starts it outside the lock, naming there the
-    transcript it should resume.
+    transcript it should resume. Idle time is read from ``now``, a monotonic
+    clock on the scale ``last_activity`` is stamped in.
     """
 
     def __init__(
@@ -83,6 +84,7 @@ class ChatSessionPool:
         factory: Callable[[str, dict[str, str] | None, str], OperatorSession],
         max_sessions: int = 5,
         idle_seconds: float = 900.0,
+        now: Callable[[], float] = time.monotonic,
     ) -> None:
         self._factory = factory
         # LRU-ordered; newest at the end.
@@ -101,6 +103,9 @@ class ChatSessionPool:
         self._superseded: set[asyncio.Future[OperatorSession]] = set()
         self._max_sessions = max_sessions
         self._idle_seconds = idle_seconds
+        # Idle time is measured on this clock. Sessions stamp last_activity from
+        # time.monotonic, so a replacement reads on that scale.
+        self._now = now
 
     async def get_or_create(
         self,
@@ -445,7 +450,7 @@ class ChatSessionPool:
         running = await asyncio.gather(
             *(asyncio.to_thread(_has_running_commands, k, s) for k, s in looks)
         )
-        now = time.monotonic()
+        now = self._now()
         async with self._lock:
             victims = []
             for (key, session), has_running in zip(looks, running, strict=True):
