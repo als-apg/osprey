@@ -866,13 +866,14 @@ keys:
   # ── Control system ──────────────────────────────────────────────────
   control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
   control_system.type:
-    evidence: 'get_config_value\("control_system\.type", "mock"\)'
+    evidence: 'get_config_value\("control_system\.type", None\)'
     default: required
     default_note: >-
-      The types a project can be built on are `mock`, `epics`,
-      `virtual_accelerator`, `doocs` and `tango`. `live_standin` is settable
-      on a deployment that has a stand-in, and `osprey init` never offers it,
-      so a fresh project cannot start there.
+      The types a project can be built on are `epics`, `virtual_accelerator`,
+      `doocs` and `tango`. `live_standin` is settable on a deployment that has
+      a stand-in, and `osprey init` never offers it, so a fresh project cannot
+      start there. A section that states no type is the simulator served in
+      process, which dials nothing.
   control_system.writes_enabled:
     evidence: '"control_system\.writes_enabled"'
     note: >-
@@ -974,11 +975,6 @@ keys:
     evidence: '"control_system\.channel_read_artifact_retention"'
     default: 20
   control_system.connector: {covered-by: control_system, default: n/a}
-  control_system.connector.mock: {rendered: false, covered-by: control_system.connector, default: n/a}
-  # The mock connector's one tuning knob. `rendered: false`: the presets ship
-  # the mock connector at the connector's own default and do not state it, so a
-  # deployment that wants a slower machine authors it itself.
-  control_system.connector.mock.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
   control_system.connector.epics.timeout_s: {covered-by: control_system.connector.epics, default: 5.0}
   control_system.connector.epics.step_read_timeout_s:
@@ -1049,6 +1045,17 @@ keys:
       unset leaves PyTango reading the TANGO_HOST already in the container's environment
   control_system.connector.tango.timeout_s: {rendered: false, covered-by: control_system.connector.tango, default: 5.0}
   control_system.connector.virtual_accelerator: {covered-by: control_system.connector, default: n/a}
+  control_system.connector.virtual_accelerator.serving:
+    evidence: 'SERVING_LEAF = "serving"'
+    default: served
+    note: >-
+      `served` is the simulator's container over Channel Access; `in_process`
+      runs it inside the process that asks, with no network. A section that
+      states no type is the simulator in process, and the leaf is not read.
+  # The in-process simulator's one tuning knob. `rendered: false`: the presets
+  # serve the simulator in process at the connector's own delay and do not
+  # state it, so a deployment that wants a slower machine authors it itself.
+  control_system.connector.virtual_accelerator.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
   control_system.connector.virtual_accelerator.timeout_s: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
   # The VA connector subclasses the EPICS one and hands its own block to
   # `super().connect()`, so the step-read budget above is read from this type's
@@ -1215,8 +1222,8 @@ keys:
       `_global_limits_posture` (`section[...]`), so each entry dies with exactly
       its own reader. The epics and live_standin entries below cite the same
       site on purpose: one type-keyed resolver serves every connector type, a
-      custom connector's dotted module path included. No `mock` or `doocs`
-      entry, because no shipped preset writes either block.
+      custom connector's dotted module path included. No `doocs` entry,
+      because no shipped preset writes that block.
     default: derived
     default_note: falls through to control_system.limits_checking
   control_system.connector.virtual_accelerator.limits_checking.enabled:
@@ -3172,6 +3179,12 @@ deleted:
 - ariel.enhancement_modules.semantic_processor.model.provider
   # Ledger 26 — mock connector knob nothing read (project template only).
 - control_system.connector.mock.simulate_delays
+  # The simulator in process is `control_system.type: virtual_accelerator` with
+  # `control_system.connector.virtual_accelerator.serving: in_process`; its delay
+  # is that block's `response_delay_ms`. The build refuses the retired type name
+  # and any block under it, naming the new spelling.
+- control_system.connector.mock
+- control_system.connector.mock.response_delay_ms
   # Ledger 56 — VA gateway ports are default-filled from
   # services.virtual_accelerator.port. The commented override example stays; the
   # EPICS gateway ports are untouched and remain live.
@@ -3249,6 +3262,23 @@ deleted_commented_examples:
 # regex here must match ZERO times under the listed root (failure mode 4).
 # ---------------------------------------------------------------------------
 orphan_sites:
+  control_system.connector.mock:
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: '^\s+mock:\s*$|connector\.mock\b'
+    back_test: {base_matches: 3, branch_matches: 0}
+    why: >-
+      a template or preset block keyed `mock:` under the connector table, or a
+      line naming `control_system.connector.mock`.
+  control_system.connector.mock.response_delay_ms:
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'connector\.mock\.response_delay_ms|configure: response_delay_ms'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      a template or preset line stating or advertising the mock block's delay.
   facility.prefix:
   - root: src/osprey/profiles/presets
     regex: 'facility\.prefix'
@@ -3619,7 +3649,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 345
+  expected_union_size: 346
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

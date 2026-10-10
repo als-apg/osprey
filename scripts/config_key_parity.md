@@ -197,7 +197,7 @@ The preset conversion added twenty of the seventy-five, in three groups:
 |---|---|
 | `control_system.connector.epics.gateways.*` (9) | a facility's Channel Access gateways cannot be guessed, and shipping someone else's would point a control system at a stranger's machine. `control-assistant` documents the whole block commented and the operator authors it at go-live |
 | `archiver.mongodb_archiver.*` (9) | the build's archiver injector derives the connection block from the deployment's own `services.postgresql` / `va_archiver:` declaration. The preset states only `archiver.type: mongodb_archiver` |
-| `control_system.connector.mock.response_delay_ms` (1) | the presets run the mock connector at the connector's own default; a slower machine is authored per deployment |
+| `control_system.connector.virtual_accelerator.response_delay_ms` (1) | the presets serve the simulator in process at the connector's own delay; a slower machine is authored per deployment |
 
 ### Deleted keys documented as commented examples
 
