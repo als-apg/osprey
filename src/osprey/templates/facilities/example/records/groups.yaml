@@ -136,6 +136,27 @@
   - BTS/VCM04
   - BTS/VCM05
   - BTS/VCM06
+- id: LINE/BPM
+  description: 'Transfer line BPMs: measure the beam trajectory along the line.'
+  members:
+  - LINE/BPM01
+  - LINE/BPM02
+  - LINE/BPM03
+  - LINE/BPM04
+- id: LINE/HCM
+  description: 'Transfer line horizontal correctors: steer the beam trajectory.'
+  members:
+  - LINE/HCM01
+  - LINE/HCM02
+  - LINE/HCM03
+  - LINE/HCM04
+- id: LINE/VCM
+  description: 'Transfer line vertical correctors: steer the beam trajectory.'
+  members:
+  - LINE/VCM01
+  - LINE/VCM02
+  - LINE/VCM03
+  - LINE/VCM04
 - id: SR/BPM
   description: 'Beam Position Monitors: Measure transverse (X, Y) beam position at many locations around the ring. Typical resolution: 1-10 microns. Essential for orbit correction and feedback.'
   names:
