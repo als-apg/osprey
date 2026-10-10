@@ -1870,3 +1870,308 @@ def test_raw_client_write_deny_files_a_refused_record(
     assert records[0]["decision"] == "refused"
     assert records[0]["reason"] == "raw_client_write"
     assert records[0]["subject"] == "mcp__python__execute"
+
+
+# ---------------------------------------------------------------------------
+# Guarded runs: the target's run lock and pending journal on the execute prompt
+# ---------------------------------------------------------------------------
+
+#: Asks for every execute call, on a deployment whose baseline target is ``va``.
+GUARDED_ALWAYS_CONFIG = {
+    "approval": {
+        "enabled": True,
+        "default_policy": "always",
+        "tools": {"execute": "always", "execute_file": "always"},
+    },
+    "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
+}
+
+#: Asks only for readwrite or write-shaped execute calls.
+GUARDED_SELECTIVE_CONFIG = {
+    "approval": {
+        "enabled": True,
+        "default_policy": "always",
+        "tools": {"execute": "selective", "execute_file": "selective"},
+    },
+    "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
+}
+
+#: A helper process that holds a target's run lock with *content* in it until
+#: its stdin closes, the way a live guarded run holds it.
+_LOCK_HOLDER = """
+import fcntl, os, sys
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o664)
+fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+os.ftruncate(fd, 0)
+os.pwrite(fd, sys.argv[2].encode("utf-8"), 0)
+print("held", flush=True)
+sys.stdin.read()
+"""
+
+
+def _guarded_dir(repo_root, target):
+    directory = repo_root / "var" / "guarded_run" / target
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def _plant_journal(repo_root, target, entries, *, identity="operator", pid=4242, tail=b""):
+    """Write a killed run's journal for *target*; return its raw bytes."""
+    import json
+
+    lines = [
+        {
+            "header": {
+                "target": target,
+                "generation": 1,
+                "identity": identity,
+                "pid": pid,
+                "started": "2026-10-01T08:00:00Z",
+            }
+        },
+        *({"address": address, "value": value} for address, value in entries),
+    ]
+    raw = b"".join(json.dumps(line).encode("utf-8") + b"\n" for line in lines) + tail
+    (_guarded_dir(repo_root, target) / "run.journal").write_bytes(raw)
+    return raw
+
+
+def _run_guarded(hook_runner, make_config, tmp_path, tool_input, *, tool="execute", config=None):
+    return hook_runner(
+        "osprey_approval.py",
+        f"mcp__python__{tool}",
+        tool_input,
+        config_path=make_config(config or GUARDED_ALWAYS_CONFIG),
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+
+def _reason(result):
+    return result["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def _updated(result):
+    return result["hookSpecificOutput"].get("updatedInput")
+
+
+def test_a_pending_journal_is_listed_and_bound_to_the_call(tmp_path, hook_runner, make_config):
+    import hashlib
+
+    raw = _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5), ("SR:QD:SP", -0.25)])
+    tool_input = {
+        "code": "print(1)",
+        "execution_mode": "readwrite",
+        "approved_journal_sha256": "agent-chosen",
+        "approved_target": "live",
+    }
+
+    result = _run_guarded(hook_runner, make_config, tmp_path, tool_input)
+
+    assert _decision(result) == "ask"
+    reason = _reason(result)
+    assert (
+        "operator's interrupted run (pid 4242, started 2026-10-01T08:00:00Z) left 2 setpoints "
+        "displaced; approving this call restores them first"
+    ) in reason
+    assert "SR:QF:SP = 1.5" in reason
+    assert "SR:QD:SP = -0.25" in reason
+    assert _updated(result) == {
+        "code": "print(1)",
+        "execution_mode": "readwrite",
+        "approved_journal_sha256": hashlib.sha256(raw).hexdigest(),
+        "approved_target": "va",
+    }
+
+
+def test_the_listing_names_the_first_twenty_then_a_count(tmp_path, hook_runner, make_config):
+    entries = [(f"SR:C{index:02d}:SP", float(index)) for index in range(25)]
+    _plant_journal(tmp_path, "va", entries)
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    reason = _reason(result)
+    assert "left 25 setpoints displaced" in reason
+    assert "SR:C19:SP = 19.0" in reason
+    assert "SR:C20:SP" not in reason
+    assert "and 5 more" in reason
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(None, id="absent"),
+        pytest.param(b"", id="empty"),
+        pytest.param(b'{"header": {"target": "va", "pid": 1}}\n', id="header-only"),
+        pytest.param(b'{"header": {"target": "va", "pid": 1}}\n{"address": "SR', id="torn"),
+    ],
+)
+def test_no_pending_record_binds_none(tmp_path, hook_runner, make_config, content):
+    if content is not None:
+        (_guarded_dir(tmp_path, "va") / "run.journal").write_bytes(content)
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert _decision(result) == "ask"
+    assert "interrupted run" not in _reason(result)
+    assert _updated(result)["approved_journal_sha256"] == "none"
+    assert _updated(result)["approved_target"] == "va"
+
+
+def test_execute_file_carries_the_binding(tmp_path, hook_runner, make_config):
+    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
+
+    result = _run_guarded(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"file_path": "scan.py", "execution_mode": "readwrite"},
+        tool="execute_file",
+    )
+
+    assert _decision(result) == "ask"
+    assert "left 1 setpoints displaced" in _reason(result)
+    assert _updated(result)["approved_target"] == "va"
+    assert _updated(result)["file_path"] == "scan.py"
+
+
+@pytest.mark.parametrize("tool", ["execute", "execute_file"])
+def test_a_readonly_call_keeps_its_prompt_and_carries_no_binding(
+    tmp_path, hook_runner, make_config, tool
+):
+    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
+
+    result = _run_guarded(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"code": "print(1)", "file_path": "scan.py", "execution_mode": "readonly"},
+        tool=tool,
+    )
+
+    assert _decision(result) == "ask"
+    assert "interrupted run" not in _reason(result)
+    assert _updated(result) is None
+
+
+def test_selective_readwrite_lists_the_recorded_targets_journal(tmp_path, hook_runner, make_config):
+    _write_session_state(tmp_path, "live")
+    _plant_journal(tmp_path, "live", [("SR:QF:SP", 1.5)])
+    _plant_journal(tmp_path, "va", [("SR:QD:SP", 2.0)])
+
+    result = _run_guarded(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"code": "print(1)", "execution_mode": "readwrite"},
+        config=GUARDED_SELECTIVE_CONFIG,
+    )
+
+    assert _decision(result) == "ask"
+    assert "SR:QF:SP = 1.5" in _reason(result)
+    assert "SR:QD:SP" not in _reason(result)
+    assert _updated(result)["approved_target"] == "live"
+
+
+@pytest.fixture
+def held_lock(tmp_path):
+    """Hold ``va``'s run lock from another process with the given content."""
+    import subprocess
+
+    holders = []
+
+    def hold(content):
+        lock_path = _guarded_dir(tmp_path, "va") / "run.lock"
+        child = subprocess.Popen(
+            [sys.executable, "-c", _LOCK_HOLDER, str(lock_path), content],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        holders.append(child)
+        assert child.stdout.readline().strip() == "held"
+        return child
+
+    yield hold
+    for child in holders:
+        child.stdin.close()
+        child.wait(timeout=60)
+
+
+def test_a_held_lock_refuses_busy_naming_its_holder(tmp_path, hook_runner, make_config, held_lock):
+    held_lock('{"pid": 31337, "started": "2026-10-02T09:30:00Z"}')
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert _decision(result) == "deny"
+    assert _reason(result) == (
+        "a guarded run is in progress on va (pid 31337, started 2026-10-02T09:30:00Z)"
+    )
+
+
+def test_a_held_lock_with_no_holder_record_names_it_unknown(
+    tmp_path, hook_runner, make_config, held_lock
+):
+    held_lock("")
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert _decision(result) == "deny"
+    assert _reason(result) == "a guarded run is in progress on va (pid unknown, started unknown)"
+
+
+def test_a_free_lock_is_left_empty(tmp_path, hook_runner, make_config):
+    lock_path = _guarded_dir(tmp_path, "va") / "run.lock"
+
+    _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert lock_path.read_bytes() == b""
+
+
+def test_an_unreadable_journal_is_denied(tmp_path, hook_runner, make_config):
+    path = _guarded_dir(tmp_path, "va") / "run.journal"
+    path.write_bytes(b'{"header": {"target": "va"}}\nnot json\n{"address": "A", "value": 1}\n')
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert _decision(result) == "deny"
+    assert _reason(result) == f"pending guarded-run journal unreadable: {path}"
+
+
+def test_a_dispatch_run_with_a_pending_journal_is_denied(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert _decision(result) == "deny"
+    assert str(tmp_path / "var" / "guarded_run" / "va" / "run.journal") in _reason(result)
+
+
+def test_a_dispatch_run_with_no_pending_journal_still_asks(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert _decision(result) == "ask"
+    assert _updated(result)["approved_journal_sha256"] == "none"
