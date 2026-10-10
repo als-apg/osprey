@@ -493,6 +493,22 @@ class SignalRoleEnum(str, Enum):
     """
     Stored offset subtracted from a measured position.
     """
+    current_x_setpoint = "current_x_setpoint"
+    """
+    Power-supply current setpoint of the coil that acts in the horizontal plane, on a device that holds one coil per plane.
+    """
+    current_x_readback = "current_x_readback"
+    """
+    Power-supply current readback of the coil that acts in the horizontal plane.
+    """
+    current_y_setpoint = "current_y_setpoint"
+    """
+    Power-supply current setpoint of the coil that acts in the vertical plane, on a device that holds one coil per plane.
+    """
+    current_y_readback = "current_y_readback"
+    """
+    Power-supply current readback of the coil that acts in the vertical plane.
+    """
 
 
 class PropertyNameEnum(str, Enum):

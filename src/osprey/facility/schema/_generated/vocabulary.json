@@ -712,6 +712,42 @@
       "name": "current_setpoint"
     },
     {
+      "aliases": [
+        "horizontal current readback",
+        "horizontal coil readback",
+        "x current readback"
+      ],
+      "description": "Power-supply current readback of the coil that acts in the horizontal plane.",
+      "name": "current_x_readback"
+    },
+    {
+      "aliases": [
+        "horizontal current setpoint",
+        "horizontal coil setpoint",
+        "x current setpoint"
+      ],
+      "description": "Power-supply current setpoint of the coil that acts in the horizontal plane, on a device that holds one coil per plane.",
+      "name": "current_x_setpoint"
+    },
+    {
+      "aliases": [
+        "vertical current readback",
+        "vertical coil readback",
+        "y current readback"
+      ],
+      "description": "Power-supply current readback of the coil that acts in the vertical plane.",
+      "name": "current_y_readback"
+    },
+    {
+      "aliases": [
+        "vertical current setpoint",
+        "vertical coil setpoint",
+        "y current setpoint"
+      ],
+      "description": "Power-supply current setpoint of the coil that acts in the vertical plane, on a device that holds one coil per plane.",
+      "name": "current_y_setpoint"
+    },
+    {
       "aliases": [],
       "description": "DC-supply OK readback (24 V auxiliary supply healthy).",
       "name": "dc_supply_ok_status"
