@@ -1063,7 +1063,8 @@ def response_matrix(
 
 
 #: The length a zero-length kick element is given in a polynomial-kick copy,
-#: taken from the drift beside it: the kick's centre moves by half of it.
+#: taken from the nearest drift beside it, else the nearest thick element: the
+#: kick's centre moves by half of it.
 POLYNOMIAL_KICK_LENGTH_M = 1.0e-6
 
 #: The pass method of an element that applies its ``KickAngle`` and no polynomial.
@@ -1085,8 +1086,8 @@ class PolynomialKicks:
     Attributes:
         text: The copy as pyAT's JSON, two-space indented, without pyAT's
             version key, ending in a newline.
-        refused: The named elements whose kick has no length to be carried
-            over, sorted; each is copied as the deck holds it.
+        refused: The named zero-length elements whose kick has no length to
+            be carried over, sorted; each is copied as the deck holds it.
     """
 
     text: str
@@ -1107,14 +1108,18 @@ def polynomial_kicks(deck: Deck, elements: Iterable[str]) -> PolynomialKicks:
       length with ``PolynomB = [-KickAngle[0] / L]`` and
       ``PolynomA = [KickAngle[1] / L]``; one of zero length is given
       :data:`POLYNOMIAL_KICK_LENGTH_M`, taken from the nearest drift past the
-      zero-length elements after it, else before it, so the copy's length and
-      the place of every element outside that span are the deck's;
+      zero-length elements after it, else before it, else from the nearest
+      element of any pass with a length there, whose ``PolynomA`` and
+      ``PolynomB`` are rescaled so their integrals over its length are the
+      deck's (a dipole keeps its ``BendingAngle``); the copy's length and the
+      place of every element outside that span are the deck's;
     * an element whose pass applies its polynomials and adds its kick to them
       (``sin(KickAngle)`` over its length) has the kick folded into
       ``PolynomB[0]`` and ``PolynomA[0]`` and its ``KickAngle`` zeroed.
 
-    A zero-length element with no such drift, or a zero-length element whose
-    pass applies polynomials, is refused. An element the deck does not hold,
+    A zero-length element whose pass applies polynomials is refused, as is a
+    zero-length kick whose nearest elements on both sides are no longer than
+    :data:`POLYNOMIAL_KICK_LENGTH_M`. An element the deck does not hold,
     or one holding no ``KickAngle``, is copied as it is. The deck's file is
     never written to.
 
@@ -1145,11 +1150,11 @@ def polynomial_kicks(deck: Deck, elements: Iterable[str]) -> PolynomialKicks:
             _fold_kick(element, horizontal, vertical, length)
             continue
         if length == 0.0:
-            donor = _drift_beside(lattice, index, POLYNOMIAL_KICK_LENGTH_M)
+            donor = _length_donor(lattice, index, POLYNOMIAL_KICK_LENGTH_M)
             if donor is None:
                 refused.add(name)
                 continue
-            lattice[donor].Length = float(lattice[donor].Length) - POLYNOMIAL_KICK_LENGTH_M
+            _shorten(lattice[donor], POLYNOMIAL_KICK_LENGTH_M)
             length = POLYNOMIAL_KICK_LENGTH_M
         lattice[index] = _polynomial_kick(element, horizontal, vertical, length)
     return PolynomialKicks(text=_json_text(lattice), refused=tuple(sorted(refused)))
@@ -1181,21 +1186,36 @@ def _fold_kick(element: Any, horizontal: float, vertical: float, length: float) 
     element.KickAngle = np.zeros(2)
 
 
-def _drift_beside(lattice: Any, index: int, length: float) -> int | None:
-    """The nearest drift longer than ``length`` past the zero-length elements beside ``index``.
+def _length_donor(lattice: Any, index: int, length: float) -> int | None:
+    """The element that lends ``length`` to the zero-length element at ``index``.
 
-    The elements after ``index`` are searched first, then those before it.
+    Of the two elements past the zero-length elements beside ``index``, the one
+    after it first: a drift longer than ``length``, else any element longer
+    than ``length``.
     """
+    beside: list[int] = []
     for step in (1, -1):
         position = index + step
         while 0 <= position < len(lattice) and float(lattice[position].Length) == 0.0:
             position += step
-        if not 0 <= position < len(lattice):
-            continue
-        candidate = lattice[position]
-        if candidate.PassMethod == _DRIFT_PASS and float(candidate.Length) > length:
-            return position
-    return None
+        if 0 <= position < len(lattice) and float(lattice[position].Length) > length:
+            beside.append(position)
+    drifts = [position for position in beside if lattice[position].PassMethod == _DRIFT_PASS]
+    candidates = drifts or beside
+    return candidates[0] if candidates else None
+
+
+def _shorten(element: Any, length: float) -> None:
+    """Shorten ``element`` by ``length``, keeping the integrals of its polynomials."""
+    import numpy as np
+
+    before = float(element.Length)
+    after = before - length
+    for name in ("PolynomA", "PolynomB"):
+        polynomial = getattr(element, name, None)
+        if polynomial is not None:
+            setattr(element, name, np.asarray(polynomial, dtype=float) * (before / after))
+    element.Length = after
 
 
 def _json_text(lattice: Any) -> str:

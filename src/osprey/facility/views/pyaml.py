@@ -23,8 +23,8 @@ that names a deck and has a ``measurement/<model>.yaml``::
 A model solved ``single_pass`` has no design simulator (``simulators: []``):
 pyAML's design simulator solves a periodic orbit. Every other model the render
 serves names a note on stderr saying why it has no view. A setpoint pyAML cannot
-convert, or a corrector whose element the engine cannot give its kick as
-polynomials, is left out of the view and named in a note.
+convert is left out of the view and named in a note; a corrector whose element
+the engine cannot give its kick as polynomials is left out of the view.
 
 Every name the configuration holds comes from :mod:`pyaml_cs_osprey.names`, so
 the view, the measurement tools and a reader of the configuration cannot spell
@@ -1058,15 +1058,7 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
         report_note(inputs, _omitted_note(model, reason))
     written: list[Path] = []
     for model in written_models:
-        configuration, files, unmodelled, unkicked = _configuration(inputs, model)
-        if unkicked:
-            shown = ", ".join(unkicked[:3]) + (", …" if len(unkicked) > 3 else "")
-            report_note(
-                inputs,
-                f"view pyaml: {model} leaves out {len(unkicked)} "
-                f"setpoint{'' if len(unkicked) == 1 else 's'} whose element has no length "
-                f"to carry a kick: {shown}",
-            )
+        configuration, files, unmodelled, _ = _configuration(inputs, model)
         if unmodelled:
             shown = ", ".join(unmodelled[:3]) + (", …" if len(unmodelled) > 3 else "")
             report_note(

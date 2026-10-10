@@ -4,8 +4,8 @@ pyAML reads a corrector's strength from ``PolynomB[0]`` (horizontal) and
 ``PolynomA[0]`` (vertical) over the element's length, so the view's
 ``lattice.json`` is the engine's polynomial-kick copy of the deck: stepping a
 corrector in pyAML's design mode moves the orbit the served deck's kick moves.
-A corrector whose element has no length to carry its kick is left out of the
-view and named in a note.
+A zero-length corrector with no drift beside it takes its length from the
+nearest magnet, so it stays in the view.
 """
 
 from __future__ import annotations
@@ -108,19 +108,31 @@ def test_the_lattice_is_the_deck_with_its_driven_kicks_as_polynomials(
     assert (view / LATTICE_FILE).read_text(encoding="utf-8") == copy.text
 
 
-def test_a_corrector_with_no_length_to_carry_its_kick_is_left_out(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(("address", "plane"), [("SCOR:H:SP", 0), ("SCOR:V:SP", 1)])
+def test_a_corrector_with_no_drift_beside_it_steps_the_orbit_the_served_kick_does(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], address: str, plane: int
 ) -> None:
     """SR's thin SCOR sits between a BPM after a sextupole and a dipole: no drift beside it."""
+    from pyaml.accelerator import Accelerator
+
     tree = with_correctors(with_rf(measured_tree()))
     tree["measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
     directory, _ = write_view(tmp_path, tree)
-    configuration = yaml.safe_load(
-        (directory / "SR" / CONFIGURATION_FILE).read_text(encoding="utf-8")
+    assert "leaves out" not in capsys.readouterr().err
+    view = directory / "SR"
+    configuration = yaml.safe_load((view / CONFIGURATION_FILE).read_text(encoding="utf-8"))
+    assert {"SCOR:H:SP", "SCOR:V:SP"} <= {device["name"] for device in configuration["devices"]}
+
+    bpms = _bpm_elements(view)
+    design = Accelerator.load(str(view / CONFIGURATION_FILE)).design
+    magnet = design.magnet.get(address)
+    readers = [design.bpm.get(name) for name in bpms]
+    before = np.array([reader.positions.get() for reader in readers])
+    magnet.strength.set(magnet.strength.get() + KICK)
+    after = np.array([reader.positions.get() for reader in readers])
+
+    served = _served_response(
+        tmp_path / "data" / "facility" / "decks" / "sr.json", "SCOR", plane, list(bpms.values())
     )
-    names = {device["name"] for device in configuration["devices"]}
-    assert not names & {"SCOR:H:SP", "SCOR:V:SP"}
-    assert (
-        "view pyaml: SR leaves out 2 setpoints whose element has no length to carry a "
-        "kick: SCOR:H:SP, SCOR:V:SP"
-    ) in capsys.readouterr().err
+    assert np.max(np.abs(served)) > 1.0e-7
+    assert after - before == pytest.approx(served, rel=1.0e-4, abs=1.0e-11)
