@@ -36,14 +36,11 @@ from dataclasses import dataclass, fields
 from typing import Any
 
 from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_profile
-from osprey.connectors.types import (
-    INVENTED_HISTORY_TYPES,
-    MONGODB_ARCHIVER,
-    resolve_control_system_type,
-)
+from osprey.connectors.types import MONGODB_ARCHIVER, resolve_control_system_type
 from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
 from osprey_connectors.connection import ENV_NAME_RE
+from osprey_connectors.honesty import _invents_history
 
 #: Block compressors ``mongod`` accepts for a WiredTiger collection. The value
 #: reaches the container as a command flag and the collection inherits it at
@@ -506,9 +503,13 @@ def _invented_history_type(config: Any) -> str:
         if _CONTROL_SYSTEM_TYPE_KEY in config:
             stated.append(config[_CONTROL_SYSTEM_TYPE_KEY])
 
+    # A spelling whose section serves the simulator in process is skipped: the
+    # predicate does not refuse that venue, so it is not what is being refused.
+    rendered = _expand_dotted(config).get(_CONTROL_SYSTEM_SECTION)
+    section = rendered if isinstance(rendered, dict) else {}
     for value in stated:
-        resolved: str = resolve_control_system_type({_TYPE_LEAF: value})
-        if resolved in INVENTED_HISTORY_TYPES:
+        if _invents_history({**section, _TYPE_LEAF: value}):
+            resolved: str = resolve_control_system_type({_TYPE_LEAF: value})
             return resolved
 
     # Unreachable behind the verdict this names, and still resolver-derived so
