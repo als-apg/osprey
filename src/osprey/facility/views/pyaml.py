@@ -43,8 +43,11 @@ __all__ = [
     "CONFIGURATION_FILE",
     "CRM_FILE",
     "GROUP_ROLES",
+    "KIND_MEMBERS",
     "LATTICE_FILE",
     "PYAML_DIR",
+    "ROLE_PLANES",
+    "TOOL_KEYS",
     "TRM_FILE",
     "measured_models",
     "measurement_groups",
@@ -124,6 +127,16 @@ ARRAY_KEYS: dict[str, str] = {
     "vcorr_array_name": "vcor",
     "quad_array_name": "quad",
     "sextu_array_name": "sext",
+}
+
+#: The groups and instruments each measurement kind needs: a name in
+#: :data:`GROUP_ROLES` is a group role, any other an instrument.
+KIND_MEMBERS: dict[str, tuple[str, ...]] = {
+    "orm": ("bpm", "hcor", "vcor"),
+    "dispersion": ("bpm", "hcor", "vcor", "rf"),
+    "trm": ("quad", "tune"),
+    "crm": ("sext", "chromaticity"),
+    "chromaticity_monitor": ("tune", "rf"),
 }
 
 #: The step and settle keys each measurement tool takes from the measurement
