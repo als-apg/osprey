@@ -283,6 +283,28 @@ def test_report_carries_the_in_process_transport(tmp_path):
     assert report["transport"] == "in_process"
 
 
+def test_an_untyped_section_serves_va_in_process(tmp_path):
+    """A deployment that states no control-system type serves its ``va`` child in process.
+
+    Such a deployment is the simulator in process, and switch-capable when it
+    also authors a real machine; the child keeps the section's own venue.
+    """
+    spawned = Child(cwd=tmp_path)
+    try:
+        section = _control_system(tmp_path / "served")
+        block = section["connector"].pop(IN_PROCESS_TYPE)
+        # No serving leaf either: the venue is the section's own, never restated.
+        del block["serving"]
+        section["connector"]["virtual_accelerator"] = block
+        del section["type"]
+        report = spawned.init(target="va", control_system=section).value
+    finally:
+        spawned.close()
+
+    assert report["connector_type"] == "virtual_accelerator"
+    assert report["transport"] == "in_process"
+
+
 def test_a_first_frame_that_is_not_init_fails_the_launch(child):
     frame = child.call("read_channel", channel_address="SR:BEAM:CURRENT")
 
