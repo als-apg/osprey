@@ -83,7 +83,8 @@ is a :class:`ConnectionError`, so a generic connection-error handler treats it a
 * :class:`ConnectorHostStartError` — the child could not be brought up, and
   nothing was left running: unresolved config, spawn failure, no answer to its
   init frame within ``start_timeout_s``, exit before answering, or a report that
-  failed verification. ``stage`` says which.
+  failed verification. ``stage`` says which; an ``init``-stage failure names the
+  last start phase the child reached, with times (``phases``).
 * A child that answers its init frame with an **error of its own** — the
   connector's ``connect()`` failing, say — has that error raised as-is, in the
   class the child raised it as, with a note naming the child and target.
@@ -156,9 +157,12 @@ in it sets an ``EPICS_*`` variable.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import logging
+import os
 import sys
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from os import PathLike
@@ -172,6 +176,7 @@ from osprey_connectors.control_system.base import (
     ChannelWriteResult,
     is_readonly_run,
 )
+from osprey_connectors.ipc.host import START_PHASES
 from osprey_connectors.ipc.launch import (
     AttributedReader,
     host_env,
@@ -274,6 +279,10 @@ class ConnectorHostStartError(ConnectorHostError):
             interpreter could not be started), ``"init"`` (no answer within the
             start timeout, an exit before answering, or an unusable answer) or
             ``"verify"`` (the report did not match the derivation).
+        phases: The start marks the child had written when an ``init``-stage
+            failure was raised, as ``(name, seconds after the spawn)`` in the
+            order of :data:`~osprey_connectors.ipc.host.START_PHASES`; empty for
+            every other stage, and for a child that wrote none.
     """
 
     def __init__(
@@ -284,9 +293,87 @@ class ConnectorHostStartError(ConnectorHostError):
         execution_mode: str | None,
         pid: int | None,
         stage: str,
+        phases: tuple[tuple[str, float], ...] = (),
     ) -> None:
         super().__init__(message, target=target, execution_mode=execution_mode, pid=pid)
         self.stage = stage
+        self.phases = phases
+
+
+class _StartMarkPipe:
+    """The pipe a starting child writes its start marks to.
+
+    Opened only where a child can inherit a pipe by descriptor; elsewhere there
+    is no descriptor to pass and nothing is ever read.
+    """
+
+    def __init__(self) -> None:
+        self._read_fd: int | None = None
+        self.write_fd: int | None = None
+        self._written = b""
+        if os.name == "posix":
+            self._read_fd, self.write_fd = os.pipe()
+            os.set_blocking(self._read_fd, False)
+
+    def close_write(self) -> None:
+        """Close this process's copy of the write end."""
+        if self.write_fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(self.write_fd)
+            self.write_fd = None
+
+    def close(self) -> None:
+        """Close both ends."""
+        self.close_write()
+        if self._read_fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(self._read_fd)
+            self._read_fd = None
+
+    def read(self, spawned_at: float) -> tuple[tuple[str, float], ...]:
+        """Every whole mark written so far, as (name, seconds after *spawned_at*)."""
+        while self._read_fd is not None:
+            try:
+                chunk = os.read(self._read_fd, 4096)
+            except OSError:
+                # Nothing more is written yet (BlockingIOError), or the pipe is unusable.
+                break
+            if not chunk:
+                break
+            self._written += chunk
+        whole = self._written[: self._written.rfind(b"\n") + 1]
+        marks: list[tuple[str, float]] = []
+        for line in whole.decode("ascii", "replace").splitlines():
+            name, _, at = line.partition(" ")
+            if name not in START_PHASES:
+                continue
+            try:
+                marks.append((name, float(at) - spawned_at))
+            except ValueError:
+                continue
+        return tuple(marks)
+
+
+def _describe_start(phases: tuple[tuple[str, float], ...]) -> str:
+    """One sentence on how far a child got in starting, from the marks it wrote."""
+    if not phases:
+        return (
+            "It had not finished starting its interpreter and loading osprey_connectors.ipc.host."
+        )
+    last, seconds = phases[-1]
+    reached = {
+        "main": f"It was up after {seconds:.1f}s and had not read its init frame.",
+        "init": (
+            f"It read its init frame after {seconds:.1f}s and was importing the connector modules."
+        ),
+        "imports": (
+            f"It had imported the connector modules after {seconds:.1f}s and was building "
+            "its connector (connect())."
+        ),
+        "connected": f"It had built its connector after {seconds:.1f}s and had not answered.",
+    }[last]
+    listed = ", ".join(f"{name} +{at:.1f}s" for name, at in phases)
+    return f"{reached} Start marks: {listed}"
 
 
 class ConnectorHostLostError(ConnectorHostError):
@@ -681,8 +768,11 @@ class ConnectorHostPool:
                 stage=STAGE_CONFIG,
             )
 
+        marks = _StartMarkPipe()
+        spawned_at = time.monotonic()
+        process = None
         try:
-            process = await spawn_host(self._python, host_env())
+            process = await spawn_host(self._python, host_env(), start_marks_fd=marks.write_fd)
         except OSError as exc:
             raise ConnectorHostStartError(
                 f"Could not spawn a connector-host child for {_label(key)}: {exc}",
@@ -691,6 +781,12 @@ class ConnectorHostPool:
                 pid=None,
                 stage=STAGE_SPAWN,
             ) from exc
+        finally:
+            # The child holds the only write end from here on, so the pipe
+            # ends when the child closes it or exits.
+            marks.close_write()
+            if process is None:
+                marks.close()
 
         reader = AttributedReader(process.stdout)
         proxy = ConnectorHostProxy(
@@ -708,12 +804,15 @@ class ConnectorHostPool:
             init["execution_mode"] = READONLY
 
         def failure(stage: str, detail: str) -> ConnectorHostStartError:
+            phases = marks.read(spawned_at) if stage == STAGE_INIT else ()
+            reached = f" {_describe_start(phases)}" if stage == STAGE_INIT else ""
             return ConnectorHostStartError(
-                f"The connector-host child (pid {pid}) for {_label(key)} {detail}",
+                f"The connector-host child (pid {pid}) for {_label(key)} {detail}{reached}",
                 target=target,
                 execution_mode=mode,
                 pid=pid,
                 stage=stage,
+                phases=phases,
             )
 
         try:
@@ -754,6 +853,8 @@ class ConnectorHostPool:
                 child, f"The connector-host child for {_label(key)} failed to start.", CAUSE_EXITED
             )
             raise
+        finally:
+            marks.close()
 
         logger.info(
             "connector host pool: child pid %s serving %s as %r (role=%r %s:%s)",

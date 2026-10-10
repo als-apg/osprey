@@ -23,7 +23,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
-from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES
+from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES, START_MARKS_FD_ENV
 from osprey_connectors.process import terminate
 
 __all__ = [
@@ -55,20 +55,32 @@ def host_env() -> dict[str, str]:
     file would otherwise load the project ``.env`` from its working directory
     after the scrub, and an ``EPICS_*`` line there would put back what both
     scrubs took out.
+
+    :data:`~osprey_connectors.ipc.host.START_MARKS_FD_ENV` is dropped too: a
+    supervisor that is itself running under one never passes on a descriptor
+    number that names something else in its child.
     """
     env = {
-        name: value for name, value in os.environ.items() if not name.startswith(EPICS_ENV_PREFIXES)
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith(EPICS_ENV_PREFIXES) and name != START_MARKS_FD_ENV
     }
     env[ENV_CHAIN_APPLIED_ENV] = "1"
     return env
 
 
-async def spawn_host(python: str, env: Mapping[str, str]) -> Any:
+async def spawn_host(
+    python: str, env: Mapping[str, str], *, start_marks_fd: int | None = None
+) -> Any:
     """Launch one connector-host child with its frame pipes attached.
 
     Args:
         python: The interpreter to run the child under.
         env: The child's environment, normally :func:`host_env`.
+        start_marks_fd: The write end of a pipe the child writes its start
+            marks to (see :mod:`osprey_connectors.ipc.host`), or ``None`` for
+            a child that writes none. The child inherits the descriptor under
+            the same number; the caller closes its own copy after the spawn.
 
     Returns:
         The ``asyncio.subprocess.Process``. stderr is inherited, so the child's
@@ -78,13 +90,19 @@ async def spawn_host(python: str, env: Mapping[str, str]) -> Any:
         OSError: The interpreter could not be executed. Callers wrap this in
             whatever their own failure type is.
     """
+    child_env = dict(env)
+    pass_fds: tuple[int, ...] = ()
+    if start_marks_fd is not None:
+        child_env[START_MARKS_FD_ENV] = str(start_marks_fd)
+        pass_fds = (start_marks_fd,)
     return await asyncio.create_subprocess_exec(
         python,
         "-m",
         CHILD_MODULE,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        env=dict(env),
+        env=child_env,
+        pass_fds=pass_fds,
     )
 
 
