@@ -208,6 +208,17 @@ import writes one group per physical family: families that list the same
 devices (``BPMx`` and ``BPMy``) are one group named by their common stem and
 described by the family sentences. Each channel is described as
 ``<device>: <field sentence>``, from the mapping.
+
+Each channel carries the role of its field's direction and the signal the
+mapping gives the field. The import writes no ``pair``: ``osprey build`` pairs
+each setpoint with the one readback on the same device whose signal names the
+same quantity, so a field without a signal stays unpaired. A family whose
+devices hold one coil per plane maps its current fields to the plane-qualified
+signals (``current_x_setpoint``, ``current_x_readback``, ``current_y_setpoint``,
+``current_y_readback``), so the build pairs each coil with its own readback.
+Each device carries the export's ``Position`` as ``s`` with its ``model``, and
+the build stops (``place-conflict``) when a wired device's deck disagrees.
+
 ``imported/mml/rows.json`` records which device each export ``DeviceList`` row
 became, and the response check reads it.
 

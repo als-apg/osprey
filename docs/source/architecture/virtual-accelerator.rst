@@ -43,7 +43,7 @@ every channel address the facility declares, then one
 ``<code>:SIM:<model>:STATUS`` address for each served physics model. Which
 models are served is the view's ``served_models.json``, with the texture model
 always last. A physics model is one child of the composite, built from the
-view's ``variables.json`` and its deck, ``decks/<model>.json``, through the
+view's ``variables.json`` and its deck, ``decks/<model>.<its suffix>``, through the
 engine plug-in its record names; the texture serves every channel no model
 wires. The container's ready line prints how many channels it serves, so the
 count is read off the running service rather than kept in prose that would
@@ -144,7 +144,7 @@ Bringing your own model
 
 The runner serves one composite, and the composite builds one child per
 served physics model from the view's ``variables.json`` and the model's deck,
-``decks/<model>.json``, through the engine plug-in the model's record names:
+``decks/<model>.<its suffix>``, through the engine plug-in the model's record names:
 its ``engine``, looked up in the ``osprey.simulation.engines`` entry-point
 group. Nothing in the entrypoint, a profile or ``.env`` names an engine.
 
