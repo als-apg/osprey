@@ -746,8 +746,8 @@ body.embedded .app-logo { display: none; }
   background: var(--accent-tint-12);
 }
 
-/* Sector group headers (nested inside field groups) */
-.sector-group-header {
+/* Place group headers (nested inside field groups) */
+.place-group-header {
   padding: var(--cf-space-1) var(--cf-space-3);
   padding-left: var(--cf-space-5);
   background: var(--surface-hover);
