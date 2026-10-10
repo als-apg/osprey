@@ -1015,6 +1015,18 @@ class TestTargetIdentity:
         assert row_for(payload, "standin")["short_label"] == "STAND-IN"
         assert row_for(payload, "va")["short_label"] == "VIRTUAL"
 
+    def test_a_row_that_is_not_a_real_machine_is_the_simulator(self, client, agent_data_root):
+        """Whatever its label says: the only machine that is not real is the simulator."""
+        write_server_report(
+            agent_data_root,
+            SERVER_A,
+            targets={"va": {"label": "some label nobody minted", "real_machine": False}},
+        )
+        with only_alive(SERVER_A):
+            payload = get_posture(client)
+        assert row_for(payload, "va")["short_label"] == "VIRTUAL"
+        assert row_for(payload, "va")["kind"] == "virtual accelerator"
+
     def test_a_deployment_may_rename_the_rows(self, make_client, tmp_path):
         config = render(tmp_path=tmp_path, display_names={"va": "Digital Twin"})
         with make_client(config) as client:

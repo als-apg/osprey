@@ -292,22 +292,21 @@ describe('steps', () => {
 
   test('the first card says exactly what first contact derives', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
-    serve({ kind: 'simulated', capabilities: ['make plots'] });
+    serve({ kind: 'va', capabilities: ['make plots'] });
     startTour();
 
     // Not a substring of the tour's own composing: the whole sentence, so the
     // card and the two views cannot drift apart a word at a time.
     expect(cardBody()).toContain(capabilitySentence());
-    expect(cardBody()).toContain('read demo data and make plots');
+    expect(cardBody()).toContain('read values from the simulator and make plots');
   });
 
-  test('a demo deployment is never described as reading the live machine', () => {
+  test('a simulator deployment is never described as reading the live machine', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
-    serve({ kind: 'simulated', capabilities: ['make plots'] });
+    serve({ kind: 'va', capabilities: ['make plots'] });
     startTour();
 
-    // The one claim the derivation exists to prevent. The server used to emit
-    // this phrase for the mock connector too, and the card repeated it.
+    // The one claim the derivation exists to prevent.
     expect(cardBody()).not.toContain('live machine');
   });
 
@@ -385,7 +384,7 @@ describe('prompt chips', () => {
   }
 
   test('the chips are first contact\'s starter prompts, in its order', () => {
-    serve({ kind: 'simulated', logbook: true });
+    serve({ kind: 'va', logbook: true });
     reachTryIt();
 
     expect(chipTexts()).toEqual(starterPrompts());

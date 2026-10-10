@@ -22,10 +22,7 @@ import os
 import pytest
 
 from osprey.mcp_server.control_system import target_state
-from osprey.mcp_server.control_system.connector_host_manager import (
-    _display_name,
-    target_display_metadata,
-)
+from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey.mcp_server.control_system.target_eligibility import (
     ACK_LEAF,
     REASON_ALREADY_ACTIVE,
@@ -1015,16 +1012,6 @@ class TestDisplayName:
 
         assert metadata["live"]["label"] == "live machine (not configured)"
         assert metadata["live"]["display_name"] == "Real machine"
-
-    def test_a_simulated_connector_is_a_demo(self):
-        """The branch mirrors the label's "live target on a simulated connector".
-
-        Asserted on the helper directly: :func:`resolve_target` never answers a
-        live-family target with a simulated type today, so the branch is
-        reachable only the way the label's own simulated branch is — kept so
-        the two names cannot diverge if that ever changes.
-        """
-        assert _display_name({}, "live", "virtual_accelerator") == "Demo"
 
     def test_a_standin_that_fails_the_predicate_is_the_real_machine(self):
         """Same conjuncts as the parenthesis: no deployed stand-in, no Rehearsal."""
