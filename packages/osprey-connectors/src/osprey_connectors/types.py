@@ -452,11 +452,13 @@ def resolve_target(section: Any, target: Any) -> str:
     settings from — ``control_system.connector.<type>`` — so one string answers
     both "what do I build" and "where are its gateways".
 
-    ``va`` and ``standin`` are the same answer everywhere: a virtual accelerator
-    is a virtual accelerator regardless of what the deployment was built for,
-    and the stand-in is the soft IOC the deployment runs for itself, configured
-    from the block that carries its name. ``live`` is deployment-specific and is
-    the half that can refuse:
+    ``va`` and ``standin`` are the same answer everywhere: ``va`` is the
+    deployment's simulator, and the stand-in is the soft IOC the deployment runs
+    for itself, configured from the block that carries its name. The factory
+    serves ``va`` in the venue ``connector.virtual_accelerator.serving`` names,
+    and only a deployment whose own type is ``virtual_accelerator`` may serve it
+    in process; the type this function answers is the same in either venue.
+    ``live`` is deployment-specific and is the half that can refuse:
 
     - When the section's own type is a real control system, that is the live
       machine, and it is returned as written — including a value this module
@@ -466,10 +468,10 @@ def resolve_target(section: Any, target: Any) -> str:
       (:data:`ONE_REAL_MACHINE`), so it is warned about rather than skipped in
       silence.
     - When the section's own type is simulated or is a stand-in (or absent,
-      which resolves to the mock), the deployment has not named its real machine
-      there, so the live type is taken from the connector table: exactly one
-      block that is neither simulated nor a stand-in means the deployment has
-      said which machine it means. None, or more than one, raises. The stand-in
+      which resolves to the simulator in process), the deployment has not named
+      its real machine there, so the live type is taken from the connector
+      table: exactly one block that is neither simulated nor a stand-in means
+      the deployment has said which machine it means. None, or more than one, raises. The stand-in
       is skipped on both sides of that derivation, so standing it up beside a
       facility's ``epics`` block never makes ``live`` ambiguous and never
       answers it with the stand-in.
@@ -512,10 +514,10 @@ def resolve_target(section: Any, target: Any) -> str:
 def baseline_target(section: Any) -> str:
     """The target a deployment's own ``control_system:`` section selects.
 
-    ``va`` for a virtual accelerator, ``standin`` for the live stand-in, and
-    ``live`` for everything else — including a mock deployment, whose ``live``
-    may well be underivable, because ``live`` is still the target its section
-    describes.
+    ``va`` for the simulator, in whichever venue its leaf names (a section
+    that states no type is the simulator in process, so it is on ``va``),
+    ``standin`` for the live stand-in, and ``live`` for every real control
+    system.
 
     Beside :func:`resolve_control_system_type` rather than restated by each
     holder, because "which target am I on when nobody has switched" is asked by
@@ -539,14 +541,14 @@ def switch_capable(section: Any) -> bool:
     Two conditions, neither sufficient alone:
 
     1. **The deployment's baseline target resolves back to its own control
-       system.** ``resolve_target`` answers ``live`` for configs with no
-       business switching: a ``mock`` deployment that happens to carry an
-       ``epics`` block resolves ``live`` to ``epics``, and treating that as
-       switchable would point a session at a real machine the config never
-       selected. Requiring :func:`baseline_target` to resolve back to
-       ``control_system.type`` rules it out. The baseline is *resolved*, never
-       assumed to be ``live`` or ``va``: a ``live_standin`` deployment is
-       baselined on ``standin`` and is no less switchable for it.
+       system.** A session starts on the machine the config selected and on no
+       other: :func:`baseline_target` must resolve back to
+       ``control_system.type``. The baseline is *resolved*, never assumed to be
+       ``live`` or ``va``: a deployment on the simulator in process is on
+       ``va``, and a ``live_standin`` deployment is baselined on ``standin``.
+       A deployment baselined on the simulator in process that also carries
+       an ``epics`` or ``live_standin`` block is switch-capable, and a switch
+       to that block passes every gate a switch passes.
     2. **At least two targets are configured** (:func:`configured_targets`,
        the same resolve-and-read-the-block enumeration every roster walks).
        Which two is not this predicate's business: a facility rehearsing on a
@@ -724,9 +726,9 @@ def target_writes_enabled(section: Any, target: Any) -> bool:
     A target that does not resolve answers :data:`WRITES_ENABLED_KEY` instead.
     Two shapes reach that branch and both mean the same thing — there is no
     per-type block to consult because there is no type. An unknown target names
-    nothing. ``live`` on a mock or hello_world-style deployment names a machine
-    the config never described, which :func:`resolve_target` refuses to guess;
-    such a deployment has only ever had the one deployment-wide posture, and
+    nothing. ``live`` on a deployment baselined on the simulator in process with
+    no real machine authored names a machine the config never described, which
+    :func:`resolve_target` refuses to guess; such a deployment has only ever had the one deployment-wide posture, and
     keeping it is parity rather than a fallback. Refusing here would instead
     take the posture away from every deployment that never had a second target.
 
@@ -860,11 +862,10 @@ def session_posture(section: Any) -> dict[str, bool]:
     Without the switch a session sits on the one connector
     ``control_system.type`` builds, so the answer is that type's own posture
     under its :func:`baseline_target` — read by type on purpose. ``live`` is the
-    switch's derivation, and on a mock deployment that happens to carry an
-    armed ``epics`` block it would name a machine no session here ever
-    reaches; the built connector's reference monitor reads the mock's posture,
-    and a render that read the other would promise a guarantee the runtime
-    does not share.
+    switch's derivation, and without the switch it would name a machine no
+    session here ever reaches; the built connector's reference monitor reads
+    its own type's posture, and a render that read the other would promise a
+    guarantee the runtime does not share.
 
     Something that must speak about "the deployment's targets" without holding
     one — a posture button, a permissions render, a lint — iterates this rather
@@ -1119,8 +1120,9 @@ def target_limits_posture(section: Any, target: Any) -> LimitsPosture:
     A target that does not resolve answers the deployment-wide block instead.
     Two shapes reach that branch and both mean the same thing: there is no
     per-type block to consult because there is no type. An unknown target names
-    nothing. ``live`` on a mock or hello_world-style deployment names a machine
-    the config never described, which :func:`resolve_target` refuses to guess.
+    nothing. ``live`` on a deployment baselined on the simulator in process with
+    no real machine authored names a machine the config never described, which
+    :func:`resolve_target` refuses to guess.
     Such a deployment has only ever had the one deployment-wide block, and
     keeping it is parity rather than a fallback — the same reading
     :func:`target_writes_enabled` takes, so the two postures a refusal may quote
@@ -1160,9 +1162,9 @@ def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
     (:func:`switch_capable`), and otherwise the single connector
     ``control_system.type`` builds, read by *type* through
     :func:`type_limits_posture`. Reading the baseline by type rather than by
-    target is what keeps a mock deployment that happens to carry an ``epics``
-    block from folding that block's relaxation into an answer no session here
-    could ever reach; and walking the configured targets rather than
+    target is what keeps a deployment without the switch from folding a
+    second block's relaxation into an answer no session here could ever reach;
+    and walking the configured targets rather than
     :data:`CONTROL_TARGETS` keeps :func:`target_limits_posture`'s
     unresolvable-target fallback from voting for a machine nobody stood up.
 
