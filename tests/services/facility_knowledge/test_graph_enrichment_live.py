@@ -250,11 +250,14 @@ def _ttl_census(ttl: str) -> dict[str, int]:
     coverage assertion below, since a truncated import is internally consistent.
 
     ``narad_p:deviceId "`` carries the trailing quote so it counts the devices
-    that *use* the property and not the one line declaring it in the vocabulary.
+    that *use* the property and not the one line declaring it in the vocabulary;
+    ``narad_p:familyDescription "`` likewise counts the devices a described
+    group names, the ones that carry a family's text.
     """
     return {
         "bindings": ttl.count("a narad_sem:ChannelBinding"),
         "devices": ttl.count('narad_p:deviceId "'),
+        "family_described": ttl.count('narad_p:familyDescription "'),
         "signals": ttl.count("a narad_sem:SemanticSignal"),
     }
 
@@ -339,13 +342,15 @@ def test_the_demo_corpus_answers_description_and_system_questions(
         "the description of a setpoint is what tells a reader the channel is writable"
     )
 
-    # --- Every device carries its two descriptions and its SYSTEM token -----
+    # --- Every device carries its system's description and SYSTEM token, ----
+    # --- and every device a described group names its family's ------------
     devices = _row(session, DEVICE_DESCRIPTION_COVERAGE)
     device_total = devices["total"]
     assert device_total == census["devices"], (
         f"the store holds {device_total} devices and the corpus declares {census['devices']}"
     )
-    assert devices["family_described"] == device_total
+    assert 0 < census["family_described"] <= device_total
+    assert devices["family_described"] == census["family_described"]
     assert devices["system_described"] == device_total
     assert devices["with_system"] == device_total, (
         f"{device_total - devices['with_system']} of {device_total} devices carry "
