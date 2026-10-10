@@ -203,6 +203,10 @@ files beside them --- ``limits.yaml``, ``seeds.yaml``, ``identity.yaml``,
 ``classes.yaml`` and ``measurement/<model>.yaml`` --- are created only when
 absent and never rewritten, so your edits to them survive a re-import.
 
+Each device carries the export's ``CommonNames`` entry as its ``label``.
+``imported/mml/rows.json`` records which device each export ``DeviceList`` row
+became, and the response check reads it.
+
 A setpoint takes its ``tolerance`` from its write field's
 ``Setpoint.Tolerance``, one number per device or one for the family, written
 ``{absolute: <x>}`` in the field's ``HWUnits``. A setpoint gets none when the

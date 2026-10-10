@@ -18,7 +18,7 @@ the nodes and relationships a query walks. Four kinds of thing matter to a
 query:
 
 * **Devices** — one node per physical device, carrying ``deviceId``,
-  ``sourceName``, ``system``, ``placePath`` and ``sectionCode``, plus
+  ``sourceName`` (the device's id), ``system``, ``placePath`` and ``sectionCode``, plus
   ``sPositionM`` (position along the beamline, in metres), ``lengthM``,
   ``ordinalInPlace`` and ``ordinalInModel``, each only when the facility file
   carries it, and the prose for the levels the device sits under:
