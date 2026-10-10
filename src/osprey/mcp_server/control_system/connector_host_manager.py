@@ -214,9 +214,9 @@ REASON_PROBE_FAILED = "probe_failed"
 #: Not a switch stage: the state a session is in when its child has died.
 REASON_NO_CHILD = "no_connector_host"
 
-#: The operator-facing name each display branch defaults to — one word per way
-#: a target can be derived, not per target name, because that is what the name
-#: describes: the simulator is a Simulator whichever target selected it, and a
+#: The operator-facing name each display branch defaults to — one word per
+#: machine a target can reach, not per target name, because that is what the
+#: name describes: the facility's machine, its stand-in, and the simulator. A
 #: ``live`` target with no connector configured is still the Real machine (the
 #: "not set up" nuance is the reader's to render, never the name's to carry).
 #: A deployment renames any of them per target via
@@ -225,7 +225,6 @@ REASON_NO_CHILD = "no_connector_host"
 _DISPLAY_NAME_DEFAULTS = {
     "machine": "Real machine",
     "standin": "Rehearsal",
-    "simulated": "Demo",
     "va": "Simulator",
 }
 
@@ -546,7 +545,7 @@ def target_display_metadata(
             # slot: "unknown" is a truthful rendering, an absent key is not.
             metadata[target] = {
                 "label": _label(target, None),
-                "display_name": _display_name(config, target, None),
+                "display_name": _display_name(config, target),
                 "endpoint": "",
                 "selected_role": "",
                 "real_machine": False,
@@ -567,7 +566,7 @@ def target_display_metadata(
         )
         metadata[target] = {
             "label": _label(target, ceiling.connector_type, standin=standin),
-            "display_name": _display_name(config, target, ceiling.connector_type, standin=standin),
+            "display_name": _display_name(config, target, standin=standin),
             "endpoint": _endpoint_text(selected.selected_endpoint()),
             "selected_role": selected.selected_role,
             # True for the stand-in as well as the facility's machine, and the
@@ -624,8 +623,6 @@ def _label(target: str, connector_type: str | None, *, standin: bool = False) ->
         return "virtual accelerator (simulation)"
     if connector_type is None:
         return "live machine (not configured)"
-    if connector_type in _SIMULATED_TYPES:
-        return f"live target on a simulated connector ({connector_type})"
     # The parenthesis is the whole of what an operator is told differently, and
     # it belongs to the 'standin' target alone. Two conjuncts, both required:
     # the target is the one an operator selected by name, and its endpoint
@@ -640,14 +637,13 @@ def _label(target: str, connector_type: str | None, *, standin: bool = False) ->
     return "LIVE MACHINE (stand-in)" if (target == TARGET_STANDIN and standin) else "LIVE MACHINE"
 
 
-def _display_name(
-    config: Any, target: str, connector_type: str | None, *, standin: bool = False
-) -> str:
+def _display_name(config: Any, target: str, *, standin: bool = False) -> str:
     """The operator-facing name for *target*: configured, or the branch default.
 
-    Walks the same branches as :func:`_label`, from the same inputs, so the two
-    names cannot describe different machines — the label is the identity line's
-    truth, this is the word an operator reads on the chip. A non-empty
+    Walks the same branches as :func:`_label`, from the same target and
+    stand-in inputs, so the two names cannot describe different machines — the
+    label is the identity line's truth, this is the word an operator reads on
+    the chip. A non-empty
     ``control_system.target_display_names.<target>`` string wins verbatim
     (stripped); empty or absent falls to :data:`_DISPLAY_NAME_DEFAULTS`. The
     override is per target name rather than per branch on purpose: the operator
@@ -661,8 +657,6 @@ def _display_name(
         return override.strip()
     if target == TARGET_VA:
         return _DISPLAY_NAME_DEFAULTS["va"]
-    if connector_type in _SIMULATED_TYPES:
-        return _DISPLAY_NAME_DEFAULTS["simulated"]
     if target == TARGET_STANDIN and standin:
         return _DISPLAY_NAME_DEFAULTS["standin"]
     return _DISPLAY_NAME_DEFAULTS["machine"]

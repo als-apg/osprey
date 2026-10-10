@@ -965,7 +965,7 @@ keys:
       display-metadata mint point; state-file and roster readers render the
       name they are handed and never read this key again.
     default: {}
-  control_system.target_display_names.live: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Real machine', or 'Demo' when the resolved connector type is simulated"}
+  control_system.target_display_names.live: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Real machine'"}
   control_system.target_display_names.standin: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Rehearsal' when a stand-in is deployed, else the machine name"}
   control_system.target_display_names.va: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Simulator'"}
   control_system.read_inline_max_elements:

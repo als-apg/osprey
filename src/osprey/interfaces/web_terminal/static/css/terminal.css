@@ -343,7 +343,7 @@ osprey-display-menu .display-menu-logout-icon {
    banner; the state it carries is what makes it worth looking at.
 
    Everything is keyed off four data attributes the chip module sets —
-   `data-target-kind` (live | standin | va | simulated), `data-state`
+   `data-target-kind` (live | standin | va), `data-state`
    (writes | sandbox | read-only), `data-enforceable`, `data-pending` — so no
    colour name and no state word lives in the JS.
 
@@ -418,7 +418,7 @@ osprey-display-menu .display-menu-logout-icon {
 }
 
 /* The machine's name — the kind's own word (Real machine, Rehearsal,
-   Simulator, Demo) or the deployment's configured display name. A configured
+   Simulator) or the deployment's configured display name. A configured
    name is free text, so the chip caps it with an ellipsis rather than letting
    one long name push the header's other actions off screen; the full name
    stays on the chip's title. */
@@ -429,13 +429,6 @@ osprey-display-menu .display-menu-logout-icon {
   font-weight: var(--weight-medium);
   letter-spacing: 0.04em;
   color: var(--text-primary);
-}
-
-/* A simulator is the unremarkable case: it drops to the secondary weight so
-   the eye skips it, exactly as the popover's own row label does. */
-.control-target-chip[data-target-kind="simulated"] .ctc-short {
-  color: var(--text-secondary);
-  font-weight: var(--weight-regular);
 }
 
 .ctc-sep {
@@ -751,9 +744,8 @@ osprey-display-menu .display-menu-logout-icon {
 }
 
 /* A simulator is the unremarkable case: it drops to the secondary weight so
-   the eye skips it, exactly as the chip's short label does. */
-.ctc-row[data-target-kind="va"] .ctc-name,
-.ctc-row[data-target-kind="simulated"] .ctc-name {
+   the eye skips it. */
+.ctc-row[data-target-kind="va"] .ctc-name {
   color: var(--text-secondary);
   font-weight: var(--weight-regular);
 }
