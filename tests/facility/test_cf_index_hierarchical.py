@@ -142,7 +142,6 @@ SYNTHETIC: dict[str, Any] = {
             "id": "M/QUAD",
             "description": "the quadrupoles",
             "members": ["M/Q1", "M/Q2"],
-            "signals": {"CURRENT": "a current", "CURRENT/SP": "the current setpoint"},
         },
         {"id": "M/ALL", "description": "everything", "members": ["M/Q1", "M/Q2", "FLOAT"]},
     ],
@@ -272,16 +271,23 @@ def test_a_device_with_no_class_sits_under_no_class(tmp_path: Path) -> None:
     assert document["tree"]["N"]["-"]["-"]["N/X"]["voltage"] == {"_channel_part": "N:X:V"}
 
 
+def _class_text(name: str) -> str:
+    from osprey.facility.validate import vocabulary
+
+    (row,) = [row for row in vocabulary()["classes"] if row["name"] == name]
+    return str(row["description"])
+
+
 def test_the_levels_are_described_by_their_records(tmp_path: Path) -> None:
     document, _database = _written(tmp_path, SYNTHETIC)
 
     sector = document["tree"]["M"]["S1"]
     assert sector["_description"] == "sector one"
-    assert sector["Quadrupole"]["_description"] == "the quadrupoles"
-    assert sector["Quadrupole"]["M/Q1"]["_description"] == "the quadrupoles"
+    assert sector["Quadrupole"]["_description"] == _class_text("Quadrupole")
+    assert "_description" not in sector["Quadrupole"]["M/Q1"]
     assert sector["Quadrupole"]["M/Q2"]["_description"] == "the second"
     gauge = document["tree"]["-"]["-"]["Gauge"]
-    assert gauge["_description"] == "everything"
+    assert gauge["_description"] == _class_text("Gauge")
 
 
 def test_a_leaf_is_keyed_by_signal_then_signal_and_role_then_address(tmp_path: Path) -> None:
@@ -301,38 +307,15 @@ def test_a_leaf_is_keyed_by_signal_then_signal_and_role_then_address(tmp_path: P
     ]
 
 
-def test_a_leaf_takes_the_longest_family_sentence_its_address_ends_with(
-    tmp_path: Path,
-) -> None:
+def test_a_leaf_takes_its_channel_s_description(tmp_path: Path) -> None:
     document, _database = _written(tmp_path, SYNTHETIC)
 
     q1 = document["tree"]["M"]["S1"]["Quadrupole"]["M/Q1"]
-    assert q1["current_setpoint"]["_description"] == "the current setpoint"
+    assert q1["current_setpoint"]["_description"] == "own"
     assert q1["current_readback"]["_description"] == "q1 readback"
     q2 = document["tree"]["M"]["S1"]["Quadrupole"]["M/Q2"]
-    assert q2["current_readback:readback"]["_description"] == "a current"
+    assert "_description" not in q2["current_readback:readback"]
     assert "_description" not in q2["M:Q2:STATUS:A"]
-
-
-def test_a_signals_key_spelled_with_underscores_matches_its_runs() -> None:
-    from osprey.facility.views.channel_finder import hierarchical_document
-
-    document = hierarchical_document(
-        {
-            "devices": [{"id": "G1", "class": "Gauge"}],
-            "groups": [
-                {
-                    "id": "G",
-                    "members": ["G1"],
-                    "signals": {"DOSE_RATE": "a rate", "DOSE_RATE/INST": "instantaneous"},
-                }
-            ],
-            "channels": [{"id": "SR:G:01:DOSE_RATE:INST", "on": {"device": "G1"}}],
-        }
-    )
-
-    leaf = document["tree"]["Gauge"]["G1"]["SR:G:01:DOSE_RATE:INST"]
-    assert leaf["_description"] == "instantaneous"
 
 
 def test_two_level_words_at_one_depth_stop_with_view_unsupported() -> None:
@@ -534,11 +517,15 @@ def test_the_demo_index_holds_every_channel_at_one_depth(
 
 
 @pytest.mark.slow
-def test_a_demo_leaf_takes_its_family_sentence(
+def test_a_demo_leaf_takes_its_channel_s_description(
     built_control_assistant: BuiltProject, tmp_path: Path
 ) -> None:
+    from tests.facility.test_cf_view_parity import golden_leaf_sentences
+
     facility = built_control_assistant.facility
     document, _database = _written(tmp_path, facility)
+    channels = {channel["id"]: channel for channel in facility["channels"]}
+    sentences = golden_leaf_sentences()
 
     def setpoint(group_id: str) -> str:
         member = _group(facility, group_id)["members"][0]
@@ -550,20 +537,11 @@ def test_a_demo_leaf_takes_its_family_sentence(
         ]
         return address
 
-    sextupole = setpoint("SR/SF")
-    dipole = setpoint("BR/DIPOLE")
-    assert (
-        _leaf_of(document, sextupole)["_description"]
-        == _group(facility, "SR/SF")["signals"]["CURRENT/SP"]
-    )
-    assert (
-        _leaf_of(document, dipole)["_description"]
-        == _group(facility, "BR/DIPOLE")["signals"]["CURRENT/SP"]
-    )
-    assert (
-        _group(facility, "SR/DIPOLE")["signals"]["CURRENT/SP"]
-        != _group(facility, "BR/DIPOLE")["signals"]["CURRENT/SP"]
-    )
+    for group_id in ("SR/SF", "BR/DIPOLE"):
+        address = setpoint(group_id)
+        description = _leaf_of(document, address)["_description"]
+        assert description == channels[address]["description"], group_id
+        assert sentences[address][1] in description, group_id
 
 
 @pytest.mark.slow

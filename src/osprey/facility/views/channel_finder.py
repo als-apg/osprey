@@ -41,12 +41,9 @@ of bare placeholders spells each address exactly.
 A leaf is keyed by its channel's signal when no other leaf of its device node
 shares it, else by ``<signal>:<role>`` when that is unique, else by its address;
 a channel with no signal is keyed by its address. A leaf's ``_description`` is
-the ``signals`` sentence of a group naming its device for the channel's kind of
-signal (the group's ``signals`` key, longest first, whose ``/``-separated parts
-are the last alphanumeric runs of the address), else the channel's own. A place
-node is described by its place, a class node by the smallest described group
-holding every device under it (else by its class), and a device node by its device
-(else by the smallest described group naming it). A render carries the index
+its channel's description. A place node is described by its place, a class
+node by its class (the facility's class row, else the vocabulary's), and a
+device node by its device. A render carries the index
 when its ``channel_finder.pipeline_mode`` is ``hierarchical``; a facility
 with no channel writes an empty tree. The build stops with
 ``view-unsupported`` when two place level words first appear at one depth, and
@@ -71,30 +68,31 @@ The middle-layer index is written to
 
 A Family is a group: every group is filed under the System of each member,
 the top place of the member's place (``-`` for a member with no place), and
-named by its id less a leading ``<System>/``. A channel belongs to its ``on``
-device and to every device it is an ``endpoint_of``, and so to every Family
-whose group holds one of those devices. A channel's field is the family's
-``signals`` key its address ends with (the longest), else its signal. A Field
-lists, for each member in ``CommonNames`` order (members by ``s``, then id), its
-one channel with that field, so ``ChannelNames`` aligns with ``DeviceList``; a
-channel whose field some member lacks or holds twice, or that has no field, is
-its own Field keyed by its address. A Field's ``_description`` is the family's
-``signals`` sentence under the longest key every one of its addresses ends
-with; a group without ``signals`` writes no Field sentence. ``_setup`` is
-derived from the members, never read from them: ``CommonNames`` is each
-member's ``label``, else its id; ``DeviceList`` is ``[index, k]`` for a member
-whose place has siblings (places of one parent and level, ordered by the
-lowest ``s`` below each, then in natural id order), ``k`` its ordinal among the
-family's members in that place, else ``[n, 1]`` by member order; ``ElementList``
-is each member's position in member order. No record carries a
+named by its id less a leading ``<System>/``. A classed device that no
+single-class group holds under its System files into a Family named by its
+class under that System, described by the class; a group whose short name is
+such a class name keeps its id. A channel belongs to its ``on`` device and to
+every device it is an ``endpoint_of``, and so to every Family holding one of
+those devices. A channel's field is its signal. A Field lists, for each member
+in ``CommonNames`` order (members by ``s``, then id), its one channel with that
+signal, so ``ChannelNames`` aligns with ``DeviceList``, and is described by the
+vocabulary's sentence for the signal, else by the description its channels
+share; a channel whose signal some member lacks or holds twice, or that has no
+signal, is its own Field keyed by its address and described by the channel.
+``_setup`` is derived from the members, never read from them: ``CommonNames``
+is each member's ``label``, else its id; ``DeviceList`` is ``[index, k]`` for a
+member whose place has siblings (places of one parent and level, ordered by
+the lowest ``s`` below each, then in natural id order), ``k`` its ordinal among
+the family's members in that place, else ``[n, 1]`` by member order;
+``ElementList`` is each member's position in member order. No record carries a
 ``DeviceList``, an ``ElementList`` or a positional name. A System is
-described by its place's description, a Family by its group's description,
-else its label. A channel of no family is left out; the build names how many channels it left
-out and how many it keyed by address in one note. A render
-carries the index when its ``channel_finder.pipeline_mode`` is
-``middle_layer``; a facility with no group stops the build with
-``view-unsupported``, as does a host where DuckDB cannot load its
-full-text-search extension, which the database's search index needs, and a
+described by its place's description, a group's Family by the group's
+description, else its label. A channel of no family is left out; the build
+names how many channels it left out and how many it keyed by address in one
+note. A render carries the index when its ``channel_finder.pipeline_mode`` is
+``middle_layer``; a facility with no device in a group or with a class stops
+the build with ``view-unsupported``, as does a host where DuckDB cannot load
+its full-text-search extension, which the database's search index needs, and a
 System or Family key the loader would not read back: one beginning with
 ``_``, or a System ``schema``.
 """
@@ -104,6 +102,7 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -151,9 +150,6 @@ TAIL_LEVELS: tuple[str, ...] = ("class", "device", "leaf")
 
 #: A level word the naming pattern can carry as a placeholder.
 _LEVEL_WORD = re.compile(r"\w+")
-
-#: One alphanumeric run of an address or of a ``signals`` key.
-_ALNUM_RUN = re.compile(r"[A-Za-z0-9]+")
 
 
 def _row(channel: Mapping[str, Any]) -> dict[str, Any]:
@@ -385,59 +381,6 @@ def _place_keys(
     return keys, ids
 
 
-def _smallest_group_description(
-    groups: Sequence[Mapping[str, Any]], members: set[str]
-) -> str | None:
-    """The description of the smallest described group holding every one of ``members``.
-
-    Ties between groups of one size go to the earlier group in the facility file.
-    """
-    best: tuple[int, int, str] | None = None
-    for position, group in enumerate(groups):
-        description = group.get("description")
-        held = set(group.get("members") or [])
-        if not description or not members <= held:
-            continue
-        rank = (len(held), position, str(description))
-        if best is None or rank < best:
-            best = rank
-    return best[2] if best is not None else None
-
-
-def _alnum_runs(text: str) -> list[str]:
-    return _ALNUM_RUN.findall(text)
-
-
-def _key_runs(key: Any) -> list[str]:
-    """A ``signals`` key's runs: each ``/``-separated part read as alphanumeric runs."""
-    return [run for part in str(key).split("/") for run in _alnum_runs(part)]
-
-
-def _ends_with(runs: Sequence[str], key_runs: Sequence[str]) -> bool:
-    """Whether a non-empty ``key_runs`` ends ``runs``."""
-    return bool(key_runs) and list(runs[-len(key_runs) :]) == list(key_runs)
-
-
-def _signal_sentence(address: str, family_signals: Sequence[Mapping[str, Any]]) -> str | None:
-    """The family sentence for one address: the longest ``signals`` key its runs end with.
-
-    A key's ``/``-separated parts are read as alphanumeric runs too, so a part
-    spelled with ``_`` matches the runs the address spells it with. Ties between
-    keys of one length go to the earlier group, then to the key sorted first.
-    """
-    runs = _alnum_runs(address)
-    best: tuple[int, int, str, str] | None = None
-    for position, signals in enumerate(family_signals):
-        for key, sentence in signals.items():
-            key_runs = _key_runs(key)
-            if not _ends_with(runs, key_runs):
-                continue
-            rank = (-len(key_runs), position, str(key), str(sentence))
-            if best is None or rank < best:
-                best = rank
-    return best[3] if best is not None else None
-
-
 def _class_descriptions(doc: Mapping[str, Any]) -> dict[str, str]:
     from osprey.facility.validate import vocabulary
 
@@ -494,18 +437,10 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
     """
     places = {str(place["id"]): place for place in doc.get("places", [])}
     devices = {str(device["id"]): device for device in doc.get("devices", [])}
-    groups: list[Mapping[str, Any]] = list(doc.get("groups", []))
     place_levels = _place_levels(places.values())
     levels = [*place_levels, *TAIL_LEVELS]
 
-    family_signals: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
-    for group in groups:
-        if group.get("signals"):
-            for member in group.get("members") or []:
-                family_signals[str(member)].append(group["signals"])
-
     descriptions: dict[tuple[str, ...], str | None] = {}
-    class_members: dict[tuple[str, ...], set[str]] = defaultdict(set)
     leaves: dict[tuple[str, ...], list[Mapping[str, Any]]] = defaultdict(list)
 
     for channel in doc.get("channels", []):
@@ -530,10 +465,7 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
         class_node = (*keys, class_key)
         device_node = (*class_node, device_key)
         if device is not None:
-            class_members[class_node].add(str(device["id"]))
-            descriptions[device_node] = device.get("description") or _smallest_group_description(
-                groups, {str(device["id"])}
-            )
+            descriptions[device_node] = device.get("description")
         else:
             descriptions[device_node] = "no device"
         leaves[device_node].append(channel)
@@ -543,9 +475,7 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
         if class_node[-1] == ABSENT:
             descriptions[class_node] = "no class"
         else:
-            descriptions[class_node] = _smallest_group_description(
-                groups, class_members[class_node]
-            ) or class_texts.get(class_node[-1])
+            descriptions[class_node] = class_texts.get(class_node[-1])
 
     tree: dict[str, Any] = {}
     for device_node, channels in leaves.items():
@@ -559,15 +489,11 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
                     child["_description"] = description
                 node[key] = child
             node = node[key]
-        family = family_signals.get(device_node[-1], []) if device_node[-1] != ABSENT else []
         for channel, key in zip(channels, _leaf_keys(channels), strict=True):
             _checked_key(key, channel, "channel")
-            address = str(channel["id"])
-            leaf: dict[str, Any] = {"_channel_part": address}
-            sentence = _signal_sentence(address, family)
-            description = sentence or channel.get("description")
-            if description:
-                leaf["_description"] = description
+            leaf: dict[str, Any] = {"_channel_part": str(channel["id"])}
+            if channel.get("description"):
+                leaf["_description"] = channel["description"]
             node[key] = leaf
 
     return {
@@ -618,44 +544,6 @@ def middle_layer_selected(inputs: ViewInputs) -> bool:
     return _pipeline_mode(inputs) == MIDDLE_LAYER_MODE
 
 
-def _signal_key(address: str, signals: Mapping[str, Any]) -> str | None:
-    """The longest ``signals`` key whose runs end the address's runs, else ``None``.
-
-    Ties between keys of one length go to the key sorted first.
-    """
-    runs = _alnum_runs(address)
-    best: tuple[int, str] | None = None
-    for key in signals:
-        key_runs = _key_runs(key)
-        if not _ends_with(runs, key_runs):
-            continue
-        rank = (-len(key_runs), str(key))
-        if best is None or rank < best:
-            best = rank
-    return best[1] if best is not None else None
-
-
-def _cell_sentence(
-    addresses: Sequence[str], signals: Mapping[str, Any], role: str | None = None
-) -> str | None:
-    """The sentence a Field's cell carries.
-
-    A Field keyed by a signal role takes the sentence under its own key, where
-    ``signals`` states one; every other Field takes the sentence under the
-    longest ``signals`` key every address ends with.
-    """
-    if role is not None and signals.get(role):
-        return str(signals[role])
-    best: tuple[int, str, str] | None = None
-    for key, sentence in signals.items():
-        key_runs = _key_runs(key)
-        if key_runs and all(_ends_with(_alnum_runs(address), key_runs) for address in addresses):
-            rank = (-len(key_runs), str(key), str(sentence))
-            if best is None or rank < best:
-                best = rank
-    return best[2] if best is not None else None
-
-
 def _member_order(device: Mapping[str, Any]) -> tuple[bool, float, str]:
     position = device.get("s")
     return (position is None, float(position) if position is not None else 0.0, str(device["id"]))
@@ -666,51 +554,93 @@ def _short_name(group_id: str, system: str) -> str:
     return group_id[len(prefix) :] if group_id.startswith(prefix) else group_id
 
 
-def _family_names(system: str, group_ids: Sequence[str]) -> list[str]:
+def _family_names(system: str, group_ids: Sequence[str], taken: Iterable[str] = ()) -> list[str]:
     """The Family names of the groups filed under one System, in their order.
 
     A group is named by its id less a leading ``<System>/``, unless another
-    group under that System has the same short name: then both keep their ids.
+    group under that System, or a name in ``taken``, has the same short name:
+    then the group keeps its id.
     """
-    taken = Counter(_short_name(group_id, system) for group_id in group_ids)
+    short = Counter(_short_name(group_id, system) for group_id in group_ids)
+    reserved = set(taken)
     return [
-        group_id if taken[_short_name(group_id, system)] > 1 else _short_name(group_id, system)
+        group_id
+        if short[_short_name(group_id, system)] > 1 or _short_name(group_id, system) in reserved
+        else _short_name(group_id, system)
         for group_id in group_ids
     ]
 
 
-def _families_by_system(
-    doc: Mapping[str, Any],
-) -> dict[str, list[tuple[Mapping[str, Any], str, list[Mapping[str, Any]]]]]:
-    """Each System's families: the group, its Family name and its members there.
+@dataclass(frozen=True)
+class _Family:
+    """One Family of the middle-layer index under one System."""
 
-    A group is filed under the System of each member, the top place of
-    the member's place (``-`` for a member with no place); its members under
-    one System are ordered by ``s``, then id.
+    name: str
+    description: str | None
+    members: list[Mapping[str, Any]]
+    record: Mapping[str, Any]
+    record_kind: str
+
+
+def _system_of(device: Mapping[str, Any]) -> str:
+    place = device.get("place")
+    return str(place).split("/", 1)[0] if place else ABSENT
+
+
+def _families_by_system(doc: Mapping[str, Any]) -> dict[str, list[_Family]]:
+    """Each System's Families: its groups, then its derived (System, class) Families.
+
+    A group is filed under the System of each member, the top place of the
+    member's place (``-`` for a member with no place). A classed device that no
+    single-class group holds under its System (a group whose members filed
+    there all carry one class) files into the derived Family of its System and
+    class, named by the class. Members are ordered by ``s``, then id.
     """
     devices = {str(device["id"]): device for device in doc.get("devices", [])}
     split: dict[str, list[tuple[Mapping[str, Any], list[Mapping[str, Any]]]]] = defaultdict(list)
+    covered: dict[str, set[str]] = defaultdict(set)
     for group in doc.get("groups", []):
         by_system: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
         for member_id in group.get("members") or []:
             device = devices.get(str(member_id))
-            if device is None:
-                continue
-            place = device.get("place")
-            by_system[str(place).split("/", 1)[0] if place else ABSENT].append(device)
+            if device is not None:
+                by_system[_system_of(device)].append(device)
         for system, members in by_system.items():
             split[system].append((group, sorted(members, key=_member_order)))
-    return {
-        system: [
-            (group, name, members)
-            for (group, members), name in zip(
-                entries,
-                _family_names(system, [str(group["id"]) for group, _ in entries]),
-                strict=True,
+            member_classes = {member.get("class") for member in members}
+            if len(member_classes) == 1 and None not in member_classes:
+                covered[system].update(str(member["id"]) for member in members)
+    derived: dict[str, dict[str, list[Mapping[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+    for device_id, device in devices.items():
+        system = _system_of(device)
+        if device.get("class") and device_id not in covered[system]:
+            derived[system][str(device["class"])].append(device)
+
+    class_texts = _class_descriptions(doc)
+    out: dict[str, list[_Family]] = {}
+    for system in dict.fromkeys([*split, *derived]):
+        entries = split.get(system, [])
+        classes = sorted(derived.get(system, {}))
+        names = _family_names(system, [str(group["id"]) for group, _ in entries], classes)
+        families = [
+            _Family(
+                name,
+                group.get("description") or group.get("label"),
+                members,
+                group,
+                "group",
             )
+            for (group, members), name in zip(entries, names, strict=True)
         ]
-        for system, entries in split.items()
-    }
+        for class_name in classes:
+            record = {"id": class_name}
+            _checked_key(class_name, record, "class", _MIDDLE_LAYER_INDEX)
+            members = sorted(derived[system][class_name], key=_member_order)
+            families.append(
+                _Family(class_name, class_texts.get(class_name), members, record, "class")
+            )
+        out[system] = families
+    return out
 
 
 def middle_layer_families(doc: Mapping[str, Any]) -> dict[str, list[tuple[str, str]]]:
@@ -724,11 +654,11 @@ def middle_layer_families(doc: Mapping[str, Any]) -> dict[str, list[tuple[str, s
         a member of that class, sorted; a class no family holds is absent.
     """
     out: dict[str, set[tuple[str, str]]] = defaultdict(set)
-    for system, entries in _families_by_system(doc).items():
-        for _group, name, members in entries:
-            for member in members:
+    for system, families in _families_by_system(doc).items():
+        for family in families:
+            for member in family.members:
                 if member.get("class"):
-                    out[str(member["class"])].add((system, name))
+                    out[str(member["class"])].add((system, family.name))
     return {name: sorted(pairs) for name, pairs in sorted(out.items())}
 
 
@@ -814,45 +744,66 @@ def _setup(members: Sequence[Mapping[str, Any]], indices: Mapping[str, int]) -> 
     }
 
 
+def _signal_descriptions() -> dict[str, str]:
+    from osprey.facility.validate import vocabulary
+
+    return {
+        str(row["name"]): str(row["description"])
+        for row in vocabulary()["signal_roles"]
+        if row.get("description")
+    }
+
+
+def _common_description(channels: Sequence[Mapping[str, Any]]) -> str | None:
+    """The description every one of ``channels`` states, else ``None``."""
+    texts = {channel.get("description") for channel in channels}
+    if len(texts) != 1:
+        return None
+    (text,) = texts
+    return str(text) if text else None
+
+
 def _family_fields(
     members: Sequence[Mapping[str, Any]],
     channels_of: Mapping[str, Sequence[Mapping[str, Any]]],
-    signals: Mapping[str, Any],
+    signal_texts: Mapping[str, str],
 ) -> tuple[dict[str, dict[str, Any]], int]:
-    """A family's Fields under one System, and how many channels are keyed by address."""
-    per_member: list[dict[str | None, list[str]]] = []
-    roles: set[str] = set()
+    """A family's Fields under one System, and how many channels are keyed by address.
+
+    A channel's field key is its signal. A signal every member holds exactly
+    once is one Field listing the members' channels in member order, described
+    by the vocabulary's sentence for the signal, else by the description its
+    channels share. Every other channel, and one with no signal, is its own
+    Field keyed by its address and described by the channel.
+    """
+    per_member: list[dict[str | None, list[Mapping[str, Any]]]] = []
     for member in members:
-        fields: dict[str | None, list[str]] = defaultdict(list)
+        fields: dict[str | None, list[Mapping[str, Any]]] = defaultdict(list)
         for channel in channels_of.get(str(member["id"]), ()):
-            address = str(channel["id"])
             signal = channel.get("signal")
-            key = _signal_key(address, signals)
-            if key is None and signal:
-                key = str(signal)
-                roles.add(key)
-            fields[key].append(address)
+            fields[str(signal) if signal else None].append(channel)
         per_member.append(fields)
 
     keys = {key for fields in per_member for key in fields}
-    cells: dict[str, list[str]] = {}
+    out: dict[str, dict[str, Any]] = {}
     by_address = 0
     for key in sorted(keys, key=lambda key: (key is None, key or "")):
         if key is not None and all(len(fields.get(key, ())) == 1 for fields in per_member):
-            cells[key] = [fields[key][0] for fields in per_member]
+            channels = [fields[key][0] for fields in per_member]
+            field: dict[str, Any] = {"ChannelNames": [str(c["id"]) for c in channels]}
+            description = signal_texts.get(key) or _common_description(channels)
+            if description:
+                field["_description"] = description
+            out[key] = field
             continue
         for fields in per_member:
-            for address in fields.get(key, ()):
-                cells[address] = [address]
+            for channel in fields.get(key, ()):
+                address = str(channel["id"])
+                field = {"ChannelNames": [address]}
+                if channel.get("description"):
+                    field["_description"] = channel["description"]
+                out[address] = field
                 by_address += 1
-
-    out: dict[str, dict[str, Any]] = {}
-    for key, addresses in cells.items():
-        field: dict[str, Any] = {"ChannelNames": addresses}
-        sentence = _cell_sentence(addresses, signals, key if key in roles else None)
-        if sentence:
-            field["_description"] = sentence
-        out[key] = field
     return out, by_address
 
 
@@ -903,10 +854,11 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
         for owner in dict.fromkeys(str(owner) for owner in owners if owner):
             channels_of[owner].append(channel)
 
+    signal_texts = _signal_descriptions()
     in_family: set[str] = set()
     document: dict[str, Any] = {"schema": CHANNEL_FINDER_SCHEMA}
     by_address = 0
-    for system, entries in _families_by_system(doc).items():
+    for system, families in _families_by_system(doc).items():
         place = places.get(system)
         if system != ABSENT:
             _checked_system(system, place or {"id": system})
@@ -915,17 +867,16 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
             node["_description"] = "no place"
         elif place is not None and place.get("description"):
             node["_description"] = place["description"]
-        for group, name, members in entries:
-            _checked_key(name, group, "group", _MIDDLE_LAYER_INDEX)
-            for member in members:
+        for entry in families:
+            _checked_key(entry.name, entry.record, entry.record_kind, _MIDDLE_LAYER_INDEX)
+            for member in entry.members:
                 in_family.update(str(c["id"]) for c in channels_of.get(str(member["id"]), ()))
-            fields, keyed = _family_fields(members, channels_of, group.get("signals") or {})
+            fields, keyed = _family_fields(entry.members, channels_of, signal_texts)
             by_address += keyed
-            family: dict[str, Any] = {"_setup": _setup(members, indices), **fields}
-            description = group.get("description") or group.get("label")
-            if description:
-                family["_description"] = description
-            node[name] = family
+            family: dict[str, Any] = {"_setup": _setup(entry.members, indices), **fields}
+            if entry.description:
+                family["_description"] = entry.description
+            node[entry.name] = family
         document[system] = node
 
     left_out = sum(1 for channel in doc.get("channels", []) if str(channel["id"]) not in in_family)
@@ -946,8 +897,8 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
         The files written: the index and its database.
 
     Raises:
-        FacilityBuildError: ``view-unsupported`` when the facility has no
-            group, or when DuckDB cannot write the database (its
+        FacilityBuildError: ``view-unsupported`` when no device of the facility
+            is in a group or has a class, or when DuckDB cannot write the database (its
             full-text-search extension is neither installed nor reachable).
     """
     from osprey.facility.views import report_note, view_bytes
@@ -955,8 +906,9 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
     document, left_out, by_address = middle_layer_document(inputs.doc)
     if len(document) == 1:
         raise _mode_unsupported(
-            f"selects {MIDDLE_LAYER_MODE} and the facility has no group",
-            "add at least one group, or select another channel_finder_mode",
+            f"selects {MIDDLE_LAYER_MODE} and no device of the facility is in a group "
+            "or has a class",
+            "add a group or give the devices a class, or select another channel_finder_mode",
         )
     root.mkdir(parents=True, exist_ok=True)
     target = root / MIDDLE_LAYER_FILE
