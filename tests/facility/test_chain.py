@@ -98,6 +98,11 @@ VIEW_FILES: dict[str, tuple[str, ...]] = {
         "channel_finder/middle_layer.json",
     ),
     "graph": ("graph/facility.ttl",),
+    "pyaml": (
+        "pyaml/LTB/configuration.yaml",
+        "pyaml/StorageRing/configuration.yaml",
+        "pyaml/StorageRing/lattice.json",
+    ),
 }
 
 #: The one view this tree cannot carry: it tags no channel ``in_context``.

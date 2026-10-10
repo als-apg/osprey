@@ -2287,6 +2287,12 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
 #: persona renders are checked by the build.
 BUILD_ONLY: frozenset[str] = frozenset({"profile_invalid__persona_served_models"})
 
+#: Cases a view raises while the render writes it: the views written before it have
+#: already noted, once each, what they omit.
+VIEW_STAGE: frozenset[str] = frozenset(
+    case for case in CASES if case.startswith("view_unsupported__")
+)
+
 #: The view inputs of a render whose config sets nothing.
 _NO_CONFIG = ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[])
 
@@ -2363,10 +2369,15 @@ def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -
     result = run_build(repo)
 
     assert result.exit_code == 1, result.output
-    if case not in BUILD_ONLY:
+    if case not in BUILD_ONLY | VIEW_STAGE:
         assert result.stderr == CASES[case][1] + "\n"
         return
-    *notes, last = result.stderr.splitlines()
+    _assert_notes_then_stop(result.stderr, case)
+
+
+def _assert_notes_then_stop(stderr: str, case: str) -> None:
+    """``stderr`` is render notes, each once, then the case's one line."""
+    *notes, last = stderr.splitlines()
     assert last == CASES[case][1]
     assert set(notes) <= MAIN_RENDER_NOTES
     assert len(notes) == len(set(notes))
@@ -2380,7 +2391,11 @@ def test_validate_prints_the_one_line(initialised: Path, tmp_path: Path, case: s
     result = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
 
     assert result.exit_code == 1, result.output
-    assert (result.stdout, result.stderr) == ("", CASES[case][1] + "\n")
+    assert result.stdout == ""
+    if case in VIEW_STAGE:
+        _assert_notes_then_stop(result.stderr, case)
+        return
+    assert result.stderr == CASES[case][1] + "\n"
 
 
 @pytest.mark.slow
