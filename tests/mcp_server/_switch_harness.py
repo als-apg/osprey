@@ -1,11 +1,11 @@
 """Two genuinely different connector-host targets on one machine, with no EPICS.
 
 A deployment's ``live`` target resolves to whatever non-simulated connector its
-config names, so pointing ``control_system.type`` at the mock connector's
-dotted path gives a real, servable ``live``. ``va`` always resolves to the
+config names, so pointing ``control_system.type`` at the in-process
+simulator's dotted path gives a real, servable ``live``. ``va`` always resolves to the
 ``virtual_accelerator`` type, which is a registry name rather than a path — so
 the children are launched with a scratch directory on their ``PYTHONPATH``
-holding a ``sitecustomize`` that registers a mock variant under that name
+holding a ``sitecustomize`` that registers a fixture variant under that name
 before the child's own ``register_builtin_connectors()`` runs (which never
 replaces an existing registration). The result is two genuinely different
 targets, each with its own connector block and probe channel, neither of which
@@ -47,15 +47,15 @@ from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import EPICS
 from tests._control_context_fixtures import write_control_context
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: The mock connector by dotted path: what lets a test *serve* ``live`` from a
+#: The in-process simulator by dotted path: what lets a test *serve* ``live`` from a
 #: real child on a machine with no Channel Access, which is what nearly every
 #: test here does — hence this module's default.
-SERVED_LIVE_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+SERVED_LIVE_TYPE = "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
 #: A Channel Access type, for the tests that need ``live`` to read as a real
 #: machine rather than be served by one. Nothing is spawned from it.
 CA_LIVE_TYPE = EPICS
@@ -113,7 +113,7 @@ import asyncio
 import os
 
 from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
-from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 
 REFUSE_CHANNEL = "FIXTURE:REFUSE"
 SLOW_CHANNEL = "FIXTURE:SLOW"
@@ -122,7 +122,7 @@ DEAD_WRITE_PORT = "5555"
 WRITE_ROLE = "write_access"
 
 
-class FixtureConnector(MockConnector):
+class FixtureConnector(VAInProcessConnector):
     #: The role connect() actually installed, or None when it configured no
     #: gateway at all.
     _gateway_role = None
@@ -221,8 +221,14 @@ def served_view() -> Path:
 
 
 def _served_block(**settings):
-    """A target's connector block serving :func:`served_view`."""
-    return mock_config(served_view(), **settings)
+    """A target's connector block serving :func:`served_view`.
+
+    Without the ``serving`` leaf: the deployment's own type is a dotted class,
+    so its ``va`` is the served venue, which the sitecustomize fixture answers.
+    """
+    block = in_process_config(served_view(), **settings)
+    del block["serving"]
+    return block
 
 
 def raw_config(

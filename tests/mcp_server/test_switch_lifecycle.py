@@ -55,7 +55,7 @@ from osprey_connectors.ipc.verification import (
 )
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from tests._control_context_fixtures import state_dir_under
-from tests.facility.served_tree import mock_config
+from tests.facility.served_tree import in_process_config
 from tests.fixtures.control_context import context_for
 from tests.mcp_server._switch_harness import (
     CA_LIVE_TYPE,
@@ -388,6 +388,7 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
                     "read_only": Endpoint(host="gw.example.org", port=5064, mode="addr_list")
                 },
                 selected_role="read_only",
+                transport="ca",
             )
 
         monkeypatch.setattr(connector_host_manager, "derive_endpoints", derive)
@@ -1608,6 +1609,7 @@ class TestVerificationRule:
             connector_type="virtual_accelerator",
             endpoints=endpoints or {},
             selected_role="read_only",
+            transport="ca",
         )
 
     def test_a_gatewayless_target_passes_when_the_child_configured_nothing(self):
@@ -1648,6 +1650,7 @@ class TestVerificationRule:
                 "write_access": Endpoint(host="gw.example.org", port=5064, mode="addr_list")
             },
             selected_role="read_only",
+            transport="ca",
         )
 
         verification = verify_host_report(derivation, self.NOTHING_CONFIGURED)
@@ -1663,6 +1666,7 @@ class TestVerificationRule:
                 "write_access": Endpoint(host="gw.example.org", port=5064, mode="addr_list")
             },
             selected_role="read_only",
+            transport="ca",
         )
         report = {
             "selected_role": "read_only",
@@ -1700,6 +1704,7 @@ class TestVerificationRule:
         report = {
             **self.NOTHING_CONFIGURED,
             "connector_type": "virtual_accelerator",
+            "transport": "ca",
             "writes_enabled": False,
             "readonly_run": False,
         }
@@ -1785,7 +1790,7 @@ class TestConfigDerivedFacts:
     def test_baseline_is_va_only_for_a_virtual_accelerator_deployment(self):
         assert baseline_target({"control_system": {"type": "virtual_accelerator"}}) == "va"
         assert baseline_target({"control_system": {"type": "epics"}}) == "live"
-        assert baseline_target({}) == "live"
+        assert baseline_target({}) == "va"
 
     def test_display_metadata_carries_the_probe_channel_and_the_real_machine_flag(self):
         metadata = target_display_metadata(raw_config())
@@ -1904,22 +1909,19 @@ class TestSwitchCapability:
 
         assert switch_capable(config) is True
 
-    def test_a_mock_deployment_with_an_epics_block_is_not_capable(self):
-        """The case that makes the naive predicate dangerous.
-
-        ``resolve_target`` answers 'live' for a mock deployment by looking in
-        the connector table and finding the epics block — so a predicate that
-        only asked "do both targets resolve" would serve this deployment from a
-        child pointed at a real machine its own config never selected.
-        """
+    def test_an_in_process_deployment_with_an_epics_block_is_capable(self):
+        """The simulator in process baselines on ``va``, and the epics block is ``live``."""
         config = {
             "control_system": {
-                "type": "mock",
-                "connector": {"mock": {}, "epics": {"gateways": {"read_only": {}}}},
+                "type": "virtual_accelerator",
+                "connector": {
+                    "virtual_accelerator": {"serving": "in_process"},
+                    "epics": {"gateways": {"read_only": {}}},
+                },
             }
         }
 
-        assert switch_capable(config) is False
+        assert switch_capable(config) is True
 
     def test_a_single_target_deployment_is_not_capable(self):
         assert (
@@ -2144,8 +2146,10 @@ class TestNonCapableDeploymentIsUntouched:
     def _mock_context():
         raw = {
             "control_system": {
-                "type": "mock",
-                "connector": {"mock": mock_config(served_view(), response_delay_ms=1)},
+                "type": "virtual_accelerator",
+                "connector": {
+                    "virtual_accelerator": in_process_config(served_view(), response_delay_ms=1)
+                },
             },
             "archiver": {"type": "mongodb_archiver"},
         }
@@ -2164,9 +2168,9 @@ class TestNonCapableDeploymentIsUntouched:
 
         connector = await context.control_system()
 
-        from osprey_connectors.control_system.mock_connector import MockConnector
+        from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 
-        assert isinstance(connector, MockConnector)
+        assert isinstance(connector, VAInProcessConnector)
         assert await context.control_system() is connector
         assert context._connectors["control_system"].instance is connector
         # No supervisor is created, so nothing can spawn a child.

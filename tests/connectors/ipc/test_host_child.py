@@ -45,10 +45,10 @@ from osprey_connectors.control_system.base import (
     ChannelWriteResult,
     WriteOutcome,
 )
-from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey_connectors.ipc import frames, host
 from tests._control_context_fixtures import write_control_context
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHONPATH = os.pathsep.join(
@@ -56,7 +56,7 @@ PYTHONPATH = os.pathsep.join(
 )
 
 #: The mock connector by dotted path, so ``live`` resolves to it.
-MOCK_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+IN_PROCESS_TYPE = "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
 
 #: The addresses a spawned child writes, and the ones it only reads.
 SETPOINTS = ("SR:CORR:1:SP", "SR:CORR:2:SP")
@@ -67,13 +67,13 @@ PROBED_UNITS = {"SR:BEAM:CURRENT": "mA", "VAC:PRESSURE": "Torr"}
 
 
 def _control_system(root: Path) -> dict:
-    """The mock deployment a child serves, from a tree built under ``root``."""
+    """The in-process deployment a child serves, from a tree built under ``root``."""
     channels = {address: {"unit": unit} for address, unit in PROBED_UNITS.items()}
     view = served_tree(root, SETPOINTS, READINGS, channels=channels)
     return {
-        "type": MOCK_TYPE,
+        "type": IN_PROCESS_TYPE,
         "writes_enabled": False,
-        "connector": {MOCK_TYPE: mock_config(view, response_delay_ms=10)},
+        "connector": {IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=10)},
     }
 
 
@@ -244,7 +244,7 @@ def test_first_frame_out_is_the_post_connect_report(child):
     report = frame.value
     # The five verification fields the parent asserts its derivation against.
     assert set(report) >= {"selected_role", "mode", "host", "port", "_epics_configured"}
-    # Mock semantics: no gateway is configured, so there is no endpoint to
+    # In-process semantics: no gateway is configured, so there is no endpoint to
     # verify — the report is well-formed and empty rather than absent.
     assert report["selected_role"] is None
     assert report["mode"] is None
@@ -253,11 +253,34 @@ def test_first_frame_out_is_the_post_connect_report(child):
     assert report["_epics_configured"] is False
     # Diagnostics that let the parent tell this child apart from the one it
     # meant to spawn.
-    assert report["connector_type"] == MOCK_TYPE
+    assert report["connector_type"] == IN_PROCESS_TYPE
     assert report["target"] == "live"
     assert report["writes_enabled"] is False
     assert report["readonly_run"] is False
     assert report["pid"] == child.proc.pid
+
+
+def test_report_carries_transport(child):
+    """The child echoes the wire its connector was built with, for the parent to verify."""
+    dotted = child.init().value
+    # A dotted class names no transport row.
+    assert dotted["transport"] is None
+
+
+def test_report_carries_the_in_process_transport(tmp_path):
+    """``va`` on the simulator in process reports the in-process wire."""
+    spawned = Child(cwd=tmp_path)
+    try:
+        section = _control_system(tmp_path / "served")
+        block = section["connector"].pop(IN_PROCESS_TYPE)
+        section["type"] = "virtual_accelerator"
+        section["connector"]["virtual_accelerator"] = block
+        report = spawned.init(target="va", control_system=section).value
+    finally:
+        spawned.close()
+
+    assert report["connector_type"] == "virtual_accelerator"
+    assert report["transport"] == "in_process"
 
 
 def test_a_first_frame_that_is_not_init_fails_the_launch(child):
@@ -281,7 +304,7 @@ def test_an_unresolvable_target_fails_the_launch_with_a_typed_error(child):
 
 
 def test_an_init_whose_control_system_is_not_a_mapping_fails_the_launch(child):
-    frame = child.init(control_system=["type", MOCK_TYPE])
+    frame = child.init(control_system=["type", IN_PROCESS_TYPE])
 
     assert isinstance(frame, frames.ErrorFrame)
     assert isinstance(frame.exception, ConnectionError)
@@ -387,9 +410,11 @@ def test_the_child_reports_the_posture_of_the_block_for_its_own_type(tmp_path):
     project.mkdir()
     view = served_tree(tmp_path / "served")
     control_system = {
-        "type": MOCK_TYPE,
+        "type": IN_PROCESS_TYPE,
         "writes_enabled": False,
-        "connector": {MOCK_TYPE: mock_config(view, response_delay_ms=10, writes_enabled=True)},
+        "connector": {
+            IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=10, writes_enabled=True)
+        },
     }
     config_file = project / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": control_system}))
@@ -398,7 +423,7 @@ def test_the_child_reports_the_posture_of_the_block_for_its_own_type(tmp_path):
     try:
         report = spawned.init(control_system=control_system, config_file=str(config_file)).value
 
-        assert report["connector_type"] == MOCK_TYPE
+        assert report["connector_type"] == IN_PROCESS_TYPE
         assert report["writes_enabled"] is True
     finally:
         spawned.close()
@@ -495,9 +520,9 @@ def test_closing_stdin_before_the_init_frame_exits_the_child_cleanly(child):
 def test_closing_stdin_lets_a_call_in_flight_reply_before_the_child_exits(child):
     view = served_tree(child.cwd / "served", readings=["SR:BEAM:CURRENT"])
     slow = {
-        "type": MOCK_TYPE,
+        "type": IN_PROCESS_TYPE,
         "writes_enabled": False,
-        "connector": {MOCK_TYPE: mock_config(view, response_delay_ms=500)},
+        "connector": {IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=500)},
     }
     child.init(control_system=slow)
 
@@ -863,7 +888,7 @@ def _posture_carrier(connector_type, control_target, *, epics_configured=False):
     connector shares — nothing about the mock's own behaviour is exercised, only
     the type and target the factory stamps on whatever it builds.
     """
-    connector = MockConnector()
+    connector = VAInProcessConnector()
     connector._connector_type = connector_type
     connector._control_target = control_target
     connector._epics_configured = epics_configured
@@ -998,14 +1023,14 @@ def _limits_control_system(database_path: Path, view: Path) -> dict:
     resolves to ``virtual_accelerator`` whatever the deployment was built for.
     """
     return {
-        "type": MOCK_TYPE,
+        "type": IN_PROCESS_TYPE,
         "limits_checking": {
             "enabled": True,
             "mode": "exclusive",
             "database_path": str(database_path),
         },
         "connector": {
-            MOCK_TYPE: mock_config(view, response_delay_ms=10),
+            IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=10),
             "virtual_accelerator": {"limits_checking": {"enabled": True, "mode": "optional"}},
         },
     }
