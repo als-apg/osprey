@@ -326,7 +326,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # The gate for the pyat-specialist agent: a render that serves no model
         # with a deck has no lattice for it to load. A plain truthiness test,
         # merged before resolve_agents runs, like the server gates above.
-        "served_deck_models": _served_deck_models(facility_facts, facility),
+        "served_decks": _served_decks(facility_facts, facility),
         "pyaml_view_present": bool(facility_facts["measurement_models"]),
         "measurement": hook_measurement(facility_facts),
         # `ariel.attachments.view.enabled`: whether the ARIEL agents may look at
@@ -392,29 +392,36 @@ def _read_facility(project_dir: Path) -> dict[str, Any]:
     return document if isinstance(document, dict) else {}
 
 
-def _served_deck_models(facts: dict[str, Any], facility: dict[str, Any]) -> list[str]:
-    """The models a render serves that the pyat-specialist can load.
+def _served_decks(facts: dict[str, Any], facility: dict[str, Any]) -> list[dict[str, str]]:
+    """The decks a render serves that the pyat-specialist can load.
 
     Args:
         facts: The render's agent facts.
         facility: The render's facility file (``{}`` when it holds none).
 
     Returns:
-        The sorted names of the facts' served models, engine other than
-        ``texture``, whose facility-file record names a deck.
+        ``{"model", "path"}`` for each of the facts' served models, engine
+        other than ``texture``, whose facility-file record names a deck,
+        sorted by model; ``path`` is the file the simulator view writes the
+        deck to, relative to the render root.
     """
     from osprey.facility import TEXTURE
+    from osprey.facility.views.simulator import served_deck_path
+    from osprey_connectors.simulation.view import VIEW_RELPATH
 
-    with_deck = {
-        str(model.get("name"))
+    paths = {
+        str(model.get("name")): served_deck_path(model)
         for model in facility.get("models", [])
-        if isinstance(model, dict) and model.get("deck")
+        if isinstance(model, dict)
     }
-    return sorted(
-        str(model["name"])
-        for model in facts.get("models", [])
-        if model.get("served") and model.get("engine") != TEXTURE and model["name"] in with_deck
-    )
+    return [
+        {"model": name, "path": f"{VIEW_RELPATH}/{paths[name]}"}
+        for name in sorted(
+            str(model["name"])
+            for model in facts.get("models", [])
+            if model.get("served") and model.get("engine") != TEXTURE and paths.get(model["name"])
+        )
+    ]
 
 
 def _middle_layer_families(facility: dict[str, Any]) -> dict[str, list[dict[str, str | None]]]:

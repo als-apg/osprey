@@ -1,12 +1,12 @@
 """The pyat-specialist reads the simulator view and exists only beside a served deck.
 
-``config_derived_context`` names the render's served deck-bearing models as
-``served_deck_models``: the models the agent facts list as served, engine other
-than ``texture``, whose facility-file record names a deck. The agent's registry
-entry is conditioned on that list, so a render serving none of them renders no
-agent file and a CLAUDE.md that never names the agent. On a render that serves
-one, the agent loads each such model from its copy under
-``data/simulator/decks/`` and reads channel wiring from
+``config_derived_context`` names the render's served decks as ``served_decks``:
+one ``{model, path}`` for each model the agent facts list as served, engine
+other than ``texture``, whose facility-file record names a deck, ``path`` being
+the file the simulator view writes for it. The agent's registry entry is
+conditioned on that list, so a render serving none of them renders no agent
+file and a CLAUDE.md that never names the agent. On a render that serves one,
+the agent loads each such deck by that path and reads channel wiring from
 ``data/simulator/variables.json``.
 """
 
@@ -33,7 +33,7 @@ def _model(name: str, engine: str, served: bool) -> dict:
     return {"name": name, "engine": engine, "served": served, "solve": None}
 
 
-def test_served_deck_models_are_the_served_physics_models_with_a_deck(tmp_path: Path) -> None:
+def test_served_decks_are_the_served_physics_models_with_a_deck(tmp_path: Path) -> None:
     facts = zero_source_facts({"code": "demo", "name": "demo", "description": None})
     facts["models"] = [
         _model("SR", "pyat", True),
@@ -46,7 +46,7 @@ def test_served_deck_models_are_the_served_physics_models_with_a_deck(tmp_path: 
     (tmp_path / "data" / FACTS_FILE).write_text(json.dumps(facts), encoding="utf-8")
     facility = {
         "models": [
-            {"name": "AR", "engine": "pyat", "deck": "decks/AR.json"},
+            {"name": "AR", "engine": "pyat", "deck": "decks/ar_lattice.mat"},
             {"name": "BTS", "engine": "pyat"},
             {"name": "LTB", "engine": "pyat", "deck": "decks/LTB.json"},
             {"name": "SR", "engine": "pyat", "deck": "decks/SR.json"},
@@ -54,11 +54,37 @@ def test_served_deck_models_are_the_served_physics_models_with_a_deck(tmp_path: 
     }
     (tmp_path / FACILITY_FILE).write_text(json.dumps(facility), encoding="utf-8")
 
-    assert config_derived_context({}, tmp_path)["served_deck_models"] == ["AR", "SR"]
+    assert config_derived_context({}, tmp_path)["served_decks"] == [
+        {"model": "AR", "path": "data/simulator/decks/AR.mat"},
+        {"model": "SR", "path": "data/simulator/decks/SR.json"},
+    ]
 
 
 def test_a_render_with_no_facts_serves_no_deck(tmp_path: Path) -> None:
-    assert config_derived_context({}, tmp_path)["served_deck_models"] == []
+    assert config_derived_context({}, tmp_path)["served_decks"] == []
+
+
+def test_the_agent_loads_a_mat_deck_by_the_file_the_view_writes(tmp_path: Path) -> None:
+    from osprey.cli.templates.manager import TemplateManager
+
+    facts = zero_source_facts({"code": "demo", "name": "demo", "description": None})
+    facts["models"] = [_model("SR", "pyat", True)]
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / FACTS_FILE).write_text(json.dumps(facts), encoding="utf-8")
+    facility = {"models": [{"name": "SR", "engine": "pyat", "deck": "decks/sr_lattice.mat"}]}
+    (tmp_path / FACILITY_FILE).write_text(json.dumps(facility), encoding="utf-8")
+    context = config_derived_context({}, tmp_path)
+    context["enabled_agents"] = {"pyat-specialist"}
+
+    text = (
+        TemplateManager()
+        .jinja_env.get_template("claude_code/claude/agents/pyat-specialist.md.j2")
+        .render(**context)
+    )
+
+    assert "- `SR`: `data/simulator/decks/SR.mat`" in text
+    assert 'at.load_lattice("data/simulator/decks/SR.mat")' in text
+    assert ".json" not in text.split("## The Models You Load")[1].split("## Import Surface")[0]
 
 
 def test_the_demo_agent_loads_the_served_deck_and_reads_the_variables_file(
