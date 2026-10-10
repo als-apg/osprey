@@ -440,3 +440,19 @@ def test_an_exported_family_the_mapping_leaves_out_writes_no_record(tmp_path: Pa
     with pytest.raises(MappingProblems, match="families: leaves out the exported family S"):
         write_records(Exports(ao=_export()), parse_mapping(document), facility)
     assert not facility.exists()
+
+
+def test_the_mml_layer_reads_no_channel_finder_database_module() -> None:
+    import ast
+
+    import osprey.facility.layers.mml as layer
+
+    imported = []
+    for path in sorted(Path(layer.__file__).parent.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "osprey.services.channel_finder.databases"
+            ):
+                imported.append(f"{path.name}: {node.module}")
+
+    assert imported == []

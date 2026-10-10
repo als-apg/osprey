@@ -24,7 +24,7 @@ Rules:
   :func:`system_bodies` and :func:`family_views` are the one spelling of that
   rule.
 
-The module is pure and depends on the standard library and ``CHANNEL_KEYS``.
+The module is pure and depends on the standard library only.
 """
 
 from __future__ import annotations
@@ -32,9 +32,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any, Literal
 
-from osprey.services.channel_finder.databases.middle_layer import CHANNEL_KEYS
-
 __all__ = [
+    "CHANNEL_KEYS",
     "FAMILY_ARRAYS",
     "FamilyView",
     "FieldView",
@@ -42,6 +41,9 @@ __all__ = [
     "family_views",
     "system_bodies",
 ]
+
+#: The export's per-field address arrays, in protocol order: Channel Access, then Tango.
+CHANNEL_KEYS: tuple[str, ...] = ("ChannelNames", "TangoNames")
 
 #: Per-device family arrays, read from the family level or its setup block.
 FAMILY_ARRAYS: tuple[str, ...] = (
