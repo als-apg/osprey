@@ -205,7 +205,7 @@ def test_measurement_block(core: dict) -> None:
     kinds = measurement["kinds"]
     assert kinds.get("multivalued") and not kinds.get("list_elements_ordered")
     assert set(_attrs(core, "MeasurementGroups")) == {"bpm", "hcor", "vcor", "quad", "sext"}
-    assert set(_attrs(core, "MeasurementInstruments")) == {"tune", "chromaticity", "rf"}
+    assert set(_attrs(core, "MeasurementInstruments")) == {"tune", "rf"}
     assert not any(slot and slot.get("required") for slot in measurement.values())
 
 

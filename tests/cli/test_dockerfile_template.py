@@ -30,6 +30,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from tests.deployment._pip_probe import primer_pip_argv
 from tests.deployment._proxy_idiom import assert_apt_runs_carry_proxy_idiom
@@ -491,6 +492,73 @@ class TestDockerfileContent:
         )
         assert not ctx.exists(), "staged context not cleaned up on the no-manifest path"
 
+    _GIT_SPEC = "git+https://example.invalid/osprey.git@0123abc"
+
+    @classmethod
+    def _member_installs(cls, calls: list[str]) -> list[str]:
+        """The pip calls that pre-install a workspace member from a git spec."""
+        return [c for c in calls if "#subdirectory=packages/" in c]
+
+    def test_git_spec_preinstalls_every_workspace_member(self, hello_project, tmp_path):
+        """Empirical probe: a git+ spec points into the monorepo, so the deps RUN
+        calls pip once per workspace member, each from the same URL's
+        ``packages/<member>`` subdirectory, before the framework primer."""
+        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
+        log = tmp_path / "pip.log"
+        result, _ = _probe_deps_body(
+            deps, tmp_path, with_manifest=False, spec=self._GIT_SPEC, pip_log=log
+        )
+        assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+        calls = log.read_text().splitlines()
+        members = self._member_installs(calls)
+        assert members == [
+            f"install --no-cache-dir {m} @ {self._GIT_SPEC}#subdirectory=packages/{m}"
+            for m in WORKSPACE_MEMBERS
+        ], calls
+        primer = next(i for i, c in enumerate(calls) if c.endswith(f" {self._GIT_SPEC}"))
+        assert primer == len(members), f"member pre-installs must precede the primer: {calls}"
+
+    def test_pypi_pin_preinstalls_no_workspace_member(self, hello_project, tmp_path):
+        """Empirical probe: a PyPI pin resolves the members from the index, so
+        the deps RUN makes no ``#subdirectory`` pre-install call at all."""
+        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
+        log = tmp_path / "pip.log"
+        result, _ = _probe_deps_body(
+            deps, tmp_path, with_manifest=False, spec="osprey-framework==2026.9.0", pip_log=log
+        )
+        assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+        calls = log.read_text().splitlines()
+        assert self._member_installs(calls) == [], calls
+        assert calls == ["install --no-cache-dir osprey-framework==2026.9.0"], calls
+
+    def test_member_preinstall_failure_is_fatal_for_a_git_spec(self, hello_project, tmp_path):
+        """Empirical probe: a git spec carries the ``#subdirectory`` fragment, so a
+        member pip cannot install from it fails the build. Falling through would
+        resolve the member by name from PyPI, where a commit-pinned build has no
+        guarantee the name belongs to this project."""
+        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
+        log = tmp_path / "pip.log"
+        result, _ = _probe_deps_body(
+            deps,
+            tmp_path,
+            with_manifest=False,
+            spec=self._GIT_SPEC,
+            pip_log=log,
+            fail_subdirectory=True,
+        )
+        assert result.returncode != 0, f"{result.stdout}\n{result.stderr}"
+        calls = log.read_text().splitlines()
+        first = WORKSPACE_MEMBERS[0]
+        assert self._member_installs(calls) == [
+            f"install --no-cache-dir {first} @ {self._GIT_SPEC}#subdirectory=packages/{first}"
+        ], calls
+        assert not any(c.endswith(f" {self._GIT_SPEC}") for c in calls), (
+            f"the framework primer ran after a member pre-install failed: {calls}"
+        )
+        output = result.stdout + result.stderr
+        assert f"could not install {first} from the git spec" in output
+        assert "resolving from PyPI" not in output
+
     def test_run_commands_are_valid_shell(self, hello_project, deps_project):
         """Every rendered RUN body must parse under ``/bin/sh -n``.
 
@@ -568,14 +636,25 @@ def _probe_ca_body(body: str, tmp_path, *, staged: bool, arg: str):
     return result, ctx, store
 
 
-def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
+def _probe_deps_body(
+    body: str,
+    tmp_path,
+    *,
+    with_manifest: bool,
+    spec: str = "osprey-framework",
+    pip_log=None,
+    fail_subdirectory: bool = False,
+):
     """Execute the deps-layer RUN body in a sandbox with a real shell.
 
     ``/tmp/deps-ctx`` (and the apt lists dir) are rewritten to temp dirs, and
     stub ``apt-get``/``pip`` shadow the real ones on PATH: apt-get is a no-op
     and pip succeeds for the primer but exits 1 for any ``-r`` (manifest)
     install, so the probe exercises the manifest branch's failure propagation
-    without a container. Returns ``(CompletedProcess, ctx_path)``.
+    without a container. *spec* is the ``OSPREY_PIP_SPEC`` the RUN sees; with
+    *pip_log* set, every pip invocation's argv is appended to that file, one
+    line per call; *fail_subdirectory* makes any ``#subdirectory=`` install
+    exit 1. Returns ``(CompletedProcess, ctx_path)``.
     """
     ctx = tmp_path / "deps-ctx"
     ctx.mkdir()
@@ -586,9 +665,14 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
     apt_lists.mkdir()
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
+    record = f'printf "%s\\n" "$*" >> {shlex.quote(str(pip_log))}\n' if pip_log else ""
+    subdir_fails = '*"#subdirectory="*) exit 1 ;; ' if fail_subdirectory else ""
+    pip_script = (
+        f'#!/bin/sh\n{record}case " $* " in *" -r "*) exit 1 ;; {subdir_fails}*) exit 0 ;; esac\n'
+    )
     for name, script in (
         ("apt-get", "#!/bin/sh\nexit 0\n"),
-        ("pip", '#!/bin/sh\ncase " $* " in *" -r "*) exit 1 ;; *) exit 0 ;; esac\n'),
+        ("pip", pip_script),
     ):
         stub = stub_bin / name
         stub.write_text(script)
@@ -596,7 +680,7 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
     env = dict(
         os.environ,
         PATH=f"{stub_bin}{os.pathsep}{os.environ.get('PATH', '')}",
-        OSPREY_PIP_SPEC="osprey-framework",
+        OSPREY_PIP_SPEC=spec,
         OSPREY_DEV="",
         PIP_NO_PROXY="",
     )

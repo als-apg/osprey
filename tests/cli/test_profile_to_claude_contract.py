@@ -771,6 +771,8 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         # Not a per-server list: it names the tools the writes-check hook leaves
         # to their own lane gate, and renders whether or not any server is on.
         "lane_addressed_tools": list(QUEUE_CONTROL_TOOLS),
+        # The render carries no pyAML view.
+        "measurement": {},
     }, f"all-disabled build should render empty lists; got {hook_cfg}"
 
 

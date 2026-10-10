@@ -1454,7 +1454,6 @@ class Measurement(ConfiguredBaseModel):
     n_step: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     n_avg_meas: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     fit_order: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
-    singular_values: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     sleep_between_step: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     sleep_between_meas: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     corrector_delta: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
@@ -1483,7 +1482,6 @@ class MeasurementInstruments(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     tune: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
-    chromaticity: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
     rf: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
 
 

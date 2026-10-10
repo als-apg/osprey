@@ -50,6 +50,7 @@ __all__ = [
     "Stage",
     "StageReport",
     "Validated",
+    "check_measurement",
     "check_records",
     "check_references",
     "check_schema",
@@ -1727,6 +1728,110 @@ class _Records:
         if model not in self.rosters:
             self.rosters[model] = fault_roster(self.index.models[model], self.index.channels)
         return self.rosters[model]
+
+
+def check_measurement(validated: Validated) -> list[FacilityBuildError]:
+    """Hold each measurement file to the kinds it allows (the stage after compute).
+
+    Runs once every wiring slot is filled, so a group or instrument is judged
+    by the setpoints and readbacks its model actually wires. For each kind the
+    file allows, every group and instrument the kind needs
+    (:data:`osprey.facility.views.pyaml.KIND_MEMBERS`) must be named by the file
+    and wired by the model, a ``single_pass`` model allows ``orm`` alone, and
+    every step or settle key the kind's tool takes
+    (:data:`osprey.facility.views.pyaml.TOOL_KEYS`) must be stated.
+
+    Args:
+        validated: What the earlier stages produced.
+
+    Returns:
+        Every stop: ``reference-missing`` naming the kind and the member it
+        lacks, ``value-invalid`` naming the kind and the key it lacks.
+    """
+    document: dict[str, Any] = need(validated.document)
+    return list(_measurement_stops(document))
+
+
+def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]:
+    from osprey.facility.views.pyaml import (
+        GROUP_ROLES,
+        KIND_MEMBERS,
+        ROLE_PLANES,
+        TOOL_KEYS,
+        measurement_groups,
+    )
+
+    for model in sorted(document.get("models", []), key=lambda record: str(record["name"])):
+        measurement = model.get("measurement")
+        if not isinstance(measurement, dict):
+            continue
+        name = str(model["name"])
+        files = [f"measurement/{name}.yaml"]
+        groups_named = measurement.get("groups") or {}
+        instruments = measurement.get("instruments") or {}
+        wired = {str(entry.get("address")) for entry in model.get("wiring") or []}
+        grouped = measurement_groups(document, name)
+        for kind in measurement.get("kinds") or []:
+            if kind != "orm" and _single_pass(model):
+                yield _measurement_missing(
+                    name,
+                    f"kind {kind} needs a periodic solve; model {name} solves single_pass",
+                    f"remove {kind} from `kinds`; a single_pass model allows orm alone",
+                )
+                continue
+            for member in KIND_MEMBERS[kind]:
+                slot = f"groups.{member}" if member in GROUP_ROLES else f"instruments.{member}"
+                named = (
+                    groups_named.get(member) if member in GROUP_ROLES else instruments.get(member)
+                )
+                if named is None:
+                    yield _measurement_missing(
+                        name,
+                        f"kind {kind} needs `{slot}`, which the file does not name",
+                        f"name `{slot}`, or remove {kind} from `kinds`",
+                    )
+                elif member in GROUP_ROLES and not grouped.get(member):
+                    plane = ROLE_PLANES.get(member)
+                    wiring = (
+                        "monitor"
+                        if member == "bpm"
+                        else f"{plane}-plane setpoint"
+                        if plane
+                        else "setpoint"
+                    )
+                    yield _measurement_missing(
+                        name,
+                        f"kind {kind} needs `{slot}`; group {named} holds no {wiring} "
+                        f"model {name} wires",
+                        f"name a group holding a {wiring} model {name} wires as `{slot}`",
+                    )
+                elif member not in GROUP_ROLES and str(named) not in wired:
+                    yield _measurement_missing(
+                        name,
+                        f"kind {kind} needs `{slot}`; model {name} does not wire {named}",
+                        f"wire {named} in model {name}, or name a channel it wires as `{slot}`",
+                    )
+            for key in TOOL_KEYS[kind]:
+                if key not in measurement:
+                    yield FacilityBuildError(
+                        "value-invalid",
+                        name,
+                        files,
+                        f"state `{key}`, or remove {kind} from `kinds`",
+                        record_kind="measurement",
+                        detail=f"kind {kind} needs `{key}`, which the file does not state",
+                    )
+
+
+def _measurement_missing(model: str, detail: str, remedy: str) -> FacilityBuildError:
+    return FacilityBuildError(
+        "reference-missing",
+        model,
+        [f"measurement/{model}.yaml"],
+        remedy,
+        record_kind="measurement",
+        detail=detail,
+    )
 
 
 def _locked(record: Mapping[str, Any]) -> bool:

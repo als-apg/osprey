@@ -26,6 +26,47 @@ lume-pva-apg = "2026-09-30T00:00:00Z"
 members = [
     "osprey-connectors",
     "osprey-framework",
+    "pyaml-cs-osprey",
+]
+
+[[package]]
+name = "accelerator-commissioning"
+version = "1.5.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "accelerator-toolbox" },
+    { name = "h5py" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "rich" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/77/fc/20145e7cd8c087aee153963bc17eaa55f13f5d8e96bb7323690a2b7cd707/accelerator_commissioning-1.5.3.tar.gz", hash = "sha256:bef3ea0ff9d2886cc427e03c6770aacdb4c0371b2f4272cf7aea4f33ef84cf4f", size = 92773, upload-time = "2026-07-29T12:16:50.363Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/6c/d9dc1e3e71334c789031aa6cf4ba5466c3ce4790534c4a98e4bd1010b13b/accelerator_commissioning-1.5.3-py3-none-any.whl", hash = "sha256:e2419d5bd016da384c0bc648d6aa96468f5b8993f56f0a8fa6a064e91d4fc6a7", size = 105050, upload-time = "2026-07-29T12:16:49.03Z" },
+]
+
+[[package]]
+name = "accelerator-middle-layer"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "accelerator-commissioning" },
+    { name = "accelerator-toolbox" },
+    { name = "h5py" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d0/ac/106eef5a0189a867ced5a5ab0efb1fa87367534bf5fcfbbc2d151838bf40/accelerator_middle_layer-0.3.1.tar.gz", hash = "sha256:c5f95b7e317531fff878ecb8026f228b4361c7cf4e7454bf0da3e39aab22b13d", size = 4571407, upload-time = "2026-09-16T10:15:18.504Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/70/ff/1ccb5c473c40d56de8e583e89695db7bce58b4f9455f3d6cdbabcf4ebef3/accelerator_middle_layer-0.3.1-py3-none-any.whl", hash = "sha256:88128a7e3ee869044e53b8e75f6ab4d079408bf046bbf631f53c04e2660a1151", size = 210395, upload-time = "2026-09-16T10:15:16.779Z" },
 ]
 
 [[package]]
@@ -5008,6 +5049,8 @@ requires-dist = [
 name = "osprey-framework"
 source = { editable = "." }
 dependencies = [
+    { name = "accelerator-commissioning" },
+    { name = "accelerator-middle-layer" },
     { name = "accelerator-toolbox", extra = ["plot"] },
     { name = "aiofiles" },
     { name = "aiohttp" },
@@ -5057,6 +5100,7 @@ dependencies = [
     { name = "plotly" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "psycopg-pool" },
+    { name = "pyaml-cs-osprey" },
     { name = "pydantic" },
     { name = "pyepics" },
     { name = "pymongo" },
@@ -5102,6 +5146,7 @@ all = [
     { name = "pre-commit" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "psycopg-pool" },
+    { name = "pyaml-test-lattice" },
     { name = "pydata-sphinx-theme" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "pysocks" },
@@ -5143,6 +5188,7 @@ dev = [
     { name = "pre-commit" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "psycopg-pool" },
+    { name = "pyaml-test-lattice" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -5192,6 +5238,8 @@ virtual-accelerator = [
 
 [package.metadata]
 requires-dist = [
+    { name = "accelerator-commissioning", specifier = "==1.5.3" },
+    { name = "accelerator-middle-layer", specifier = "==0.3.1" },
     { name = "accelerator-toolbox", extras = ["plot"], specifier = ">=0.8.0" },
     { name = "aioca", marker = "extra == 'virtual-accelerator'", specifier = ">=1.7" },
     { name = "aiofiles", specifier = ">=25.1.0" },
@@ -5281,6 +5329,9 @@ requires-dist = [
     { name = "psycopg-pool", marker = "extra == 'all'", specifier = ">=3.3.1,<4.0.0" },
     { name = "psycopg-pool", marker = "extra == 'ariel'", specifier = ">=3.3.1,<4.0.0" },
     { name = "psycopg-pool", marker = "extra == 'dev'", specifier = ">=3.3.1,<4.0.0" },
+    { name = "pyaml-cs-osprey", editable = "packages/pyaml-cs-osprey" },
+    { name = "pyaml-test-lattice", marker = "extra == 'all'", specifier = "==0.2.0" },
+    { name = "pyaml-test-lattice", marker = "extra == 'dev'", specifier = "==0.2.0" },
     { name = "pydantic", specifier = ">=2.11,<3" },
     { name = "pydata-sphinx-theme", marker = "extra == 'all'" },
     { name = "pydata-sphinx-theme", marker = "extra == 'docs'" },
@@ -6072,6 +6123,25 @@ keyring = [
 ]
 memory = [
     { name = "cachetools" },
+]
+
+[[package]]
+name = "pyaml-cs-osprey"
+source = { editable = "packages/pyaml-cs-osprey" }
+dependencies = [
+    { name = "accelerator-middle-layer" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "accelerator-middle-layer", specifier = "==0.3.1" }]
+
+[[package]]
+name = "pyaml-test-lattice"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/40/42d61f0bbacd259014bfe59c97e377604c673ba71cd56cd58dfb2fa4c186/pyaml_test_lattice-0.2.0.tar.gz", hash = "sha256:b405cc32395158c5d020985e3b7bda1d3484672ed4f937a3fc24dd907ca52e57", size = 34685, upload-time = "2026-09-16T08:25:17.097Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/10/9e6b6746c2a5abc64715e4ae303bf0aec45de11a8d8d29cb6b851d2e788c/pyaml_test_lattice-0.2.0-py3-none-any.whl", hash = "sha256:d0bfe1aa32b661e074951d50fa3553c605e87d79902581831854456d22af4ea1", size = 42852, upload-time = "2026-09-16T08:25:15.573Z" },
 ]
 
 [[package]]

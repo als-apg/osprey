@@ -70,6 +70,10 @@ def _create_project(manager: TemplateManager, facts: Path | None, **kwargs) -> P
     if facts is not None:
         (project / "data").mkdir(exist_ok=True)
         shutil.copyfile(facts, project / "data" / FACTS_FILE)
+        # The facts record each pyAML view the build wrote; the render reads them.
+        views = facts.parent / "pyaml"
+        if views.is_dir():
+            shutil.copytree(views, project / "data" / "pyaml")
         facility = facts.parent.parent / FACILITY_FILE
         if facility.is_file():
             shutil.copyfile(facility, project / FACILITY_FILE)

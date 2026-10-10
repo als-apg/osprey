@@ -198,6 +198,14 @@ EXTRA_SP = {"id": "Q2:SP", "role": "setpoint", "on": {"device": "SR/Q1"}}
 NO_DECK = {"name": "optics", "engine": "pyat", "wiring": [{"address": "Q1:SP", "element": "Q1"}]}
 
 
+#: The groups file, and the group holding both of the deck tree's SR quadrupoles.
+GROUPS_FILE = "records/groups.yaml"
+QUAD_GROUP = {"id": "SR/Q", "members": ["SR/QF", "SR/QD"]}
+
+#: The step key a tune response measurement needs.
+TRM_STEP = {"quad_delta": 0.001}
+
+
 #: Where the mml layer keeps model SR's deck once SR is imported.
 MML_DECK = "imported/mml/decks/SR.json"
 
@@ -302,6 +310,21 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "a measurement file naming a missing instrument",
     ),
     (
+        "reference_missing__measurement_kind_member",
+        "reference-missing",
+        "a measurement kind whose group or instrument the file does not name",
+    ),
+    (
+        "reference_missing__measurement_unwired",
+        "reference-missing",
+        "a measurement instrument its model does not wire",
+    ),
+    (
+        "reference_missing__measurement_single_pass",
+        "reference-missing",
+        "a measurement kind other than orm on a single_pass model",
+    ),
+    (
         "class_unknown__device_class",
         "class-unknown",
         "device class in neither vocabulary nor classes.yaml",
@@ -317,6 +340,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "pair_invalid__endpoint_unnamed",
         "pair-invalid",
         "a wired `endpoint_of` device named by no slice",
+    ),
+    (
+        "value_invalid__measurement_step_key",
+        "value-invalid",
+        "a step or settle key a measurement kind needs, missing",
     ),
     ("value_invalid__nominal_float", "value-invalid", "coercion refusal: float nominal"),
     ("value_invalid__nominal_bool", "value-invalid", "coercion refusal: bool nominal label"),
@@ -662,6 +690,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "profile_invalid__served_probe_channel",
         "profile-invalid",
         "a served block's `probe_channel` the facility file does not hold",
+    ),
+    (
+        "profile_invalid__guarded_tool_skip",
+        "profile-invalid",
+        "a guarded tool's own approval policy `skip` while `channel_write` prompts",
+    ),
+    (
+        "profile_invalid__default_policy_skip",
+        "profile-invalid",
+        "a guarded tool's default approval policy `skip` while `channel_write` prompts",
     ),
 )
 
@@ -1085,6 +1123,44 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "RF:FREQ or correct `instruments.rf`"
         ),
     ),
+    "reference_missing__measurement_kind_member": (
+        _deck(
+            put(GROUPS_FILE, [QUAD_GROUP]),
+            put("measurement/SR.yaml", {"kinds": ["trm"], "groups": {"quad": "SR/Q"}, **TRM_STEP}),
+        ),
+        (
+            "facility: reference-missing: measurement SR — kind trm needs `instruments.tune`, "
+            "which the file does not name; fix: name `instruments.tune`, or remove trm from "
+            "`kinds`"
+        ),
+    ),
+    "reference_missing__measurement_unwired": (
+        _deck(
+            put(GROUPS_FILE, [QUAD_GROUP]),
+            put(
+                "measurement/SR.yaml",
+                {
+                    "kinds": ["trm"],
+                    "groups": {"quad": "SR/Q"},
+                    "instruments": {"tune": "LQ:SP"},
+                    **TRM_STEP,
+                },
+            ),
+        ),
+        (
+            "facility: reference-missing: measurement SR — kind trm needs `instruments.tune`; "
+            "model SR does not wire LQ:SP; fix: wire LQ:SP in model SR, or name a channel it "
+            "wires as `instruments.tune`"
+        ),
+    ),
+    "reference_missing__measurement_single_pass": (
+        _deck(put("measurement/LINE.yaml", {"kinds": ["trm"], **TRM_STEP})),
+        (
+            "facility: reference-missing: measurement LINE — kind trm needs a periodic solve; "
+            "model LINE solves single_pass; fix: remove trm from `kinds`; a single_pass model "
+            "allows orm alone"
+        ),
+    ),
     "class_unknown__device_class": (
         _plain(update("records/devices.yaml", 0, **{"class": "Warp"})),
         (
@@ -1190,6 +1266,19 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: pair-invalid: wiring optics/Q1:SP — `endpoint_of` device SR/BPM1 is named "
             "by no slice; fix: name each `endpoint_of` device in a slice, or remove it from "
             "`endpoint_of`"
+        ),
+    ),
+    "value_invalid__measurement_step_key": (
+        _deck(
+            put(GROUPS_FILE, [QUAD_GROUP]),
+            put(
+                "measurement/SR.yaml",
+                {"kinds": ["trm"], "groups": {"quad": "SR/Q"}, "instruments": {"tune": "BPM1:X"}},
+            ),
+        ),
+        (
+            "facility: value-invalid: measurement SR — kind trm needs `quad_delta`, which the "
+            "file does not state; fix: state `quad_delta`, or remove trm from `kinds`"
         ),
     ),
     "value_invalid__nominal_float": (
@@ -2279,6 +2368,24 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility file holds, such as `BPM1:X`"
         ),
     ),
+    "profile_invalid__guarded_tool_skip": (
+        _plain(),
+        (
+            "facility: profile-invalid: path approval.tools.pyaml_measure — guarded tool "
+            "`pyaml_measure` runs with approval policy `skip` while "
+            "`approval.tools.channel_write` is `always`, so a pending journal would be replayed "
+            "with no one asked; fix: set `approval.tools.pyaml_measure` to `always` in profile.yml"
+        ),
+    ),
+    "profile_invalid__default_policy_skip": (
+        _plain(),
+        (
+            "facility: profile-invalid: path approval.default_policy — guarded tool "
+            "`execute_file` runs with approval policy `skip` while "
+            "`approval.tools.channel_write` is `always`, so a pending journal would be replayed "
+            "with no one asked; fix: set `approval.tools.execute_file` to `always` in profile.yml"
+        ),
+    ),
 }
 
 #: The files a case puts in the profile's ``project/`` mirror, beside a clean tree.
@@ -2371,6 +2478,18 @@ def _probe(address: str) -> Callable[[Path], None]:
     return edit
 
 
+def _state_approval(key: str) -> Callable[[Path], None]:
+    """Set *key* to ``skip`` in a profile whose ``channel_write`` prompts."""
+
+    def edit(repo: Path) -> None:
+        profile = repo / "profile.yml"
+        data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+        data.setdefault("config", {})[key] = "skip"
+        profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    return edit
+
+
 def _ship_limits(repo: Path) -> None:
     (repo / "data" / "channel_limits.json").write_text('{"_version": "4.0"}\n', encoding="utf-8")
 
@@ -2411,11 +2530,19 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
         "control_system.connector.epics.limits_checking.database_path"
     ),
     "profile_invalid__served_probe_channel": _probe("NOPE:RB"),
+    "profile_invalid__guarded_tool_skip": _state_approval("approval.tools.pyaml_measure"),
+    "profile_invalid__default_policy_skip": _state_approval("approval.default_policy"),
 }
 
 #: Cases only ``osprey build`` stops on: validate checks the main profile render, and
 #: persona renders are checked by the build.
 BUILD_ONLY: frozenset[str] = frozenset({"profile_invalid__persona_served_models"})
+
+#: Cases a view raises while the render writes it: the views written before it have
+#: already noted, once each, what they omit.
+VIEW_STAGE: frozenset[str] = frozenset(
+    case for case in CASES if case.startswith("view_unsupported__")
+)
 
 #: The view inputs of a render whose config sets nothing.
 _NO_CONFIG = ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[])
@@ -2493,10 +2620,15 @@ def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -
     result = run_build(repo)
 
     assert result.exit_code == 1, result.output
-    if case not in BUILD_ONLY:
+    if case not in BUILD_ONLY | VIEW_STAGE:
         assert result.stderr == CASES[case][1] + "\n"
         return
-    *notes, last = result.stderr.splitlines()
+    _assert_notes_then_stop(result.stderr, case)
+
+
+def _assert_notes_then_stop(stderr: str, case: str) -> None:
+    """``stderr`` is render notes, each once, then the case's one line."""
+    *notes, last = stderr.splitlines()
     assert last == CASES[case][1]
     assert set(notes) <= MAIN_RENDER_NOTES
     assert len(notes) == len(set(notes))
@@ -2510,7 +2642,11 @@ def test_validate_prints_the_one_line(initialised: Path, tmp_path: Path, case: s
     result = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
 
     assert result.exit_code == 1, result.output
-    assert (result.stdout, result.stderr) == ("", CASES[case][1] + "\n")
+    assert result.stdout == ""
+    if case in VIEW_STAGE:
+        _assert_notes_then_stop(result.stderr, case)
+        return
+    assert result.stderr == CASES[case][1] + "\n"
 
 
 @pytest.mark.slow

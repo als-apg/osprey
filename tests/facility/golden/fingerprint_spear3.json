@@ -2163,7 +2163,7 @@
       "VCMCurrReference": "7432b27c69b807cb"
     },
     "models": {
-      "StorageRing": "73372ae6df70099a",
+      "StorageRing": "6b89e500a235b70b",
       "texture": "d806c9c72b11194d"
     },
     "wiring": {
@@ -3319,7 +3319,7 @@
       "SRF1:STN:PHASE": "6beafb13ad08386c"
     },
     "decks": {
-      "StorageRing": "fc0c4b417a887446"
+      "StorageRing": "5bf638058126eb81"
     }
   }
 }

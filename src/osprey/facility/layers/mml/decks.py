@@ -67,12 +67,9 @@ voltage answered for a deck that holds its cavity is refused, and so is a
 cavity to build with no voltage answered: a cavity built without one
 accelerates nothing.
 
-What the model is served is the addressed deck with two more changes,
+What the model is served is the addressed deck with one more change,
 :func:`served_deck`: every cavity passes the beam on ``RFCavityPass``, so a
-deck saved with its cavity switched off moves in six dimensions, and every
-element a corrector family owns carries ``PolynomA`` and ``PolynomB`` zeroed at
-``max(MaxOrder + 1, len)``, so a kick is the only field it applies and the pass
-method reads a polynomial as wide as its order. :func:`write_deck` saves it as
+deck saved with its cavity switched off moves in six dimensions. :func:`write_deck` saves it as
 pyAT's JSON under ``imported/mml/decks/<model>.json`` without the ``at_version``
 key, so an unchanged deck is rewritten byte for byte whatever pyAT wrote it.
 
@@ -741,9 +738,8 @@ def _whole(value: Any) -> int:
 def served_deck(addressing: Addressing) -> Any:
     """Return the addressed deck as the model is served it.
 
-    Every cavity passes the beam on :data:`CAVITY_PASS`, and every element a
-    corrector family owns carries ``PolynomA`` and ``PolynomB`` zeroed at
-    ``max(MaxOrder + 1, len)`` of each. The addressed deck is left as it was.
+    Every cavity passes the beam on :data:`CAVITY_PASS`. The addressed deck is
+    left as it was.
 
     Args:
         addressing: What :func:`address_elements` returned.
@@ -757,22 +753,7 @@ def served_deck(addressing: Addressing) -> Any:
     for element in elements:
         if isinstance(element, at.RFCavity):
             element.PassMethod = CAVITY_PASS
-    for position, owner in addressing.owners.items():
-        bindings = addressing.bindings.get(owner, ())
-        if bindings and bindings[0].engine.attribute == KICK:
-            _zero_polynomials(elements[position])
     return at.Lattice(elements, **addressing.deck.attrs)
-
-
-def _zero_polynomials(element: Any) -> None:
-    """Zero a corrector's polynomials, each as wide as its order and what it carries."""
-    import numpy as np
-
-    order = int(getattr(element, "MaxOrder", 0)) + 1
-    for name in ("PolynomA", "PolynomB"):
-        carried = getattr(element, name, None)
-        width = max(order, 0 if carried is None else len(carried))
-        setattr(element, name, np.zeros(width))
 
 
 def deck_text(deck: Any) -> str:

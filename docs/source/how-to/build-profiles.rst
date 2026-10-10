@@ -147,6 +147,7 @@ the render, never back into ``data/facility/``:
      data/channel_limits.json         the limits view
      data/facility_facts.json         the facts view
      data/simulator/                  the simulator view and its decks
+     data/pyaml/<model>/              the pyAML view, per served model with a measurement file
      data/graph/facility.ttl          the graph view
      data/channel_finder/<mode>.json  the channel-finder view the profile selects
      data/bluesky_devices.yml         the device view, when Bluesky is configured
@@ -252,6 +253,9 @@ channel:
      - the build itself
    * - ``data/simulation/channel_limits.json``
      - the build, from ``data/facility/limits.yaml``
+   * - ``data/pyaml/<model>/``
+     - the build: the pyAML view, per served model with a measurement file
+       (``data/facility/measurement/<model>.yaml``)
 
 A profile that targets one of these is rejected at build time, with the owning
 channel named. The same refusal applies to a claim (below).

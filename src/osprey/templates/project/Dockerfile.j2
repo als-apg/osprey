@@ -32,7 +32,7 @@
 #                       latest published osprey-framework instead of failing.
 #   OSPREY_PIP_PRE      "1" when OSPREY_PIP_SPEC pins a pre-release: the deps
 #                       layer then resolves with --pre, since the framework's
-#                       paired osprey-connectors beta is admitted no other way.
+#                       paired workspace-member betas are admitted no other way.
 #   CLAUDE_CLI_VERSION  Claude Code CLI version to pin (default: this
 #                       project's claude_code.cli_version). Bump deliberately
 #                       — an unpinned upstream release could silently change
@@ -53,10 +53,10 @@
 FROM python:3.12-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
 ARG OSPREY_DEV=""
-# OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
-# connectors ship as a pair from one tag, and pip never picks a pre-release
-# for a requirement that names none (the framework's own connectors
-# requirement), so the deps layer then resolves as a whole with --pre.
+# OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and every
+# workspace member ship together from one tag, and pip never picks a
+# pre-release for a requirement that names none (the framework's own member
+# requirements), so the deps layer then resolves as a whole with --pre.
 ARG OSPREY_PIP_PRE=""
 ARG CLAUDE_CLI_VERSION={{ claude_code_cli_version }}
 ARG PIP_NO_PROXY=""
@@ -158,11 +158,15 @@ ENV DISABLE_AUTOUPDATER=1
 # only busts when the manifest content changes. When OSPREY_DEV=1 and the pinned
 # spec is unreleased (the primer install fails), fall back to the latest
 # published osprey-framework so dev builds are not blocked; otherwise the build
-# fails loudly. A git+ OSPREY_PIP_SPEC points into the monorepo, so the
-# osprey-connectors workspace member the framework requires is pre-installed
-# from the same URL's packages/ subdirectory first — a commit-pinned build
-# cannot assume a satisfying connectors release exists on PyPI (best-effort: a
-# spec pip cannot take a #subdirectory fragment on falls through to PyPI).
+# fails loudly. A git+ OSPREY_PIP_SPEC points into the monorepo, so each
+# workspace member the framework requires is pre-installed from the same URL's
+# packages/<member> subdirectory first — a commit-pinned build cannot assume a
+# satisfying member release exists on PyPI. A member that fails to install from
+# the git spec fails the build: falling through would resolve it by name from
+# PyPI, which a commit pin gives no reason to trust. Only a spec that cannot
+# carry the fragment (a PyPI release pin) resolves its members from the index,
+# where they are the releases paired with that framework version. The member
+# list is the framework's own, rendered in by `osprey build`.
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling
 # (CompileError escapes uncaught), which fails any source build of the EPICS
@@ -186,8 +190,12 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
     && { case "$OSPREY_PIP_SPEC" in \
-           git+*) pip install --no-cache-dir "osprey-connectors @ ${OSPREY_PIP_SPEC}#subdirectory=packages/osprey-connectors" \
-                  || echo "WARNING: could not pre-install osprey-connectors from the git spec; resolving from PyPI" ;; \
+           git+*) : \
+{%- for member in workspace_members %}
+                  ; pip install --no-cache-dir "{{ member }} @ ${OSPREY_PIP_SPEC}#subdirectory=packages/{{ member }}" \
+                  || { echo "ERROR: could not install {{ member }} from the git spec" >&2; exit 1; } \
+{%- endfor %}
+                  ;; \
          esac; } \
     && { pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
          || if [ "$OSPREY_DEV" = "1" ]; then \

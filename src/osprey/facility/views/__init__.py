@@ -156,6 +156,18 @@ def _write_limits(root: Path, inputs: ViewInputs) -> list[Path]:
     return write_limits_view(root, inputs)
 
 
+def _pyaml_wanted(inputs: ViewInputs) -> tuple[bool, str]:
+    from osprey.facility.views.pyaml import pyaml_view_wanted
+
+    return pyaml_view_wanted(inputs)
+
+
+def _write_pyaml(root: Path, inputs: ViewInputs) -> list[Path]:
+    from osprey.facility.views.pyaml import write_pyaml_view
+
+    return write_pyaml_view(root, inputs)
+
+
 def _write_facts(root: Path, inputs: ViewInputs) -> list[Path]:
     from osprey.facility.views.facts import write_facts_view
 
@@ -216,7 +228,8 @@ def _write_graph(root: Path, inputs: ViewInputs) -> list[Path]:
     return write_graph_view(root, inputs)
 
 
-#: Every view, in the order a render writes them.
+#: Every view, in the order a render writes them. The facts view reads the pyAML
+#: views this render wrote, so it comes after them.
 VIEWS: tuple[View, ...] = (
     View(
         name="simulator",
@@ -229,6 +242,12 @@ VIEWS: tuple[View, ...] = (
         path=".",
         written_when=_always,
         write=_write_limits,
+    ),
+    View(
+        name="pyaml",
+        path="pyaml",
+        written_when=_pyaml_wanted,
+        write=_write_pyaml,
     ),
     View(
         name="facts",

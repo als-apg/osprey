@@ -50,6 +50,11 @@ LIMITS = "data/channel_limits.json"
 FACTS = ("data/facility_facts.json", "data/facility_facts.md")
 BLUESKY = "data/bluesky_devices.yml"
 GRAPH = "data/graph/facility.ttl"
+PYAML = (
+    "data/pyaml/SR/configuration.yaml",
+    "data/pyaml/SR/lattice.json",
+    "data/pyaml/SR/trm.json",
+)
 
 
 def _render(
@@ -79,6 +84,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
                 LIMITS,
                 *FACTS,
                 GRAPH,
+                *PYAML,
             ]
         )
     # The deployment's render runs a Bluesky lane; a persona without one has no view.

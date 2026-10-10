@@ -20,6 +20,9 @@
   osprey_config_drift.py reads this key, to keep those names out of the set it
   compares against a deployment's stale deny list; every other consumer reads
   `write_tools`, which is unchanged.
+
+  `measurement` is each pyAML view's block, `{kinds, groups, view_sha256}` per
+  model, as the build read it from the view; `{}` when the render has none.
 -#}
 {%- set server_pfx = [] -%}
 {%- set approval_pfx = [] -%}
@@ -50,5 +53,6 @@
   "write_tools": {{ write_tools | tojson }},
   "control_system_write_tools": {{ appended_extras | tojson }},
   "mixed_read_write_tools": {{ mixed_read_write_tools | default([], true) | tojson }},
-  "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }}
+  "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }},
+  "measurement": {{ measurement | default({}, true) | tojson }}
 }

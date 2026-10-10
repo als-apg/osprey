@@ -27,7 +27,7 @@ runs:
       uses: actions/cache@v6
       with:
         path: /tmp/va-buildx-cache
-        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'packages/osprey-connectors/pyproject.toml') }}
+        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'packages/*/pyproject.toml') }}
         # One key for every lane, because it is the same image from the same
         # inputs: whichever lane runs first saves it, the others restore it,
         # and a concurrent second save is a non-fatal "cache already exists"
@@ -55,8 +55,10 @@ runs:
       # The staging is scripts/va/build_and_boot_check.sh's, for its reason:
       # the Containerfile installs osprey from source, so handing it the
       # repository root would tar .git, .venv and every worktree into the build
-      # context. Four things are staged — pyproject.toml, README.md, src/ and
-      # the Containerfile — and that set IS the build-context contract.
+      # context. Five things are staged — pyproject.toml, README.md, src/, the
+      # Containerfile and packages/, which holds every workspace member the
+      # framework installs from source — and that set IS the build-context
+      # contract.
       #
       # `-depth` rather than the script's `-prune` for the __pycache__ sweep:
       # same effect (never descend into a directory just removed), no

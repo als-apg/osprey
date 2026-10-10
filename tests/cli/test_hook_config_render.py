@@ -53,6 +53,7 @@ _EXPECTED_KEYS = {
     "control_system_write_tools",
     "mixed_read_write_tools",
     "lane_addressed_tools",
+    "measurement",
 }
 
 
@@ -416,6 +417,7 @@ def test_absent_servers_key_renders_empty_lists_silently():
     config = json.loads(_render_direct(manager, {"control_system_write_tools": []}))
 
     assert set(config) == _EXPECTED_KEYS
+    assert config.pop("measurement") == {}
     assert all(value == [] for value in config.values())
 
 
@@ -425,6 +427,7 @@ def test_rendered_file_is_valid_json_on_a_bare_render():
     config = json.loads(_render_direct(manager, {"servers": [], "control_system_write_tools": []}))
 
     assert set(config) == _EXPECTED_KEYS
+    assert config.pop("measurement") == {}
     for value in config.values():
         assert isinstance(value, list)
 

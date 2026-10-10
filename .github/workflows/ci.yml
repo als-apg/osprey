@@ -339,7 +339,7 @@ jobs:
       # step's failures worth reading.
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
         fi
@@ -844,6 +844,31 @@ jobs:
             importlib.import_module(name)
         assert 'osprey' not in sys.modules, 'a lean-wheel module imported the osprey framework'
         print(f'LEAN WHEEL OK ({len(modules)} modules)')
+        "
+
+    # A step of its own, after the lean check rather than inside it: the pyAML
+    # control-system wheel imports the framework (osprey.runtime, osprey.errors)
+    # by design, so the no-framework assertion above must keep reading a venv
+    # that holds the connectors wheel alone. This venv holds all three wheels
+    # from dist/ -- the framework declares a dependency on this one, and this
+    # one needs the framework at import -- so a wheel that omits a module, or a
+    # module that imports something no wheel ships, fails here and not on a
+    # user's install.
+    - name: Build pyaml-cs-osprey wheel and import-walk it with the framework
+      run: |
+        uv build --package pyaml-cs-osprey
+        uv venv /tmp/pyaml-check --python 3.11
+        uv pip install --python /tmp/pyaml-check/bin/python \
+          dist/osprey_framework-*.whl dist/osprey_connectors-*.whl dist/pyaml_cs_osprey-*.whl
+        /tmp/pyaml-check/bin/python -c "
+        import importlib, pkgutil
+        import pyaml_cs_osprey
+        def _raise(name):
+            raise ImportError(f'failed to walk {name}')
+        modules = [m.name for m in pkgutil.walk_packages(pyaml_cs_osprey.__path__, 'pyaml_cs_osprey.', onerror=_raise)]
+        for name in modules:
+            importlib.import_module(name)
+        print(f'PYAML WHEEL OK ({len(modules)} modules)')
         "
 
   static-checks:

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyaml-cs-osprey"
+dynamic = ["version"]
+description = "pyAML control-system backend that routes every access through the OSPREY connector"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "BSD-3-Clause"}
+# `osprey-framework` is deliberately not declared: the framework depends on this
+# package, so declaring it back would be a cycle. The package is not meant to be
+# installed without the framework, whose `osprey.runtime` it calls.
+dependencies = [
+    "accelerator-middle-layer==0.3.1",
+]
+
+[project.entry-points."pyaml.schemas"]
+# A package value: pyAML's schema discovery imports the package and every submodule
+# under it, and `@register_schema` in `controlsystem.py` registers the schema.
+pyaml_cs_osprey = "pyaml_cs_osprey"
+
+[tool.hatch.version]
+source = "vcs"
+# Versions with the framework's calendar stream, from the same v-tags and the
+# same describe command as osprey-connectors (see its pyproject.toml): every
+# wheel built from one checkout carries the same number.
+raw-options = { root = "../..", version_scheme = "post-release", git_describe_command = "git describe --dirty --tags --long --abbrev=40 --match v[0-9]*" }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/pyaml_cs_osprey/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyaml_cs_osprey"]
