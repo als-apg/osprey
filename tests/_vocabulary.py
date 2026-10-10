@@ -85,26 +85,6 @@ PENDING_REWORDING: frozenset[TextKey] = frozenset(
 #: Agent-facing texts that still carry ``RATCHET_WORD``, tagged like the file
 #: ratchet's allowlist with the stage that rewords them.
 RATCHET_PENDING: dict[TextKey, str] = {
-    (
-        "channel_finder_hierarchical",
-        "build_channels",
-        "inputSchema/properties/selections/description",
-    ): "rename:12",
-    (
-        "channel_finder_hierarchical",
-        "get_options",
-        "inputSchema/properties/level/description",
-    ): "rename:12",
-    (
-        "channel_finder_hierarchical",
-        "get_options",
-        "inputSchema/properties/selections/description",
-    ): "rename:12",
-    (
-        "channel_finder_middle_layer",
-        "list_families",
-        "inputSchema/properties/system/description",
-    ): "rename:12",
     ("rendered", ".claude/agents/channel-finder.md", "text"): "rename:12",
     ("rendered", ".claude/agents/facility-knowledge-graph.md", "text"): "rename:12",
     ("rendered", ".claude/agents/pyat-specialist.md", "text"): "rename:12",

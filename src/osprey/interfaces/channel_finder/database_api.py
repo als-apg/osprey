@@ -1075,7 +1075,7 @@ async def explore_families(request: Request, system: str):
 
     Args:
         request: FastAPI request.
-        system: System name (e.g., "SR" for Storage Ring).
+        system: System name, as the systems listing returns it.
     """
     db = _get_middle_layer_database(request)
 

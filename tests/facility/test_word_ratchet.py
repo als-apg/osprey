@@ -65,11 +65,6 @@ CLEAN_PATHS: tuple[str, ...] = (
 )
 
 ALLOWLIST: dict[str, str] = {
-    "src/osprey/interfaces/channel_finder/database_api.py": "rename:12",
-    "src/osprey/mcp_server/channel_finder_graph/tools/examples_data.py": "rename:12",
-    "src/osprey/mcp_server/channel_finder_hierarchical/tools/build_channels.py": "rename:12",
-    "src/osprey/mcp_server/channel_finder_hierarchical/tools/get_options.py": "rename:12",
-    "src/osprey/mcp_server/channel_finder_middle_layer/tools/list_families.py": "rename:12",
     "src/osprey/mcp_server/phoebus/plt_generator.py": "rename:12",
     "src/osprey/profiles/presets/control-assistant.yml": "rename:12",
     "src/osprey/services/bluesky_bridge/bump_analysis.py": "rename:12",
@@ -77,7 +72,6 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/services/bluesky_bridge/plans_core/orbit_bump_sweep.py": "rename:12",
     "src/osprey/services/bluesky_bridge/plans_core/orm.py": "rename:12",
     "src/osprey/services/bluesky_bridge/substrate_devices.py": "rename:12",
-    "src/osprey/services/channel_finder/feedback/pending_store.py": "rename:12",
     "src/osprey/services/facility_knowledge/okf/document.py": "rename:12",
     "src/osprey/templates/claude_code/CLAUDE.channel-finder.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/_terminology/graph.md.j2": "rename:12",
