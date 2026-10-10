@@ -68,7 +68,7 @@ By following this comprehensive learning path, you'll have:
       :link-type: doc
       :class-header: bg-success text-white
 
-      Build your first agent with a mock control system — one MCP server, zero complexity.
+      Build your first agent with the simulator served in process — one MCP server, zero complexity.
 
       **Outcome:**
       Your first working agent

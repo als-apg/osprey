@@ -4,8 +4,9 @@ Hello World Tutorial
 
 Build and run your first OSPREY agent in about five minutes, with no containers
 and no hardware. The ``hello-world`` preset is the smallest deployment that
-still shows the whole write-safety chain: a mock control system that serves
-the channels of your facility file, fourteen safety and bookkeeping hooks, and a browser interface.
+still shows the whole write-safety chain: the simulator, served in this
+process, that answers for the channels of your facility file, fourteen safety
+and bookkeeping hooks, and a browser interface.
 
 Three ``osprey`` commands take you from nothing to a running agent:
 
@@ -98,10 +99,15 @@ per line:
 .. code-block:: yaml
 
    config:
-     # Which control system to talk to. "mock" serves the addresses of the built
-     # facility file in-process and refuses any other, with no hardware and no
-     # containers behind it.
-     control_system.type: mock
+     # Which control system to talk to. `virtual_accelerator` is the simulator of
+     # the built facility; `serving: in_process` runs it inside this process — the
+     # facility's channels, its seeds and scenarios, no hardware and no containers
+     # — and refuses any address outside the facility. `served` reaches the same
+     # simulator in its container over Channel Access. The control-assistant
+     # preset shows the EPICS connector configuration,
+     # and `osprey config --defaults` lists every shipped connector type.
+     control_system.type: virtual_accelerator
+     control_system.connector.virtual_accelerator.serving: in_process
      # Writes are refused until this is on. Uncomment it, rebuild, and the limits
      # and approval hooks above take over from there.
      # control_system.writes_enabled: true
@@ -169,10 +175,11 @@ Useful variations: ``osprey web --port 9000`` picks another port,
 Step 5: Read Some Channels
 ---------------------------
 
-The mock connector serves the channels of ``build/facility.json``, which
-``osprey build`` writes from ``data/facility/``, in-process — that is the whole
-trick behind a five-minute first session. Any other address is refused with
-``<address> is not in build/facility.json``, for example
+The simulator serves the channels of ``build/facility.json``, which
+``osprey build`` writes from ``data/facility/``, inside this process — that is
+the whole trick behind a five-minute first session. The session is on the
+``va`` target, and the web terminal's header chip reads "Simulator". Any other
+address is refused with ``<address> is not in build/facility.json``, for example
 ``ANY:RANDOM:NAME is not in build/facility.json``. Try:
 
 .. code-block:: text
@@ -238,7 +245,8 @@ one line:
 .. code-block:: yaml
 
    config:
-     control_system.type: mock
+     control_system.type: virtual_accelerator
+     control_system.connector.virtual_accelerator.serving: in_process
      control_system.writes_enabled: true   # ← was commented out
 
 Then re-render and relaunch:
@@ -269,7 +277,7 @@ With writes enabled, all three remaining behaviors are now observable.
 
 150 sits inside the 0--300 range declared for this channel, so the limits
 check passes and the approval prompt appears in the terminal, naming the
-channel and value. Approve it, and the mock connector accepts the write.
+channel and value. Approve it, and the simulator accepts the write.
 Nothing is ever written without this step.
 
 **A write outside its limits** — blocked:
@@ -281,7 +289,7 @@ Nothing is ever written without this step.
 500 is above the channel's maximum of 300, so the write is refused: the
 ``limits`` hook denies it, and the connector checks the same limits database
 once more at execution time — so even an approved write cannot carry an
-out-of-range value to the (mock) hardware. Approval is a gate on writes the
+out-of-range value to the (simulated) hardware. Approval is a gate on writes the
 limits allow; it is not a way around them.
 
 **A write to a read-only channel** — blocked regardless of value:
