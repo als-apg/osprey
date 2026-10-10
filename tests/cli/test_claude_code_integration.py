@@ -1354,7 +1354,7 @@ class TestProtocolAwareSafetyRules:
         manager = TemplateManager()
         from osprey.cli.templates import claude_code
 
-        for protocol in ["epics", "doocs", "tango", "opcua", "labview", "mock"]:
+        for protocol in ["epics", "doocs", "tango", "opcua", "labview", "virtual_accelerator"]:
             project_dir = _create_project(
                 manager,
                 project_name=f"safety-{protocol}",
@@ -1406,8 +1406,8 @@ class TestControlSystemTypeContext:
         )
         assert ctx["control_system_type"] == "tango"
 
-    def test_control_system_type_defaults_to_mock(self, tmp_path):
-        """control_system_type defaults to 'mock' when not in config."""
+    def test_control_system_type_defaults_to_the_simulator_in_process(self, tmp_path):
+        """control_system_type defaults to the simulator, in process, when not in config."""
         manager = TemplateManager()
         project_dir = _create_project(
             manager,
@@ -1426,7 +1426,8 @@ class TestControlSystemTypeContext:
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, project_dir, config
         )
-        assert ctx["control_system_type"] == "mock"
+        assert ctx["control_system_type"] == "virtual_accelerator"
+        assert ctx["control_system_transport"] == "in_process"
 
 
 class TestGeneralizedRulesContent:
@@ -1752,7 +1753,7 @@ class TestConfigDerivedKeysPrecedeServerResolution:
         servers["ctx-probe"] = ServerDefinition(
             name="ctx-probe",
             module="osprey.mcp_server.health",
-            # Always truthy out of config_derived_context: it defaults to "mock".
+            # Always truthy out of config_derived_context: it defaults to the simulator.
             condition="control_system_type",
             env={},
         )

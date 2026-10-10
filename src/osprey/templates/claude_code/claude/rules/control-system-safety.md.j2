@@ -1,4 +1,5 @@
-{% set cs_type = control_system_type | default('mock') %}
+{% set cs_type = control_system_type | default('virtual_accelerator') %}
+{% set transport = control_system_transport | default('in_process') %}
 {% if cs_type == 'epics' %}
 {% set protocol_name = 'EPICS' %}
 {% set protocol_long = 'EPICS Channel Access' %}
@@ -43,7 +44,7 @@ write_channel("SR:MAG:QF:01:CURRENT:SP", 150.0)
 
 ### Prohibited
 
-{% if cs_type in ('epics', 'virtual_accelerator') %}
+{% if transport == 'ca' %}
 ```python
 # DO NOT use these — read and write through osprey.runtime instead
 import epics
