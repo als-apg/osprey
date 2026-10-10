@@ -333,6 +333,9 @@ refuse that line by name and say what supplies the value instead:
      - the ``environment:`` block (:ref:`profile-environment`)
    * - ``artifact_server.port``
      - ``config: deployment.port_base``, which moves the whole port block
+   * - ``approval.hook_wired``
+     - the top-level ``hooks:`` list — ``true`` when it names ``approval``. A
+       guarded run reads it to tell whether its tool's call is put to a human
 
 Each entry claims every key beneath it, in every spelling: a dotted key, a
 dotted prefix over a mapping, a fully nested block, or any mix reaches the same

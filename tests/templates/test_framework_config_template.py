@@ -23,6 +23,7 @@ a bare ``web:``.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -141,7 +142,7 @@ def test_every_rendered_leaf_is_derived(mode: str):
 
 @pytest.mark.parametrize(
     "removed",
-    ["services", "deployed_services", "cli", "approval", "system", "container_runtime"],
+    ["services", "deployed_services", "cli", "system", "container_runtime"],
 )
 def test_removed_sections_are_gone(removed: str):
     """Literal defaults moved to the presets; the template states none of them."""
@@ -179,6 +180,7 @@ def test_minimal_render_is_the_derived_floor():
     assert sorted(config) == [
         "agent_data",
         "api",
+        "approval",
         "artifact_server",
         "build_dir",
         "claude_code",
@@ -374,6 +376,30 @@ def test_web_renders_an_explicit_empty_panels_map_when_a_field_opens_it():
     """
     config = _config(panel_presets={"Empty": ["artifacts"]})
     assert config["web"]["panels"] == {}
+
+
+@pytest.mark.parametrize("wired", [True, False])
+def test_the_approval_section_records_only_whether_the_hook_is_wired(wired: bool):
+    """The policies are the profile's; the template states the one derived fact."""
+    assert _config(approval_hook_wired=wired)["approval"] == {"hook_wired": wired}
+
+
+def test_a_render_without_the_hook_answer_refuses():
+    """Defaulting it would tell a guarded run that nobody is asked."""
+    context = {
+        key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "approval_hook_wired"
+    }
+    with pytest.raises(TemplateRuntimeError, match="approval_hook_wired"):
+        TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
+
+
+@pytest.mark.parametrize(
+    ("hooks", "wired"),
+    [(["hook-log", "approval"], True), (["hook-log", "writes-check"], False), ([], False)],
+)
+def test_the_manager_derives_the_hook_answer_from_the_selected_hooks(hooks: list[str], wired: bool):
+    ctx = TemplateManager()._project_context("demo", Path("/repos/demo"), None, {"hooks": hooks})
+    assert ctx["approval_hook_wired"] is wired
 
 
 def test_a_render_without_the_panel_selection_refuses():
