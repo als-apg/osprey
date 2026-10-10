@@ -1106,6 +1106,270 @@
   signal: ready_status
   value_type: bool
   description: 'Booster-to-storage transfer line vertical corrector 06 status ready. Power supply status. Ready (read-only): Power supply ready.'
+- id: LINE:DIAG:BPM:01:POSITION:X
+  'on':
+    device: LINE/BPM01
+  signal: position_x_readback
+  unit: m
+- id: LINE:DIAG:BPM:01:POSITION:Y
+  'on':
+    device: LINE/BPM01
+  signal: position_y_readback
+  unit: m
+- id: LINE:DIAG:BPM:02:POSITION:X
+  'on':
+    device: LINE/BPM02
+  signal: position_x_readback
+  unit: m
+- id: LINE:DIAG:BPM:02:POSITION:Y
+  'on':
+    device: LINE/BPM02
+  signal: position_y_readback
+  unit: m
+- id: LINE:DIAG:BPM:03:POSITION:X
+  'on':
+    device: LINE/BPM03
+  signal: position_x_readback
+  unit: m
+- id: LINE:DIAG:BPM:03:POSITION:Y
+  'on':
+    device: LINE/BPM03
+  signal: position_y_readback
+  unit: m
+- id: LINE:DIAG:BPM:04:POSITION:X
+  'on':
+    device: LINE/BPM04
+  signal: position_x_readback
+  unit: m
+- id: LINE:DIAG:BPM:04:POSITION:Y
+  'on':
+    device: LINE/BPM04
+  signal: position_y_readback
+  unit: m
+- id: LINE:MAG:HCM:01:CURRENT:RB
+  'on':
+    device: LINE/HCM01
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:HCM:01:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:HCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LINE/HCM01
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:HCM:02:CURRENT:RB
+  'on':
+    device: LINE/HCM02
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:HCM:02:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:HCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LINE/HCM02
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:HCM:03:CURRENT:RB
+  'on':
+    device: LINE/HCM03
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:HCM:03:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:HCM:03:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LINE/HCM03
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:HCM:04:CURRENT:RB
+  'on':
+    device: LINE/HCM04
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:HCM:04:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:HCM:04:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LINE/HCM04
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:QD:01:CURRENT:RB
+  'on':
+    device: LINE/QD01
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:QD:01:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:QD:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LINE/QD01
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:QD:02:CURRENT:RB
+  'on':
+    device: LINE/QD02
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:QD:02:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:QD:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LINE/QD02
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:QD:03:CURRENT:RB
+  'on':
+    device: LINE/QD03
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:QD:03:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:QD:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LINE/QD03
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:QD:04:CURRENT:RB
+  'on':
+    device: LINE/QD04
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:QD:04:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:QD:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LINE/QD04
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:QF:01:CURRENT:RB
+  'on':
+    device: LINE/QF01
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:QF:01:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:QF:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LINE/QF01
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:QF:02:CURRENT:RB
+  'on':
+    device: LINE/QF02
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:QF:02:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:QF:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LINE/QF02
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:QF:03:CURRENT:RB
+  'on':
+    device: LINE/QF03
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:QF:03:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:QF:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LINE/QF03
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:QF:04:CURRENT:RB
+  'on':
+    device: LINE/QF04
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:QF:04:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:QF:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: LINE/QF04
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:VCM:01:CURRENT:RB
+  'on':
+    device: LINE/VCM01
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:VCM:01:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:VCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LINE/VCM01
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:VCM:02:CURRENT:RB
+  'on':
+    device: LINE/VCM02
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:VCM:02:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:VCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LINE/VCM02
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:VCM:03:CURRENT:RB
+  'on':
+    device: LINE/VCM03
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:VCM:03:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:VCM:03:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LINE/VCM03
+  signal: current_setpoint
+  unit: A
+- id: LINE:MAG:VCM:04:CURRENT:RB
+  'on':
+    device: LINE/VCM04
+  signal: current_readback
+  unit: A
+- id: LINE:MAG:VCM:04:CURRENT:SP
+  role: setpoint
+  pair: LINE:MAG:VCM:04:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: LINE/VCM04
+  signal: current_setpoint
+  unit: A
 - id: SR:DIAG:BPM:01:GOLDEN:X
   'on':
     device: SR/BPM01

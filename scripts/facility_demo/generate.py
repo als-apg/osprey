@@ -2,7 +2,8 @@
 """Generate the example facility's demo sources.
 
 The ``line`` mode writes the transfer line ``LINE`` into a facility tree from
-the constants of ``_line.py``; it reads nothing from the tree.
+the constants of ``_line.py``: its deck and measurement file whole, its records
+and model merged into the tree's files, every other record left as it is.
 
 Usage::
 
@@ -24,12 +25,13 @@ def main(argv: list[str] | None = None) -> int:
     """Run one generator mode and return the exit code."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     modes = parser.add_subparsers(dest="mode", required=True)
-    line = modes.add_parser("line", help="Write decks/LINE.json into a facility tree.")
+    line = modes.add_parser("line", help="Write the transfer line into a facility tree.")
     line.add_argument("tree", type=Path, help="The facility tree to write into.")
     args = parser.parse_args(argv)
 
     if args.mode == "line":
         _line.write_deck(args.tree)
+        _line.write_sources(args.tree)
     return 0
 
 

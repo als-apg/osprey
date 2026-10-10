@@ -306,6 +306,66 @@
   - VCM06
   label: VCM 06
   place: BTS
+- id: LINE/BPM01
+  class: BeamPositionMonitor
+  label: LINE BPM 01
+- id: LINE/BPM02
+  class: BeamPositionMonitor
+  label: LINE BPM 02
+- id: LINE/BPM03
+  class: BeamPositionMonitor
+  label: LINE BPM 03
+- id: LINE/BPM04
+  class: BeamPositionMonitor
+  label: LINE BPM 04
+- id: LINE/HCM01
+  class: HCorrector
+  label: LINE HCM 01
+- id: LINE/HCM02
+  class: HCorrector
+  label: LINE HCM 02
+- id: LINE/HCM03
+  class: HCorrector
+  label: LINE HCM 03
+- id: LINE/HCM04
+  class: HCorrector
+  label: LINE HCM 04
+- id: LINE/QD01
+  class: Quadrupole
+  label: LINE QD 01
+- id: LINE/QD02
+  class: Quadrupole
+  label: LINE QD 02
+- id: LINE/QD03
+  class: Quadrupole
+  label: LINE QD 03
+- id: LINE/QD04
+  class: Quadrupole
+  label: LINE QD 04
+- id: LINE/QF01
+  class: Quadrupole
+  label: LINE QF 01
+- id: LINE/QF02
+  class: Quadrupole
+  label: LINE QF 02
+- id: LINE/QF03
+  class: Quadrupole
+  label: LINE QF 03
+- id: LINE/QF04
+  class: Quadrupole
+  label: LINE QF 04
+- id: LINE/VCM01
+  class: VCorrector
+  label: LINE VCM 01
+- id: LINE/VCM02
+  class: VCorrector
+  label: LINE VCM 02
+- id: LINE/VCM03
+  class: VCorrector
+  label: LINE VCM 03
+- id: LINE/VCM04
+  class: VCorrector
+  label: LINE VCM 04
 - id: SR/BPM01
   class: BeamPositionMonitor
   names:

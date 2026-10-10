@@ -84,3 +84,9 @@
   description: 'Booster-to-Storage Transfer Line (BTS): Beam transport line that guides accelerated beam from booster ring to storage ring. ~35m beamline with steering magnets, quadrupoles, and diagnostics.'
   names:
   - booster-to-storage transfer line
+- id: LINE
+  level: machine
+  description: 'Transfer line (LINE): single-pass line of 4 focusing-defocusing cells, each with one BPM, one horizontal and one vertical corrector and two quadrupoles.'
+  span:
+    model: LINE
+    from_marker: START
