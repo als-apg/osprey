@@ -86,6 +86,7 @@ RETIRED: dict[str, str] = {
     "ManifestPaths": "7e",
     "P_CONFIDENCE": "7e",
     "P_PROTOCOL": "7e",
+    "SignalSentence": "8",
     "TemplateChannelDatabase": "7e",
     "TestKindAwareNoiseFloor": "7d",
     "TierSpec": "4a",

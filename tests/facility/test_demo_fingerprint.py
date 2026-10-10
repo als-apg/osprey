@@ -2,9 +2,10 @@
 
 ``osprey build`` on the control-assistant preset writes ``build/facility.json``.
 Its channels, joined as the fingerprint joins them less the ``names`` column
-(address, role, value type, description), hold every frozen row unchanged, and
-what they hold beyond the frozen rows is exactly the additions file; no demo
-channel carries a name. The file validates as the
+(address, role, value type, description), hold every frozen row with its
+address, role and value type unchanged and its description as the prefix of
+the served one, and what they hold beyond the frozen rows is exactly the
+additions file; no demo channel carries a name. The file validates as the
 generated ``Facility`` model, and the committed sources validate clean. The
 channel roster read off the built render enumerates every frozen address with
 the direction its role states.
@@ -61,11 +62,17 @@ def test_the_frozen_rows_are_unchanged() -> None:
     assert _sha256(rows) == FINGERPRINT_SHA256
 
 
-def test_every_frozen_row_is_served_unchanged(built_control_assistant: BuiltProject) -> None:
+def test_every_frozen_row_is_served_with_its_description_as_a_prefix(
+    built_control_assistant: BuiltProject,
+) -> None:
     served = {row["address"]: row for row in _rows(built_control_assistant.facility)}
     missing = [row["address"] for row in fingerprint_rows() if row["address"] not in served]
+    frozen = [row for row in map(_project, fingerprint_rows()) if row["address"] in served]
     changed = [
-        row for row in map(_project, fingerprint_rows()) if served.get(row["address"], row) != row
+        row["address"]
+        for row in frozen
+        if {**served[row["address"]], "description": None} != {**row, "description": None}
+        or not served[row["address"]]["description"].startswith(row["description"])
     ]
     assert missing == []
     assert changed == []

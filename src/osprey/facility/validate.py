@@ -460,7 +460,7 @@ def _mapping_of_depth(value: Any, depth: int) -> bool:
 
 
 #: The tags pydantic appends to a location for each member of a union.
-_UNION_TAGS = frozenset({"str", "float", "int", "bool", "SignalSentence", "LinearTerm"})
+_UNION_TAGS = frozenset({"str", "float", "int", "bool", "LinearTerm"})
 
 
 def _path(loc: Sequence[Any]) -> tuple[Any, ...]:

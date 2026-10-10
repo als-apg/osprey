@@ -48,8 +48,10 @@
   place: BR
 - id: BR/DCCT01
   class: BeamCurrentMonitor
+  description: 'Booster Beam Current Monitor: Tracks current during acceleration cycle.'
   names:
   - DCCT01
+  - DC current transformer
   label: DCCT 01
   place: BR
 - id: BR/DIPOLE01
@@ -222,38 +224,50 @@
   place: BTS
 - id: BTS/QF01
   class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
   names:
   - QF01
+  - focusing quadrupole
   label: QF 01
   place: BTS
 - id: BTS/QF02
   class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
   names:
   - QF02
+  - focusing quadrupole
   label: QF 02
   place: BTS
 - id: BTS/QF03
   class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
   names:
   - QF03
+  - focusing quadrupole
   label: QF 03
   place: BTS
 - id: BTS/QF04
   class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
   names:
   - QF04
+  - focusing quadrupole
   label: QF 04
   place: BTS
 - id: BTS/QF05
   class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
   names:
   - QF05
+  - focusing quadrupole
   label: QF 05
   place: BTS
 - id: BTS/QF06
   class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
   names:
   - QF06
+  - focusing quadrupole
   label: QF 06
   place: BTS
 - id: BTS/VCM01
@@ -654,20 +668,26 @@
   label: BPM 72
 - id: SR/CAVITY01
   class: AcceleratingCavity
+  description: 'RF Accelerating Cavities: Resonant structures that provide longitudinal electric field to accelerate the beam. Gap voltage (MV range) determines energy gain per turn.'
   names:
   - CAVITY01
+  - RF cavity
   label: CAVITY 01
   place: SR/SECT11
 - id: SR/CAVITY02
   class: AcceleratingCavity
+  description: 'RF Accelerating Cavities: Resonant structures that provide longitudinal electric field to accelerate the beam. Gap voltage (MV range) determines energy gain per turn.'
   names:
   - CAVITY02
+  - RF cavity
   label: CAVITY 02
   place: SR/SECT11
 - id: SR/DCCT01
   class: BeamCurrentMonitor
+  description: 'DC Current Transformer: Non-intercepting beam current monitor. Measures total circulating beam current with high accuracy.'
   names:
   - DCCT01
+  - DC current transformer
   label: DCCT 01
   place: SR
 - id: SR/DIPOLE01
@@ -852,98 +872,130 @@
   label: DIPOLE 36
 - id: SR/GAMMA01
   class: BeamLossMonitor
+  description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
   names:
   - GAMMA01
+  - gamma detector
   label: GAMMA 01
   place: SR
 - id: SR/GAMMA02
   class: BeamLossMonitor
+  description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
   names:
   - GAMMA02
+  - gamma detector
   label: GAMMA 02
   place: SR
 - id: SR/GAMMA03
   class: BeamLossMonitor
+  description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
   names:
   - GAMMA03
+  - gamma detector
   label: GAMMA 03
   place: SR
 - id: SR/GAMMA04
   class: BeamLossMonitor
+  description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
   names:
   - GAMMA04
+  - gamma detector
   label: GAMMA 04
   place: SR
 - id: SR/GAUGESR01
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR01
+  - vacuum gauge
   label: GAUGE SR01
   place: SR/SECT1
 - id: SR/GAUGESR02
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR02
+  - vacuum gauge
   label: GAUGE SR02
   place: SR/SECT2
 - id: SR/GAUGESR03
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR03
+  - vacuum gauge
   label: GAUGE SR03
   place: SR/SECT3
 - id: SR/GAUGESR04
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR04
+  - vacuum gauge
   label: GAUGE SR04
   place: SR/SECT4
 - id: SR/GAUGESR05
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR05
+  - vacuum gauge
   label: GAUGE SR05
   place: SR/SECT5
 - id: SR/GAUGESR06
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR06
+  - vacuum gauge
   label: GAUGE SR06
   place: SR/SECT6
 - id: SR/GAUGESR07
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR07
+  - vacuum gauge
   label: GAUGE SR07
   place: SR/SECT7
 - id: SR/GAUGESR08
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR08
+  - vacuum gauge
   label: GAUGE SR08
   place: SR/SECT8
 - id: SR/GAUGESR09
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR09
+  - vacuum gauge
   label: GAUGE SR09
   place: SR/SECT9
 - id: SR/GAUGESR10
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR10
+  - vacuum gauge
   label: GAUGE SR10
   place: SR/SECT10
 - id: SR/GAUGESR11
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR11
+  - vacuum gauge
   label: GAUGE SR11
   place: SR/SECT11
 - id: SR/GAUGESR12
   class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
   names:
   - GAUGESR12
+  - vacuum gauge
   label: GAUGE SR12
   place: SR/SECT12
 - id: SR/HCM01
@@ -1308,74 +1360,98 @@
   label: HCM 72
 - id: SR/ION-PUMP01
   class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
   names:
   - ION-PUMP01
+  - ion pump
   label: ION-PUMP 01
   place: SR
 - id: SR/ION-PUMP02
   class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
   names:
   - ION-PUMP02
+  - ion pump
   label: ION-PUMP 02
   place: SR
 - id: SR/ION-PUMP03
   class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
   names:
   - ION-PUMP03
+  - ion pump
   label: ION-PUMP 03
   place: SR
 - id: SR/ION-PUMP04
   class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
   names:
   - ION-PUMP04
+  - ion pump
   label: ION-PUMP 04
   place: SR
 - id: SR/ION-PUMP05
   class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
   names:
   - ION-PUMP05
+  - ion pump
   label: ION-PUMP 05
   place: SR
 - id: SR/ION-PUMP06
   class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
   names:
   - ION-PUMP06
+  - ion pump
   label: ION-PUMP 06
   place: SR
 - id: SR/KLYSTRON01
   class: Modulator
+  description: 'Klystron RF Amplifiers: High-power vacuum tube amplifiers that provide RF power to accelerating cavities. Typically 100-500 kW output power.'
   names:
   - KLYSTRON01
+  - klystron
   label: KLYSTRON 01
   place: SR
 - id: SR/KLYSTRON02
   class: Modulator
+  description: 'Klystron RF Amplifiers: High-power vacuum tube amplifiers that provide RF power to accelerating cavities. Typically 100-500 kW output power.'
   names:
   - KLYSTRON02
+  - klystron
   label: KLYSTRON 02
   place: SR
 - id: SR/NEUTRON01
   class: BeamLossMonitor
+  description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
   names:
   - NEUTRON01
+  - neutron detector
   label: NEUTRON 01
   place: SR
 - id: SR/NEUTRON02
   class: BeamLossMonitor
+  description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
   names:
   - NEUTRON02
+  - neutron detector
   label: NEUTRON 02
   place: SR
 - id: SR/NEUTRON03
   class: BeamLossMonitor
+  description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
   names:
   - NEUTRON03
+  - neutron detector
   label: NEUTRON 03
   place: SR
 - id: SR/NEUTRON04
   class: BeamLossMonitor
+  description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
   names:
   - NEUTRON04
+  - neutron detector
   label: NEUTRON 04
   place: SR
 - id: SR/QD01
@@ -2220,74 +2296,98 @@
   label: SHF 24
 - id: SR/VALVE01
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE01
+  - gate valve
   label: VALVE 01
   place: SR/SECT1
 - id: SR/VALVE02
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE02
+  - gate valve
   label: VALVE 02
   place: SR/SECT2
 - id: SR/VALVE03
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE03
+  - gate valve
   label: VALVE 03
   place: SR/SECT3
 - id: SR/VALVE04
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE04
+  - gate valve
   label: VALVE 04
   place: SR/SECT4
 - id: SR/VALVE05
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE05
+  - gate valve
   label: VALVE 05
   place: SR/SECT5
 - id: SR/VALVE06
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE06
+  - gate valve
   label: VALVE 06
   place: SR/SECT6
 - id: SR/VALVE07
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE07
+  - gate valve
   label: VALVE 07
   place: SR/SECT7
 - id: SR/VALVE08
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE08
+  - gate valve
   label: VALVE 08
   place: SR/SECT8
 - id: SR/VALVE09
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE09
+  - gate valve
   label: VALVE 09
   place: SR/SECT9
 - id: SR/VALVE10
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE10
+  - gate valve
   label: VALVE 10
   place: SR/SECT10
 - id: SR/VALVE11
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE11
+  - gate valve
   label: VALVE 11
   place: SR/SECT11
 - id: SR/VALVE12
   class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
   names:
   - VALVE12
+  - gate valve
   label: VALVE 12
   place: SR/SECT12
 - id: SR/VCM01

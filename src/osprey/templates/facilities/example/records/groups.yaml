@@ -11,23 +11,6 @@
   - BR/BPM06
   - BR/BPM07
   - BR/BPM08
-  signals:
-    POSITION: Beam position during booster cycle (millimeters).
-    POSITION/X: 'Horizontal Position (read-only): Beam X position.'
-    POSITION/Y: 'Vertical Position (read-only): Beam Y position.'
-    STATUS: BPM status.
-    STATUS/VALID: 'Valid Data (read-only): BPM reading is valid.'
-- id: BR/DCCT
-  description: 'Booster Beam Current Monitor: Tracks current during acceleration cycle.'
-  names:
-  - DC current transformer
-  members:
-  - BR/DCCT01
-  signals:
-    CURRENT: Beam current (milliAmperes) during booster cycle.
-    CURRENT/RB: 'Current Readback (read-only): Beam current during acceleration.'
-    STATUS: DCCT status.
-    STATUS/VALID: 'Valid (read-only): Measurement valid.'
 - id: BR/DIAG
   description: 'Booster Diagnostics: Beam measurement during acceleration cycle.'
   members:
@@ -53,13 +36,6 @@
   - BR/DIPOLE06
   - BR/DIPOLE07
   - BR/DIPOLE08
-  signals:
-    CURRENT: Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration.
-    CURRENT/SP: 'Current Setpoint (read-write): Programmed ramp profile for acceleration.'
-    CURRENT/RB: 'Current Readback (read-only): Measured dipole current during ramping.'
-    STATUS: Dipole power supply status.
-    STATUS/READY: 'Ready (read-only): Power supply ready for ramping.'
-    STATUS/FAULT: 'Fault (read-only): Power supply fault detected.'
 - id: BR/MAG
   description: 'Booster Magnet System: Ramped magnets that track the beam energy during acceleration. Dipoles define the orbit, quadrupoles maintain focusing.'
   members:
@@ -88,13 +64,6 @@
   - BR/QD02
   - BR/QD03
   - BR/QD04
-  signals:
-    CURRENT: Quadrupole current (Amperes). Ramped during acceleration.
-    CURRENT/SP: 'Setpoint (read-write): Programmed current waveform.'
-    CURRENT/RB: 'Readback (read-only): Measured current.'
-    STATUS: Power supply status.
-    STATUS/READY: 'Ready (read-only): Power supply ready.'
-    STATUS/FAULT: 'Fault (read-only): Fault detected.'
 - id: BR/QF
   description: 'Booster Focusing Quadrupoles: Maintain beam focusing during energy ramp.'
   names:
@@ -104,13 +73,6 @@
   - BR/QF02
   - BR/QF03
   - BR/QF04
-  signals:
-    CURRENT: Quadrupole current (Amperes). Ramped during acceleration.
-    CURRENT/SP: 'Setpoint (read-write): Programmed current waveform.'
-    CURRENT/RB: 'Readback (read-only): Measured current.'
-    STATUS: Power supply status.
-    STATUS/READY: 'Ready (read-only): Power supply ready.'
-    STATUS/FAULT: 'Fault (read-only): Fault detected.'
 - id: BTS/BPM
   description: 'Transfer Line BPMs: Monitor beam trajectory during injection.'
   names:
@@ -122,12 +84,6 @@
   - BTS/BPM04
   - BTS/BPM05
   - BTS/BPM06
-  signals:
-    POSITION: Beam position in transfer line (millimeters).
-    POSITION/X: 'Horizontal Position (read-only): Beam X position.'
-    POSITION/Y: 'Vertical Position (read-only): Beam Y position.'
-    STATUS: BPM status.
-    STATUS/VALID: 'Valid Data (read-only): BPM reading is valid.'
 - id: BTS/DIAG
   description: 'Transfer Line Diagnostics: Beam measurement during injection.'
   members:
@@ -148,12 +104,6 @@
   - BTS/HCM04
   - BTS/HCM05
   - BTS/HCM06
-  signals:
-    CURRENT: Corrector current (Amperes).
-    CURRENT/SP: 'Setpoint (read-write): Commanded corrector current.'
-    CURRENT/RB: 'Readback (read-only): Measured corrector current.'
-    STATUS: Power supply status.
-    STATUS/READY: 'Ready (read-only): Power supply ready.'
 - id: BTS/MAG
   description: 'Transfer Line Magnets: Steering and focusing magnets for beam transport from booster to storage ring.'
   members:
@@ -175,23 +125,6 @@
   - BTS/VCM04
   - BTS/VCM05
   - BTS/VCM06
-- id: BTS/QF
-  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
-  names:
-  - focusing quadrupole
-  members:
-  - BTS/QF01
-  - BTS/QF02
-  - BTS/QF03
-  - BTS/QF04
-  - BTS/QF05
-  - BTS/QF06
-  signals:
-    CURRENT: Quadrupole current (Amperes).
-    CURRENT/SP: 'Setpoint (read-write): Commanded current.'
-    CURRENT/RB: 'Readback (read-only): Measured current.'
-    STATUS: Power supply status.
-    STATUS/READY: 'Ready (read-only): Power supply ready.'
 - id: BTS/VCM
   description: 'Vertical Correctors: Vertical steering magnets in the transfer line.'
   names:
@@ -203,12 +136,6 @@
   - BTS/VCM04
   - BTS/VCM05
   - BTS/VCM06
-  signals:
-    CURRENT: Corrector current (Amperes).
-    CURRENT/SP: 'Setpoint (read-write): Commanded corrector current.'
-    CURRENT/RB: 'Readback (read-only): Measured corrector current.'
-    STATUS: Power supply status.
-    STATUS/READY: 'Ready (read-only): Power supply ready.'
 - id: SR/BPM
   description: 'Beam Position Monitors: Measure transverse (X, Y) beam position at many locations around the ring. Typical resolution: 1-10 microns. Essential for orbit correction and feedback.'
   names:
@@ -286,58 +213,6 @@
   - SR/BPM70
   - SR/BPM71
   - SR/BPM72
-  signals:
-    POSITION: 'Beam Position (meters): Measured transverse beam position.'
-    POSITION/X: 'Horizontal Position (read-only): Beam X position at this BPM location.'
-    POSITION/Y: 'Vertical Position (read-only): Beam Y position at this BPM location.'
-    GOLDEN: 'Golden Orbit Reference (meters): Stored reference orbit positions.'
-    GOLDEN/X: 'Golden X Position (read-only): Reference horizontal position.'
-    GOLDEN/Y: 'Golden Y Position (read-only): Reference vertical position.'
-    OFFSET: 'Position Offset from Golden (meters): Difference between measured and golden orbit.'
-    OFFSET/X: 'Horizontal Offset (read-only): X position error from golden orbit.'
-    OFFSET/Y: 'Vertical Offset (read-only): Y position error from golden orbit.'
-    STATUS: 'BPM System Status: Data validity and connection monitoring.'
-    STATUS/VALID: 'Valid Data (read-only): BPM reading is valid.'
-    STATUS/CONNECTED: 'Connected Status (read-only): BPM electronics responding.'
-- id: SR/CAVITY
-  description: 'RF Accelerating Cavities: Resonant structures that provide longitudinal electric field to accelerate the beam. Gap voltage (MV range) determines energy gain per turn.'
-  names:
-  - RF cavity
-  members:
-  - SR/CAVITY01
-  - SR/CAVITY02
-  signals:
-    POWER: 'RF Power (Kilowatts): Electromagnetic power in RF transmission system.'
-    POWER/FWD: 'Forward Power (read-only): RF power traveling from klystron toward cavity.'
-    POWER/REV: 'Reflected Power (read-only): Power bouncing back from cavity.'
-    POWER/NET: 'Net Power (read-only): Actual power delivered to cavity (FWD - REV).'
-    VOLTAGE: 'Cavity Gap Voltage (Megavolts): Peak RF voltage across accelerating gap. Typical: 0.5-3 MV.'
-    VOLTAGE/RB: 'Voltage Readback (read-only): Measured cavity gap voltage.'
-    VOLTAGE/SP: 'Voltage Setpoint (read-write): Commanded cavity gap voltage.'
-    VOLTAGE/GOLDEN: 'Golden Voltage (read-only): Reference gap voltage for nominal operation.'
-    FREQUENCY: 'RF Frequency (MHz): Operating frequency of RF system. Must match harmonic of beam revolution frequency.'
-    FREQUENCY/RB: 'Frequency Readback (read-only): Measured RF frequency.'
-    FREQUENCY/SP: 'Frequency Setpoint (read-write): Commanded RF frequency.'
-    TEMPERATURE: 'Cavity Temperature (Celsius): Body temperature of RF cavity.'
-    TEMPERATURE/RB: 'Temperature Readback (read-only): Measured cavity temperature.'
-    TUNER: 'Cavity Tuner Position (Centimeters): Mechanical tuner adjusts cavity resonant frequency.'
-    TUNER/RB: 'Position Readback (read-only): Current tuner position.'
-    TUNER/SP: 'Position Setpoint (read-write): Commanded tuner position.'
-    STATUS: 'RF System Status: Cavity and low-level RF system health.'
-    STATUS/READY: 'Ready Status (read-only): RF system ready for operation.'
-    STATUS/INTERLOCK: 'Interlock Status (read-only): RF interlocks satisfied.'
-    STATUS/FAULT: 'Fault Status (read-only): RF system fault detected.'
-- id: SR/DCCT
-  description: 'DC Current Transformer: Non-intercepting beam current monitor. Measures total circulating beam current with high accuracy.'
-  names:
-  - DC current transformer
-  members:
-  - SR/DCCT01
-  signals:
-    CURRENT: 'Beam Current (milliAmperes): Total circulating electron current. Typical range: 1-500 mA.'
-    CURRENT/RB: 'Current Readback (read-only): Standard beam current measurement.'
-    STATUS: 'DCCT Operational Status: Measurement validity.'
-    STATUS/VALID: 'Valid Status (read-only): DCCT measurement is valid and calibrated.'
 - id: SR/DIAG
   description: 'Diagnostic System (DIAG): Beam measurement and monitoring instrumentation. Includes beam position monitors (BPMs) for orbit measurement, beam current monitors (DCCT), and radiation safety monitors.'
   members:
@@ -463,55 +338,6 @@
   - SR/DIPOLE34
   - SR/DIPOLE35
   - SR/DIPOLE36
-  signals:
-    CURRENT: 'Magnet Excitation Current (Amperes): Current through dipole coil windings. Directly proportional to magnetic bending field via Ampere''s law (B ∝ I). Typically 50-500A depending on ring energy. Tightly regulated by precision power supplies to maintain stable beam energy and trajectory.'
-    CURRENT/SP: 'Current Setpoint (read-write): Commanded dipole current for desired bending field. Operators or high-level software set this to control beam energy. Power supply servo loop regulates output to match setpoint.'
-    CURRENT/RB: 'Current Readback (read-only): Actual measured dipole current from DCCT. High-accuracy measurement (±0.01%) essential for field reproducibility. Used in power supply feedback loop and archived for orbit analysis.'
-    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference setpoint for optimal beam operation. Stored golden values represent known good operating conditions. Read-only - used for comparison and restore operations.'
-    STATUS: 'Operational Status: Power supply and magnet health indicators. Monitor readiness, operational state, and fault conditions. Critical for safe operation and automated interlocks.'
-    STATUS/READY: 'Ready Status (read-only): Power supply is ready for operation. Indicates all interlocks satisfied and system initialized.'
-    STATUS/ON: 'On Status (read-only): Power supply is energized and regulating. Indicates magnet is actively powered.'
-    STATUS/FAULT: 'Fault Status (read-only): Fault condition detected (overcurrent, overvoltage, etc.). Boolean flag - true indicates problem requiring attention.'
-- id: SR/GAMMA
-  description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
-  names:
-  - gamma detector
-  members:
-  - SR/GAMMA01
-  - SR/GAMMA02
-  - SR/GAMMA03
-  - SR/GAMMA04
-  signals:
-    DOSE_RATE: 'Gamma Dose Rate (mrem/hour): Gamma radiation intensity measurement.'
-    DOSE_RATE/INST: 'Instantaneous (read-only): Real-time gamma dose rate.'
-    DOSE_RATE/AVG_1MIN: '1-Minute Average (read-only): Gamma dose rate averaged over 1 minute.'
-    DOSE_RATE/AVG_1HR: '1-Hour Average (read-only): Gamma dose rate averaged over 1 hour.'
-    STATUS: 'Gamma Monitor Status: Operational health and alarm state.'
-    STATUS/VALID: 'Valid Data (read-only): Monitor is operational.'
-    STATUS/ALARM: 'Alarm Status (read-only): Gamma level exceeds safety limit.'
-- id: SR/GAUGE
-  description: Cold cathode ionization gauges, one per storage-ring sector.
-  names:
-  - vacuum gauge
-  members:
-  - SR/GAUGESR01
-  - SR/GAUGESR02
-  - SR/GAUGESR03
-  - SR/GAUGESR04
-  - SR/GAUGESR05
-  - SR/GAUGESR06
-  - SR/GAUGESR07
-  - SR/GAUGESR08
-  - SR/GAUGESR09
-  - SR/GAUGESR10
-  - SR/GAUGESR11
-  - SR/GAUGESR12
-  signals:
-    PRESSURE: 'Measured Pressure (Torr): Direct pressure reading from ionization gauge.'
-    PRESSURE/RB: 'Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure.'
-    STATUS: 'Gauge Operational Status: Health and validity monitoring.'
-    STATUS/ON: 'On Status (read-only): Gauge powered and measuring.'
-    STATUS/VALID: 'Valid Status (read-only): Pressure reading is valid and within range.'
 - id: SR/HCM
   description: 'Horizontal Corrector Magnets (HCM): Small dipole steering magnets for fine horizontal (X) beam position adjustments. Used in closed-orbit correction algorithms to compensate for alignment errors and field imperfections. Bipolar power supplies allow positive and negative deflection.'
   names:
@@ -589,53 +415,6 @@
   - SR/HCM70
   - SR/HCM71
   - SR/HCM72
-  signals:
-    CURRENT: 'Corrector Current (Amperes): Bipolar current for horizontal steering. Range typically ±10A.'
-    CURRENT/SP: 'Setpoint (read-write): Commanded horizontal corrector current.'
-    CURRENT/RB: 'Readback (read-only): Measured horizontal corrector current.'
-    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference orbit correction value.'
-    STATUS: Corrector magnet operational status.
-    STATUS/READY: 'Ready (read-only): Corrector power supply ready.'
-    STATUS/ON: 'On (read-only): Corrector energized and regulating.'
-- id: SR/ION-PUMP
-  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
-  names:
-  - ion pump
-  members:
-  - SR/ION-PUMP01
-  - SR/ION-PUMP02
-  - SR/ION-PUMP03
-  - SR/ION-PUMP04
-  - SR/ION-PUMP05
-  - SR/ION-PUMP06
-  signals:
-    PRESSURE: 'Vacuum Pressure (Torr): Local chamber pressure calculated from pump current. Target: <1×10^-9 Torr.'
-    PRESSURE/RB: 'Pressure Readback (read-only): Calculated vacuum pressure from pump current.'
-    VOLTAGE: 'High Voltage Supply (Volts): Operating voltage for ion pump (typically 3-7 kV).'
-    VOLTAGE/RB: 'Voltage Readback (read-only): Actual measured ion pump operating voltage.'
-    VOLTAGE/SP: 'Voltage Setpoint (read-write): Commanded ion pump high voltage.'
-    CURRENT: 'Ion Pump Current (microAmperes): Current proportional to gas pumping rate. Low current (<1 μA) indicates good vacuum.'
-    CURRENT/RB: 'Current Readback (read-only): Measured ion pump current.'
-    STATUS: 'Pump Operational Status: Health and fault monitoring.'
-    STATUS/ON: 'On Status (read-only): Pump high voltage enabled.'
-    STATUS/FAULT: 'Fault Status (read-only): Pump fault detected.'
-- id: SR/KLYSTRON
-  description: 'Klystron RF Amplifiers: High-power vacuum tube amplifiers that provide RF power to accelerating cavities. Typically 100-500 kW output power.'
-  names:
-  - klystron
-  members:
-  - SR/KLYSTRON01
-  - SR/KLYSTRON02
-  signals:
-    POWER: 'Klystron Output Power (Kilowatts): RF power produced by klystron.'
-    POWER/RB: 'Power Readback (read-only): Measured klystron output power.'
-    VOLTAGE: 'Beam Voltage (kiloVolts): High voltage accelerating electrons in klystron. Typically 50-150 kV.'
-    VOLTAGE/RB: 'Voltage Readback (read-only): Measured klystron beam voltage.'
-    VOLTAGE/SP: 'Voltage Setpoint (read-write): Commanded beam voltage.'
-    STATUS: 'Klystron Operational Status: Health and safety monitoring.'
-    STATUS/ON: 'On Status (read-only): Klystron high voltage on.'
-    STATUS/READY: 'Ready Status (read-only): Klystron ready.'
-    STATUS/FAULT: 'Fault Status (read-only): Klystron fault.'
 - id: SR/MAG
   description: 'Magnet System (MAG): Controls beam trajectory and focusing in the storage ring. Includes dipole bending magnets, quadrupole focusing magnets, sextupole magnets for chromaticity correction, and corrector magnets for precise beam steering. All magnets are powered by regulated power supplies and are critical for maintaining stable beam orbit and beam quality.'
   members:
@@ -987,23 +766,6 @@
   - SR/VCM70
   - SR/VCM71
   - SR/VCM72
-- id: SR/NEUTRON
-  description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
-  names:
-  - neutron detector
-  members:
-  - SR/NEUTRON01
-  - SR/NEUTRON02
-  - SR/NEUTRON03
-  - SR/NEUTRON04
-  signals:
-    DOSE_RATE: 'Neutron Dose Rate (mrem/hour): Neutron radiation intensity measurement.'
-    DOSE_RATE/INST: 'Instantaneous (read-only): Real-time neutron dose rate.'
-    DOSE_RATE/AVG_1MIN: '1-Minute Average (read-only): Neutron dose rate averaged over 1 minute.'
-    DOSE_RATE/AVG_1HR: '1-Hour Average (read-only): Neutron dose rate averaged over 1 hour.'
-    STATUS: 'Neutron Monitor Status: Data validity and alarm conditions.'
-    STATUS/VALID: 'Valid Data (read-only): Monitor reading is valid.'
-    STATUS/ALARM: 'Alarm Status (read-only): Radiation level exceeds safety threshold.'
 - id: SR/QD
   description: 'Defocusing Quadrupoles (QD): Quadrupole magnets with negative gradient. Defocus beam in horizontal plane, focus in vertical plane. Part of tune correction system. Work together with QF magnets for independent horizontal/vertical tune control.'
   names:
@@ -1033,15 +795,6 @@
   - SR/QD22
   - SR/QD23
   - SR/QD24
-  signals:
-    CURRENT: 'Quadrupole Excitation Current (Amperes): Current through QD coil windings. Proportional to negative field gradient. Typically 0-200A.'
-    CURRENT/SP: 'Setpoint (read-write): Commanded defocusing current for tune correction.'
-    CURRENT/RB: 'Readback (read-only): Measured defocusing current.'
-    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference defocusing current for optimal tune.'
-    STATUS: Operational status for defocusing quadrupole.
-    STATUS/READY: 'Ready (read-only): Power supply ready.'
-    STATUS/ON: 'On (read-only): Power supply energized.'
-    STATUS/FAULT: 'Fault (read-only): Fault condition detected.'
 - id: SR/QF
   description: 'Focusing Quadrupoles (QF): Quadrupole magnets with positive gradient. Focus beam in horizontal plane, defocus in vertical plane. Part of tune correction system. Work together with QD magnets for independent horizontal/vertical tune control.'
   names:
@@ -1071,15 +824,6 @@
   - SR/QF22
   - SR/QF23
   - SR/QF24
-  signals:
-    CURRENT: 'Quadrupole Excitation Current (Amperes): Current through QF coil windings. Proportional to positive field gradient. Typically 0-200A.'
-    CURRENT/SP: 'Setpoint (read-write): Commanded focusing current for tune correction.'
-    CURRENT/RB: 'Readback (read-only): Measured focusing current.'
-    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference focusing current for optimal tune.'
-    STATUS: Operational status for focusing quadrupole.
-    STATUS/READY: 'Ready (read-only): Power supply ready.'
-    STATUS/ON: 'On (read-only): Power supply energized.'
-    STATUS/FAULT: 'Fault (read-only): Fault condition detected.'
 - id: SR/QFA
   description: 'Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets.'
   names:
@@ -1109,15 +853,6 @@
   - SR/QFA22
   - SR/QFA23
   - SR/QFA24
-  signals:
-    CURRENT: 'Achromat-Arc Focusing Quadrupole Current (Amperes): current through QFA coil windings.'
-    CURRENT/SP: setpoint
-    CURRENT/RB: readback
-    CURRENT/GOLDEN: golden setpoint
-    STATUS: Operational status for achromat-arc focusing quadrupole.
-    STATUS/READY: ready
-    STATUS/ON: 'on'
-    STATUS/FAULT: fault
 - id: SR/RF
   description: 'Radio Frequency System (RF): Provides energy to the circulating beam to compensate for synchrotron radiation losses. RF cavities accelerate the beam using high-power electromagnetic waves. Klystrons provide RF power amplification.'
   members:
@@ -1154,15 +889,6 @@
   - SR/SD22
   - SR/SD23
   - SR/SD24
-  signals:
-    CURRENT: 'Sextupole Excitation Current (Amperes): Current through SD coil windings. Proportional to sextupole field strength with negative polarity. Typically 0-150A.'
-    CURRENT/SP: 'Setpoint (read-write): Commanded defocusing sextupole current for chromaticity correction.'
-    CURRENT/RB: 'Readback (read-only): Measured defocusing sextupole current.'
-    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference sextupole current for optimal chromaticity.'
-    STATUS: Operational status for defocusing sextupole.
-    STATUS/READY: 'Ready (read-only): Power supply ready.'
-    STATUS/ON: 'On (read-only): Power supply energized.'
-    STATUS/FAULT: 'Fault (read-only): Fault condition detected.'
 - id: SR/SF
   description: 'Focusing Sextupoles (SF): Sextupole magnets with positive polarity for chromatic correction. Compensate for energy-dependent focusing from quadrupoles (chromaticity). Essential for maintaining beam stability across energy spread.'
   names:
@@ -1192,15 +918,6 @@
   - SR/SF22
   - SR/SF23
   - SR/SF24
-  signals:
-    CURRENT: 'Sextupole Excitation Current (Amperes): Current through SF coil windings. Proportional to sextupole field strength. Typically 0-150A.'
-    CURRENT/SP: 'Setpoint (read-write): Commanded focusing sextupole current for chromaticity correction.'
-    CURRENT/RB: 'Readback (read-only): Measured focusing sextupole current.'
-    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference sextupole current for optimal chromaticity.'
-    STATUS: Operational status for focusing sextupole.
-    STATUS/READY: 'Ready (read-only): Power supply ready.'
-    STATUS/ON: 'On (read-only): Power supply energized.'
-    STATUS/FAULT: 'Fault (read-only): Fault condition detected.'
 - id: SR/SHD
   description: 'Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets.'
   names:
@@ -1230,15 +947,6 @@
   - SR/SHD22
   - SR/SHD23
   - SR/SHD24
-  signals:
-    CURRENT: 'Harmonic Defocusing Sextupole Current (Amperes): current through SHD coil windings.'
-    CURRENT/SP: setpoint
-    CURRENT/RB: readback
-    CURRENT/GOLDEN: golden setpoint
-    STATUS: Operational status for harmonic defocusing sextupole.
-    STATUS/READY: ready
-    STATUS/ON: 'on'
-    STATUS/FAULT: fault
 - id: SR/SHF
   description: 'Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets.'
   names:
@@ -1268,15 +976,6 @@
   - SR/SHF22
   - SR/SHF23
   - SR/SHF24
-  signals:
-    CURRENT: 'Harmonic Focusing Sextupole Current (Amperes): current through SHF coil windings.'
-    CURRENT/SP: setpoint
-    CURRENT/RB: readback
-    CURRENT/GOLDEN: golden setpoint
-    STATUS: Operational status for harmonic focusing sextupole.
-    STATUS/READY: ready
-    STATUS/ON: 'on'
-    STATUS/FAULT: fault
 - id: SR/VAC
   description: 'Vacuum System (VAC): Maintains ultra-high vacuum (UHV) in the beam chamber to minimize beam-gas scattering and maximize beam lifetime. Includes ion pumps, pressure gauges, and vacuum valves. Typical operating pressure: 10^-9 to 10^-10 Torr.'
   members:
@@ -1310,33 +1009,6 @@
   - SR/VALVE10
   - SR/VALVE11
   - SR/VALVE12
-- id: SR/VALVE
-  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
-  names:
-  - gate valve
-  members:
-  - SR/VALVE01
-  - SR/VALVE02
-  - SR/VALVE03
-  - SR/VALVE04
-  - SR/VALVE05
-  - SR/VALVE06
-  - SR/VALVE07
-  - SR/VALVE08
-  - SR/VALVE09
-  - SR/VALVE10
-  - SR/VALVE11
-  - SR/VALVE12
-  signals:
-    POSITION: 'Valve Position State: Current valve position (open/closed).'
-    POSITION/OPEN: 'Open Status (read-only): Valve fully open limit switch active.'
-    POSITION/CLOSED: 'Closed Status (read-only): Valve fully closed limit switch active.'
-    CONTROL: 'Valve Control Commands: Commands to actuate valve.'
-    CONTROL/OPEN: 'Open Command: Command channel to open valve.'
-    CONTROL/CLOSE: 'Close Command: Command channel to close valve.'
-    STATUS: 'Valve Operational Status: Ready and fault monitoring.'
-    STATUS/READY: 'Ready Status (read-only): Valve controller ready.'
-    STATUS/FAULT: 'Fault Status (read-only): Valve fault or timeout condition.'
 - id: SR/VCM
   description: 'Vertical Corrector Magnets (VCM): Small dipole steering magnets for fine vertical (Y) beam position adjustments. Work with BPMs in feedback loops to maintain desired orbit. Bipolar power supplies allow positive and negative deflection.'
   names:
@@ -1414,11 +1086,3 @@
   - SR/VCM70
   - SR/VCM71
   - SR/VCM72
-  signals:
-    CURRENT: 'Corrector Current (Amperes): Bipolar current for vertical steering.'
-    CURRENT/SP: 'Setpoint (read-write): Commanded vertical corrector current.'
-    CURRENT/RB: 'Readback (read-only): Measured vertical corrector current.'
-    CURRENT/GOLDEN: 'Golden Setpoint (read-only): Reference vertical correction value.'
-    STATUS: Corrector magnet operational status.
-    STATUS/READY: 'Ready (read-only): Corrector power supply ready.'
-    STATUS/ON: 'On (read-only): Corrector energized and regulating.'

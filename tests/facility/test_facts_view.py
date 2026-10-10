@@ -199,7 +199,7 @@ def test_a_facility_added_class_reaches_the_facts_with_its_aliases(tmp_path: Pat
 def test_both_groups_over_the_same_device_are_listed(tmp_path: Path) -> None:
     tree = plain_tree()
     tree["records/groups.yaml"] = [
-        {"id": "SR/QF", "members": ["SR/Q1"], "signals": {"SP": "the quadrupole setpoint"}},
+        {"id": "SR/QF", "members": ["SR/Q1"]},
         {"id": "SR/MAG", "members": ["SR/Q1"]},
     ]
 

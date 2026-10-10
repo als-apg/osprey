@@ -241,6 +241,7 @@ def _cavity(at: Any) -> Any:
 STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("source_invalid__pydantic_failure", "source-invalid", "a pydantic failure"),
     ("source_invalid__unknown_key", "source-invalid", "an unknown key such as `kind:`"),
+    ("source_invalid__group_signals", "source-invalid", "a group stating `signals`"),
     ("source_invalid__on_both_kinds", "source-invalid", "an `on` naming both kinds"),
     (
         "source_invalid__list_row_device_and_place",
@@ -587,7 +588,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     (
         "view_unsupported__middle_layer_no_groups",
         "view-unsupported",
-        "a middle_layer selection with no groups",
+        "a middle_layer selection with no group and no classed device",
     ),
     (
         "view_unsupported__middle_layer_meta_key",
@@ -698,6 +699,18 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: source-invalid: device SR/Q1 — unknown key `kind`; fix: remove `kind` from "
             "records/devices.yaml"
+        ),
+    ),
+    "source_invalid__group_signals": (
+        _plain(
+            put(
+                "records/groups.yaml",
+                [{"id": "QUADS", "members": ["SR/Q1"], "signals": {"SP": "x"}}],
+            )
+        ),
+        (
+            "facility: source-invalid: group QUADS — unknown key `signals`; fix: remove "
+            "`signals` from records/groups.yaml"
         ),
     ),
     "source_invalid__on_both_kinds": (
@@ -2146,11 +2159,14 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "view_unsupported__middle_layer_no_groups": (
-        _plain(),
+        _plain(
+            drop_slot("records/devices.yaml", 0, "class"),
+            drop_slot("records/devices.yaml", 1, "class"),
+        ),
         (
             "facility: view-unsupported: path channel_finder.pipeline_mode — selects "
-            "middle_layer and the facility has no group; fix: add at least one group, or "
-            "select another channel_finder_mode"
+            "middle_layer and no device of the facility is in a group or has a class; fix: add "
+            "a group or give the devices a class, or select another channel_finder_mode"
         ),
     ),
     "view_unsupported__middle_layer_meta_key": (
@@ -2159,7 +2175,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             update("records/devices.yaml", 0, place="SR"),
             put(
                 "records/groups.yaml",
-                [{"id": "SR/_X", "members": ["SR/Q1"], "signals": {"SP": "the setpoint"}}],
+                [{"id": "SR/_X", "members": ["SR/Q1"]}],
             ),
         ),
         (
@@ -2174,7 +2190,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             update("records/devices.yaml", 0, place="schema"),
             put(
                 "records/groups.yaml",
-                [{"id": "QUADS", "members": ["SR/Q1"], "signals": {"SP": "the setpoint"}}],
+                [{"id": "QUADS", "members": ["SR/Q1"]}],
             ),
         ),
         (
