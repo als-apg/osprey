@@ -311,7 +311,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -352,7 +351,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -373,7 +371,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -394,7 +391,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -415,7 +411,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -436,7 +431,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -457,7 +451,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -478,7 +471,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -499,7 +491,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -520,7 +511,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -541,7 +531,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -562,7 +551,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -583,7 +571,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -604,7 +591,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -625,7 +611,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -646,7 +631,6 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
-        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
@@ -829,9 +813,11 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   IonGauge:
     class: Gauge
     devices: address

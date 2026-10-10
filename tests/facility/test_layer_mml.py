@@ -1,6 +1,6 @@
 """The mml layer's rules, each on the smallest input that shows it.
 
-The role and pair rule, the stop on an undecided direction, shared endpoints
+The role rule, the stop on an undecided direction, shared endpoints
 and the dedup of a device two systems list run on a small invented export
 written straight to records. The rules that need a deck (``slices``, the
 planes of the orbit correctors) run on the fixture exports, and the merge
@@ -134,35 +134,17 @@ def small(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return facility
 
 
-# -- the role rule and pair derivation -----------------------------------------
+# -- the role rule ----------------------------------------------------------------
 
 
-def test_a_direction_is_a_role_and_a_setpoint_pairs_with_its_family_monitor() -> None:
+def test_a_direction_is_a_role() -> None:
     assert field_roles(parse_mapping(_document())) == {
-        "Q.Setpoint": FieldRole("setpoint", pair="Monitor"),
+        "Q.Setpoint": FieldRole("setpoint"),
         "Q.Monitor": FieldRole("readback"),
         "Q.Trim": FieldRole("setpoint"),
         "K.Setpoint": FieldRole("setpoint"),
         "K.Monitor": FieldRole("setpoint"),
         "S.Setpoint": FieldRole("setpoint"),
-    }
-
-
-def test_a_setpoint_names_the_monitor_address_of_its_own_slot(small: Path) -> None:
-    channels = _by(_rows(small, "channels.yaml"))
-    assert {address: row.get("pair") for address, row in channels.items()} == {
-        "UP:Q1:SP": "UP:Q1:RB",
-        "UP:Q2:SP": "UP:Q2:RB",
-        "DOWN:Q1:SP": "DOWN:Q1:RB",
-        "DOWN:Q2:SP": "DOWN:Q2:RB",
-        "UP:Q1:RB": None,
-        "UP:Q2:RB": None,
-        "DOWN:Q1:RB": None,
-        "DOWN:Q2:RB": None,
-        "UP:Q1:TRIM": None,
-        "UP:K1:SP": None,
-        "UP:K1:CMD": None,
-        "UP:S1:SP": None,
     }
 
 
@@ -173,9 +155,8 @@ def test_every_channel_takes_the_role_of_its_field(small: Path) -> None:
     assert {row["role"] for row in channels.values()} == {"setpoint", "readback"}
 
 
-def test_no_readback_names_a_pair(small: Path) -> None:
-    for row in _rows(small, "channels.yaml"):
-        assert row["role"] == "setpoint" or "pair" not in row
+def test_the_import_writes_no_pair(small: Path) -> None:
+    assert [row["id"] for row in _rows(small, "channels.yaml") if "pair" in row] == []
 
 
 # -- a null direction ------------------------------------------------------------
