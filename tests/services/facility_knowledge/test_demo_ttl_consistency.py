@@ -54,10 +54,18 @@ NARAD_PROPERTY = "https://narad.example.org/property/"
 #: Expected sizes, spelled out rather than derived, so a change to *both* sides
 #: at once still trips something.
 #: ``EXPECTED_CHANNELS`` counts the channel database; the view carries those and
-#: ``EXPECTED_BINDINGS`` in all, the four addresses the facility adds included.
+#: ``EXPECTED_BINDINGS`` in all, the 44 addresses the facility adds included.
 EXPECTED_CHANNELS = 2908
-EXPECTED_BINDINGS = 2912
-EXPECTED_DEVICES = 512
+EXPECTED_BINDINGS = 2952
+EXPECTED_DEVICES = 532
+
+#: Devices carrying each device prose predicate: every device carries its
+#: system's text, and only a device some described group names carries a
+#: family's.
+EXPECTED_DESCRIBED_DEVICES = {
+    "familyDescription": 524,
+    "systemDescription": EXPECTED_DEVICES,
+}
 
 #: Prose predicates on ``narad_sem:ChannelBinding``, one per binding: the
 #: channel's own sentence.
@@ -70,8 +78,8 @@ DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription")
 #: and system vocabulary. Counting the distinct values, not just the triples,
 #: is what says the texts were joined by device rather than broadcast.
 EXPECTED_DISTINCT_DEVICE_TEXTS = {
-    "familyDescription": 23,
-    "systemDescription": 3,
+    "familyDescription": 26,
+    "systemDescription": 4,
 }
 
 #: How many members of a set difference a failure message names before eliding.
@@ -165,6 +173,16 @@ def additions() -> set[str]:
 
 
 @pytest.fixture(scope="module")
+def place_bound_additions(built_control_assistant: BuiltProject, additions: set[str]) -> set[str]:
+    """The added addresses whose channel record sits on a place and names no device."""
+    return {
+        str(channel["id"])
+        for channel in built_control_assistant.facility["channels"]
+        if channel["id"] in additions and "device" not in (channel.get("on") or {})
+    }
+
+
+@pytest.fixture(scope="module")
 def corpus_pvs(committed_graph: Any) -> set[str]:
     """Every ``narad_p:fullPv`` in the view."""
     return {str(pv) for _, pv in _objects_by_predicate(committed_graph, "fullPv")}
@@ -210,18 +228,19 @@ def test_demo_ttl_bindings_equal_the_channel_database(
 
 
 def test_demo_ttl_gives_every_channel_binding_exactly_one_direction(
-    committed_graph: Any, corpus_pvs: set[str], additions: set[str]
+    committed_graph: Any, corpus_pvs: set[str], place_bound_additions: set[str]
 ) -> None:
     """No channel is both read and written, and none is neither.
 
-    The addresses the facility adds beyond the channel database sit on a place
-    and name no signal, so they are the only bindings with no direction.
+    The added addresses that sit on a place name no signal, so they are the
+    only bindings with no direction.
     """
     read = _pvs_of_bindings_with(committed_graph, "readsSignal")
     written = _pvs_of_bindings_with(committed_graph, "writesSignal")
 
+    assert place_bound_additions
     assert not (read & written), f"Bindings carrying both directions: {_sample(read & written)}"
-    assert corpus_pvs - (read | written) == additions, (
+    assert corpus_pvs - (read | written) == place_bound_additions, (
         f"Bindings with no direction at all: {_sample(corpus_pvs - (read | written))}"
     )
 
@@ -250,20 +269,33 @@ def test_every_binding_carries_its_prose(committed_graph: Any) -> None:
         )
 
 
-def test_every_device_carries_its_family_and_system_prose(committed_graph: Any) -> None:
+def test_every_device_carries_its_family_and_system_prose(
+    committed_graph: Any, built_control_assistant: BuiltProject
+) -> None:
     """Device prose comes from the device's family and its system.
 
-    The distinct-text counts are the assertion that matters: 23 smallest
-    described groups and 3 systems is the facility's vocabulary, and a join that
-    fell back to a single default would still put a text on all 512 devices.
+    The distinct-text counts are the assertion that matters: 26 smallest
+    described groups and 4 systems is the facility's vocabulary, and a join that
+    fell back to a single default would still put a text on every device. A
+    device no described group names carries its system's text alone.
     """
+    facility = built_control_assistant.facility
+    grouped = {
+        member
+        for group in facility["groups"]
+        if group.get("description")
+        for member in group.get("members") or []
+    }
+    assert len(facility["devices"]) == EXPECTED_DEVICES
+    assert len(grouped) == EXPECTED_DESCRIBED_DEVICES["familyDescription"]
 
     for predicate in DEVICE_DESCRIPTION_PREDICATES:
         pairs = list(_objects_by_predicate(committed_graph, predicate))
-        assert len(pairs) == EXPECTED_DEVICES, (
-            f"narad_p:{predicate} appears {len(pairs)} times, not once per device."
+        expected = EXPECTED_DESCRIBED_DEVICES[predicate]
+        assert len(pairs) == expected, (
+            f"narad_p:{predicate} appears {len(pairs)} times, not {expected}."
         )
-        assert len({subject for subject, _ in pairs}) == EXPECTED_DEVICES
+        assert len({subject for subject, _ in pairs}) == expected
         distinct = len({str(text) for _, text in pairs})
         assert distinct == EXPECTED_DISTINCT_DEVICE_TEXTS[predicate], (
             f"narad_p:{predicate} has {distinct} distinct texts, not "
