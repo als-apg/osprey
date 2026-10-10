@@ -599,17 +599,22 @@ async def test_a_cancelled_render_never_leaks_its_reply_into_the_next_call(monke
 
 
 async def test_a_cancel_is_not_counted_as_a_worker_death(monkeypatch, tmp_path):
+    # Neither clock is what this test is about, and the slow reply is never sent.
+    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
+    monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
     monkeypatch.setattr(
         render,
         "WORKER_ARGV",
         _stub(
             tmp_path,
-            'if payload == b"SLOW":\n    time.sleep(0.8)\n'
+            'if payload == b"SLOW":\n    time.sleep(30)\n'
             'if payload == b"CRASH":\n    os._exit(139)\nok()',
         ),
     )
     slow = asyncio.create_task(render.render_isolated(b"SLOW", task_id="slow"))
-    await asyncio.sleep(0.4)
+    # A cancel during the ready wait would count nothing either way: only one
+    # that lands inside the exchange says a cancelled task is not a death.
+    await _pid_of_the_worker_serving(slow)
     slow.cancel()
     with pytest.raises(asyncio.CancelledError):
         await slow
