@@ -75,7 +75,6 @@ from tests.interfaces.web_terminal._handoff_harness import (
     registry,
     set_store,
     ticks,
-    until,
     user_entry,
     write_transcript,
 )
@@ -509,18 +508,29 @@ async def test_a_failed_escape_write_on_a_live_pty_still_runs_the_grace():
 
 
 async def test_channel_closing_during_the_interrupt_grace_still_cancels():
+    # The channel closes on a named look, from the fake clock, for the reason
+    # the idle edge above is driven that way: the wait's sleeps cost no real
+    # time, so a close made from the test body after a real-time poll can land
+    # past the fiftieth look, where the grace has expired and the turn is
+    # terminated instead of the wait being cancelled.
     app = make_app()
     pty = pool_pty(app)
     set_store(app, "busy", time.time())
     closed = asyncio.Event()
     channel = ChannelToken(closed.is_set)
-    task = asyncio.create_task(acquire(app, KEY, "simple", channel, interrupt=True))
-    await until(lambda: pty.writes == [ESC])
-    await ticks(app, 2)
-    closed.set()
+    looks_before_close = 3
+
+    def close_on_the_third_look(count: int) -> None:
+        assert pty.writes == [ESC], "Escape is written on the first look, before any sleep"
+        if count == looks_before_close:
+            closed.set()
+
+    app.clock.on_sleep.append(close_on_the_third_look)
     with pytest.raises(ChannelClosed):
-        await task
+        await acquire(app, KEY, "simple", channel, interrupt=True)
     assert pty.terminates == 0
+    assert len(app.clock.sleeps) == looks_before_close
+    assert sum(app.clock.sleeps) < INTERRUPT_GRACE_S
     assert_released(app)
 
 

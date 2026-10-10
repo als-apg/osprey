@@ -67,6 +67,7 @@ from osprey.deployment.runtime_helper import (
     PODMAN_COMPOSE_PROVIDER_REMEDY,
     ComposeProvider,
     UnsupportedComposeProviderError,
+    buildkit_missing,
     detect_compose_provider,
     get_runtime_command,
     podman_compose_provider_advisory,
@@ -4542,6 +4543,41 @@ def _preflight_bluesky_network_backend(config: dict) -> None:
     )
 
 
+def _preflight_buildkit(config: dict) -> None:
+    """Refuse a docker image build this host cannot parse, before anything is built.
+
+    See :func:`~osprey.deployment.runtime_helper.buildkit_missing` for what is
+    asked and why podman is exempt. A refusal rather than an advisory: unlike
+    the provider pairing below, a Docker without BuildKit fails every build of
+    every service image, so there is no host on which carrying on helps.
+
+    A host that runs prebuilt images builds nothing, so it is never asked.
+
+    Total on a host with no usable runtime, like its sibling below:
+    ``verify_runtime_is_running`` owns that refusal.
+
+    The environment is the one the build itself runs with -- the process
+    environment with the shell values the entry-time ``.env`` load replaced put
+    back -- so a ``DOCKER_BUILDKIT`` the build would see is the one read here.
+
+    :param config: Raw deploy config, for the runtime and the prebuilt switch.
+    :raises RuntimeError: Docker would build these images with the legacy builder.
+    """
+    if _resolve_prebuilt_images(config):
+        return
+
+    try:
+        runtime = get_runtime_command(config)[0]
+    except RuntimeError:
+        return
+
+    from osprey.utils.config import dotenv_shell_overrides
+
+    refusal = buildkit_missing(runtime, {**os.environ, **dotenv_shell_overrides()})
+    if refusal is not None:
+        raise RuntimeError(refusal)
+
+
 def _preflight_podman_compose_provider(config: dict, provider: ComposeProvider) -> None:
     """Name the podman + Docker-Compose-v2 registry break before anything is built.
 
@@ -6856,6 +6892,10 @@ def _start_stack(
     # of the refusals that read only this deployment's own files. Still well above
     # the image build, which is the only thing it is trying to get ahead of.
     _preflight_podman_compose_provider(config, provider)
+
+    # Asks the host too, so it sits below the own-file refusals for the same
+    # reason; above every build, which is what it exists to get ahead of.
+    _preflight_buildkit(config)
 
     # Advisory, and last of the .env preflights so it reads the files every
     # provisioner above has finished writing: the shell and the env chain can

@@ -7,7 +7,7 @@ idempotency contract: re-running replaces ``source='mml'`` rows while
 preserving ``source='runtime'`` rows.
 
 The FTS extension helpers are stubbed out so the import never touches the
-network or a bundled extension file.
+network.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from osprey.services.channel_finder.databases import duckdb_import as dimp  # no
 
 @pytest.fixture(autouse=True)
 def _no_fts(monkeypatch: pytest.MonkeyPatch):
-    """Disable FTS install/index so imports stay hermetic (no network/file)."""
+    """Disable FTS install/index so imports stay hermetic (no network)."""
     monkeypatch.setattr(dimp, "ensure_fts", lambda con: None)
     monkeypatch.setattr(dimp, "_create_fts_index", lambda con: None)
 

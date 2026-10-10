@@ -1165,11 +1165,8 @@ def qmd_resync_command(rebuild: bool) -> None:
 
     \b
       - creating a local entry in the ARIEL web interface
-        (interfaces/ariel/api/routes.py:395)
       - re-upserting an entry when an attachment is uploaded
-        (interfaces/ariel/api/routes.py:533)
       - entry_create upserts from the logbook write service
-        (services/ariel_search/service.py:431 and :439)
 
     This command finds every entry changed since the last run and re-exports
     it. Entries whose content is unchanged are left alone, so a run that finds

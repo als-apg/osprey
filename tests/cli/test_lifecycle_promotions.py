@@ -698,6 +698,7 @@ def _stub_start_stack_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
         "_ensure_bluesky_document_plane_certs",
         "_preflight_env_chain_drift",
         "_preflight_env_shadowing",
+        "_preflight_buildkit",
     ):
         monkeypatch.setattr(container_lifecycle, name, lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
