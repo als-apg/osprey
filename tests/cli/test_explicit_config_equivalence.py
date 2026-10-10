@@ -1313,6 +1313,9 @@ class CellRenderer:
         # the whole point of this test. _cli_env still drops every *_API_KEY, so
         # the environment matches the one the fixtures were frozen under.
         env = _cli_env([])
+        # --skip-deps on the live side only: the venv install renders nothing
+        # the comparison reads (the masked documents are identical either way),
+        # so the freeze can keep its full build.
 
         init_args = ["init", PROJECT_NAME, "--preset", cell.preset, "--no-git"]
         if cell.mode is not None:
@@ -1322,7 +1325,7 @@ class CellRenderer:
             return Refused("init", _failure_reason(result))
 
         project = scratch / PROJECT_NAME
-        result = _run_cli(["build"], cwd=project, env=env)
+        result = _run_cli(["build", "--skip-deps"], cwd=project, env=env)
         if result.returncode != 0:
             return Refused("build", _failure_reason(result))
 

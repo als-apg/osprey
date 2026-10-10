@@ -123,7 +123,7 @@ from osprey.utils.dotenv import (
     merge_chain,
     parse_dotenv_file,
 )
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
 from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -188,7 +188,7 @@ are never named here — see :func:`_declared_specs`.
 # Probed once at import, where the module-level skip needs the answer. The
 # reason carries the cause: a probe that timed out on a loaded host must read
 # differently from a host with no engine (#820).
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 pytestmark = [
     pytest.mark.dockerbuild,

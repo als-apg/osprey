@@ -26,6 +26,8 @@ uses only neo4j-driver APIs that exist on both the 5.x and 6.x driver lines.
 from __future__ import annotations
 
 import ast
+import functools
+import json
 import os
 import subprocess
 import sys
@@ -90,6 +92,52 @@ def _run_absent_check(
     return result.returncode == 0, result.stderr
 
 
+#: The two drivers every plain import check looks for. One child answers both
+#: for a given import, so the rdflib and neo4j checks of one module share it.
+_DRIVERS = ("rdflib", "neo4j")
+
+_DRIVERS_CHECK_TEMPLATE = """\
+{setup}
+import json
+import sys
+_report = {{}}
+for _package in {packages!r}:
+    _prefix = _package + "."
+    _leaked = [m for m in sys.modules if m == _package or m.startswith(_prefix)]
+    if _leaked:
+        print(_package + " leaked into sys.modules: " + repr(_leaked), file=sys.stderr)
+    _report[_package] = _leaked
+print(json.dumps(_report))
+"""
+
+
+@functools.cache
+def _driver_report(import_stmt: str) -> tuple[dict[str, list[str]] | None, str]:
+    """Run *import_stmt* in a fresh interpreter once; report what each driver leaked.
+
+    Returns:
+        ``(report, stderr)``: *report* maps each of :data:`_DRIVERS` to the
+        modules of it found in ``sys.modules``, or is ``None`` when the child
+        failed before reporting (an import error is a failure, not a pass).
+    """
+    code = _DRIVERS_CHECK_TEMPLATE.format(setup=import_stmt, packages=_DRIVERS)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=SUBPROCESS_TIMEOUT_S,
+    )
+    if result.returncode != 0:
+        return None, result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1]), result.stderr
+
+
+def _run_driver_check(package: str, import_stmt: str) -> tuple[bool, str]:
+    """Whether *package* (one of :data:`_DRIVERS`) stayed out after *import_stmt*."""
+    report, stderr = _driver_report(import_stmt)
+    return report is not None and not report[package], stderr
+
+
 def _run_isolation_check(import_stmt: str) -> tuple[bool, str]:
     """Run *import_stmt* in a subprocess and check that rdflib is not in sys.modules.
 
@@ -100,7 +148,7 @@ def _run_isolation_check(import_stmt: str) -> tuple[bool, str]:
         Tuple of (rdflib_absent, stderr_output).  *rdflib_absent* is True when
         rdflib was not imported as a side-effect.
     """
-    return _run_absent_check("rdflib", import_stmt)
+    return _run_driver_check("rdflib", import_stmt)
 
 
 def _run_neo4j_isolation_check(import_stmt: str) -> tuple[bool, str]:
@@ -117,7 +165,7 @@ def _run_neo4j_isolation_check(import_stmt: str) -> tuple[bool, str]:
         Tuple of (neo4j_absent, stderr_output).  *neo4j_absent* is True when
         neo4j was not imported as a side-effect.
     """
-    return _run_absent_check("neo4j", import_stmt)
+    return _run_driver_check("neo4j", import_stmt)
 
 
 _MULTI_ABSENT_CHECK_TEMPLATE = """\

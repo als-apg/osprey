@@ -31,9 +31,9 @@ import pytest
 from osprey.deployment.web_terminals.artifacts import auth_env_digest
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.render import AUTH_ENV_DIGEST_LABEL
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 pytestmark = [
@@ -62,6 +62,9 @@ def _render(project_dir: Path, digest_override: str | None = None) -> None:
         "  auth:\n"
         f"    image: {_IMAGE}\n"
         '    command: ["sleep", "600"]\n'
+        # init: sleep as PID 1 ignores SIGTERM, so every recreate and the final
+        # down would otherwise wait out the whole stop grace period.
+        "    init: true\n"
         f"    env_file: {AUTH_ENV_FILENAME}\n"
         "    labels:\n"
         f'      {AUTH_ENV_DIGEST_LABEL}: "{digest}"\n',

@@ -49,7 +49,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
@@ -220,9 +220,12 @@ def client(project_dir, tmp_path):
     """
     watch_dir = tmp_path / "watch"
     watch_dir.mkdir()
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(watch_dir)},
+    with (
+        patch(
+            "osprey.interfaces.web_terminal.app._load_web_config",
+            return_value={"watch_dir": str(watch_dir)},
+        ),
+        patch("osprey.interfaces.web_terminal.app._launch_enabled_sidecars", new=AsyncMock()),
     ):
         app = create_app(
             config_path=project_dir / "config.yml",

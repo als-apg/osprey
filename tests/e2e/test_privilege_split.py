@@ -113,9 +113,9 @@ from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
 from osprey.port_layout import default_port
 from osprey.utils.workspace import container_image_context
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 #: The port the project image serves on INSIDE the container: the ``web`` slot

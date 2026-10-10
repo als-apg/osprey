@@ -434,9 +434,12 @@ def test_end_processes_skips_a_reused_pid(monkeypatch):
             live.pid, live.ppid, live.pgid, live.started + 1.0, live.command, live.state
         )
         signalled: list[int] = []
-        monkeypatch.setattr(process_tree.os, "kill", lambda pid, sig: signalled.append(pid))
-
-        ended, survivors = process_tree.end_processes([reused])
+        # Scoped, not test-wide: ``os`` is the one module object, so a patch
+        # left in place would also swallow the ``proc.kill()`` below and leave
+        # ``proc.wait()`` sitting out the child's whole sleep.
+        with monkeypatch.context() as patch:
+            patch.setattr(process_tree.os, "kill", lambda pid, sig: signalled.append(pid))
+            ended, survivors = process_tree.end_processes([reused])
 
         assert signalled == []
         assert ended == [] and survivors == []

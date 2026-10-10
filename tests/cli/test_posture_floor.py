@@ -20,7 +20,10 @@ Running it::
 
 The CLI half is marked ``slow``. Each build is seconds, not minutes: the
 presets that carry a virtual accelerator do the most work, and every cell is
-built at most once per session.
+built at most once per session. Every build passes ``--skip-deps``: the floor
+is checked while rendering, so the project venv the build would otherwise
+install (the same one for every preset) is not what any assertion here reads.
+The install itself is covered per preset by ``tests/integration/test_build_boot.py``.
 """
 
 from __future__ import annotations
@@ -310,7 +313,7 @@ def built_preset(tmp_path_factory: pytest.TempPathFactory) -> Any:
         init = _run_cli(["init", PROJECT_NAME, "--preset", preset, "--no-git"], workspace)
         assert init.returncode == 0, f"osprey init {preset} failed:\n{_output(init)}"
         repo = workspace / PROJECT_NAME
-        build = _run_cli(["build"], repo)
+        build = _run_cli(["build", "--skip-deps"], repo)
         assert build.returncode == 0, f"osprey build ({preset}) failed:\n{_output(build)}"
         built[preset] = repo
         return repo
@@ -382,7 +385,9 @@ def test_removing_a_required_key_is_refused_naming_it(
     """
     source = built_preset("hello-world")
     repo = tmp_path / PROJECT_NAME
-    shutil.copytree(source, repo)
+    # The copy leaves out the project venv: the rebuild skips deps, so it would
+    # be gigabytes copied for nothing to read it.
+    shutil.copytree(source, repo, ignore=shutil.ignore_patterns(".venv"))
 
     profile = repo / PROFILE_FILENAME
     lines = profile.read_text().splitlines(keepends=True)
@@ -390,7 +395,7 @@ def test_removing_a_required_key_is_refused_naming_it(
     assert len(kept) == len(lines) - 1, f"expected exactly one `  {key}:` line in {profile}"
     profile.write_text("".join(kept))
 
-    result = _run_cli(["build"], repo)
+    result = _run_cli(["build", "--skip-deps"], repo)
     output = _output(result)
     assert result.returncode != 0, f"build should have refused a profile with no {key}:\n{output}"
     assert f"{key} is not stated" in output

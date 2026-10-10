@@ -17,6 +17,7 @@ anything else has touched `sys.modules`, can answer the question.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 
@@ -24,14 +25,32 @@ import pytest
 
 from osprey.services.bluesky_bridge.app import _BRIDGE_ONLY_MODULES
 
+#: Every module the tests below keep out of the bridge's import path.
+_GUARDED = sorted(_BRIDGE_ONLY_MODULES | {"pyepics", "epics"})
 
-def _run_import_check(module: str) -> subprocess.CompletedProcess[str]:
-    code = f"import osprey.services.bluesky_bridge.app, sys; assert {module!r} not in sys.modules"
-    return subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
+
+@pytest.fixture(scope="module")
+def leaked() -> set[str]:
+    """The guarded modules one fresh interpreter has loaded after importing the app.
+
+    One child answers every test here: each used to spawn its own to run the
+    same import and then read ``sys.modules``, and the import is the slow part.
+    """
+    code = (
+        "import json, sys\n"
+        "import osprey.services.bluesky_bridge.app\n"
+        f"print(json.dumps([m for m in {_GUARDED!r} if m in sys.modules]))\n"
     )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, (
+        f"importing osprey.services.bluesky_bridge.app failed "
+        f"(child exit {result.returncode}):\n{result.stderr}"
+    )
+    return set(json.loads(result.stdout.strip().splitlines()[-1]))
+
+
+def _leak_message(module: str) -> str:
+    return f"importing osprey.services.bluesky_bridge.app leaked a top-level import of {module!r}"
 
 
 def test_bridge_only_modules_is_nonempty() -> None:
@@ -46,37 +65,22 @@ def test_bridge_only_modules_is_nonempty() -> None:
     }
 
 
-def test_importing_app_does_not_import_tiled() -> None:
-    result = _run_import_check("tiled")
-    assert result.returncode == 0, (
-        "importing osprey.services.bluesky_bridge.app leaked a top-level "
-        f"import of 'tiled' (child exit {result.returncode}):\n{result.stderr}"
-    )
+def test_importing_app_does_not_import_tiled(leaked: set[str]) -> None:
+    assert "tiled" not in leaked, _leak_message("tiled")
 
 
-def test_importing_app_does_not_import_bridge_only_modules() -> None:
-    failures: dict[str, subprocess.CompletedProcess[str]] = {}
-    for module in sorted(_BRIDGE_ONLY_MODULES):
-        result = _run_import_check(module)
-        if result.returncode != 0:
-            failures[module] = result
-
-    assert not failures, "\n".join(
-        f"importing osprey.services.bluesky_bridge.app leaked a top-level "
-        f"import of {module!r} (child exit {result.returncode}):\n{result.stderr}"
-        for module, result in failures.items()
-    )
+def test_importing_app_does_not_import_bridge_only_modules(leaked: set[str]) -> None:
+    offenders = sorted(leaked & _BRIDGE_ONLY_MODULES)
+    assert not offenders, "\n".join(_leak_message(module) for module in offenders)
 
 
 @pytest.mark.parametrize("module", ["pyepics", "epics"])
-def test_importing_app_does_not_import_channel_access_clients(module: str) -> None:
+def test_importing_app_does_not_import_channel_access_clients(
+    module: str, leaked: set[str]
+) -> None:
     """The Channel Access client libraries are not in `_BRIDGE_ONLY_MODULES` but
     must stay out of the bridge's import path all the same: devices — and every
     CA connection — belong to the queueserver worker, so a top-level `epics`
     import here would mean this process had grown a way to talk to hardware.
     """
-    result = _run_import_check(module)
-    assert result.returncode == 0, (
-        "importing osprey.services.bluesky_bridge.app leaked a top-level "
-        f"import of {module!r} (child exit {result.returncode}):\n{result.stderr}"
-    )
+    assert module not in leaked, _leak_message(module)
