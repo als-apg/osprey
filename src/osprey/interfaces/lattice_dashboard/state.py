@@ -196,17 +196,17 @@ def describe_deck(deck: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     """
     import at
 
-    ring = at.load_lattice(str(deck))
+    lattice = at.load_lattice(str(deck))
     sect_count = sum(
         1
-        for elem in ring
+        for elem in lattice
         if getattr(elem, "FamName", "").startswith("SECT")
         and getattr(elem, "FamName", "")[4:].isdigit()
     )
-    periodicity = sect_count if sect_count > 1 else int(getattr(ring, "periodicity", 1))
+    periodicity = sect_count if sect_count > 1 else int(getattr(lattice, "periodicity", 1))
 
     families: dict[str, dict[str, Any]] = {}
-    for elem in ring:
+    for elem in lattice:
         fam = getattr(elem, "FamName", None)
         if fam is None:
             continue
@@ -242,10 +242,10 @@ def describe_deck(deck: Path) -> tuple[dict[str, Any], dict[str, Any]]:
             }
 
     summary: dict[str, Any] = {
-        "energy_gev": float(ring.energy) / 1e9,
-        "circumference_m": float(ring.get_s_pos(len(ring))[0]),
+        "energy_gev": float(lattice.energy) / 1e9,
+        "circumference_m": float(lattice.get_s_pos(len(lattice))[0]),
         "periodicity": periodicity,
-        "num_elements": len(ring),
+        "num_elements": len(lattice),
     }
     return families, summary
 
