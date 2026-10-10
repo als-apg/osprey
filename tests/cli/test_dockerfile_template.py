@@ -531,9 +531,11 @@ class TestDockerfileContent:
         assert self._member_installs(calls) == [], calls
         assert calls == ["install --no-cache-dir osprey-framework==2026.9.0"], calls
 
-    def test_member_preinstall_is_best_effort(self, hello_project, tmp_path):
-        """Empirical probe: a member pip cannot install from the git spec warns
-        and falls through — every member is still tried and the primer runs."""
+    def test_member_preinstall_failure_is_fatal_for_a_git_spec(self, hello_project, tmp_path):
+        """Empirical probe: a git spec carries the ``#subdirectory`` fragment, so a
+        member pip cannot install from it fails the build. Falling through would
+        resolve the member by name from PyPI, where a commit-pinned build has no
+        guarantee the name belongs to this project."""
         deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
         log = tmp_path / "pip.log"
         result, _ = _probe_deps_body(
@@ -544,12 +546,18 @@ class TestDockerfileContent:
             pip_log=log,
             fail_subdirectory=True,
         )
-        assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+        assert result.returncode != 0, f"{result.stdout}\n{result.stderr}"
         calls = log.read_text().splitlines()
-        assert len(self._member_installs(calls)) == len(WORKSPACE_MEMBERS), calls
-        for member in WORKSPACE_MEMBERS:
-            assert f"WARNING: could not pre-install {member} from the git spec" in result.stdout
-        assert calls[-1].endswith(f" {self._GIT_SPEC}"), calls
+        first = WORKSPACE_MEMBERS[0]
+        assert self._member_installs(calls) == [
+            f"install --no-cache-dir {first} @ {self._GIT_SPEC}#subdirectory=packages/{first}"
+        ], calls
+        assert not any(c.endswith(f" {self._GIT_SPEC}") for c in calls), (
+            f"the framework primer ran after a member pre-install failed: {calls}"
+        )
+        output = result.stdout + result.stderr
+        assert f"could not install {first} from the git spec" in output
+        assert "resolving from PyPI" not in output
 
     def test_run_commands_are_valid_shell(self, hello_project, deps_project):
         """Every rendered RUN body must parse under ``/bin/sh -n``.

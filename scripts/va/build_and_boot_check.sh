@@ -231,7 +231,7 @@ find "${STAGING_DIR}" -name "__pycache__" -type d -prune -exec rm -rf {} +
 # The serving stack needs no staging step: `lume-pva-apg[ca,pva]` is an exact
 # pin in osprey's `virtual-accelerator` extra, which the Containerfile installs
 # by name from PyPI along with everything else the extra carries. So the five
-# things copied above (packages/ is the osprey-connectors workspace member the
+# things copied above (packages/ holds every workspace member the
 # Containerfile installs from source) are the whole build-context contract,
 # the one tests/va/test_va_image_build_context.py checks against the
 # Containerfile.
