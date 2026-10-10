@@ -87,7 +87,7 @@ from __future__ import annotations
 
 import re
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -848,13 +848,13 @@ def test_a_facility_clock_reads_the_facility_time_in_another_zone(tmp_path, engi
 
         clocks = page.locator(f'{STATUS_HOST} > .bar-item[data-bar-item="clock"]')
         facility_time = clocks.nth(0).locator(".bar-clock-time")
-        expect(facility_time).to_have_text(re.compile(r"^\d{2}:\d{2}$"), timeout=10_000)
 
-        tokyo = ZoneInfo("Asia/Tokyo")
-        before = datetime.now(tokyo).strftime("%H:%M")
-        text = facility_time.inner_text()
-        after = datetime.now(tokyo).strftime("%H:%M")
-        assert text in {before, after}
+        # The page repaints once a second, so just after a minute turns its
+        # text still names the minute before. The readout is waited for, not
+        # sampled: it has to reach this minute, or the next if that turns first.
+        now = datetime.now(ZoneInfo("Asia/Tokyo"))
+        minutes = "|".join((now + timedelta(minutes=n)).strftime("%H:%M") for n in (0, 1))
+        expect(facility_time).to_have_text(re.compile(rf"^(?:{minutes})$"), timeout=10_000)
 
         expect(clocks.nth(0).locator(".bar-clock-zone")).to_have_text("Tokyo")
         expect(clocks.nth(1).locator(".bar-clock-zone")).to_have_text("New York")
