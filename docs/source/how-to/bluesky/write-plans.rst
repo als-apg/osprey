@@ -164,8 +164,8 @@ before the move fails and the plan aborts, and ``bluesky.settle_tolerance``
 (default ``1e-9``) is how close the readback must come, as an absolute
 difference. The tolerance is a floor: a device whose readback declares motion
 in the facility file settles within that motion's band
-(``|drift.amplitude| + 6 × |noise|``), which the build writes into the device
-file, so only a device whose readback declares no motion and still physically
+(``|drift.amplitude|`` + 6 × the noise sigma, a ``relative`` sigma taken at the
+seed's ``nominal``), which the build writes into the device file, so only a device whose readback declares no motion and still physically
 moves needs ``settle_tolerance`` raised, and a slow device needs
 ``settle_timeout_s`` raised. Running out of budget always fails the plan:
 neither key can turn an unsettled move into a successful one.
