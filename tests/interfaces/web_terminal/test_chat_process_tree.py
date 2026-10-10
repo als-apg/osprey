@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import shutil
 import signal
 import sys
 import time
+from collections.abc import Callable
 
 import pytest
 
@@ -45,7 +47,29 @@ pytestmark = [
 ]
 
 
-def _pool(idle_seconds: float = 900.0, max_sessions: int = 5) -> ChatSessionPool:
+IDLE = 60.0
+
+
+class _Clock:
+    """A monotonic clock a test moves by hand."""
+
+    def __init__(self) -> None:
+        self.now = time.monotonic()
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _an_idle_window_after(session: OperatorSession, idle_seconds: float) -> float:
+    """A whole-second clock reading at least *idle_seconds* after the session's last turn."""
+    return math.ceil(session.last_activity) + idle_seconds
+
+
+def _pool(
+    idle_seconds: float = 900.0,
+    max_sessions: int = 5,
+    now: Callable[[], float] = time.monotonic,
+) -> ChatSessionPool:
     """A real pool that builds ``OperatorSession``s, as ``OperatorRegistry`` does."""
     return ChatSessionPool(
         factory=lambda cwd, env, session_key: OperatorSession(
@@ -53,6 +77,7 @@ def _pool(idle_seconds: float = 900.0, max_sessions: int = 5) -> ChatSessionPool
         ),
         max_sessions=max_sessions,
         idle_seconds=idle_seconds,
+        now=now,
     )
 
 
@@ -171,14 +196,19 @@ async def test_evicting_a_chat_ends_what_it_started(tmp_path):
 
 async def test_reaping_an_idle_chat_ends_what_it_started(tmp_path):
     factory = child_factory(tmp_path)
-    pool = _pool(idle_seconds=0.01)
+    clock = _Clock()
+    pool = _pool(idle_seconds=IDLE, now=clock)
     pids: list[int] = []
     try:
         with sdk_seam(factory):
             session, _ = await pool.get_or_create(KEY, str(tmp_path))
         pids = wait_for_chat_pids(session, factory.pid_files[0], 1)
-        await asyncio.sleep(0.05)
 
+        clock.now = session.last_activity
+        assert await pool.reap_idle() == 0
+        assert pool.get(KEY) is session
+
+        clock.now = _an_idle_window_after(session, IDLE)
         assert await pool.reap_idle() == 1
 
         assert pid_gone(pids[0])
@@ -189,21 +219,21 @@ async def test_reaping_an_idle_chat_ends_what_it_started(tmp_path):
 
 async def test_an_idle_chat_whose_agent_runs_a_started_command_is_not_reaped(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
-    pool = _pool(idle_seconds=0.01)
+    clock = _Clock()
+    pool = _pool(idle_seconds=IDLE, now=clock)
     pids: list[int] = []
     try:
         with sdk_seam(factory):
             session, _ = await pool.get_or_create(KEY, str(tmp_path))
         pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
-        await asyncio.sleep(0.05)
-        before = time.monotonic()
+        clock.now = _an_idle_window_after(session, IDLE)
 
         assert await pool.reap_idle() == 0
 
         assert pool.get(KEY) is session
         assert session.is_active
         assert not any(pid_gone(pid, within=0.0) for pid in pids)
-        assert session.last_activity >= before
+        assert session.last_activity == clock.now
     finally:
         await pool.drain_all()
         kill_quietly(pids)
@@ -211,22 +241,27 @@ async def test_an_idle_chat_whose_agent_runs_a_started_command_is_not_reaped(tmp
 
 async def test_an_idle_chat_is_reaped_once_its_started_command_has_exited(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
-    pool = _pool(idle_seconds=1.0)
+    clock = _Clock()
+    pool = _pool(idle_seconds=IDLE, now=clock)
     pids: list[int] = []
     try:
         with sdk_seam(factory):
             session, _ = await pool.get_or_create(KEY, str(tmp_path))
         pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
         grandchild, helper = pids
-        await asyncio.sleep(1.05)
+        clock.now = seen = _an_idle_window_after(session, IDLE)
         assert await pool.reap_idle() == 0
+        assert session.last_activity == seen
 
         kill_quietly([grandchild])
         assert pid_gone(grandchild)
         # The clock counts from the sweep that last saw the command, not from the last turn.
         assert await pool.reap_idle() == 0
+        clock.now = seen + IDLE - 1.0
+        assert await pool.reap_idle() == 0
+        assert pool.get(KEY) is session
 
-        await asyncio.sleep(1.05)
+        clock.now = seen + IDLE
         assert await pool.reap_idle() == 1
         assert pool.get(KEY) is None
         assert session.process_exited is True
