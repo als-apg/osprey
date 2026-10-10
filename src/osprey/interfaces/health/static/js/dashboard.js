@@ -4,7 +4,7 @@
  *
  * Consumes the P1 health envelope served by GET /checks (CheckReport.to_dict()
  * plus the P2 envelope keys stale / warming / interval_s / title) and paints the
- * static skeleton in index.html: the SVG ring hero, per-status summary badges,
+ * static skeleton in index.html: the SVG gauge hero, per-status summary badges,
  * per-category cards with a stacked status bar and LED check rows, latency
  * badges, expandable details, and single-toggle status filters.
  *
@@ -47,9 +47,9 @@ import { el, fmtName, fmtMs, msCls, worstStatus, byCategory } from "./helpers.js
  * @property {string} title
  */
 
-const RING_R = 80;
-const RING_C = 2 * Math.PI * RING_R;
-const RING_GAP = 4;
+const GAUGE_R = 80;
+const GAUGE_C = 2 * Math.PI * GAUGE_R;
+const GAUGE_GAP = 4;
 const DEFAULT_INTERVAL_S = 60;
 const WARMING_REPOLL_S = 3;
 
@@ -259,7 +259,7 @@ function isOnDemand(checks) {
   );
 }
 
-// -- summary / ring / grid ---------------------------------------------------
+// -- summary / gauge / grid ---------------------------------------------------
 
 /**
  * @param {string} label
@@ -298,8 +298,8 @@ function renderSumm(d) {
 
 /** @param {Envelope} d */
 function renderRing(d) {
-  const svg = must("ring");
-  for (const seg of svg.querySelectorAll(".ring-seg")) seg.remove();
+  const svg = must("gauge");
+  for (const seg of svg.querySelectorAll(".gauge-seg")) seg.remove();
 
   const beam = must("beam");
   const rsc = must("rsc");
@@ -308,22 +308,22 @@ function renderRing(d) {
 
   const tot = d.results.length;
   if (tot === 0) {
-    setStatusClass(rsc, "ring-sc", "skip");
+    setStatusClass(rsc, "gauge-sc", "skip");
     setStatusClass(beam, "beam", "ok");
     return;
   }
 
   let off = 0;
   byCategory(d.results).forEach((checks) => {
-    const arc = (checks.length / tot) * RING_C;
-    const vis = Math.max(arc - RING_GAP, 2);
+    const arc = (checks.length / tot) * GAUGE_C;
+    const vis = Math.max(arc - GAUGE_GAP, 2);
     const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    c.setAttribute("class", "ring-seg " + statusCls(worstStatus(checks)));
+    c.setAttribute("class", "gauge-seg " + statusCls(worstStatus(checks)));
     c.setAttribute("cx", "100");
     c.setAttribute("cy", "100");
-    c.setAttribute("r", String(RING_R));
-    c.setAttribute("stroke-dasharray", vis + " " + (RING_C - vis));
-    c.setAttribute("stroke-dashoffset", String(-(off + RING_GAP / 2)));
+    c.setAttribute("r", String(GAUGE_R));
+    c.setAttribute("stroke-dasharray", vis + " " + (GAUGE_C - vis));
+    c.setAttribute("stroke-dashoffset", String(-(off + GAUGE_GAP / 2)));
     c.setAttribute("transform", "rotate(-90 100 100)");
     c.setAttribute("filter", "url(#glow)");
     svg.insertBefore(c, beam);
@@ -331,7 +331,7 @@ function renderRing(d) {
   });
 
   const ov = worstStatus(d.results);
-  setStatusClass(rsc, "ring-sc", ov);
+  setStatusClass(rsc, "gauge-sc", ov);
   setStatusClass(beam, "beam", ov === "error" ? "error" : ov === "warning" ? "warning" : "ok");
 }
 
@@ -356,11 +356,11 @@ function renderGrid(d) {
 
 /** The cold, no-cache state: a first scan is running; suppress stale chrome. */
 function renderWarming() {
-  const svg = must("ring");
-  for (const seg of svg.querySelectorAll(".ring-seg")) seg.remove();
+  const svg = must("gauge");
+  for (const seg of svg.querySelectorAll(".gauge-seg")) seg.remove();
   must("rok").textContent = "--";
   must("rtot").textContent = "";
-  setStatusClass(must("rsc"), "ring-sc", "skip");
+  setStatusClass(must("rsc"), "gauge-sc", "skip");
   must("summ").textContent = "";
 
   const grid = must("grid");

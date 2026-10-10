@@ -13,7 +13,7 @@
   token-only.
 
   STATUS CLASSES (JS contract): the original dashboard set a few colors
-  inline from JS (badge dots, ring segments, the beam, the ring score, and
+  inline from JS (badge dots, gauge segments, the beam, the gauge score, and
   each card header's accent border). Inline hex is not allowed here, so the
   JS port instead toggles a status-modifier class on those elements. The
   mapping the JS must use is:
@@ -99,32 +99,32 @@ body {
  * and the panel contributes nothing of its own. */
 body.embedded .hdr { display: none; }
 
-/* ---- Hero: ring + summary ---- */
+/* ---- Hero: gauge + summary ---- */
 .hero { display: flex; flex-direction: column; align-items: center; padding: 24px 16px 16px; gap: 16px; }
-.ring-w { position: relative; width: 180px; height: 180px; }
-.ring-svg { width: 100%; height: 100%; }
-.ring-bg { fill: none; stroke: var(--border-0); stroke-width: 14; opacity: .3; }
-.ring-orbit { fill: none; stroke: var(--beam); stroke-width: .5; opacity: .12; }
-.ring-seg { fill: none; stroke-width: 14; stroke-linecap: butt; transition: stroke .6s ease, opacity .6s ease; }
-.ring-seg.s-ok { stroke: var(--ok); }
-.ring-seg.s-wn { stroke: var(--warn); }
-.ring-seg.s-er { stroke: var(--err); }
-.ring-seg.s-sk { stroke: var(--skip); }
+.gauge-w { position: relative; width: 180px; height: 180px; }
+.gauge-svg { width: 100%; height: 100%; }
+.gauge-bg { fill: none; stroke: var(--border-0); stroke-width: 14; opacity: .3; }
+.gauge-orbit { fill: none; stroke: var(--beam); stroke-width: .5; opacity: .12; }
+.gauge-seg { fill: none; stroke-width: 14; stroke-linecap: butt; transition: stroke .6s ease, opacity .6s ease; }
+.gauge-seg.s-ok { stroke: var(--ok); }
+.gauge-seg.s-wn { stroke: var(--warn); }
+.gauge-seg.s-er { stroke: var(--err); }
+.gauge-seg.s-sk { stroke: var(--skip); }
 .beam { fill: var(--beam); transition: fill .6s ease; }
 .beam.s-ok { fill: var(--beam); }
 .beam.s-wn { fill: var(--warn); }
 .beam.s-er { fill: var(--err); }
-.ring-c {
+.gauge-c {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; pointer-events: none;
 }
-.ring-sc { font-family: var(--font-d); font-weight: 700; font-size: 32px; line-height: 1; transition: color .6s ease; }
-.ring-sc.s-ok { color: var(--ok); }
-.ring-sc.s-wn { color: var(--warn); }
-.ring-sc.s-er { color: var(--err); }
-.ring-sc.s-sk { color: var(--skip); }
-.ring-sc .tot { font-size: 18px; color: var(--text-2); font-weight: 400; }
-.ring-lb { font-size: 9px; letter-spacing: 2.5px; color: var(--text-2); margin-top: 4px; text-transform: uppercase; }
+.gauge-sc { font-family: var(--font-d); font-weight: 700; font-size: 32px; line-height: 1; transition: color .6s ease; }
+.gauge-sc.s-ok { color: var(--ok); }
+.gauge-sc.s-wn { color: var(--warn); }
+.gauge-sc.s-er { color: var(--err); }
+.gauge-sc.s-sk { color: var(--skip); }
+.gauge-sc .tot { font-size: 18px; color: var(--text-2); font-weight: 400; }
+.gauge-lb { font-size: 9px; letter-spacing: 2.5px; color: var(--text-2); margin-top: 4px; text-transform: uppercase; }
 
 /* ---- Summary badges ---- */
 .summ { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
@@ -242,13 +242,13 @@ body.embedded .hdr { display: none; }
 @media (max-width: 640px) {
   .hdr-t h1 { font-size: 18px; }
   .hdr-sub { font-size: 9px; letter-spacing: 2px; }
-  .ring-w { width: 150px; height: 150px; }
-  .ring-sc { font-size: 26px; }
-  .ring-sc .tot { font-size: 15px; }
+  .gauge-w { width: 150px; height: 150px; }
+  .gauge-sc { font-size: 26px; }
+  .gauge-sc .tot { font-size: 15px; }
   .grid { grid-template-columns: 1fr; gap: 10px; padding: 10px 12px 80px; }
 }
 @media (max-width: 380px) {
-  .ring-w { width: 130px; height: 130px; }
+  .gauge-w { width: 130px; height: 130px; }
   .hdr { padding: 12px 12px 6px; }
   .hero { padding: 16px 12px 12px; }
 }
