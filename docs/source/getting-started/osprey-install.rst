@@ -2,7 +2,7 @@
 Guided Facility Setup
 =====================
 
-The ``/osprey:install`` skill is OSPREY's guided setup: a conversation with a
+The ``/osprey:setup`` skill is OSPREY's guided setup: a conversation with a
 coding agent you bring — Claude Code in the commands below. That agent is not the
 OSPREY agent: the setup builds the deployment the OSPREY agent later runs
 from. It starts from what you already have, installs OSPREY if it is missing,
@@ -54,7 +54,7 @@ In the agent session, type:
 
 .. code-block:: text
 
-   /osprey:install
+   /osprey:setup
 
 What happens
 ============
@@ -120,7 +120,7 @@ comes back as a write-up with a verdict, mechanical or architectural, and a
 recommendation: fix it on a branch and build your deployment against that branch, or
 file an issue with the OSPREY team. Nothing is sent without you seeing it.
 
-To resume, open the repository and run ``/osprey:install`` again. It continues
+To resume, open the repository and run ``/osprey:setup`` again. It continues
 after the last confirmed card.
 
 Migrating an existing project is the same conversation. Answer "an OSPREY

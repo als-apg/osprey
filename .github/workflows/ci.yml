@@ -1261,7 +1261,7 @@ jobs:
       run: |
         claude plugin details osprey@osprey | tee /tmp/details.txt
         grep -q 'Skills (10)' /tmp/details.txt
-        for s in contribute design-philosophy doc-sync housekeeping install panel pre-commit release test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
+        for s in contribute design-philosophy doc-sync housekeeping panel pre-commit release setup test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
 
   build-boot-smoke:
     name: Tier 1 — Build + MCP boot (${{ matrix.preset }})

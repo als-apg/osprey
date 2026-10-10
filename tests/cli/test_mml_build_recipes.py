@@ -1,7 +1,7 @@
 """The three install recipes an MML harvest ends in, run end to end.
 
 A harvest is only finished when ``osprey build`` accepts what ``osprey mml
-emit`` wrote, so each recipe here is the literal sequence the install skill
+emit`` wrote, so each recipe here is the literal sequence the setup skill
 tells an operator to type -- ``init``, the chain, one ``osprey set`` line,
 ``validate``, ``build`` -- and the assertions are the claims that sequence
 makes:

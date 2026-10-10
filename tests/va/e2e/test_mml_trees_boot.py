@@ -297,7 +297,7 @@ class BuiltTree:
 def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     """Install fixture ``name`` into ``destination`` and build it.
 
-    The literal recipe the install skill tells an operator to type, driven
+    The literal recipe the setup skill tells an operator to type, driven
     through the real verbs: the deployment is a control-assistant one because
     that is the preset a facility harvest lands on, every refusal is obeyed as
     printed, and the build is the ordinary one -- no flag here tells it to

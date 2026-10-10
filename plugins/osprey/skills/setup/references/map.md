@@ -249,7 +249,7 @@ a hello-world base. Run all eight steps, in order.
    edit, or every later build warns that `web-terminal-context/` holds context for users
    not on the roster. Each seeded directory is a ledger row (`built`, this facility).
 
-`tests/cli/test_install_web_terminal_path.py` in the OSPREY repository drives this recipe
+`tests/cli/test_setup_web_terminal_path.py` in the OSPREY repository drives this recipe
 end to end, so a step that stops working fails there rather than in a run.
 
 ## Base demo material

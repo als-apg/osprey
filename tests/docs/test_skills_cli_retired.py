@@ -31,14 +31,15 @@ import pytest
 
 #: Every retired name, spelled once, as a single alternation.
 #:
-#: ``build-interview`` appears twice: the ``osprey-`` form the removed CLI created,
-#: and the ``osprey:`` plugin form it carried until the skill became
-#: ``/osprey:install``. The deployer-facing page was renamed with it
-#: (``getting-started/osprey-install``), so no page path survives either.
+#: The guided setup is ``/osprey:setup``. Its three earlier names are all here:
+#: the ``osprey-build-interview`` form the removed CLI created, and the two
+#: plugin forms. The deployer-facing page keeps its published address
+#: (``getting-started/osprey-install``), which none of the three matches.
 RETIRED_PATTERN = re.compile(
     r"osprey skills"
     r"|osprey-build-interview"
     r"|osprey:build-interview"
+    r"|osprey:install"
     r"|osprey-contribute"
     r"|osprey-pre-commit"
     r"|osprey-release"
@@ -162,8 +163,17 @@ def test_the_sweep_would_catch_a_regression(tmp_path: Path, relative_path: str, 
         _assert_clean(tmp_path, (root,))
 
 
-def test_the_renamed_skill_is_retired_in_both_spellings() -> None:
-    """The CLI-era command and the plugin-era name are both gone."""
+def test_the_guided_setup_answers_to_one_name() -> None:
+    """Every earlier name of the guided setup is retired; only the current one passes."""
     assert RETIRED_PATTERN.search("Invoke /osprey-build-interview to start")
     assert RETIRED_PATTERN.search("type `/osprey:build-interview` in the session")
-    assert not RETIRED_PATTERN.search("type `/osprey:install` in the session")
+    assert RETIRED_PATTERN.search("type `/osprey:install` in the session")
+    assert not RETIRED_PATTERN.search("type `/osprey:setup` in the session")
+    assert not RETIRED_PATTERN.search("see getting-started/osprey-install.html")
+
+
+def test_the_plugin_ships_the_guided_setup_under_one_directory() -> None:
+    """A leftover directory under an earlier name would ship a second, stale skill."""
+    skills = {p.name for p in (_REPO_ROOT / "plugins" / "osprey" / "skills").iterdir()}
+    assert "setup" in skills
+    assert skills.isdisjoint({"install", "build-interview"})
