@@ -1610,6 +1610,16 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         instruments = measurement.get("instruments") or {}
         wired = {str(entry.get("address")) for entry in model.get("wiring") or []}
         grouped = measurement_groups(document, name)
+        shared = groups_named.get("hcor")
+        if shared is not None and shared == groups_named.get("vcor"):
+            yield FacilityBuildError(
+                "value-invalid",
+                name,
+                files,
+                "name one group per plane; a corrector steered in both planes is a member of both",
+                record_kind="measurement",
+                detail=f"`groups.hcor` and `groups.vcor` both name group {shared}",
+            )
         for kind in measurement.get("kinds") or []:
             if kind != "orm" and _single_pass(model):
                 yield _measurement_missing(

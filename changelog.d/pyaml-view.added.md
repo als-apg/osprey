@@ -20,9 +20,10 @@ and instrument `tune`; `crm` needs group `sext` and instruments `tune` and `rf`;
 `chromaticity_monitor` needs instruments `tune` and `rf`. A member the file does
 not name or the model does not wire, or any kind but `orm` on a `single_pass`
 model, stops the build (`reference-missing`); a step or settle key the kind's
-tool takes, missing, stops it (`value-invalid`). Group `hcor` stands for the
-setpoints its model steers horizontally and `vcor` for those it steers
-vertically, so a corrector steered in both planes is split between them.
+tool takes, missing, stops it (`value-invalid`), as does one group named as
+both `hcor` and `vcor`. Group `hcor` stands for the setpoints its model steers
+horizontally and `vcor` for those it steers vertically, so a corrector steered
+in both planes, a member of both groups, is split between them.
 
 `data/facility_facts.json` records each pyAML view the render wrote under
 `measurement_models` (the configuration's path and digest, and the digest of
