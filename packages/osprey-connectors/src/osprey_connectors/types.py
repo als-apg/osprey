@@ -549,24 +549,16 @@ def switch_capable(section: Any) -> bool:
     that promises a switch the runtime will not perform is worse than one that
     never mentions it.
 
-    Two conditions, neither sufficient alone:
+    One rule: a deployment is switch-capable when its section resolves and
+    **at least two targets are configured** (:func:`configured_targets`, the
+    same resolve-and-read-the-block enumeration every roster walks; the
+    baseline is always one of them).
 
-    1. **The deployment's baseline target resolves back to its own control
-       system.** A session starts on the machine the config selected and on no
-       other: :func:`baseline_target` must resolve back to
-       ``control_system.type``. The baseline is *resolved*, never assumed to be
-       ``live`` or ``va``: a deployment on the simulator in process is on
-       ``va``, and a ``live_standin`` deployment is baselined on ``standin``.
-       A deployment baselined on the simulator in process that also carries
-       an ``epics`` or ``live_standin`` block is switch-capable, and a switch
-       to that block passes every gate a switch passes.
-    2. **At least two targets are configured** (:func:`configured_targets`,
-       the same resolve-and-read-the-block enumeration every roster walks).
-       Which two is not this predicate's business: a facility rehearsing on a
-       stand-in beside its simulator, with no live machine authored yet, has
-       exactly the two-machine world the switch exists for — demanding the
-       ``live``/``va`` pair specifically would lock that deployment's posture
-       toggles for want of a machine it never claimed to have.
+    Which two is not this predicate's business: a facility rehearsing on a
+    stand-in beside its simulator, with no live machine authored yet, has
+    exactly the two-machine world the switch exists for — demanding the
+    ``live``/``va`` pair specifically would lock that deployment's posture
+    toggles for want of a machine it never claimed to have.
 
     Deliberately *not* checked: ``probe_channel``, the gateways table, the
     operator acknowledgment. Those decide whether a target may be switched *to*
@@ -579,20 +571,16 @@ def switch_capable(section: Any) -> bool:
             rendered config pass ``config.get("control_system")``.
 
     Returns:
-        ``True`` when the section is consistent and configures at least two
-        targets. Never raises: every malformed, partial or contradictory config
-        is simply not capable.
+        ``True`` when the section resolves and configures at least two
+        targets. Never raises: a section that is not a mapping or does not
+        resolve is not capable.
     """
     if not isinstance(section, dict):
         return False
     try:
-        if resolve_target(section, baseline_target(section)) != resolve_control_system_type(
-            section
-        ):
-            return False
+        return len(configured_targets(section)) >= 2
     except ValueError:
         return False
-    return len(configured_targets(section)) >= 2
 
 
 def target_configured(section: Any, target: Any) -> bool:

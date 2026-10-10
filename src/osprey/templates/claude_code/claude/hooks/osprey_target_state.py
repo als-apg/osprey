@@ -911,20 +911,15 @@ def _baseline_target(section):
 def _switch_capable(section):
     """Whether this deployment gives a session more than one target to point at.
 
-    The stdlib restatement of ``osprey_connectors.types.switch_capable``, whose
-    two conditions are mirrored here in order: the deployment's OWN type is
-    what its baseline target resolves back to, so a session starts on the
-    machine the config selected (a deployment baselined on the simulator in
-    process is on ``va``); and at least two targets are configured
-    (:func:`_configured_targets`, the same enumeration every roster walks).
+    The stdlib restatement of ``osprey_connectors.types.switch_capable``: at
+    least two targets are configured (:func:`_configured_targets`, the same
+    enumeration every roster walks).
 
     Which two is deliberately not asked, in step with the framework: a
     stand-in beside a simulator with no live machine authored is exactly the
     switching world, and demanding the ``live``/``va`` pair would deny it.
     """
     if not isinstance(section, dict):
-        return False
-    if target_type(section, _baseline_target(section)) != _resolved_type(section):
         return False
     return len(_configured_targets(section)) >= 2
 
