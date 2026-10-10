@@ -4,8 +4,8 @@ A test that drives a connector hands it the addresses it reads and writes as a
 facility tree, the way a deployment does. :func:`served_tree` writes those
 addresses as channel records under ``<root>/data/facility``, builds the
 facility file and renders it into ``<root>/build``, and returns that render's
-simulator view, the directory a connector serves from. :func:`mock_config`
-names that view in a mock connector's ``connect()`` settings.
+simulator view, the directory a connector serves from. :func:`in_process_config`
+names that view in the in-process simulator's ``connect()`` settings.
 
 Every setpoint is writable: the render runs the simulated target with
 ``limits_checking.mode: optional``, so a setpoint without a limits record takes
@@ -21,16 +21,17 @@ from typing import Any
 
 import yaml
 
-__all__ = ["MOCK_RENDER_CONFIG", "SIMULATOR_VIEW", "mock_config", "served_tree"]
+__all__ = ["IN_PROCESS_RENDER_CONFIG", "SIMULATOR_VIEW", "in_process_config", "served_tree"]
 
-#: The ``connect()`` setting that names the simulator view a mock serves.
+#: The ``connect()`` setting that names the simulator view the in-process simulator serves.
 SIMULATOR_VIEW = "simulator_view"
 
-#: The rendered configuration the tree is rendered under: the simulated target,
-#: with every setpoint writable.
-MOCK_RENDER_CONFIG: Mapping[str, Any] = {
+#: The rendered configuration the tree is rendered under: the simulator served
+#: in process, with every setpoint writable.
+IN_PROCESS_RENDER_CONFIG: Mapping[str, Any] = {
     "control_system": {
-        "type": "mock",
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": {"serving": "in_process"}},
         "limits_checking": {"enabled": True, "mode": "optional"},
     }
 }
@@ -98,7 +99,7 @@ def served_tree(
     render_dir.mkdir()
     document = build_facility(facility_dir, project_name="served")
     render_facility_outputs(
-        render_dir, document, MOCK_RENDER_CONFIG, facility_dir, omitted_reported=_REPORTED
+        render_dir, document, IN_PROCESS_RENDER_CONFIG, facility_dir, omitted_reported=_REPORTED
     )
 
     view = render_dir / "data" / "simulator"
@@ -106,17 +107,21 @@ def served_tree(
     return view
 
 
-def mock_config(view: Path, **settings: Any) -> dict[str, Any]:
-    """A mock connector's ``connect()`` settings serving ``view``.
+def in_process_config(view: Path, **settings: Any) -> dict[str, Any]:
+    """The in-process simulator's connector block serving ``view``.
+
+    Also its ``connect()`` settings: the block states ``serving: in_process``,
+    which the factory reads and ``connect()`` ignores.
 
     Args:
         view: A simulator view, as :func:`served_tree` returns it.
         settings: The connector's other settings.
 
     Returns:
-        ``settings`` with the view named under :data:`SIMULATOR_VIEW`.
+        ``settings`` with the venue and the view named under
+        :data:`SIMULATOR_VIEW`.
     """
-    return {SIMULATOR_VIEW: str(view), **settings}
+    return {"serving": "in_process", SIMULATOR_VIEW: str(view), **settings}
 
 
 def _check_served(view: Path, setpoints: set[str], readbacks: set[str]) -> None:

@@ -348,7 +348,7 @@ class TestControlAssistantTurnkeyPlanControlSystem:
     turn-key plan stack, together with the live stand-in derived from it, and
     control_system.type is pinned to "virtual_accelerator" so a fresh session
     opens on the sandbox simulator, the one machine here where a write is
-    harmless -- flipping the one config line to "mock" is the documented
+    harmless -- serving the simulator in process is the documented
     fallback for environments with no containers to depend on
     (covered by tests/cli/test_va_default_config.py).
     """

@@ -119,7 +119,7 @@ def test_load_zero_errors_zero_warnings(caplog):
     # "no errors" has to be asserted as "the config actually arrived".
     assert config, "loader returned an empty config — the legacy file failed to parse"
     assert config["project_name"] == "legacy-tolerance-project"
-    assert config["control_system"]["type"] == "mock"
+    assert config["control_system"]["type"] == "virtual_accelerator"
     assert config["control_system"]["writes_enabled"] is False
 
     noisy = [r for r in caplog.records if r.levelno >= logging.WARNING]

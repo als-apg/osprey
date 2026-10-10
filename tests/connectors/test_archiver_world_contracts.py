@@ -397,7 +397,10 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
     config = {
         "project_name": "archiver-world-contracts",
         "project_root": str(root),
-        "control_system": {"type": "mock"},
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
         "archiver": {
             "type": "mongodb_archiver",
             "mongodb_archiver": {

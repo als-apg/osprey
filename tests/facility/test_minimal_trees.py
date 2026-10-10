@@ -44,7 +44,12 @@ SIMULATOR_FILES = (
 )
 
 #: A mock control system, the profile the served minimal trees are built under.
-MOCK_PROFILE: dict[str, Any] = {"config": {"control_system.type": "mock"}}
+MOCK_PROFILE: dict[str, Any] = {
+    "config": {
+        "control_system.type": "virtual_accelerator",
+        "control_system.connector.virtual_accelerator.serving": "in_process",
+    }
+}
 
 #: Two separator conventions in one namespace: setpoints paired with their
 #: readbacks by ``pair``, each seeded with a nominal value.
@@ -80,7 +85,10 @@ MIXED_NAMESPACE: dict[str, Any] = {
 CRITERION_7_PROFILE: dict[str, Any] = {
     "bluesky": {},
     "channel_finder_mode": "hierarchical",
-    "config": {"control_system.type": "mock"},
+    "config": {
+        "control_system.type": "virtual_accelerator",
+        "control_system.connector.virtual_accelerator.serving": "in_process",
+    },
 }
 
 
@@ -220,16 +228,16 @@ def _writes_enabled(key: str, default: Any = None) -> Any:
 
 
 async def _served(project: BuiltProject) -> Any:
-    from osprey_connectors.control_system.mock_connector import MockConnector
-    from tests.facility.served_tree import mock_config
+    from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+    from tests.facility.served_tree import in_process_config
 
-    connector = MockConnector()
+    connector = VAInProcessConnector()
     view = project.build_dir / "data" / "simulator"
-    await connector.connect(mock_config(view, response_delay_ms=0))
+    await connector.connect(in_process_config(view, response_delay_ms=0))
     return connector
 
 
-async def test_the_mock_refuses_an_address_outside_the_facility_file(
+async def test_the_in_process_simulator_refuses_an_address_outside_the_facility_file(
     build_project: Build,
 ) -> None:
     project, result = build_project(TWO_CHANNELS, profile=MOCK_PROFILE)

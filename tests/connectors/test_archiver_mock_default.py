@@ -22,7 +22,7 @@ from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.connectors import types
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 FACTORY_LOGGER = "connector_factory"
 
@@ -116,7 +116,7 @@ class TestArchiverTypeFallback:
     async def test_explicit_type_is_honoured_without_warning(self, caplog, rendered_view):
         config = {
             "type": types.MOCK_ARCHIVER,
-            types.MOCK_ARCHIVER: mock_config(rendered_view, sample_rate_hz=1.0),
+            types.MOCK_ARCHIVER: in_process_config(rendered_view, sample_rate_hz=1.0),
         }
 
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):

@@ -52,7 +52,7 @@ def bluesky_url(monkeypatch, tmp_path):
 
     project = tmp_path / "project"
     project.mkdir()
-    (project / "config.yml").write_text("connector:\n  type: mock\n")
+    (project / "config.yml").write_text("connector:\n  type: virtual_accelerator\n")
     (project / "channels.json").write_text(json.dumps(_CATALOG))
     monkeypatch.setenv("CONFIG_FILE", str(project / "config.yml"))
 

@@ -52,11 +52,11 @@ deployed_services:
 # ============================================================
 
 control_system:
-  type: "mock"
+  type: "epics"
   writes_enabled: false
   connector:
-    mock:
-      response_delay_ms: 0
+    tango:
+      timeout_s: 2.0
     epics:
       timeout_s: 5.0
       gateways:
@@ -89,7 +89,7 @@ deployed_services:
   - postgresql
 
 control_system:
-  type: "mock"
+  type: "epics"
   connector:
     virtual_accelerator:
       timeout_s: 5.0
@@ -113,7 +113,7 @@ deployed_services:
   - postgresql
 
 control_system:
-  type: "mock"
+  type: "epics"
   connector:
     virtual_accelerator:
       timeout_s: 5.0
@@ -187,7 +187,7 @@ def test_absent_block_write_keeps_section_comments_anchored(tmp_path):
 
     # The blocks it sits beside are untouched.
     connector = pyyaml.safe_load(text)["control_system"]["connector"]
-    assert connector["mock"] == {"response_delay_ms": 0}
+    assert connector["tango"] == {"timeout_s": 2.0}
     assert connector["epics"]["gateways"]["read_only"]["port"] == 5064
 
 
@@ -374,7 +374,7 @@ deployed_services:
   - virtual_accelerator
 
 control_system:
-  type: "mock"
+  type: "epics"
   connector:
     virtual_accelerator:
       timeout_s: 5.0

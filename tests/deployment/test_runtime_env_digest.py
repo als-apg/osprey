@@ -239,7 +239,7 @@ def test_config_digest_is_stable_across_rewrites_of_identical_bytes(tmp_path: Pa
 def test_config_digest_moves_when_a_setting_changes(tmp_path: Path) -> None:
     """The whole point, in the shape the operator hits it.
 
-    ``osprey set connector=mock`` rewrites the config and the next ``up`` has to
+    ``osprey set connector=epics`` rewrites the config and the next ``up`` has to
     recreate the containers that mount it -- otherwise the deployment keeps
     answering with the connector it started on, and the flip silently did
     nothing.

@@ -31,7 +31,7 @@ class TestReadEffortLevel:
 
     @pytest.mark.parametrize(
         "config_doc",
-        [{"claude_code": {"provider": "cborg"}}, {"control_system": {"connector": "mock"}}],
+        [{"claude_code": {"provider": "cborg"}}, {"control_system": {"connector": "epics"}}],
         ids=["no-effort-key", "no-claude-code-section"],
     )
     def test_returns_none_when_absent(self, tmp_path, config_doc):

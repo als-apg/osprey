@@ -56,7 +56,8 @@ def _facility_data(root: Path, bundle: str = "hello_world") -> Path:
 #: their own rather than inheriting a preset. The posture floor refuses a build
 #: whose profile leaves any of them to a reader's fallback.
 _POSTURE_FLOOR = (
-    "  control_system.type: mock\n"
+    "  control_system.type: virtual_accelerator\n"
+    "  control_system.connector.virtual_accelerator.serving: in_process\n"
     "  archiver.type: mock_archiver\n"
     "  approval.enabled: true\n"
     "  approval.default_policy: always\n"

@@ -337,7 +337,13 @@ class TestControlPlaneKeys:
     def test_minted_on_a_mock_deploy_too(self, env_path):
         """Not gated on the connector: a later flip must not find the pair missing."""
         _ensure_bluesky_control_plane_keys(
-            {"deployed_services": ["bluesky"], "control_system": {"type": "mock"}},
+            {
+                "deployed_services": ["bluesky"],
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                },
+            },
             env_path=env_path,
         )
 
@@ -452,7 +458,13 @@ class TestDocumentPlaneCerts:
     def test_generated_for_a_mock_deploy_too(self, env_path):
         """Unconditional by design: a later connector flip must not find them missing."""
         _ensure_bluesky_document_plane_certs(
-            {"deployed_services": ["bluesky"], "control_system": {"type": "mock"}},
+            {
+                "deployed_services": ["bluesky"],
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                },
+            },
             env_path=env_path,
         )
 

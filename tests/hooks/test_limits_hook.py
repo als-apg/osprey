@@ -34,7 +34,8 @@ def _make_limits_config(tmp_path, channels_db, enabled=True, mode="exclusive"):
     return _limits_config(
         tmp_path,
         {
-            "type": "mock",
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
             "writes_enabled": True,
             "limits_checking": {
                 "enabled": enabled,
@@ -488,9 +489,12 @@ VA_PERMISSIVE = {
 #: with no target folds over the single connector `control_system.type` builds,
 #: which is the mock, and so answers the deployment-wide posture instead.
 STRAY_LIVE_BLOCK = {
-    "type": "mock",
+    "type": "virtual_accelerator",
     "limits_checking": {"enabled": True, "mode": "exclusive"},
-    "connector": {"epics": {"limits_checking": {"enabled": True, "mode": "optional"}}},
+    "connector": {
+        "virtual_accelerator": {"serving": "in_process"},
+        "epics": {"limits_checking": {"enabled": True, "mode": "optional"}},
+    },
 }
 
 #: A per-type block that states one leaf. It overrides whole, so it answers
@@ -544,14 +548,28 @@ POSTURE_SHAPES = [
     (LIVE_STRICT_BLOCK, "live"),
     (LIVE_STRICT_BLOCK, "va"),
     (
-        {"type": "mock", "limits_checking": {"enabled": True, "mode": "optional"}},
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            "limits_checking": {"enabled": True, "mode": "optional"},
+        },
         "live",
     ),
     (
-        {"type": "mock", "limits_checking": {"enabled": False, "mode": "exclusive"}},
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            "limits_checking": {"enabled": False, "mode": "exclusive"},
+        },
         "live",
     ),
-    ({"type": "mock"}, None),
+    (
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
+        None,
+    ),
 ]
 
 POSTURE_SHAPE_IDS = [

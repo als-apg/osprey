@@ -49,7 +49,12 @@ def _config(tmp_path: Path, **extra: Any) -> dict[str, Any]:
     "extra",
     [
         {"deployed_services": ["virtual_accelerator"]},
-        {"control_system": {"type": "mock"}},
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        },
         {
             "control_system": {
                 "type": "epics",
@@ -57,7 +62,7 @@ def _config(tmp_path: Path, **extra: Any) -> dict[str, Any]:
             }
         },
     ],
-    ids=["va-deployed", "mock", "va-target-beside-live"],
+    ids=["va-deployed", "in-process", "va-target-beside-live"],
 )
 def test_a_deployment_with_a_simulated_target_provisions_them(
     tmp_path: Path, extra: dict[str, Any]

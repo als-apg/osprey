@@ -54,7 +54,10 @@ def _write_profile(profile_dir: Path, **extra) -> Path:
         "virtual_accelerator": None,
         # With no accelerator to stand up, the baseline moves off the stand-in
         # the preset selects and onto the connector that needs no service.
-        "config": {"control_system.type": "mock"},
+        "config": {
+            "control_system.type": "virtual_accelerator",
+            "control_system.connector.virtual_accelerator.serving": "in_process",
+        },
     }
     extra_config = dict(extra.pop("config", {}) or {})
     profile.update(extra)

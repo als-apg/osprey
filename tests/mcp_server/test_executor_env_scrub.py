@@ -50,7 +50,11 @@ def _reset_all_config_caches(monkeypatch):
 
 def _write_subprocess_config(tmp_path):
     config = {
-        "control_system": {"type": "mock", "limits_checking": {"enabled": False}},
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            "limits_checking": {"enabled": False},
+        },
         "execution": {"execution_method": "subprocess"},
         "python_executor": {"execution_timeout_seconds": 300},
     }

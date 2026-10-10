@@ -34,10 +34,10 @@ import pytest
 import yaml
 
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.control_system.mock_connector import simulation_state_dir
+from osprey.connectors.control_system.va_in_process_connector import simulation_state_dir
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
-from tests.facility.served_tree import mock_config
+from tests.facility.served_tree import in_process_config
 
 GAUGE = "SR:VAC:GAUGE:SR{:02d}:PRESSURE:RB"
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
@@ -68,7 +68,7 @@ def _reader(view: Path) -> Reader:
 
     async def _read(channels, start, end, step):
         connector = MockArchiverConnector()
-        await connector.connect(mock_config(view, sample_rate_hz=1.0))
+        await connector.connect(in_process_config(view, sample_rate_hz=1.0))
         try:
             frame = await connector.get_data(
                 channels, start, end, precision_ms=int(step.total_seconds() * 1000)

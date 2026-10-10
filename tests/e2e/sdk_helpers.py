@@ -317,7 +317,7 @@ def init_project(
     provider: str,
     model: str | None = None,
     channel_finder_mode: str | None = None,
-    connector: str = "mock",
+    connector: str = "virtual_accelerator",
     archiver: str = "mock_archiver",
 ) -> Path:
     """Create a deployment repo at ``tmp_path/name`` and build it; return the repo root.
@@ -336,22 +336,24 @@ def init_project(
     ``--no-git`` is always passed: no test reads the repo's history and
     ``git init`` is pure latency here.
 
-    ``connector`` is pinned to ``mock`` rather than inherited from the preset:
-    the control-assistant preset baselines on its live stand-in, a deployed
-    soft IOC that has to answer Channel Access — this harness runs projects
-    without their containers, so the preset's production default would turn
-    every channel read/write into a connection timeout. Tests that deploy a
-    real stack build through their own fixtures, not this helper.
+    ``connector`` is pinned to the simulator served in process rather than
+    inherited from the preset: the control-assistant preset baselines on its
+    live stand-in, a deployed soft IOC that has to answer Channel Access — this
+    harness runs projects without their containers, so the preset's production
+    default would turn every channel read/write into a connection timeout.
+    Tests that deploy a real stack build through their own fixtures, not this
+    helper.
 
     ``archiver`` is pinned for the same reason and is the archive half of that
     same fact: the preset selects ``mongodb_archiver`` and declares the
     ``va_archiver:`` block that deploys the store it reads, so a containerless
     build would leave every ``archiver_read`` failing at connect for want of a
     store — and, before that, for want of the password ``osprey up``
-    mints. Pinning both halves to the mock is not a way around the pairing rule
-    in :mod:`osprey.connectors.honesty` but the case it explicitly allows: a
-    mock control system with the mock archiver claims nothing is real, so
-    nothing lies. Tests that want recorded history deploy a store of their own.
+    mints. Pinning the mock archiver beside the simulator in process is not a
+    way around the pairing rule in :mod:`osprey.connectors.honesty` but the
+    case it explicitly allows: the simulator in process has no recorder, so a
+    synthesized archive is the only one it can have, and nothing lies. Tests
+    that want recorded history deploy a store of their own.
 
     ``virtual_accelerator.live_standin`` is nulled as the third of those pins,
     for presets that declare a virtual accelerator at all. The control-assistant
@@ -434,6 +436,8 @@ def init_project(
     # it. The stand-in pin rides along where the preset declares a VA, and the
     # ARIEL database pin where the preset configures ARIEL.
     pins: dict[str, Any] = {"config": {"archiver.type": archiver, **_ariel_db_pins(template)}}
+    if connector == "virtual_accelerator":
+        pins["config"]["control_system.connector.virtual_accelerator.serving"] = "in_process"
     if _preset_declares_virtual_accelerator(template):
         pins["virtual_accelerator"] = {"live_standin": None}
     init_args.extend(set_pairs(pins))

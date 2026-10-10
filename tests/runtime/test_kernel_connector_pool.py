@@ -30,7 +30,7 @@ from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutco
 from osprey_connectors.types import baseline_target, configured_targets, resolve_target
 from tests._control_context_fixtures import state_dir_under
 from tests.connectors.ipc.test_pool import PYTHONPATH, SERVED, SLOW
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 from tests.runtime.test_executor_target_stamp import stamp_env, write_record
 
 #: A deployment that can switch: a virtual accelerator baseline and a stand-in.
@@ -44,7 +44,7 @@ SWITCHABLE = {
 }
 
 #: A deployment with one target, which cannot switch.
-SINGLE = {"type": "mock", "connector": {"mock": {"server": "mock-server"}}}
+SINGLE = {"type": "epics", "connector": {"epics": {"server": "epics-server"}}}
 
 
 def _serve(monkeypatch, section: dict[str, Any]) -> None:
@@ -129,7 +129,7 @@ def in_process_registry():
     from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 
     with isolated_connector_registries():
-        for name in ("mock", "virtual_accelerator", "live_standin"):
+        for name in ("epics", "virtual_accelerator", "live_standin"):
             ConnectorFactory.register_control_system(name, _FirstContextConnector)
         _FIRST_SERVER.clear()
         _FirstContextConnector.disconnected = []
@@ -380,7 +380,7 @@ class TestTheKernelPool:
         _serve(monkeypatch, SINGLE)
         runtime._route_connector_through_pool()
 
-        assert runtime.read_channel("SR:X") == "mock-server/SR:X"
+        assert runtime.read_channel("SR:X") == "epics-server/SR:X"
 
         assert isinstance(runtime._runtime_connector, _FirstContextConnector)
         assert runtime._connector_pool is None
@@ -512,7 +512,7 @@ class TestRealChildren:
             "type": SLOW,
             "writes_enabled": False,
             "connector": {
-                SLOW: mock_config(view, response_delay_ms=1),
+                SLOW: in_process_config(view, response_delay_ms=1),
                 "live_standin": {"timeout_s": 1.0},
             },
         }

@@ -16,7 +16,10 @@ from osprey.simulation.apply import apply_scenarios
 from tests._simulator_view import write_scenarios_view
 from tests.simulation.conftest import stage_sim_project
 
-MOCK_CS = {"type": "mock", "connector": {"mock": {}}}
+IN_PROCESS_CS = {
+    "type": "virtual_accelerator",
+    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+}
 VA_CS = {"type": "virtual_accelerator", "connector": {"virtual_accelerator": {}}}
 UNKNOWN_CS = {"type": "bogus", "connector": {}}
 
@@ -37,7 +40,7 @@ def _stage_project(tmp_path: Path, control_system: dict) -> Path:
 
 
 class TestApplyScenariosReadsTheSimulatorView:
-    @pytest.mark.parametrize("control_system", [MOCK_CS, VA_CS, UNKNOWN_CS])
+    @pytest.mark.parametrize("control_system", [IN_PROCESS_CS, VA_CS, UNKNOWN_CS])
     def test_a_set_the_view_lists_is_applied_under_every_type(self, tmp_path, control_system):
         project = _stage_project(tmp_path, control_system)
         write_scenarios_view(project, {"nominal": {}, "rf-thermal": {}})
@@ -46,7 +49,7 @@ class TestApplyScenariosReadsTheSimulatorView:
 
         assert result.active == ("nominal", "rf-thermal")
 
-    @pytest.mark.parametrize("control_system", [MOCK_CS, UNKNOWN_CS])
+    @pytest.mark.parametrize("control_system", [IN_PROCESS_CS, UNKNOWN_CS])
     def test_a_render_without_a_simulator_view_is_refused(self, tmp_path, control_system):
         project = _stage_project(tmp_path, control_system)
 

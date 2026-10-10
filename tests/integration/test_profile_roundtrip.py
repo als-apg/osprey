@@ -770,7 +770,8 @@ model: claude-haiku-4-5
 data: data
 channel_finder_mode: hierarchical
 config:
-  control_system.type: mock
+  control_system.type: virtual_accelerator
+  control_system.connector.virtual_accelerator.serving: in_process
   archiver.type: mock_archiver
   claude_code.telemetry.enabled: false
   hooks.debug: false

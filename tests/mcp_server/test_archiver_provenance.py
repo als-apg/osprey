@@ -267,7 +267,15 @@ async def test_suite_opens_with_the_row_while_switched(
     _config(tmp_path, monkeypatch, "epics")
     write_control_context(control_context_root, target="va")
 
-    report = await run_health_suite([], runtime=HealthRuntime({"type": "mock"}))
+    report = await run_health_suite(
+        [],
+        runtime=HealthRuntime(
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        ),
+    )
 
     assert [r.name for r in report.results] == [BASELINE_ROW_NAME]
     assert report.results[0].message.startswith("HealthRuntime is pinned to the deployment")
@@ -280,6 +288,14 @@ async def test_suite_adds_no_row_on_the_baseline(tmp_path, monkeypatch):
     """On the baseline the report is byte-identical to what it was before the row."""
     _config(tmp_path, monkeypatch, "epics")
 
-    report = await run_health_suite([], runtime=HealthRuntime({"type": "mock"}))
+    report = await run_health_suite(
+        [],
+        runtime=HealthRuntime(
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        ),
+    )
 
     assert report.results == []

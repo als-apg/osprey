@@ -66,7 +66,8 @@ def _write_config(tmp_path, overrides=None):
     """Write a config.yml with execution infrastructure settings."""
     config = {
         "control_system": {
-            "type": "mock",
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
             "limits_checking": {"enabled": False},
         },
         "execution": {

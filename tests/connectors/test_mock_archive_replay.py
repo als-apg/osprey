@@ -363,7 +363,7 @@ def test_a_journal_planted_before_a_replay_gives_identical_samples(
         def __init__(self, view_dir: Path | str, **kwargs: Any) -> None:
             state = Path(kwargs["state_dir"])
             active = (state / "active_scenarios").read_bytes()
-            journal = state / "mock" / "writes.json"
+            journal = state / "inprocess" / "writes.json"
             journal.parent.mkdir(parents=True)
             journal.write_text(
                 json.dumps(

@@ -314,7 +314,7 @@ def _reseed(root: Path, collection) -> None:
 
 
 def test_a_writes_journal_planted_before_a_rewrite_changes_no_sample(store) -> None:
-    from osprey_connectors.control_system.mock_connector import (
+    from osprey_connectors.control_system.va_in_process_connector import (
         JOURNAL_DIR,
         JOURNAL_FILE,
         active_set_sha256,

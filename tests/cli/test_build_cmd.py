@@ -84,7 +84,8 @@ def minimal_profile_yaml(profile_dir: Path) -> Path:
         "provider": "cborg",
         "model": "claude-haiku-4-5",
         "config": {
-            "control_system.type": "mock",
+            "control_system.type": "virtual_accelerator",
+            "control_system.connector.virtual_accelerator.serving": "in_process",
         },
         "mcp_servers": {
             "test_server": {
@@ -138,7 +139,7 @@ class TestProfileLoading:
 
     def test_load_profile_config_parsed(self, minimal_profile_yaml: Path):
         profile = load_profile(minimal_profile_yaml)
-        assert profile.config["control_system.type"] == "mock"
+        assert profile.config["control_system.type"] == "virtual_accelerator"
 
     def test_load_profile_mcp_servers_parsed(self, minimal_profile_yaml: Path):
         profile = load_profile(minimal_profile_yaml)
@@ -830,7 +831,10 @@ class TestBuildHelpers:
         config_path.write_text(
             dedent("""\
             control_system:
-              type: mock
+              type: virtual_accelerator
+              connector:
+                virtual_accelerator:
+                  serving: in_process
             archiver:
               type: mock_archiver
             """)
@@ -1475,7 +1479,8 @@ class TestProfileExtends:
                 "hooks": ["hook-a", "hook-b"],
                 "rules": ["rule-x"],
                 "config": {
-                    "control_system.type": "mock",
+                    "control_system.type": "virtual_accelerator",
+                    "control_system.connector.virtual_accelerator.serving": "in_process",
                     "archiver.type": "mock",
                 },
                 "mcp_servers": {
@@ -1535,7 +1540,7 @@ class TestProfileExtends:
         )
 
         profile = load_profile(child_path)
-        assert profile.config["control_system.type"] == "mock"  # inherited
+        assert profile.config["control_system.type"] == "virtual_accelerator"  # inherited
         assert profile.config["archiver.type"] == "epics_archiver"  # overridden
         assert profile.config["system.timezone"] == "UTC"  # new
 
@@ -1566,7 +1571,10 @@ class TestProfileExtends:
             {
                 "name": "Base",
                 "data": "data",
-                "config": {"control_system.type": "mock"},
+                "config": {
+                    "control_system.type": "virtual_accelerator",
+                    "control_system.connector.virtual_accelerator.serving": "in_process",
+                },
                 "mcp_servers": {
                     "matlab": {
                         "permissions": {"allow": ["mml_search", "mml_get"]},
@@ -1658,7 +1666,10 @@ class TestProfileExtends:
                 "provider": "cborg",
                 "model": "claude-opus-5",
                 "hooks": ["hook-a"],
-                "config": {"control_system.type": "mock"},
+                "config": {
+                    "control_system.type": "virtual_accelerator",
+                    "control_system.connector.virtual_accelerator.serving": "in_process",
+                },
                 "mcp_servers": {
                     "srv": {"command": "python", "args": ["-m", "srv"]},
                 },
@@ -1705,7 +1716,10 @@ class TestProfileExtends:
             {
                 "name": "Base",
                 "data": "data",
-                "config": {"control_system.type": "mock"},
+                "config": {
+                    "control_system.type": "virtual_accelerator",
+                    "control_system.connector.virtual_accelerator.serving": "in_process",
+                },
                 "mcp_servers": {
                     "srv": {"command": "python", "args": ["-m", "srv"]},
                 },
@@ -1920,7 +1934,8 @@ class TestWebPanelsRendering:
 # back, so a hand-written test profile spells them the way a materialized one
 # does.
 POSTURE_CONFIG: dict = {
-    "control_system.type": "mock",
+    "control_system.type": "virtual_accelerator",
+    "control_system.connector.virtual_accelerator.serving": "in_process",
     "archiver.type": "mock",
     "claude_code.telemetry.enabled": False,
     "hooks.debug": False,

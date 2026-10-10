@@ -68,6 +68,7 @@ def test_prober_defaults_skip_an_unconfigured_standin():
 
 
 def test_prober_defaults_survive_an_unreadable_config():
-    """No section, no crash: the baseline alone is what such a deployment is on."""
-    assert EndpointProber({}).targets == ("live",)
-    assert EndpointProber(None).targets == ("live",)
+    """No section, no crash: the baseline alone is what such a deployment is on,
+    and a section that states no type is the simulator in process, on ``va``."""
+    assert EndpointProber({}).targets == ("va",)
+    assert EndpointProber(None).targets == ("va",)

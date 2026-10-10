@@ -367,7 +367,8 @@ class TestManifestPresetStamp:
                     "model": "claude-haiku-4-5",
                     "channel_finder_mode": "in_context",
                     "config": {
-                        "control_system.type": "mock",
+                        "control_system.type": "virtual_accelerator",
+                        "control_system.connector.virtual_accelerator.serving": "in_process",
                         "archiver.type": "mock",
                         "claude_code.telemetry.enabled": False,
                         "hooks.debug": False,

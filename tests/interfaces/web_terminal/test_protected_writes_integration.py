@@ -754,7 +754,15 @@ def mcp_render(tmp_path, monkeypatch):
     ``resolve_config_path`` is the whole setup.
     """
     (tmp_path / "config.yml").write_text(
-        yaml.dump({"control_system": {"type": "mock", "writes_enabled": False}})
+        yaml.dump(
+            {
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    "writes_enabled": False,
+                }
+            }
+        )
     )
     (tmp_path / ".mcp.json").write_text(
         json.dumps({"mcpServers": {"demo": {"command": "python"}}}, indent=2) + "\n"

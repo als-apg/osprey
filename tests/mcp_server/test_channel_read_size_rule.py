@@ -41,7 +41,7 @@ def _get_channel_read():
     return get_tool_fn(channel_read)
 
 
-class _MockConnector:
+class _FakeConnector:
     """Connector stub feeding synthetic values through the real tool body.
 
     Values are keyed by address; an ``Exception`` instance is raised instead of
@@ -80,10 +80,12 @@ def _threshold_patch(inline_max: int | None):
 async def _read(tmp_path, monkeypatch, values, channels=None, inline_max=None, **kwargs):
     """Run the real channel_read tool body against a mock connector."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
-    connector = _MockConnector(values)
+    connector = _FakeConnector(values)
     with patch(
         "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
         new_callable=AsyncMock,

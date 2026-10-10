@@ -37,7 +37,7 @@ from osprey.runtime import (
 )
 
 
-class MockConnector(ControlSystemConnector):
+class RecordingConnector(ControlSystemConnector):
     """Mock control system connector for testing.
 
     A real ``ControlSystemConnector`` subclass so the runtime exercises the same
@@ -123,7 +123,7 @@ def clear_runtime_state():
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_write_channel_success():
     """Test write_channel with successful write."""
-    mock_connector = MockConnector()
+    mock_connector = RecordingConnector()
 
     with patch(
         "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
@@ -140,7 +140,7 @@ def test_write_channel_success():
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_write_channel_failure():
     """A write the control system could not deliver raises ChannelWriteFailedError."""
-    mock_connector = MockConnector(
+    mock_connector = RecordingConnector(
         canned_result=ChannelWriteResult(
             channel_address="TEST:PV",
             value_written=42.0,
@@ -172,7 +172,7 @@ class TestRuntimeWriteConfirmation:
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_mismatch_raises(self):
         """A MISMATCH outcome raises with both the sent and observed values."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
@@ -200,7 +200,7 @@ class TestRuntimeWriteConfirmation:
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_multi_channel_mismatch_raises(self):
         """The multi-channel path enforces the same contract as the single path."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV1",
                 value_written=1.0,
@@ -222,7 +222,7 @@ class TestRuntimeWriteConfirmation:
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_unconfirmed_raises(self):
         """A confirming re-read that itself failed (UNCONFIRMED) still raises."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
@@ -244,7 +244,7 @@ class TestRuntimeWriteConfirmation:
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_refused_write_raises_blocked(self):
         """A refusal (never attempted) surfaces as ChannelWriteBlockedError."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
@@ -268,7 +268,7 @@ class TestRuntimeWriteConfirmation:
     def test_confirmed_with_alarm_returns(self):
         """CONFIRMED returns even in an alarm state -- alarm severity is reported,
         never raised on."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
@@ -289,7 +289,7 @@ class TestRuntimeWriteConfirmation:
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_unrequested_returns(self):
         """confirm=False means nothing was checked (UNREQUESTED): the write returns."""
-        mock_connector = MockConnector(
+        mock_connector = RecordingConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
@@ -308,7 +308,7 @@ class TestRuntimeWriteConfirmation:
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_read_channel_success():
     """Test read_channel with successful read."""
-    mock_connector = MockConnector()
+    mock_connector = RecordingConnector()
 
     with patch(
         "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
@@ -325,7 +325,7 @@ def test_read_channel_success():
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_write_channels_bulk():
     """Test write_channels bulk operation."""
-    mock_connector = MockConnector()
+    mock_connector = RecordingConnector()
 
     with patch(
         "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
@@ -346,7 +346,7 @@ async def test_cleanup_runtime():
     """Test cleanup_runtime properly releases resources."""
     import osprey.runtime as runtime
 
-    mock_connector = MockConnector()
+    mock_connector = RecordingConnector()
 
     with patch(
         "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
@@ -366,7 +366,7 @@ async def test_cleanup_runtime():
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_connector_reuse():
     """Test that connector is created once and reused."""
-    mock_connector = MockConnector()
+    mock_connector = RecordingConnector()
 
     with patch(
         "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
@@ -387,8 +387,8 @@ def test_connector_reuse():
 @pytest.mark.usefixtures("clear_runtime_state")
 async def test_connector_recreated_after_cleanup():
     """Test that connector is recreated after cleanup."""
-    mock_connector1 = MockConnector()
-    mock_connector2 = MockConnector()
+    mock_connector1 = RecordingConnector()
+    mock_connector2 = RecordingConnector()
 
     with patch(
         "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
@@ -428,7 +428,7 @@ class TestRuntimeLimitsValidation:
         validator = LimitsValidator(test_db, {"mode": "exclusive"})
         runtime._limits_validator = validator
 
-        mock_connector = MockConnector()
+        mock_connector = RecordingConnector()
 
         with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as mock_get_connector:
             mock_get_connector.return_value = mock_connector
@@ -469,7 +469,7 @@ class TestRuntimeStepCheckReader:
 
     @staticmethod
     def _connector(reads):
-        class ReadingConnector(MockConnector):
+        class ReadingConnector(RecordingConnector):
             def _current_value_reader(self):
                 def read_current(channel_address):
                     reads.append(channel_address)
@@ -539,7 +539,7 @@ class TestRuntimeStepCheckReader:
 
         assert runtime._limits_validator is None
 
-        mock_connector = MockConnector()
+        mock_connector = RecordingConnector()
 
         with patch(
             "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
@@ -566,7 +566,7 @@ class TestRuntimeStepCheckReader:
         validator = LimitsValidator(test_db, {"mode": "exclusive"})
         runtime._limits_validator = validator
 
-        mock_connector = MockConnector()
+        mock_connector = RecordingConnector()
 
         with patch(
             "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
@@ -584,8 +584,8 @@ class TestRuntimeStepCheckReader:
 # ========================================================
 
 
-class PerChannelConnector(MockConnector):
-    """MockConnector whose outcome is chosen per channel address."""
+class PerChannelConnector(RecordingConnector):
+    """RecordingConnector whose outcome is chosen per channel address."""
 
     def __init__(self, outcomes: dict[str, WriteOutcome]):
         super().__init__()
@@ -616,8 +616,8 @@ def _record_observer():
     return events
 
 
-class BatchReadConnector(MockConnector):
-    """MockConnector whose batch read serves a canned per-address table.
+class BatchReadConnector(RecordingConnector):
+    """RecordingConnector whose batch read serves a canned per-address table.
 
     An address absent from ``table`` is omitted from the result, the way every
     connector drops a channel whose read raised; an address mapped to ``None``
@@ -676,7 +676,7 @@ def _patched_factory(connector: ControlSystemConnector):
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_write_observer_attempt_then_landed_on_confirmed():
     events = _record_observer()
-    with _patched_factory(MockConnector()):
+    with _patched_factory(RecordingConnector()):
         write_channel("TEST:PV", 1.0)
     assert events == [("TEST:PV", "attempt"), ("TEST:PV", "landed")]
 
@@ -731,7 +731,7 @@ def test_write_observer_not_called_when_limits_net_refuses():
         {"mode": "exclusive"},
     )
     events = _record_observer()
-    connector = MockConnector()
+    connector = RecordingConnector()
     with _patched_factory(connector):
         with pytest.raises(ChannelLimitsViolationError):
             write_channel("TEST:PV", 99.0)
@@ -759,7 +759,7 @@ def test_write_observer_not_called_when_target_pin_refuses():
 @pytest.mark.usefixtures("clear_runtime_state")
 def test_write_observer_attempt_fires_before_the_connector_write():
     seen_writes_at_attempt: list[int] = []
-    connector = MockConnector()
+    connector = RecordingConnector()
     import osprey.runtime as runtime
 
     def observer(_address: str, phase: str) -> None:
@@ -815,7 +815,7 @@ def test_write_observer_multi_channel_raises_first_failure():
 def test_write_observer_single_item_write_channels_notifies_once():
     """The one-item path delegates to the single-channel path: no double notify."""
     events = _record_observer()
-    with _patched_factory(MockConnector()):
+    with _patched_factory(RecordingConnector()):
         write_channels({"TEST:PV": 1.0})
     assert events == [("TEST:PV", "attempt"), ("TEST:PV", "landed")]
 
@@ -831,7 +831,7 @@ def test_write_observer_registration_is_idempotent():
 
     runtime._register_write_observer(observer)
     runtime._register_write_observer(observer)
-    with _patched_factory(MockConnector()):
+    with _patched_factory(RecordingConnector()):
         write_channel("TEST:PV", 1.0)
     assert events == [("TEST:PV", "attempt"), ("TEST:PV", "landed")]
 
@@ -845,7 +845,7 @@ def test_write_observer_raising_observer_logs_warning_and_never_blocks():
 
     runtime._register_write_observer(broken)
     events = _record_observer()
-    connector = MockConnector()
+    connector = RecordingConnector()
     with patch.object(runtime.logger, "warning") as warn:
         with _patched_factory(connector):
             write_channel("TEST:PV", 1.0)

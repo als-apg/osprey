@@ -103,6 +103,7 @@ def _build_project(
     writes_enabled: bool,
     connector_writes: dict | None = None,
     control_system_type: str | None = None,
+    drop_connectors: tuple[str, ...] = (),
 ):
     """Create a real project on disk with every write-gated server enabled.
 
@@ -125,6 +126,7 @@ def _build_project(
         writes_enabled,
         connector_writes,
         control_system_type=control_system_type,
+        drop_connectors=drop_connectors,
     )
     return project_dir
 
@@ -136,6 +138,7 @@ def _rerender(
     connector_writes: dict | None = None,
     *,
     control_system_type: str | None = None,
+    drop_connectors: tuple[str, ...] = (),
 ):
     """Apply the write posture to config.yml and re-render the Claude Code artifacts.
 
@@ -152,6 +155,8 @@ def _rerender(
     config["control_system"]["writes_enabled"] = writes_enabled
     if control_system_type is not None:
         config["control_system"]["type"] = control_system_type
+    for connector_type in drop_connectors:
+        del config["control_system"]["connector"][connector_type]
     for connector_type, armed in (connector_writes or {}).items():
         config["control_system"]["connector"][connector_type]["writes_enabled"] = armed
     # Force-enable every write-gated template (some, like bluesky, are opt-in) so
@@ -390,16 +395,17 @@ def test_agreeing_per_connector_keys_render_byte_identically_with_writes_on(tmp_
 def test_an_armed_block_for_an_unreachable_machine_still_renders_the_deny(tmp_path):
     """The rendered-settings pin for a one-target deployment.
 
-    This project builds the ``mock`` connector and does not render the switch,
-    so the armed ``epics`` block below describes a machine no session here
-    reaches. Counting it as a second target would call the render mixed and
-    drop the hard deny — writes off, and yet ``channel_write`` in neither deny
-    nor ask.
+    This project builds the ``doocs`` connector and, with no simulator block,
+    does not render the switch, so the armed ``epics`` block below describes a
+    second real machine no session here reaches. Counting it as a second
+    target would call the render mixed and drop the hard deny — writes off, and
+    yet ``channel_write`` in neither deny nor ask.
     """
     project_dir = _build_project(
         tmp_path,
         writes_enabled=False,
-        control_system_type="mock",
+        control_system_type="doocs",
+        drop_connectors=(_VA_CONNECTOR,),
         connector_writes={_LIVE_CONNECTOR: True},
     )
     deny = _rendered_permissions(project_dir)["deny"]

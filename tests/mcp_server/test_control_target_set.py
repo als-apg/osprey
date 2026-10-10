@@ -1446,7 +1446,7 @@ class TestServerStartup:
 
         config_file = tmp_path / "config.yml"
         config_file.write_text(
-            "control_system:\n  type: mock\n  writes_enabled: false\n"
+            "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  writes_enabled: false\n"
             "archiver:\n  type: mongodb_archiver\n",
             encoding="utf-8",
         )
@@ -1472,7 +1472,7 @@ class TestServerStartup:
 
         record = control_context.read_record()
         assert record is not None, "create_server must claim the control context"
-        assert (record.target, record.generation) == ("live", 0)
+        assert (record.target, record.generation) == ("va", 0)
         assert record.owner.pid == os.getpid()
         assert record.owner.kind == control_context.OWNER_CONTROLS_SERVER
 
@@ -1484,7 +1484,18 @@ class TestServerStartup:
         RecordingProber.instances.clear()
         monkeypatch.setattr(endpoint_prober, "EndpointProber", RecordingProber)
         context = ControlSystemContext()
-        context._config = type("Config", (), {"raw": {"control_system": {"type": "mock"}}})()
+        context._config = type(
+            "Config",
+            (),
+            {
+                "raw": {
+                    "control_system": {
+                        "type": "virtual_accelerator",
+                        "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    }
+                }
+            },
+        )()
         monkeypatch.setattr("osprey.mcp_server.control_system.server_context._registry", context)
 
         async with server_mod._lifespan(server_mod.mcp):

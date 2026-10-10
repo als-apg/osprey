@@ -982,11 +982,11 @@ def _health_rows(report: Any) -> list[dict[str, Any]]:
     return [row for row in rows if isinstance(row, dict)]
 
 
-def test_recorder_idles_on_mock_control_system_and_resumes_after_the_flip(archiver_world):
-    """The recorder records a virtual accelerator, and nothing else.
+def test_recorder_idles_on_the_in_process_simulator_and_resumes_after_the_flip(archiver_world):
+    """The recorder records a virtual accelerator served on the network, and nothing else.
 
-    Recording whatever the control system happens to be would put synthesized
-    mock values into a store the agent reads as machine history. The enablement
+    Recording whatever the control system happens to be would put values no
+    served machine produced into a store the agent reads as machine history. The enablement
     is re-read on an interval rather than at startup precisely so this flip needs
     no redeploy -- which is what this test exercises, by flipping the mounted
     config and waiting rather than restarting anything.
@@ -997,10 +997,10 @@ def test_recorder_idles_on_mock_control_system_and_resumes_after_the_flip(archiv
     yaml = YAML()
     yaml.preserve_quotes = True
 
-    def _set_control_system(kind: str) -> None:
+    def _set_serving(venue: str) -> None:
         with open(config_path) as handle:
             config = yaml.load(handle)
-        config["control_system"]["type"] = kind
+        config["control_system"]["connector"]["virtual_accelerator"]["serving"] = venue
         with open(config_path, "w") as handle:
             yaml.dump(config, handle)
 
@@ -1016,7 +1016,7 @@ def test_recorder_idles_on_mock_control_system_and_resumes_after_the_flip(archiv
     idle_baseline = _recorder_transitions(_RECORDER_IDLE_RE)
     recording_baseline = _recorder_transitions(_RECORDER_RECORDING_RE)
 
-    _set_control_system("mock")
+    _set_serving("in_process")
     try:
         noticed = _await_recorder_transition(
             _RECORDER_IDLE_RE, idle_baseline, announce_timeout, "idle"
@@ -1044,7 +1044,7 @@ def test_recorder_idles_on_mock_control_system_and_resumes_after_the_flip(archiv
             f"{while_idle} samples archived in the {settle:.0f}s that followed"
         )
     finally:
-        _set_control_system("virtual_accelerator")
+        _set_serving("served")
 
     resumed = _await_recorder_transition(
         _RECORDER_RECORDING_RE, recording_baseline, announce_timeout, "recording"

@@ -581,9 +581,8 @@ SANDBOX_VA_HOST = "va-gateway.example.org"
 SANDBOX_VA_PORT = 5099
 
 SANDBOX_SECTION: dict[str, Any] = {
-    "type": "mock",
+    "type": "epics",
     "connector": {
-        "mock": {"response_delay_ms": 0},
         "epics": {
             "probe_channel": LIVE_PROBE,
             "gateways": {"read_only": {"address": SANDBOX_LIVE_HOST, "port": 5064}},
@@ -650,7 +649,7 @@ class TestSandboxEndpointMatchesTheDerivation:
         runtime._runtime_connector = None
         runtime._limits_validator = None
         with isolated_connector_registries():
-            for name in ("mock", "epics", "virtual_accelerator"):
+            for name in ("epics", "virtual_accelerator"):
                 ConnectorFactory.register_control_system(name, _CapturingConnector)
             _CapturingConnector.last_config = None
             yield runtime

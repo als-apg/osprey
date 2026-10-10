@@ -94,7 +94,7 @@ def test_writes_enabled_is_not_mirrored_into_configurable(tmp_path):
     """``control_system.writes_enabled`` has its own reader; the loader must not copy it."""
     cfg = _write_config(
         tmp_path,
-        f"project_root: {tmp_path}\ncontrol_system:\n  type: mock\n  writes_enabled: true\n",
+        f"project_root: {tmp_path}\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  writes_enabled: true\n",
     )
     configurable = ConfigBuilder(str(cfg), load_env=False).configurable
     assert "control_system" not in configurable

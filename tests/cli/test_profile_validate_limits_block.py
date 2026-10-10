@@ -166,7 +166,8 @@ def test_a_non_mapping_config_has_nothing_to_refuse() -> None:
 def test_a_stray_block_for_a_type_the_deployment_does_not_run_is_still_checked() -> None:
     """The refusal is about the block's shape, not about whether the type is selected."""
     config = {
-        "control_system.type": "mock",
+        "control_system.type": "virtual_accelerator",
+        "control_system.connector.virtual_accelerator.serving": "in_process",
         "control_system.connector.live_standin.limits_checking.enabled": True,
     }
     errors = limits_block_errors(config)

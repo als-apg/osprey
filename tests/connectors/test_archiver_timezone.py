@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.control_system.mock_connector import simulation_state_dir
-from tests.facility.served_tree import mock_config
+from osprey.connectors.control_system.va_in_process_connector import simulation_state_dir
+from tests.facility.served_tree import in_process_config
 
 SR07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
 
@@ -39,7 +39,7 @@ def _vacuum_burst_view(built_control_assistant, tmp_path: Path) -> Path:
 async def _sr07_window(view: Path):
     """SR07 pressure over a 10-min window straddling 14:32:08 UTC (per-second)."""
     connector = MockArchiverConnector()
-    await connector.connect(mock_config(view, sample_rate_hz=1.0))
+    await connector.connect(in_process_config(view, sample_rate_hz=1.0))
     try:
         center = (datetime.now(UTC) - timedelta(days=1)).replace(
             hour=14, minute=32, second=8, microsecond=0

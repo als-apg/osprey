@@ -35,14 +35,14 @@ class TestExportRegistryToJson:
         assert set(data) == {"connectors", "metadata"}
 
     def test_connector_serialisation_shape(self):
-        data = export_registry_to_json(_config(_connector("mock")), registries={})
+        data = export_registry_to_json(_config(_connector("fake")), registries={})
         (entry,) = data["connectors"]
         assert entry == {
-            "name": "mock",
+            "name": "fake",
             "connector_type": "control_system",
-            "description": "mock connector",
-            "module_path": "pkg.mock",
-            "class_name": "MockConnector",
+            "description": "fake connector",
+            "module_path": "pkg.fake",
+            "class_name": "FakeConnector",
         }
 
     def test_metadata_total_matches_connector_count(self):

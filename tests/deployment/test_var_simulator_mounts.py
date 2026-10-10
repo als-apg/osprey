@@ -86,7 +86,9 @@ def _worker(tmp_path: Path, control_system: dict[str, Any] | None) -> dict[str, 
     return services["dispatch-worker-1"]
 
 
-@pytest.mark.parametrize("control_system", [None, LIVE_AND_VA], ids=["mock", "va-beside-live"])
+@pytest.mark.parametrize(
+    "control_system", [None, LIVE_AND_VA], ids=["in-process", "va-beside-live"]
+)
 def test_the_dispatch_worker_mounts_it_with_a_simulated_target(
     tmp_path: Path, control_system: dict[str, Any] | None
 ) -> None:
@@ -115,7 +117,15 @@ def _env(service: dict[str, Any]) -> dict[str, str]:
 
 
 @pytest.mark.parametrize(
-    "control_system", [{"type": "mock"}, LIVE_AND_VA], ids=["mock", "va-beside-live"]
+    "control_system",
+    [
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
+        LIVE_AND_VA,
+    ],
+    ids=["in-process", "va-beside-live"],
 )
 def test_every_web_terminal_mounts_it_with_a_simulated_target(
     control_system: dict[str, Any],

@@ -963,7 +963,7 @@ async def test_archiver_read_dedupes_repeated_channel_name(archiver_read_tool):
     assert queried_channels == ["SR:CURRENT:RB"]
 
 
-class TestArchiverReadRealMockConnector:
+class TestArchiverReadRealInProcessConnector:
     """End-to-end coverage through the real ``MockArchiverConnector``.
 
     Every test above patches the connector factory, so only these exercise a

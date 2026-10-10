@@ -301,7 +301,8 @@ def mock_config(tmp_path):
         yaml.dump(
             {
                 "control_system": {
-                    "type": "mock",
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
                     "writes_enabled": True,
                     "limits_checking": {"enabled": False},
                 },
@@ -320,7 +321,8 @@ def mock_config_writes_disabled(tmp_path):
         yaml.dump(
             {
                 "control_system": {
-                    "type": "mock",
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
                     "writes_enabled": False,
                     "limits_checking": {"enabled": False},
                 },
@@ -353,7 +355,8 @@ def mock_config_with_limits(tmp_path):
         yaml.dump(
             {
                 "control_system": {
-                    "type": "mock",
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
                     "writes_enabled": True,
                     "limits_checking": {
                         "enabled": True,

@@ -1297,7 +1297,14 @@ def test_readonly_execute_still_prompts_when_writes_are_not_armed(
     on every unarmed deployment — the tool `writes_check` deliberately lets
     through is the one this hook must keep asking about.
     """
-    config = _posture_config(make_config, {"type": "mock", "writes_enabled": False})
+    config = _posture_config(
+        make_config,
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            "writes_enabled": False,
+        },
+    )
 
     result = hook_runner(
         "osprey_approval.py",
@@ -1323,7 +1330,14 @@ def test_the_queue_tools_that_no_layer_denies_keep_their_prompt(
     `launch_token_required` once the queue drains — and a plain stop is ungated
     everywhere by design.
     """
-    config = _posture_config(make_config, {"type": "mock", "writes_enabled": False})
+    config = _posture_config(
+        make_config,
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            "writes_enabled": False,
+        },
+    )
 
     result = hook_runner(
         "osprey_approval.py",
@@ -1488,7 +1502,11 @@ _BY_LANE_GATE = "queue_start refuses before its bridge is called"
             id="channel_write-on-the-armed-simulator",
         ),
         pytest.param(
-            {"type": "mock", "writes_enabled": False},
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "writes_enabled": False,
+            },
             None,
             "mcp__python__execute",
             {"code": "caput('SR:QF:SP', 1.5)", "execution_mode": "readwrite"},
@@ -1497,7 +1515,11 @@ _BY_LANE_GATE = "queue_start refuses before its bridge is called"
             id="readwrite-execute-unarmed",
         ),
         pytest.param(
-            {"type": "mock", "writes_enabled": False},
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "writes_enabled": False,
+            },
             None,
             "mcp__python__execute",
             {"code": "print(1)", "execution_mode": "readonly"},
@@ -1647,7 +1669,9 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
     from osprey_connectors.workspace import reset_config_cache, resolve_shared_data_root
 
     config_path = tmp_path / "config.yml"
-    config_path.write_text(f"project_root: {tmp_path}\ncontrol_system:\n  type: mock\n")
+    config_path.write_text(
+        f"project_root: {tmp_path}\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
     reset_config_cache()

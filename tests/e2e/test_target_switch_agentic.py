@@ -556,7 +556,7 @@ def _init_and_build(workspace: Path, *, bench_port: int, va_port: int) -> Path:
     """Render one switch-capable deployment repo, and return its ROOT.
 
     A bespoke pinned init rather than :func:`tests.e2e.sdk_helpers.init_project`:
-    that helper pins ``connector=mock`` and ``archiver=mock_archiver`` on purpose
+    that helper serves the simulator in process and pins ``archiver=mock_archiver`` on purpose
     (it builds containerless projects) and takes no overlay of its own. This
     module is the opposite case — the containers are the point.
 

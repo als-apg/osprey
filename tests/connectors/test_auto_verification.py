@@ -12,9 +12,9 @@ import json
 from unittest.mock import patch
 
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 from tests.connectors._write_fakes import writes_enabled_config
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 #: Every address this module writes.
 WRITTEN = (
@@ -75,9 +75,9 @@ async def _connected_mock(monkeypatch, tmp_path, limits_file=None, **extra):
     config = writes_enabled_config if limits_file is None else _limits_config(limits_file, **extra)
     monkeypatch.setattr("osprey.utils.config.get_config_value", config)
 
-    connector = MockConnector()
+    connector = VAInProcessConnector()
     await connector.connect(
-        mock_config(served_tree(tmp_path / "served", WRITTEN), response_delay_ms=0)
+        in_process_config(served_tree(tmp_path / "served", WRITTEN), response_delay_ms=0)
     )
     return connector
 
@@ -347,9 +347,9 @@ class TestWritesDisabledOutranksConfirmation:
 
     async def test_a_disabled_write_is_refused_not_unrequested(self, tmp_path):
         view = served_tree(tmp_path, ["TEST:CHANNEL"])
-        connector = MockConnector()
+        connector = VAInProcessConnector()
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.write_channel("TEST:CHANNEL", 100.0, confirm=False)
 
