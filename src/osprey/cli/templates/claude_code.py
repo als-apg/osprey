@@ -324,7 +324,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # merged before resolve_agents runs, like the server gates above.
         "served_deck_models": _served_deck_models(facility_facts, facility),
         "pyaml_view_present": bool(facility_facts["measurement_models"]),
-        "measurement": hook_measurement(facility_facts),
+        "measurement": hook_measurement(facility_facts, project_dir),
         # `ariel.attachments.view.enabled`: whether the ARIEL agents may look at
         # logbook pictures. resolve_servers reads it to withhold
         # attachment_view, and the logbook templates read it to leave the tool

@@ -17,7 +17,10 @@ vocabulary and ``classes.yaml`` give the class in their authored spelling, and
 family is a group, the same groups the middle-layer index files as Families.
 ``models`` lists every model with its ``engine``, whether the render serves it
 and its engine's ``solve`` setting. ``measurement_models`` holds one record per
-measurement view the render carries, ``channel_count`` counts the channels, and
+pyAML view the render carries, ``{path, sha256, files}``: the configuration's
+path under the render and its digest, and the digest of each other file of the
+view by its name in the view's directory; the facts view is written after the
+pyAML view and reads it from disk. ``channel_count`` counts the channels, and
 ``snapshot`` is ``null``.
 
 A render with no facts file is read as the zero-source facts: the identity of
@@ -44,6 +47,7 @@ __all__ = [
     "FACTS_TEMPLATE",
     "facts_document",
     "hook_measurement",
+    "measurement_records",
     "read_facts",
     "render_facts_page",
     "write_facts_view",
@@ -145,7 +149,10 @@ def _models(doc: Mapping[str, Any], served: list[str]) -> list[dict[str, Any]]:
 
 
 def facts_document(
-    doc: Mapping[str, Any], served: list[str], project_name: str | None = None
+    doc: Mapping[str, Any],
+    served: list[str],
+    project_name: str | None = None,
+    measurement_models: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The agent facts of one render.
 
@@ -154,6 +161,8 @@ def facts_document(
         served: The models the render serves.
         project_name: The project's name, the display name of a facility that
             authors none.
+        measurement_models: The render's pyAML view records, as
+            :func:`measurement_records` reads them; none when omitted.
 
     Returns:
         The document ``facility_facts.json`` holds.
@@ -164,7 +173,7 @@ def facts_document(
         "place_levels": _place_levels(doc),
         "device_classes": _device_classes(doc),
         "models": _models(doc, served),
-        "measurement_models": {},
+        "measurement_models": dict(measurement_models or {}),
         "channel_count": len(doc.get("channels", [])),
         "snapshot": None,
     }
@@ -238,21 +247,105 @@ def read_facts(render_root: Path, project_name: str) -> dict[str, Any]:
     return zero_source_facts(identity)
 
 
-def hook_measurement(facts: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """The approval hook's ``measurement`` block of one render's facts.
+def measurement_records(data_root: Path) -> dict[str, dict[str, Any]]:
+    """The record of each pyAML view written under a render's ``data/``.
+
+    Args:
+        data_root: The render's ``data/`` directory.
+
+    Returns:
+        ``{model: {path, sha256, files}}``, sorted by model: ``path`` the
+        configuration under the render, ``sha256`` its digest, ``files`` each
+        other file of the view by its name in the view's directory, with its
+        digest.
+    """
+    import hashlib
+
+    from osprey.facility.views.pyaml import CONFIGURATION_FILE, PYAML_DIR
+
+    records: dict[str, dict[str, Any]] = {}
+    for configuration in sorted((data_root / PYAML_DIR).glob(f"*/{CONFIGURATION_FILE}")):
+        view = configuration.parent
+        records[view.name] = {
+            "path": f"{data_root.name}/{PYAML_DIR}/{view.name}/{CONFIGURATION_FILE}",
+            "sha256": hashlib.sha256(configuration.read_bytes()).hexdigest(),
+            "files": {
+                path.relative_to(view).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in sorted(view.rglob("*"))
+                if path.is_file() and path != configuration
+            },
+        }
+    return records
+
+
+def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, dict[str, Any]]:
+    """The approval hook's ``measurement`` block of one render.
+
+    Read from each pyAML view the facts record: its arrays and the addresses
+    their members stand for, through the view's one name mapping. A render
+    whose facts record no view reads no file.
 
     Args:
         facts: The facts document.
+        render_root: The render's root, the directory holding its
+            ``config.yml``, ``facility.json`` and ``data/``.
 
     Returns:
-        ``{model: {view_sha256}}`` for each measurement view the render
-        carries, sorted by model.
+        ``{model: {kinds: {kind: [array]}, groups: {group: [address]},
+        view_sha256}}`` for each pyAML view, sorted by model: ``kinds`` each
+        kind the measurement file allows with the arrays of the groups it
+        needs, ``groups`` each group role with the addresses its array's
+        members stand for, ``bpm`` both planes of each BPM.
     """
     recorded = facts.get("measurement_models") or {}
-    return {
-        str(model): {"view_sha256": record.get("sha256")}
-        for model, record in sorted(recorded.items())
-    }
+    if not recorded:
+        return {}
+    import yaml
+
+    from osprey.facility import FACILITY_FILE
+    from osprey.facility.views.pyaml import KIND_MEMBERS, view_names
+
+    doc = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
+    models = {str(model["name"]): model for model in doc.get("models", [])}
+    block: dict[str, dict[str, Any]] = {}
+    for model, record in sorted(recorded.items()):
+        configuration = yaml.safe_load((render_root / record["path"]).read_text(encoding="utf-8"))
+        arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
+        devices = {str(d["name"]): d for d in configuration.get("devices") or []}
+        measurement = models[str(model)].get("measurement") or {}
+        names = view_names(doc, str(model))
+        array_of = {
+            str(role): names.array_name(str(group))
+            for role, group in (measurement.get("groups") or {}).items()
+            if names.array_name(str(group)) in arrays
+        }
+        block[str(model)] = {
+            "kinds": {
+                str(kind): [array_of[m] for m in KIND_MEMBERS[str(kind)] if m in array_of]
+                for kind in measurement.get("kinds") or []
+            },
+            "groups": {
+                role: [
+                    address
+                    for member in arrays[array]
+                    for address in _member_addresses(devices[member])
+                ]
+                for role, array in array_of.items()
+            },
+            "view_sha256": record.get("sha256"),
+        }
+    return block
+
+
+def _member_addresses(device: Mapping[str, Any]) -> list[str]:
+    """The addresses an array member stands for: a magnet's setpoint, a BPM's readbacks."""
+    from pyaml_cs_osprey.catalog import parse_reference
+
+    if "model" in device:
+        return [parse_reference(device["model"]["powerconverter"]).address]
+    return sorted(
+        parse_reference(device[key]).address for key in ("x_pos", "y_pos") if key in device
+    )
 
 
 def render_facts_page(facts: Mapping[str, Any]) -> str:
@@ -287,7 +380,12 @@ def write_facts_view(root: Path, inputs: ViewInputs) -> list[Path]:
         The files written, sorted.
     """
     project_name = inputs.rendered_config.get("project_name")
-    facts = facts_document(inputs.doc, inputs.served, str(project_name) if project_name else None)
+    facts = facts_document(
+        inputs.doc,
+        inputs.served,
+        str(project_name) if project_name else None,
+        measurement_records(root),
+    )
     root.mkdir(parents=True, exist_ok=True)
     document = root / FACTS_FILE
     document.write_bytes(view_bytes(facts))
