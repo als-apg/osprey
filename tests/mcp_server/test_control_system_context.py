@@ -43,7 +43,11 @@ def test_initialize_loads_config(tmp_path, monkeypatch):
     _write_config(
         tmp_path,
         {
-            "control_system": {"type": "mock", "writes_enabled": True},
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "writes_enabled": True,
+            },
             "archiver": {"type": "mock_archiver"},
             "channel_finder": {"db_path": "/data/channels.db"},
         },
@@ -51,7 +55,7 @@ def test_initialize_loads_config(tmp_path, monkeypatch):
 
     registry = initialize_server_context()
 
-    assert registry.config.control_system["type"] == "mock"
+    assert registry.config.control_system["type"] == "virtual_accelerator"
     assert registry.config.archiver["type"] == "mock_archiver"
     assert registry.config.channel_finder["db_path"] == "/data/channels.db"
 
@@ -70,13 +74,21 @@ def test_initialize_missing_config(tmp_path, monkeypatch):
 def test_initialize_idempotent(tmp_path, monkeypatch):
     """Calling initialize() multiple times is a no-op after the first."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"control_system": {"type": "mock"}})
+    _write_config(
+        tmp_path,
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        },
+    )
 
     registry = ControlSystemContext()
     registry.initialize()
     registry.initialize()  # Second call should be a no-op
 
-    assert registry.config.control_system["type"] == "mock"
+    assert registry.config.control_system["type"] == "virtual_accelerator"
 
 
 def test_config_not_initialized_raises():
@@ -94,7 +106,15 @@ def test_config_not_initialized_raises():
 def test_singleton_access(tmp_path, monkeypatch):
     """get_server_context() returns the same instance."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"control_system": {"type": "mock"}})
+    _write_config(
+        tmp_path,
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        },
+    )
 
     initialize_server_context()
     r1 = get_server_context()
@@ -112,7 +132,15 @@ def test_get_before_initialize_raises():
 def test_reset_clears_singleton(tmp_path, monkeypatch):
     """reset_server_context() clears the singleton so get raises again."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"control_system": {"type": "mock"}})
+    _write_config(
+        tmp_path,
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        },
+    )
 
     initialize_server_context()
     reset_server_context()
@@ -129,7 +157,15 @@ def test_reset_clears_singleton(tmp_path, monkeypatch):
 async def test_connector_caching(tmp_path, monkeypatch):
     """Two calls to registry.control_system() return the same instance."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"control_system": {"type": "mock"}})
+    _write_config(
+        tmp_path,
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        },
+    )
     registry = initialize_server_context()
 
     mock_connector = AsyncMock()
@@ -172,7 +208,15 @@ async def test_archiver_connector_caching(tmp_path, monkeypatch):
 async def test_connector_invalidation(tmp_path, monkeypatch):
     """After invalidate_connector(), next call creates a fresh instance."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"control_system": {"type": "mock"}})
+    _write_config(
+        tmp_path,
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        },
+    )
     registry = initialize_server_context()
 
     mock_c1 = AsyncMock()
@@ -196,7 +240,15 @@ async def test_connector_invalidation(tmp_path, monkeypatch):
 async def test_invalidate_unknown_connector(tmp_path, monkeypatch):
     """Invalidating a non-existent connector is a no-op."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"control_system": {"type": "mock"}})
+    _write_config(
+        tmp_path,
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        },
+    )
     registry = initialize_server_context()
 
     # Should not raise
@@ -206,7 +258,15 @@ async def test_invalidate_unknown_connector(tmp_path, monkeypatch):
 async def test_invalidate_unconnected(tmp_path, monkeypatch):
     """Invalidating a connector that was never created is a no-op."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"control_system": {"type": "mock"}})
+    _write_config(
+        tmp_path,
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        },
+    )
     registry = initialize_server_context()
 
     # Should not raise (no instance to disconnect)
@@ -259,7 +319,10 @@ async def test_shutdown_disconnects_all(tmp_path, monkeypatch):
     _write_config(
         tmp_path,
         {
-            "control_system": {"type": "mock"},
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            },
             "archiver": {"type": "mock_archiver"},
         },
     )
@@ -334,13 +397,17 @@ def test_dot_path_access(tmp_path, monkeypatch):
     _write_config(
         tmp_path,
         {
-            "control_system": {"type": "mock", "writes_enabled": True},
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "writes_enabled": True,
+            },
         },
     )
 
     registry = initialize_server_context()
 
-    assert registry.get("control_system.type") == "mock"
+    assert registry.get("control_system.type") == "virtual_accelerator"
     assert registry.get("control_system.writes_enabled") is True
     assert registry.get("nonexistent.key") is None
     assert registry.get("nonexistent.key", "default") == "default"
@@ -358,7 +425,11 @@ def test_mcp_server_config_properties(tmp_path, monkeypatch):
     _write_config(
         tmp_path,
         {
-            "control_system": {"type": "mock", "writes_enabled": False},
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "writes_enabled": False,
+            },
             "archiver": {"type": "mock_archiver"},
             "channel_finder": {"db_path": "/test"},
             "ariel": {"api_url": "https://ariel.test"},
@@ -368,7 +439,7 @@ def test_mcp_server_config_properties(tmp_path, monkeypatch):
     registry = initialize_server_context()
     cfg = registry.config
 
-    assert cfg.control_system["type"] == "mock"
+    assert cfg.control_system["type"] == "virtual_accelerator"
     assert cfg.archiver["type"] == "mock_archiver"
     assert cfg.channel_finder["db_path"] == "/test"
     assert cfg.ariel["api_url"] == "https://ariel.test"
@@ -377,7 +448,15 @@ def test_mcp_server_config_properties(tmp_path, monkeypatch):
 async def test_unknown_connector_raises(tmp_path, monkeypatch):
     """Requesting an unknown connector type raises ValueError."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"control_system": {"type": "mock"}})
+    _write_config(
+        tmp_path,
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        },
+    )
     registry = initialize_server_context()
 
     with pytest.raises(ValueError, match="Unknown connector"):
@@ -400,7 +479,10 @@ _VA_UNSET_ARCHIVER = {"control_system": {"type": "virtual_accelerator"}}
 # these runs a VA against invented history while appearing configured.
 _FLAT_ARCHIVER_OVER_NESTED_MOCK = _VA_MOCK_NESTED | {"archiver.type": "mongodb_archiver"}
 _FLAT_ARCHIVER_ONLY = _VA_UNSET_ARCHIVER | {"archiver.type": "mongodb_archiver"}
-_FLAT_CONTROL_SYSTEM_OVER_NESTED_VA = _VA_MOCK_NESTED | {"control_system.type": "mock"}
+_FLAT_CONTROL_SYSTEM_OVER_NESTED_VA = _VA_MOCK_NESTED | {
+    "control_system.type": "virtual_accelerator",
+    "control_system.connector.virtual_accelerator.serving": "in_process",
+}
 
 
 @pytest.mark.parametrize(
@@ -522,7 +604,7 @@ def test_the_refusal_names_the_config_and_both_ways_out(tmp_path, monkeypatch):
 
     assert str(config_file) in message
     assert "mongodb_archiver" in message
-    assert "'mock'" in message
+    assert "control_system.connector.virtual_accelerator.serving: in_process" in message
 
 
 @pytest.mark.parametrize(
@@ -536,7 +618,13 @@ def test_the_refusal_names_the_config_and_both_ways_out(tmp_path, monkeypatch):
             id="va-with-store",
         ),
         pytest.param(
-            {"control_system": {"type": "mock"}, "archiver": {"type": "mock_archiver"}},
+            {
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                },
+                "archiver": {"type": "mock_archiver"},
+            },
             id="mock-with-mock",
         ),
         pytest.param(

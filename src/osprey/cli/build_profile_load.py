@@ -32,10 +32,13 @@ from osprey.port_layout import (
 from osprey_connectors.control_system.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
 from osprey_connectors.types import (
+    RETIRED_CONTROL_SYSTEM_TYPES,
     SET_CONTROL_SYSTEM_TYPES,
     TARGET_STANDIN,
     TARGET_VA,
     baseline_target,
+    retired_type_message,
+    talks_to_network,
 )
 
 from .build_profile_archiver import _expand_dotted, parse_va_archiver_block
@@ -907,6 +910,8 @@ def _apply_connector_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
             f"one of: {', '.join(known)}."
         )
     value = value.strip()
+    if value in RETIRED_CONTROL_SYSTEM_TYPES:
+        raise BuildProfileError(retired_type_message(value))
     if value not in SET_CONTROL_SYSTEM_TYPES:
         # Case-insensitive first: difflib scores 'EPICS' against 'epics' at
         # zero, so the likeliest mistake would otherwise get no suggestion.
@@ -933,12 +938,13 @@ def _apply_connector_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
 def persona_served_models_error(
     delta: Mapping[str, Any], resolved: Mapping[str, Any], delta_rel: str
 ) -> FacilityBuildError | None:
-    """Refuse a persona's served-model list on a VA-baselined persona.
+    """Refuse a persona's served-model list on a persona served by a container.
 
-    A persona's ``simulation.models`` selects what its in-process mock runs. A
-    persona whose baseline target is a VA instance (``va`` or ``standin``) is
-    served by the deployment's container, which serves one list: the
-    deployment render's. A list in the delta would silently not apply.
+    A persona's ``simulation.models`` selects what its simulator in process
+    runs. A persona whose baseline target is a VA instance (``va`` or
+    ``standin``) reached over the network is served by the deployment's
+    container, which serves one list: the deployment render's. A list in the
+    delta would silently not apply.
 
     Args:
         delta: The persona delta as read, before the merge.
@@ -959,6 +965,11 @@ def persona_served_models_error(
         section["type"] = shorthand.strip()
     target = baseline_target(section)
     if target not in (TARGET_VA, TARGET_STANDIN):
+        return None
+    try:
+        if not talks_to_network(section):
+            return None
+    except ValueError:
         return None
     return FacilityBuildError(
         "profile-invalid",

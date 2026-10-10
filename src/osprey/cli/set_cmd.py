@@ -48,15 +48,26 @@ RETIRED_GATEWAY_KEY = "epics_gateway"
 GATEWAY_KEY_PREFIX = "config.control_system.connector.epics.gateways"
 
 
-def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
-    """Refuse the retired ``epics_gateway=`` spelling before anything is written.
+#: The two spellings that state a control-system type on this command line.
+_TYPE_KEYS = ("connector", "config.control_system.type")
 
-    Runs before the shared parser sees anything, so the refusal costs no
-    partial write: the whole command line is rejected the way a malformed pair
-    is.
+
+def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
+    """Refuse retired spellings before anything is written.
+
+    Two refusals: the ``epics_gateway=`` shorthand, and a retired control-system
+    type name stated through ``connector=`` or
+    ``config.control_system.type=`` — the latter names the new spelling. Runs
+    before the shared parser sees anything, so the refusal costs no partial
+    write: the whole command line is rejected the way a malformed pair is.
     """
+    from osprey_connectors.types import RETIRED_CONTROL_SYSTEM_TYPES, retired_type_message
+
     for pair in pairs:
-        key, separator, _ = pair.partition("=")
+        key, separator, value = pair.partition("=")
+        if separator and key.strip() in _TYPE_KEYS:
+            if value.strip() in RETIRED_CONTROL_SYSTEM_TYPES:
+                raise click.UsageError(retired_type_message(value.strip()))
         if separator and key.strip() == RETIRED_GATEWAY_KEY:
             raise click.UsageError(
                 f"`{RETIRED_GATEWAY_KEY}=` named a facility out of a gateway table "
