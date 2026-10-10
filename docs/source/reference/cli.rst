@@ -1013,7 +1013,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
 
 ``osprey facility import``
    Group for the importers that write an export as sources under
-   ``data/facility/imported/``; ``mml`` is the one importer.
+   ``data/facility/imported/``; the importers are ``mml`` and ``list``.
 
 ``osprey facility import mml EXPORT... [--repo DIRECTORY]``
    Write MML exports as the mml layer's sources under
@@ -1049,6 +1049,20 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
 ``osprey facility import mml --print-exporter``
    Print the MATLAB exporter the mml layer ships. Needs neither a repo nor an
    export.
+
+``osprey facility import list FILE [--repo DIRECTORY]``
+   Write a CSV channel list as the list layer's sources,
+   ``data/facility/imported/list/channels.yaml``, one channel record per row;
+   no authored file is seeded. ``FILE`` is UTF-8 CSV whose header row names
+   ``address``, required, and any of the optional columns ``role`` (empty
+   means readback), ``pair``, ``device``, ``place``, ``unit``,
+   ``description`` and ``tags`` (``;``-separated), in any order. A file whose
+   first row names no ``address`` column holds one address per line. A row
+   that names both a device and a place, states a role other than
+   ``setpoint``, ``readback`` or ``none``, has no address or repeats one, a
+   row with more cells than the header, and an unknown or repeated column
+   each print one ``facility: source-invalid:`` line; the import writes
+   nothing and exits 1.
 
 .. _cli-osprey-sim:
 
