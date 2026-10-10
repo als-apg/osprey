@@ -14,7 +14,9 @@ for that model follows on stderr, giving the number of rows left out and the
 count per reason (unwired, no width, unsolved, table calibration); it does not
 change the verdict or the exit code. A device whose stated s lies outside its
 periodic model's deck prints one warning on stderr; it does not change the exit
-code. Persona and image renders are checked by ``osprey build`` alone.
+code. A scenario that moves a readback beyond its setpoint's tolerance, and a
+lane whose float setpoints declare no tolerance, print the build's
+settle-tolerance warning on stderr; it does not change the exit code. Persona and image renders are checked by ``osprey build`` alone.
 
 ``osprey facility show [--json] [ID]`` builds in memory as ``validate`` does
 and prints what the build holds: the identity, the records per kind and the
@@ -84,6 +86,9 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     (unwired, no width, unsolved, table calibration); it does not change the
     verdict or the exit code. A device whose stated s lies outside its
     periodic model's deck prints one warning per device on stderr; it does
+    not change the exit code. A scenario that moves a readback beyond its
+    setpoint's tolerance, and a lane whose float setpoints declare no
+    tolerance, print the build's settle-tolerance warning on stderr; it does
     not change the exit code.
     """
     _build_in_memory(ctx, repo)
@@ -185,7 +190,6 @@ def _build_in_memory(
         facility=document,
         facility_sha256=facility_digest(facility_dir),
         profile_overlays=overlays,
-        tolerance_warnings=False,
     )
     # The render narrates what it builds on stdout; that narration is the
     # build's, so it is captured and dropped here and only trouble, which goes

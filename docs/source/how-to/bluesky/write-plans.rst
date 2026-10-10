@@ -175,6 +175,7 @@ seed's ``nominal``), and on a live or stand-in lane within the floor. The
 build warns once per such lane with the count of setpoints that declare no
 ``tolerance``, and once per scenario that moves a readback beyond its
 setpoint's tolerance, since that scenario's moves time out while it is active.
+``osprey facility validate`` prints the same warnings.
 
 A device that physically moves needs a ``tolerance`` on its setpoint, and a
 slow device needs ``settle_timeout_s`` raised. Running out of budget always

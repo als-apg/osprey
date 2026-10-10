@@ -185,7 +185,6 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
         tolerances=_tolerances(inputs.doc),
         motion_bands=_motion_bands(inputs.doc),
     )
-    if inputs.tolerance_warnings:
-        for warning in tolerance_warnings(inputs.doc, _lanes(inputs)):
-            _warn_once(inputs, warning)
+    for warning in tolerance_warnings(inputs.doc, _lanes(inputs)):
+        _warn_once(inputs, warning)
     return [target]

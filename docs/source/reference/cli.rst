@@ -988,7 +988,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    in the check, open an issue. A tree that is not clean prints every error of
    the first failing stage on stderr, one line each and sorted, and the command
    exits 1. A stale
-   fix's line carries the block to paste in its place. ``--repo`` names the
+   fix's line carries the block to paste in its place. A settle-tolerance
+   warning the build would print is printed on stderr and does not change the
+   exit code. ``--repo`` names the
    deployment repo; without it, the nearest ``profile.yml`` at or above the
    current directory is used.
 
