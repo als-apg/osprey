@@ -65,15 +65,12 @@ CLEAN_PATHS: tuple[str, ...] = (
 )
 
 ALLOWLIST: dict[str, str] = {
-    "src/osprey/profiles/presets/control-assistant.yml": "rename:12",
     "src/osprey/templates/claude_code/CLAUDE.channel-finder.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/_terminology/graph.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/_terminology/middle_layer.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/channel-finder.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/facility-knowledge-graph.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/pyat-specialist.md.j2": "rename:12",
-    "src/osprey/templates/claude_code/claude/hooks/osprey_target_state.py": "rename:12",
-    "src/osprey/templates/claude_code/claude/hooks/osprey_writes_check.py": "rename:12",
     "src/osprey/templates/claude_code/claude/output-styles/control-operator.md.j2": "rename:12",
 }
 
