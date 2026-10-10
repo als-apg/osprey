@@ -1254,6 +1254,7 @@ class Channel(ConfiguredBaseModel):
     id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
     role: Optional[RoleEnum] = Field(default=None, description="""Absent means readback.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     pair: Optional[str] = Field(default=None, description="""The readback address of a setpoint; absent means the setpoint itself.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
+    tolerance: Optional[Tolerance] = Field(default=None, description="""On a float setpoint: how close its readback (its pair, else itself) must come.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     on: Optional[OnTarget] = Field(default=None, description="""Absent means the channel belongs to nothing.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     endpoint_of: Optional[list[str]] = Field(default=None, description="""The devices sharing this channel as an endpoint.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     signal: Optional[str] = Field(default=None, description="""A vocabulary signal role.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
@@ -1297,8 +1298,18 @@ class Noise(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    absolute: Optional[float] = Field(default=None, description="""Gaussian sigma in the channel's unit.""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Noise']} })
-    relative: Optional[float] = Field(default=None, description="""Gaussian sigma as a fraction of the reading.""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Noise']} })
+    absolute: Optional[float] = Field(default=None, description="""Gaussian sigma in the channel's unit.""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Noise', 'Tolerance']} })
+    relative: Optional[float] = Field(default=None, description="""Gaussian sigma as a fraction of the reading.""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Noise', 'Tolerance']} })
+
+
+class Tolerance(ConfiguredBaseModel):
+    """
+    How close a readback must come to its setpoint's demand, stating exactly one of `absolute`, `relative`.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    absolute: Optional[float] = Field(default=None, description="""Largest |readback − demand| at which a move counts as done, in the channel's unit.""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Noise', 'Tolerance']} })
+    relative: Optional[float] = Field(default=None, description="""The same bound as a fraction of the demand.""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Noise', 'Tolerance']} })
 
 
 class Drift(ConfiguredBaseModel):
@@ -1574,6 +1585,7 @@ OnTarget.model_rebuild()
 Channel.model_rebuild()
 Seed.model_rebuild()
 Noise.model_rebuild()
+Tolerance.model_rebuild()
 Drift.model_rebuild()
 LinearTerm.model_rebuild()
 Group.model_rebuild()

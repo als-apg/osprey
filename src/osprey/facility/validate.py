@@ -974,6 +974,9 @@ class _Records:
             yield from self._seed(address, channel)
         yield from self._linear_cycles()
         yield from self._pairs()
+        for address, channel in sorted(self.index.channels.items()):
+            if "tolerance" in channel and address not in self.broken:
+                yield from self._tolerance(address, channel)
         yield from self._wiring()
         yield from self._limits()
         yield from self._scenarios()
@@ -1357,6 +1360,78 @@ class _Records:
                 self._seed_files(self.index.channels[readback]),
             )
 
+    # --- tolerance -----------------------------------------------------------------
+
+    def _tolerance(self, address: str, channel: Mapping[str, Any]) -> Iterator[FacilityBuildError]:
+        """A setpoint's ``tolerance``: its slot, its record, and its readback's motion inside it."""
+        files = stating_files(channel, "tolerance")
+        role = channel.get("role", "readback")
+        value_type = self._type(address)
+        problem: str | None = None
+        remedy = ""
+        pair = str(channel.get("pair", address))
+        unit = channel.get("unit")
+        record = channel["tolerance"]
+        stated = [term for term in _NOISE_TERMS if term in record]
+        if role != "setpoint" or value_type != "float":
+            problem = f"a `tolerance` on a {value_type if role == 'setpoint' else role} channel"
+            remedy = "remove `tolerance`; only a float setpoint carries one"
+        elif not unit:
+            problem = "a `tolerance` on a channel that states no `unit`"
+            remedy = "state the channel's `unit`; the tolerance is in it"
+        elif pair != address and self.index.channels[pair].get("unit") != unit:
+            theirs = self.index.channels[pair].get("unit")
+            problem = f"`unit` {unit} differs from its pair {pair}'s {theirs}"
+            remedy = f"give {address} and {pair} the same `unit`; the tolerance is in it"
+        elif len(stated) != 1:
+            problem = f"`tolerance` states {_terms_stated(list(record))}"
+            remedy = "write `tolerance: {absolute: <x>}` or `tolerance: {relative: <fraction>}`"
+        elif not _finite(record[stated[0]]):
+            problem = f"`tolerance.{stated[0]}` is {record[stated[0]]!r}, not a finite number"
+            remedy = "write `tolerance: {absolute: <x>}` or `tolerance: {relative: <fraction>}`"
+        if problem is not None:
+            yield self._error("value-invalid", "channel", address, files, problem, remedy)
+            return
+        seed = channel.get("simulation")
+        nominal = seed.get("nominal") if isinstance(seed, dict) else None
+        if stated == [_RELATIVE] and not _numeric(nominal):
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                "a relative `tolerance` is taken of the setpoint's seed `nominal`, which it does "
+                "not state",
+                "state `absolute`, or give the setpoint a seed `nominal`",
+            )
+            return
+        yield from self._seed_inside_tolerance(address, pair, str(unit), files)
+
+    def _seed_inside_tolerance(
+        self, setpoint: str, readback: str, unit: str, files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """The readback's declared motion stays inside its setpoint's tolerance."""
+        from osprey_connectors.simulation.envelope import motion_envelope
+
+        channel = self.index.channels[setpoint]
+        bound = tolerance_bound(channel)
+        readback_channel = self.index.channels[readback]
+        try:
+            envelope = motion_envelope(readback_channel.get("simulation"))
+        except ValueError:
+            return
+        if bound is None or envelope <= bound:
+            return
+        yield self._error(
+            "seed-invalid",
+            "channel",
+            setpoint,
+            sorted({*files, *self._seed_files(readback_channel)}),
+            f"the simulated readback {readback} moves up to {envelope:g} {unit}, more than "
+            f"{setpoint} settles within ({bound:g} {unit})",
+            "lower the seed's `noise`/`drift`, or widen `tolerance`",
+        )
+
     # --- wiring --------------------------------------------------------------------
 
     def _wiring(self) -> Iterator[FacilityBuildError]:
@@ -1729,6 +1804,31 @@ def _clamp_problem(clamp: Any) -> str | None:
     if low is not None and high is not None and low > high:
         return f"`clamp` low {low} is above high {high}"
     return None
+
+
+def tolerance_bound(channel: Mapping[str, Any]) -> float | None:
+    """A setpoint's tolerance in its unit at its operating point.
+
+    Args:
+        channel: A setpoint channel record.
+
+    Returns:
+        ``absolute``, or ``relative`` times ``|nominal|`` of the setpoint's
+        seed; None when the channel states no tolerance or a relative one
+        without a numeric ``nominal``.
+    """
+    record = channel.get("tolerance")
+    if not isinstance(record, Mapping):
+        return None
+    if "absolute" in record:
+        return abs(float(record["absolute"]))
+    seed = channel.get("simulation")
+    nominal = seed.get("nominal") if isinstance(seed, Mapping) else None
+    if not _numeric(nominal):
+        nominal = None
+    if _RELATIVE not in record or nominal is None:
+        return None
+    return abs(float(record[_RELATIVE])) * abs(float(nominal))
 
 
 def _terms_stated(keys: Sequence[str]) -> str:
