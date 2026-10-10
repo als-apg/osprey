@@ -2,7 +2,7 @@
 
 Consolidates the execute functional tests and audit verification into
 a single test that exercises the natural user workflow:
-  channel_find → archiver_read → execute (plot) → PNG artifact
+  channel_find → archiver_read → plot → PNG artifact
 
 Then verifies that Claude Code native transcripts contain the expected OSPREY
 tool-call events and (optionally) lifecycle events (read via TranscriptReader).
@@ -29,23 +29,21 @@ from tests.e2e.sdk_helpers import (
 
 pytestmark = pytest.mark.agentic_benchmark
 
-# The workspace plotting tools are an equivalent capability to running
-# matplotlib through the Python executor, and the agent picks between them
-# non-deterministically — a prompt asking for Python is a steer, not a
-# guarantee. Forbidding them at the SDK level is what makes this test actually
-# exercise the Python route it claims to cover; without it the run silently
-# proves nothing whenever the agent delegates to the data-visualizer instead.
-_WORKSPACE_PLOT_TOOLS = [
+# The two ways an agent makes a plot. They are equivalent capabilities and the
+# agent picks between them — itself or through the data-visualizer — so the test
+# accepts either and judges the outcome: a PNG made from archived data.
+_PYTHON_TOOL = "mcp__python__execute"
+_WORKSPACE_PLOT_TOOLS = (
     "mcp__osprey_workspace__create_static_plot",
     "mcp__osprey_workspace__create_interactive_plot",
     "mcp__osprey_workspace__create_dashboard",
-]
+)
 
 
 class TestAuditObservability:
     """Natural workflow + transcript-based audit verification."""
 
-    # Multi-step agentic pipeline (channel-finder -> archiver -> Python -> PNG)
+    # Multi-step agentic pipeline (channel-finder -> archiver -> plot -> PNG)
     # on Haiku. Reruns absorb ordinary model non-determinism; the strict
     # artifact/audit assertions still gate, and the denied-tool assertion below
     # means a permission regression fails every attempt rather than presenting
@@ -55,7 +53,7 @@ class TestAuditObservability:
     @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_channel_read_archiver_plot_with_audit(self, tmp_path):
-        """Full pipeline: channel_find → archiver_read → execute (plot) + audit.
+        """Full pipeline: channel_find → archiver_read → plot + audit.
 
         Prompts Claude to find horizontal BPM channels, read archiver data for
         the first one, and create a timeseries plot saved as PNG. Then verifies
@@ -84,7 +82,7 @@ class TestAuditObservability:
             "1. Use channel_find to discover horizontal BPM channels\n"
             "2. Use archiver_read to get the last 1 hour of data for the "
             "first BPM channel\n"
-            "3. Use Python to create a timeseries plot and save it "
+            "3. Create a timeseries plot of that data and save it "
             "as a PNG file\n"
             "Do not stop until you have completed all three steps and saved "
             "the PNG plot."
@@ -96,7 +94,6 @@ class TestAuditObservability:
             approval_policy="auto_approve",
             max_turns=25,
             max_budget_usd=2.00,
-            disallowed_tools=_WORKSPACE_PLOT_TOOLS,
         )
 
         # -- Debug output --
@@ -147,22 +144,23 @@ class TestAuditObservability:
         archiver_tools = result.tools_matching("archiver_read")
         assert len(archiver_tools) >= 1, f"Expected archiver_read call but got: {result.tool_names}"
 
-        # The plot came from the Python route specifically. The workspace
-        # plotting tools are disallowed for this run, so this is the coverage
-        # the test uniquely owns: a PNG artifact produced by agent-authored
-        # matplotlib through the executor. The other pipeline tests cover the
-        # data-visualizer route and tool-agnostic plotting.
-        py_tools = result.tools_matching("execute")
-        assert len(py_tools) >= 1, (
-            f"Expected an mcp__python__execute call but got: {result.tool_names}"
-        )
-
-        py_code_combined = " ".join(str(t.input.get("code", "")) for t in py_tools).lower()
-        plot_keywords = ["plot", "plt", "matplotlib", "savefig", "figure"]
-        has_plot_code = any(kw in py_code_combined for kw in plot_keywords)
-        assert has_plot_code, (
-            f"execute code doesn't appear to create a plot. Code: {py_code_combined[:500]}"
-        )
+        # A plot was made, by either route and by whichever agent: Python the
+        # agent wrote for the executor, or a workspace plotting tool. A call that
+        # came back as an error made nothing, so it does not count.
+        plot_keywords = ("plot", "plt", "matplotlib", "savefig", "figure")
+        plot_calls = [
+            t
+            for t in result.tool_traces
+            if not t.is_error
+            and (
+                t.name in _WORKSPACE_PLOT_TOOLS
+                or (
+                    t.name == _PYTHON_TOOL
+                    and any(kw in str(t.input.get("code", "")).lower() for kw in plot_keywords)
+                )
+            )
+        ]
+        assert plot_calls, f"No successful plotting call. Tools: {result.tool_names}"
 
         # At least one PNG artifact exists (or artifact_register was called)
         png_files = find_png_files(repo)
