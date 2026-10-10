@@ -19,7 +19,13 @@ import pytest
 import yaml
 
 from osprey.facility.views.pyaml import CONFIGURATION_FILE, LATTICE_FILE, measurement_groups
-from tests.facility._pyaml_trees import measured_tree, with_correctors, with_rf, write_view
+from tests.facility._pyaml_trees import (
+    measured_tree,
+    view_inputs,
+    with_correctors,
+    with_rf,
+    write_view,
+)
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -136,3 +142,54 @@ def test_a_corrector_with_no_drift_beside_it_steps_the_orbit_the_served_kick_doe
     )
     assert np.max(np.abs(served)) > 1.0e-7
     assert after - before == pytest.approx(served, rel=1.0e-4, abs=1.0e-11)
+
+
+class _Engines:
+    """The engine entry points of an environment registering ``engine`` alone."""
+
+    def __init__(self, name: str, engine: object) -> None:
+        self.names = {name}
+        self._engine = engine
+
+    def __getitem__(self, name: str) -> Any:
+        engine = self._engine
+
+        class _EntryPoint:
+            def load(self) -> object:
+                return engine
+
+        return _EntryPoint()
+
+
+def test_an_engine_without_polynomial_kicks_stops_the_build_naming_engine_and_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inert design correctors would step nothing in pyAML's design mode."""
+    import types
+    from importlib import metadata
+
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.views.pyaml import write_pyaml_view
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey.simulation.engines import pyat as real
+
+    tree = with_correctors(with_rf(measured_tree()))
+    tree["measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
+    inputs = view_inputs(tmp_path, tree)
+    stub = types.ModuleType("stub_engine")
+    stub.describe = real.describe  # type: ignore[attr-defined]
+    found = metadata.entry_points
+
+    def entry_points(**selection: Any) -> Any:
+        if selection.get("group") == ENTRY_POINT_GROUP:
+            return _Engines("pyat", stub)
+        return found(**selection)
+
+    monkeypatch.setattr(metadata, "entry_points", entry_points)
+    with pytest.raises(FacilityBuildError) as stopped:
+        write_pyaml_view(tmp_path / "render" / "data" / "pyaml", inputs)
+    assert str(stopped.value.format_message()) == (
+        "facility: engine-invalid: model SR — engine pyat states no polynomial_kicks(), so "
+        "model SR's design correctors would carry no kick; fix: add polynomial_kicks() to "
+        "the engine plug-in"
+    )
