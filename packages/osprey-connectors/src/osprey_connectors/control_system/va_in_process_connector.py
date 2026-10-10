@@ -18,7 +18,7 @@ the texture and one physics child per served model whose engine is not
   composite's text.
 * One tick task runs at ``simulation.tick_s``; after every tick and every
   write a subscription fires for its channel when the held value changed or
-  the channel declares motion.
+  the channel moves under the active scenarios.
 
 **Session writes.** Only :meth:`VAInProcessConnector.write_channel` journals: after
 the limits validator and a successful put it appends ``[seq, address, value]``
@@ -279,7 +279,6 @@ class VAInProcessConnector(ControlSystemConnector):
         self._composite: Composite | None = None
         self._records: dict[str, Mapping[str, Any]] = {}
         self._served: frozenset[str] = frozenset()
-        self._moving: frozenset[str] = frozenset()
         self._subscriptions: dict[str, tuple[str, Callable[[ChannelValue], Any]]] = {}
         self._last_held: dict[str, Any] = {}
         self._tick_task: asyncio.Task[None] | None = None
@@ -326,7 +325,6 @@ class VAInProcessConnector(ControlSystemConnector):
             self._records = {
                 str(entry["address"]): entry for entry in view.document(VARIABLES_FILE)["channels"]
             }
-            self._moving = frozenset(view.moving())
             self._channels = frozenset(view.channels())
             self._served = self._channels | frozenset(view.status_addresses().values())
             self._composite = Composite(view, state_dir=state_dir, instance="inprocess")
@@ -360,7 +358,6 @@ class VAInProcessConnector(ControlSystemConnector):
         self._records = {}
         self._served = frozenset()
         self._channels = frozenset()
-        self._moving = frozenset()
         self._connected = False
         logger.debug("In-process simulator disconnected")
 
@@ -852,15 +849,16 @@ class VAInProcessConnector(ControlSystemConnector):
         return {address: self._held_value(address) for address in addresses}
 
     async def _notify(self, before: Mapping[str, Any] | None = None) -> None:
-        """Fire each subscription whose channel's held value changed or that moves."""
+        """Fire each subscription whose held value changed or whose channel moves under the active scenarios."""
         if not self._subscriptions or self._composite is None:
             return
         previous = self._last_held if before is None else before
         now = self._subscribed_held()
+        moving = self._composite.moving()
         due = {
             address
             for address, value in now.items()
-            if address in self._moving or not values_match(previous.get(address), value)
+            if address in moving or not values_match(previous.get(address), value)
         }
         self._last_held.update(now)
         for address, callback in list(self._subscriptions.values()):

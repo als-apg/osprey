@@ -105,9 +105,6 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     assert view.seed(seeded) is not None
     assert dict(view.seed(seeded) or {}).keys() == seeds[seeded].keys()
     assert view.seed("NO:SUCH:ADDRESS") is None
-    assert view.moving() == tuple(
-        sorted(a for a, s in seeds.items() if s and (s.get("noise") or s.get("drift")))
-    )
     assert [scenario["name"] for scenario in view.scenarios()] == [
         s["name"] for s in _raw(demo_view, "scenarios.json")["scenarios"]
     ]

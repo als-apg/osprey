@@ -733,6 +733,26 @@ def test_a_scenarios_drivers_move_the_readbacks_it_couples(tmp_path: Path) -> No
     assert composite.get(["T:RB", "M:RB"]) == before
 
 
+def test_moving_follows_active_scenarios(tmp_path: Path) -> None:
+    scenarios = [
+        {
+            "name": "thermal",
+            "drivers": {"d": {"kind": "wander", "amplitude": 1.0, "period_s": 300}},
+            "couple": {"T:RB": [{"driver": "d", "gain": 0.5}]},
+            "noise": {"T:NOISY": {"noise": 0.0, "noise_abs": 0.0}},
+        }
+    ]
+    composite = _composite(tmp_path, scenarios=scenarios)
+    seeded = frozenset({"T:NOISY", "M:RB", "M:BPM:X", "M:BPM:Y"})
+    assert composite.moving() == seeded
+
+    _activate(tmp_path / "state", "thermal")
+    assert composite.moving() == (seeded - {"T:NOISY"}) | {"T:RB"}
+
+    _activate(tmp_path / "state")
+    assert composite.moving() == seeded
+
+
 # -- the demo's simulator view -------------------------------------------------
 
 
