@@ -1845,7 +1845,7 @@ def _render_project(
     from osprey.agent_runner.provider_env import load_provider_spec
     from osprey.deployment.reach import reach_errors
 
-    from .build_posture_check import missing_posture_errors
+    from .build_posture_check import check_guarded_tool_policies, missing_posture_errors
     from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides
     from .build_profile_health import health_config_overrides
@@ -2154,6 +2154,10 @@ def _render_project(
             # has a reader that answers something regardless.
             *missing_posture_errors(_rendered_config(render_dir), build_profile.hooks),
         ]
+        # A guarded tool that skips approval while single writes prompt would
+        # replay a pending journal with no one asked; the render is what the
+        # approval hook reads, so it is the render that is held to the rule.
+        check_guarded_tool_policies(_rendered_config(render_dir))
         if unrunnable:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
         # And the runtime, for the same reason once more: the verbs that stop,
