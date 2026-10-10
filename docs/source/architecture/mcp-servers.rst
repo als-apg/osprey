@@ -182,11 +182,15 @@ them (``artifact_list(category="archiver_data")``).
 
 - ``lattice_state`` -- Get current lattice state (summary, families, figures, baseline).
 - ``lattice_set_param`` -- Set a magnet family parameter override.
-- ``lattice_refresh`` -- Trigger recomputation of lattice figures.
+- ``lattice_refresh`` -- Recompute figures: a figure name refreshes that one figure,
+  ``verify`` runs ``da`` and ``lma``, and no argument refreshes the selected model's fast figures.
 - ``lattice_set_baseline`` -- Snapshot the current state as the comparison baseline.
 - ``lattice_clear_baseline`` -- Discard the saved comparison baseline.
-- ``lattice_get_figure`` -- Retrieve a rendered lattice figure (e.g., optics, layout) by name.
-- ``lattice_get_data`` -- Retrieve the underlying numeric data behind a named figure.
+- ``lattice_get_figure`` -- Return a named figure with its status and key when it is current for
+  the inputs on screen, else an error naming its status (stale, computing, failed, not yet
+  computed) or the reason the model cannot draw it.
+- ``lattice_get_data`` -- Return the numeric data behind a named figure with its status and key
+  when it is current for the inputs on screen, else the same errors as ``lattice_get_figure``.
 - ``lattice_get_settings`` -- Get current dashboard settings (display options, baselines).
 - ``lattice_update_settings`` -- Update dashboard settings.
 
