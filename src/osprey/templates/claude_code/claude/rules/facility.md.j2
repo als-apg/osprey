@@ -7,7 +7,8 @@ description: Facility identity and pointer to facility_knowledge tools for deep 
 
 <!-- This file provides facility identity context to the OSPREY agent.
      It is auto-loaded as a rule for the main agent,
-     and served via the facility_description MCP tool for sub-agents.
+     and served via the facility_description MCP tool for sub-agents,
+     together with the build's generated facts.
      Edit it in the repo, at `rules/facility.md`: each build copies that
      copy in here, and `osprey build` never overwrites it. -->
 
@@ -42,6 +43,13 @@ graph directly.
 {% endif %}
 Do not attempt to enumerate subsystems, devices, or procedures from memory.
 Retrieve them on demand via these tools.
+
+## The Facility as Built
+
+`facility_description` also returns the facts this facility's build generated:
+its places in the facility's own level words, the device classes with their
+counts, aliases and groups, the models, and the signals and roles its channels
+use. Read them before naming a place, a kind of device or a group.
 
 ---
 
