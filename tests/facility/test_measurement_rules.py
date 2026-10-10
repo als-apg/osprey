@@ -272,18 +272,17 @@ def test_a_step_key_the_kind_needs_missing_stops(tmp_path: Path) -> None:
     )
 
 
-def test_one_group_named_for_both_corrector_planes_stops(tmp_path: Path) -> None:
-    """One array stepped as both planes would measure every corrector twice."""
+def test_one_group_named_for_both_corrector_planes_builds_split_by_plane(
+    tmp_path: Path,
+) -> None:
+    """``hcor`` stands for the group's x-plane setpoints and ``vcor`` for its y-plane ones."""
     tree = measured_tree()
-    tree["measurement/LINE.yaml"]["groups"]["vcor"] = tree["measurement/LINE.yaml"]["groups"][
-        "hcor"
-    ]
-    stop = _stop(tmp_path, tree)
-    assert str(stop.format_message()) == (
-        "facility: value-invalid: measurement LINE — `groups.hcor` and `groups.vcor` both "
-        "name group LINE/HCM; fix: name one group per plane; a corrector steered in both "
-        "planes is a member of both"
-    )
+    tree["measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
+    document, _ = built_document(tmp_path, tree)
+    assert _model(document, "LINE")["measurement"]["groups"]["vcor"] == "LINE/HCM"
+    groups = measurement_groups(document, "LINE")
+    assert groups["hcor"] == ["LCOR:H:SP"]
+    assert groups["vcor"] == ["LCOR:V:SP"]
 
 
 def test_a_kind_is_carried_into_the_facility_file_as_authored(tmp_path: Path) -> None:

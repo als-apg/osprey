@@ -7,7 +7,9 @@ id here, so the view writer, the measurement tools and a reader of a pyAML
 configuration cannot spell a name two ways.
 
 * A magnet is named after its setpoint address, a BPM after its device id and an
-  array after its group id, each through :func:`pyaml_name`.
+  array after its group id, each through :func:`pyaml_name`. One group named as
+  both ``hcor`` and ``vcor`` is two arrays, one per plane, its name followed by
+  each plane's :data:`PLANE_SUFFIXES` entry.
 * The RF plant is :data:`RF_PLANT_NAME`, pyAML's default plant, and stands for the
   one ``instruments.rf`` address of the view.
 * The tune monitor is :data:`TUNE_MONITOR_NAME`, pyAML's default betatron tune
@@ -24,16 +26,20 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 __all__ = [
     "CHROMATICITY_MONITOR_NAME",
     "NAME_RE",
+    "PLANE_SUFFIXES",
     "RF_PLANT_NAME",
     "TUNE_MONITOR_NAME",
     "UnmappedName",
     "ViewNames",
     "pyaml_name",
 ]
+
+_Key = TypeVar("_Key")
 
 #: A name pyAML can address an element by; matched with ``fullmatch``.
 NAME_RE = re.compile(r"[A-Za-z0-9_.:\-]+")
@@ -49,6 +55,10 @@ TUNE_MONITOR_NAME = "BETATRON_TUNE"
 
 #: The chromaticity monitor the chromaticity tools read.
 CHROMATICITY_MONITOR_NAME = "CHROMATICITY_MONITOR"
+
+#: Each corrector role and what follows its array's name when one group is
+#: named for both planes.
+PLANE_SUFFIXES: dict[str, str] = {"hcor": "_h", "vcor": "_v"}
 
 
 class UnmappedName(LookupError):
@@ -102,7 +112,28 @@ def _table(kind: str, keys: Iterable[str]) -> dict[str, str]:
     return table
 
 
-def _inverse(table: Mapping[str, str]) -> dict[str, str]:
+def _array_table(groups: Mapping[str, str]) -> dict[tuple[str, str], str]:
+    """Each ``(role, group)`` to its array name, refusing two groups sharing one name.
+
+    A group named as both ``hcor`` and ``vcor`` is named per plane; any other
+    group is named by its id alone, whichever roles name it.
+    """
+    named = {groups.get(role) for role in PLANE_SUFFIXES}
+    split = named - {None} if len(named) == 1 else set()
+    table: dict[tuple[str, str], str] = {}
+    holders: dict[str, str] = {}
+    for role, group in groups.items():
+        suffix = PLANE_SUFFIXES[role] if group in split else ""
+        name = pyaml_name(group) + suffix
+        other = holders.get(name)
+        if other is not None and other != group:
+            raise ValueError(f"groups {other} and {group} would both be named {name} in pyAML")
+        table[(role, group)] = name
+        holders[name] = group
+    return table
+
+
+def _inverse(table: Mapping[_Key, str]) -> dict[str, _Key]:
     return {name: key for key, name in table.items()}
 
 
@@ -116,14 +147,15 @@ class ViewNames:
     Attributes:
         magnets: Setpoint address to magnet name.
         bpms: BPM device id to BPM name.
-        arrays: Group id to array name.
+        arrays: ``(role, group id)`` to array name, one entry per group role
+            the measurement file names.
         rf: The ``instruments.rf`` address, or ``None`` when the view has no RF
             plant.
     """
 
     magnets: Mapping[str, str] = field(default_factory=dict)
     bpms: Mapping[str, str] = field(default_factory=dict)
-    arrays: Mapping[str, str] = field(default_factory=dict)
+    arrays: Mapping[tuple[str, str], str] = field(default_factory=dict)
     rf: str | None = None
 
     @classmethod
@@ -132,7 +164,7 @@ class ViewNames:
         *,
         magnets: Iterable[str] = (),
         bpms: Iterable[str] = (),
-        groups: Iterable[str] = (),
+        groups: Mapping[str, str] | None = None,
         rf: str | None = None,
     ) -> ViewNames:
         """Name every magnet, BPM and array of one view.
@@ -140,7 +172,7 @@ class ViewNames:
         Args:
             magnets: Each magnet's setpoint address.
             bpms: Each BPM's device id.
-            groups: Each array's group id.
+            groups: Each group role and the group id it names.
             rf: The ``instruments.rf`` address, or ``None``.
 
         Returns:
@@ -153,7 +185,7 @@ class ViewNames:
         """
         magnet_table = _table("magnet setpoint", magnets)
         bpm_table = _table("BPM device", bpms)
-        array_table = _table("group", groups)
+        array_table = _array_table(groups or {})
         fixed = {RF_PLANT_NAME, TUNE_MONITOR_NAME, CHROMATICITY_MONITOR_NAME}
         devices = {name: address for address, name in magnet_table.items()}
         for device, name in bpm_table.items():
@@ -164,7 +196,7 @@ class ViewNames:
                 )
             devices[name] = device
         for name in sorted(fixed & (set(devices) | set(array_table.values()))):
-            held = devices.get(name) or _inverse(array_table)[name]
+            held = devices.get(name) or _inverse(array_table)[name][1]
             raise ValueError(f"{held} would be named {name}, which pyAML reserves")
         return cls(magnets=magnet_table, bpms=bpm_table, arrays=array_table, rf=rf)
 
@@ -192,16 +224,16 @@ class ViewNames:
         except KeyError:
             raise UnmappedName("BPM device", device) from None
 
-    def array_name(self, group: str) -> str:
-        """The array a group id is.
+    def array_name(self, role: str, group: str) -> str:
+        """The array a group id is as the group role naming it.
 
         Raises:
-            UnmappedName: No array of the view is that group.
+            UnmappedName: ``role`` names no group ``group`` in the view.
         """
         try:
-            return self.arrays[group]
+            return self.arrays[(role, group)]
         except KeyError:
-            raise UnmappedName("group", group) from None
+            raise UnmappedName(f"{role} group", group) from None
 
     def rf_plant_name(self, address: str) -> str:
         """The RF plant the ``instruments.rf`` address drives.
@@ -244,7 +276,7 @@ class ViewNames:
             UnmappedName: No array of the view has that name.
         """
         try:
-            return _inverse(self.arrays)[name]
+            return _inverse(self.arrays)[name][1]
         except KeyError:
             raise UnmappedName("array name", name) from None
 

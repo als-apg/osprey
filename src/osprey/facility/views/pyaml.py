@@ -6,8 +6,10 @@ that names a deck and has a ``measurement/<model>.yaml``::
     configuration.yaml   the pyAML accelerator: its design simulator, the
                          ``live`` OSPREY control system, one device per magnet,
                          BPM and instrument the measurement file's groups and
-                         instruments name, one array per group and one tool per
-                         measurement kind
+                         instruments name, one array per group role (one
+                         group named as both ``hcor`` and ``vcor`` is two
+                         arrays, one per plane) and one tool per measurement
+                         kind
     lattice.json         the design simulator's lattice, referenced as
                          ``${path:lattice.json}``: the model's deck with each
                          corrector the view drives carrying its kick as the
@@ -720,7 +722,7 @@ def _names(
     return ViewNames.build(
         magnets=[magnet.address for magnet in magnets],
         bpms=[bpm.device for bpm in bpms],
-        groups=[str(groups_named[role]) for role in GROUP_ROLES if role in groups_named],
+        groups={role: str(groups_named[role]) for role in GROUP_ROLES if role in groups_named},
         rf=str(rf) if rf is not None else None,
     )
 
@@ -852,7 +854,7 @@ def _configuration(
         arrays.append(
             {
                 "type": array_type,
-                "name": names.array_name(str(groups_named[role])),
+                "name": names.array_name(role, str(groups_named[role])),
                 "elements": members,
             }
         )
@@ -899,7 +901,7 @@ def _configuration(
             monitor["rf_plant_name"] = RF_PLANT_NAME
         devices.append(monitor)
 
-    array_of = {role: names.array_name(str(group)) for role, group in groups_named.items()}
+    array_of = {role: names.array_name(role, str(group)) for role, group in groups_named.items()}
     for kind in kinds:
         tool_type, tool_name = KIND_TOOLS[kind]
         section = {"type": tool_type}
