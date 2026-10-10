@@ -96,6 +96,23 @@ def test_a_listed_still_overlaps_a_couple_on_that_address_only() -> None:
     ]
 
 
+def test_a_channel_fault_and_an_override_on_one_address_overlap() -> None:
+    view = _targets(
+        frozen={"channel_faults": {"SR:BPM1:X": "frozen"}},
+        pinned={"overrides": {"SR:BPM1:X": 1.0}},
+        disconnected={"channel_faults": {"SR:BPM1:X": "disconnected"}},
+        quiet={"still": "all"},
+    )
+
+    assert validate_composition(view, ["frozen", "pinned"]) == [
+        Overlap(target="SR:BPM1:X", first="frozen", second="pinned")
+    ]
+    assert validate_composition(view, ["frozen", "disconnected"]) == [
+        Overlap(target="SR:BPM1:X", first="frozen", second="disconnected")
+    ]
+    assert validate_composition(view, ["frozen", "quiet"]) == []
+
+
 def test_two_stills_on_one_reading_compose() -> None:
     view = _targets(a={"still": ["SR:BPM1:X"]}, b={"still": "all"}, c={"still": ["SR:BPM1:X"]})
 

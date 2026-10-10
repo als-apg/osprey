@@ -222,8 +222,9 @@ def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
 
     Returns:
         The keys of its ``overrides``, the keys of every fault's ``writes``,
-        each ``archiver`` entry's channel, and the keys of ``couple`` and
-        ``noise``; a block the scenario does not state contributes nothing.
+        the keys of its ``channel_faults``, each ``archiver`` entry's channel,
+        and the keys of ``couple`` and ``noise``; a block the scenario does not
+        state contributes nothing.
         The ``couple`` and ``noise`` keys and the ``still`` readings are also
         targets of the motion namespace, which :func:`validate_composition`
         reads apart.
@@ -231,6 +232,7 @@ def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
     targets: set[str] = set(scenario.get("overrides") or {})
     for fault in (scenario.get("faults") or {}).values():
         targets.update(fault.get("writes") or {})
+    targets.update(str(address) for address in scenario.get("channel_faults") or {})
     for entry in scenario.get("archiver") or []:
         targets.add(str(entry["channel"]))
     moved = {str(address) for slot in ("couple", "noise") for address in scenario.get(slot) or {}}
