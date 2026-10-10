@@ -72,8 +72,8 @@ rows:
   why: provenance names the layer and file instead
 - seed: canonical_ingest.yaml
   slot: source_name
-  fate: renamed:names
-  why: the source's own name is the first of the record's names
+  fate: renamed:label
+  why: the source's own name for a record is its display label
 - seed: canonical_ingest.yaml
   slot: source_section_id
   fate: optional

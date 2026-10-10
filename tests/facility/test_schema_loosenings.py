@@ -47,6 +47,10 @@ FACILITY_SLOTS = [
 #: The multivalued slots that are sets: compared and written sorted by their
 #: string form. Every other multivalued slot keeps its source order.
 SET_VALUED = {
+    ("Place", "names"),
+    ("Device", "names"),
+    ("Channel", "names"),
+    ("Group", "names"),
     ("Channel", "tags"),
     ("Channel", "former_addresses"),
     ("Channel", "endpoint_of"),
@@ -253,7 +257,7 @@ def test_every_multivalued_slot_but_the_sets_keeps_source_order(core: dict) -> N
                 target = ordered if slot.get("list_elements_ordered") else unordered
                 target.add((cls_name, slot_name))
     assert unordered == SET_VALUED
-    for named in ("slices", "names", "options", "shape", "clamp"):
+    for named in ("slices", "options", "shape", "clamp"):
         assert any(slot == named for _, slot in ordered), named
 
 

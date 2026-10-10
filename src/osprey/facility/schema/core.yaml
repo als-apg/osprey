@@ -201,7 +201,7 @@ classes:
       description:
       names:
         multivalued: true
-        list_elements_ordered: true
+        description: Other names a person at the facility uses for the record; a set, compared and written sorted.
       attributes:
         range: Any
         description: A free string to scalar or list map, carried verbatim.
@@ -233,9 +233,11 @@ classes:
         description: A vocabulary class or a facility-added class.
       place:
       description:
+      label:
+        description: The one name a person reads for the record; a view that shows one name takes it, else the id.
       names:
         multivalued: true
-        list_elements_ordered: true
+        description: Other names a person at the facility uses for the record; a set, compared and written sorted.
       properties:
         multivalued: true
         list_elements_ordered: true
@@ -297,9 +299,11 @@ classes:
       unit:
         description: Free text.
       description:
+      label:
+        description: The one name a person reads for the record; a view that shows one name takes it, else the id.
       names:
         multivalued: true
-        list_elements_ordered: true
+        description: Other names a person at the facility uses for the record; a set, compared and written sorted.
       former_addresses:
         multivalued: true
       tags:
@@ -406,9 +410,11 @@ classes:
         identifier: true
         required: true
       description:
+      label:
+        description: The one name a person reads for the record; a view that shows one name takes it, else the id.
       names:
         multivalued: true
-        list_elements_ordered: true
+        description: Other names a person at the facility uses for the record; a set, compared and written sorted.
       members:
         multivalued: true
         description: Device ids.

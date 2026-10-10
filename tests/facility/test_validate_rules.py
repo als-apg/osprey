@@ -1142,7 +1142,6 @@ class TestOrderedSlots:
         "slot",
         [
             ("Wiring", "slices"),
-            ("Channel", "names"),
             ("Channel", "options"),
             ("Channel", "shape"),
             ("Seed", "clamp"),
@@ -1150,3 +1149,10 @@ class TestOrderedSlots:
     )
     def test_the_named_lists_are_ordered(self, slot: tuple[str, str]) -> None:
         assert slot in ordered_slots()
+
+    @pytest.mark.parametrize(
+        "slot",
+        [("Place", "names"), ("Device", "names"), ("Channel", "names"), ("Group", "names")],
+    )
+    def test_names_are_a_set(self, slot: tuple[str, str]) -> None:
+        assert slot in SET_VALUED_SLOTS

@@ -1188,8 +1188,7 @@ class Place(ConfiguredBaseModel):
                        'Channel',
                        'Group',
                        'Scenario']} })
-    names: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group'],
-         'list_elements_ordered': True} })
+    names: Optional[list[str]] = Field(default=None, description="""Other names a person at the facility uses for the record; a set, compared and written sorted.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group']} })
     attributes: Optional[Any] = Field(default=None, description="""A free string to scalar or list map, carried verbatim.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel']} })
     span: Optional[Span] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place']} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
@@ -1222,8 +1221,8 @@ class Device(ConfiguredBaseModel):
                        'Channel',
                        'Group',
                        'Scenario']} })
-    names: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group'],
-         'list_elements_ordered': True} })
+    label: Optional[str] = Field(default=None, description="""The one name a person reads for the record; a view that shows one name takes it, else the id.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device', 'Channel', 'Group']} })
+    names: Optional[list[str]] = Field(default=None, description="""Other names a person at the facility uses for the record; a set, compared and written sorted.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group']} })
     properties: Optional[list[str]] = Field(default=None, description="""Vocabulary property names.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device'], 'list_elements_ordered': True} })
     attributes: Optional[Any] = Field(default=None, description="""A free string to scalar or list map, carried verbatim.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel']} })
     model: Optional[str] = Field(default=None, description="""Computed; the model whose deck gave `s` and `length`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Span', 'Device']} })
@@ -1266,8 +1265,8 @@ class Channel(ConfiguredBaseModel):
                        'Channel',
                        'Group',
                        'Scenario']} })
-    names: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group'],
-         'list_elements_ordered': True} })
+    label: Optional[str] = Field(default=None, description="""The one name a person reads for the record; a view that shows one name takes it, else the id.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device', 'Channel', 'Group']} })
+    names: Optional[list[str]] = Field(default=None, description="""Other names a person at the facility uses for the record; a set, compared and written sorted.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group']} })
     former_addresses: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     tags: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     attributes: Optional[Any] = Field(default=None, description="""A free string to scalar or list map, carried verbatim.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel']} })
@@ -1340,8 +1339,8 @@ class Group(ConfiguredBaseModel):
                        'Channel',
                        'Group',
                        'Scenario']} })
-    names: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group'],
-         'list_elements_ordered': True} })
+    label: Optional[str] = Field(default=None, description="""The one name a person reads for the record; a view that shows one name takes it, else the id.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device', 'Channel', 'Group']} })
+    names: Optional[list[str]] = Field(default=None, description="""Other names a person at the facility uses for the record; a set, compared and written sorted.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group']} })
     members: Optional[list[str]] = Field(default=None, description="""Device ids.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Group']} })
     signals: Optional[dict[str, Union[str, SignalSentence]]] = Field(default=None, description="""One sentence per kind of signal the members carry, `{<field or field/subfield>: <sentence>}`, carried verbatim.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Group'], 'list_elements_ordered': True} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
