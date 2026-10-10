@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from osprey_connectors.standin import DEPLOYED_SERVICES_KEY, LIVE_STANDIN_PORT_KEY
-from osprey_connectors.types import VIRTUAL_ACCELERATOR
+from osprey_connectors.types import TRANSPORT_IN_PROCESS, VIRTUAL_ACCELERATOR
 
 from .config import RecorderConfigError, RecorderSettings, read_recording_facts
 from .store import ArchiveWriter
@@ -66,6 +66,11 @@ logger = logging.getLogger(__name__)
 #: the roster's label uses. It is the one predicate the recorder's compose entry
 #: and the deploy-time archive seed bind to as well, so a machine that is still
 #: the stand-in cannot be quietly dropped out of its own archive.
+#:
+#: The type is necessary, not sufficient: the simulator served in process has
+#: no recorder, because nothing on a network serves its channels to sample, so
+#: the type's half of the gate also asks that the recorded section talks to a
+#: network.
 RECORDING_CONTROL_SYSTEM = VIRTUAL_ACCELERATOR
 
 #: Reads a set of addresses and returns the ones that answered.
@@ -127,8 +132,14 @@ class Recorder:
         # Two ways for the machine on the other end to be one whose past this
         # deployment authored, and neither implies the other: a deployment whose
         # own type is the virtual accelerator, and a deployment whose archive is
-        # its stand-in's. See RECORDING_CONTROL_SYSTEM.
-        should_record = facts.control_system_type == RECORDING_CONTROL_SYSTEM or facts.live_standin
+        # its stand-in's. The first is recorded only when that type is served
+        # over a network: the simulator served in process has nothing to sample.
+        # The stand-in is always a soft IOC on the network. See
+        # RECORDING_CONTROL_SYSTEM.
+        should_record = (
+            facts.control_system_type == RECORDING_CONTROL_SYSTEM
+            and facts.transport != TRANSPORT_IN_PROCESS
+        ) or facts.live_standin
         if should_record != self._recording or not self._announced:
             if should_record:
                 logger.info(

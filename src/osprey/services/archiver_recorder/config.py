@@ -60,7 +60,7 @@ from osprey_connectors.simulation.view import ADDRESSES_FILE, NoSimulatorView, S
 # that worked it out privately could disagree with the seed it shares a
 # collection with.
 from osprey_connectors.standin import archive_belongs_to_standin
-from osprey_connectors.types import TARGET_STANDIN
+from osprey_connectors.types import TARGET_STANDIN, connector_transport
 
 #: Where the compose template mounts the render's simulator view,
 #: ``build/data/simulator``: the same directory the virtual accelerator serves
@@ -176,7 +176,7 @@ def load_settings(config_path: Path) -> RecorderSettings:
 class RecordingFacts:
     """What the mounted config says about the machine on the other end.
 
-    Two facts rather than one, and only one of them moves when an operator runs
+    Two facts about the machine, and only one of them moves when an operator runs
     ``osprey set connector=epics``: the rendered ``control_system.type`` is
     rewritten, while a deployment that records its own stand-in goes on
     recording the same machine it always did. See
@@ -195,6 +195,11 @@ class RecordingFacts:
     #: target's gateways still select that stand-in. See
     #: :func:`_recorded_target_is_standin`.
     live_standin: bool
+    #: The wire the deployment's own connector speaks
+    #: (:func:`~osprey_connectors.types.connector_transport`): the simulator
+    #: served in process has none to sample, so it is never recorded. ``None``
+    #: for a type with no transport row.
+    transport: str | None
 
 
 def read_recording_facts(config_path: Path) -> RecordingFacts:
@@ -214,9 +219,15 @@ def read_recording_facts(config_path: Path) -> RecordingFacts:
             and restart recording on a file write that changed nothing.
     """
     config = _load_mapping(config_path)
+    control_system_type = _control_system_type(config, config_path)
+    try:
+        transport = connector_transport(config["control_system"])
+    except ValueError as exc:
+        raise RecorderConfigError(f"{config_path}: {exc}") from exc
     return RecordingFacts(
-        control_system_type=_control_system_type(config, config_path),
+        control_system_type=control_system_type,
         live_standin=_recorded_target_is_standin(config),
+        transport=transport,
     )
 
 

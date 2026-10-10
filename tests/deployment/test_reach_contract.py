@@ -454,6 +454,27 @@ def test_the_va_consumer_is_off_without_a_va_block():
     assert not consumer.is_on({})
 
 
+def test_the_va_consumer_is_off_when_the_simulator_runs_in_process():
+    """An in-process ``va`` lives inside the process that asks: there is no
+    container port for a session to dial, so none is projected."""
+    (consumer,) = _va_contract().consumers
+    config = {
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process", "timeout_s": 5.0}},
+        }
+    }
+
+    assert not consumer.is_on(config)
+    served = {
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"timeout_s": 5.0}},
+        }
+    }
+    assert consumer.is_on(served)
+
+
 def test_the_va_port_is_projected_onto_a_standin_baseline_persona():
     """SC-9: a persona render from the stand-in baseline is told the VA port
     its host publishes, so a session switched to ``va`` dials the host's
@@ -480,17 +501,23 @@ def test_a_target_that_does_not_resolve_carries_no_consumer():
     """The refusing half of :func:`resolve_target`, read as a switch.
 
     ``va`` and ``standin`` name one connector type on every deployment, so the
-    branch is reached through ``live``: a mock deployment with no real
+    branch is reached through ``live``: an in-process deployment with no real
     connector block has no live machine this config ever described, and a
     consumer of one is not switched on by a guess.
     """
     from osprey.deployment.reach import _target_configured
 
-    underivable = {"control_system": {"type": "mock", "connector": {"mock": {"x": 1}}}}
+    in_process = {"virtual_accelerator": {"serving": "in_process", "x": 1}}
+    underivable = {"control_system": {"type": "virtual_accelerator", "connector": in_process}}
     assert not _target_configured(underivable, "live")
     assert not _target_configured(underivable, "not-a-target")
 
-    named = {"control_system": {"type": "mock", "connector": {"epics": {"timeout_s": 5.0}}}}
+    named = {
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {**in_process, "epics": {"timeout_s": 5.0}},
+        }
+    }
     assert _target_configured(named, "live")
 
 

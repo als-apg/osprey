@@ -2,7 +2,7 @@
 
 ``sim list`` names the view's scenarios, marking the active set with ``*``.
 
-``sim status`` connects the deployment's mock connector to the simulator view
+``sim status`` connects the deployment's in-process simulator to the simulator view
 the build wrote, prints ``<model>: <status>`` per served physics model, then
 ``log: <absolute path>`` per model, the path being the file the composite
 appends to. Overlap records from a model's log follow its ``log:`` line,
@@ -24,14 +24,14 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
-from osprey_connectors.control_system.mock_connector import (
+from osprey_connectors.control_system.va_in_process_connector import (
     JOURNAL_REJECTED_EVENT,
     simulation_state_dir,
 )
 from osprey_connectors.simulation import OVERLAP_EVENT
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._simulator_view import (
-    MOCK_CONFIG,
+    IN_PROCESS_CONFIG,
     SR_ERROR,
     register_stub_engine,
     write_simulator_view,
@@ -47,8 +47,8 @@ def _stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def deployment(lifecycle_repo: Path) -> Path:
-    """A mock deployment whose render holds the simulator view."""
-    build = stub_build(lifecycle_repo, config=MOCK_CONFIG)
+    """An in-process deployment whose render holds the simulator view."""
+    build = stub_build(lifecycle_repo, config=IN_PROCESS_CONFIG)
     write_simulator_view(build)
     return lifecycle_repo
 
@@ -163,7 +163,8 @@ class _StatusChannels:
             (),
         ),
         (
-            MOCK_CONFIG + "  connector:\n    virtual_accelerator:\n      host: localhost\n",
+            "control_system:\n  type: epics\n"
+            "  connector:\n    epics: {}\n    virtual_accelerator:\n      host: localhost\n",
             ("--target", "va"),
         ),
     ],
@@ -194,8 +195,16 @@ def test_a_virtual_accelerator_target_reports_each_models_status_channel(
     assert asked == [args[1] if args else None]
 
 
+def test_the_in_process_va_target_answers_from_the_composite(deployment: Path) -> None:
+    """``va`` on the simulator in process is the composite, not a status channel."""
+    result = _status(deployment, "--target", "va")
+
+    assert result.exit_code == 0, result.output
+    assert "SR: ok" in result.output.splitlines()
+
+
 def test_a_render_without_a_view_is_refused(lifecycle_repo: Path) -> None:
-    stub_build(lifecycle_repo, config=MOCK_CONFIG)
+    stub_build(lifecycle_repo, config=IN_PROCESS_CONFIG)
 
     result = _status(lifecycle_repo)
 
