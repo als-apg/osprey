@@ -144,4 +144,8 @@ def test_the_checker_runs_over_the_declared_trees(monkeypatch: Any) -> None:
 
 def test_the_gate_checks_the_declared_trees() -> None:
     """The build names no trees of its own, so it cannot drift from a local run."""
-    assert gate.declared_targets(gate.PYPROJECT) == ["src", "packages/osprey-connectors/src"]
+    assert gate.declared_targets(gate.PYPROJECT) == [
+        "src",
+        "packages/osprey-connectors/src",
+        "packages/pyaml-cs-osprey/src",
+    ]
