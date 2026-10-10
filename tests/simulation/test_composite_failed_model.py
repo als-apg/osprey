@@ -11,18 +11,24 @@ solve is refused and leaves the model serving.
 from __future__ import annotations
 
 import importlib.metadata
+import importlib.util
 import json
 import math
+import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import yaml
+from click.testing import CliRunner
 from lume.model import LUMEModel
 from lume.variables import ScalarVariable, StrVariable, Variable
 from lume_pyat.exceptions import OrbitSolveError
 
+from osprey.cli.sim import sim_group
 from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.va_in_process_connector import (
     VAInProcessConnector,
@@ -32,8 +38,12 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import ENGINE_GROUP, STATUS_MAX_BYTES, Composite
 from osprey_connectors.simulation.view import SCHEMAS
+from tests.cli._lifecycle_build import stub_build
+from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
 if TYPE_CHECKING:
+    from types import ModuleType
+
     from tests._builds import BuiltProject
 
 T0 = 1_760_000_000.0
@@ -216,6 +226,108 @@ async def test_a_live_quadrupole_write_that_destabilises_the_orbit_is_refused(
     assert model_status(connector, "SR") == "ok"
     assert not journal.exists()
     await connector.disconnect()
+
+
+# -- the demo's LINE -----------------------------------------------------------
+
+LINE_SOURCE = Path(__file__).resolve().parents[2] / "scripts" / "facility_demo" / "_line.py"
+
+#: A single-pass loss: the element index, its ``FamName`` and the turn.
+LOST = re.compile(r"^lost at element \d+ \(\w+\) turn 0: ")
+
+
+def _line_module() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("_line", LINE_SOURCE)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+LINE = _line_module()
+
+
+def _line_corrector() -> str:
+    """The first horizontal corrector's current setpoint on the line."""
+    return next(
+        row["id"]
+        for row in LINE.channels()
+        if row.get("role") == "setpoint" and ":HCM:" in row["id"]
+    )
+
+
+@pytest.mark.slow
+async def test_a_live_line_corrector_write_that_loses_the_beam_is_refused(
+    demo_view: Path,
+) -> None:
+    corrector = _line_corrector()
+    connector = await _connected(demo_view)
+    composite = connector._composite
+    assert composite is not None
+    before = composite.held([corrector])
+
+    result = await connector.write_channel(corrector, LINE.LOSING_KICK)
+
+    assert result.outcome is WriteOutcome.REFUSED
+    assert result.error_message is not None
+    assert LOST.match(result.error_message), result.error_message
+    assert composite.held([corrector]) == before
+    assert model_status(connector, "LINE") == "ok"
+    await connector.disconnect()
+
+
+@pytest.fixture
+def _contain_env_written_by_the_cli() -> Any:
+    """Keep what ``sim apply`` loads into the environment inside the test that ran it."""
+    before = dict(os.environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(before)
+
+
+def _stage(built: BuiltProject, tmp_path: Path) -> tuple[Path, Path]:
+    """A deployment repo whose render carries the demo's simulator view.
+
+    Returns:
+        The repo and its simulator view.
+    """
+    repo = build_exemplar_repo(tmp_path / "repo")
+    config = {"control_system": {"connector": {"virtual_accelerator": {"serving": "in_process"}}}}
+    build = stub_build(repo, config=yaml.safe_dump(config))
+    prefix = "data/simulator/"
+    for name, data in built.outputs[0].files.items():
+        if name.startswith(prefix):
+            target = build / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+    return repo, build / "data" / "simulator"
+
+
+@pytest.mark.slow
+@pytest.mark.usefixtures("_contain_env_written_by_the_cli")
+def test_an_applied_line_fault_that_loses_the_beam_fails_line(
+    built_control_assistant: BuiltProject, tmp_path: Path
+) -> None:
+    repo, view = _stage(built_control_assistant, tmp_path)
+    _with_scenario(
+        view,
+        {
+            "name": "line-loss",
+            "faults": {"LINE": {"writes": {_line_corrector(): LINE.LOSING_KICK}}},
+        },
+    )
+    assert _composite(view).status("LINE") == "ok"
+
+    result = CliRunner().invoke(
+        sim_group, ["apply", "--repo", str(repo), "line-loss", "--no-seed", "--yes"]
+    )
+    failed = _composite(view)
+
+    assert result.exit_code == 0, result.output
+    assert LOST.match(failed.status("LINE")), failed.status("LINE")
+    assert failed.status("SR") == "ok"
 
 
 # -- a stub engine ---------------------------------------------------------------
