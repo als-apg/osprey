@@ -709,6 +709,32 @@ def test_readonly_rejects_the_armed_keywords():
         )
 
 
+_NO_CLIENT_KEYWORDS = {
+    "denied_packages": (),
+    "library_names": (),
+    "library_symbols": (),
+    "loader_targets": (),
+    "marker": "x",
+}
+
+
+def test_no_client_rejects_the_armed_keywords():
+    with pytest.raises(TypeError):
+        raw_put_block.install(
+            "no_client",
+            blocked_targets=(),
+            rpc_targets=(),
+            refuse_rpc=False,
+            marker="x",
+            rpc_refusals={},
+        )
+
+
+def test_armed_rejects_the_no_client_keywords():
+    with pytest.raises(TypeError):
+        raw_put_block.install("armed", **_NO_CLIENT_KEYWORDS)
+
+
 def test_unknown_mode_is_refused():
     with pytest.raises(ValueError, match="unknown raw-put block mode"):
         raw_put_block.install("readwrite", blocked_targets=())

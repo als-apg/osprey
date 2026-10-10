@@ -1,7 +1,10 @@
-"""Refuse raw control-system writes inside a Python process.
+"""Refuse raw control-system access inside a Python process.
 
-The block has two modes, sharing one patching engine that takes a replacement
-per mode.
+The block has three modes. ``readonly`` refuses every write and closes the
+routes out of Python a write could take; ``armed`` refuses a raw client put
+the connector's write door did not open; ``no_client`` refuses the client
+itself. The first two share one patching engine that takes a replacement per
+mode, and ``no_client`` uses the same engine for its deferred loader rows.
 
 ``install("armed", ...)`` is the block of a run with writes on. A write reaches
 the machine through a connector, which checks and records it, so every raw
@@ -25,6 +28,23 @@ a function that refuses, and closes every route out of Python that could reach
 one. It is the runtime half of a readonly run: the pre-execution regex sees only
 the standard spellings of a write, and ``from epics import caput as _w`` evades
 it, so the refusal has to be in place before the user code runs.
+
+``install("no_client", ...)`` is the block of a process that may hold no
+control-system client at all, for reads and writes alike: its one route to the
+machine is ``osprey.runtime``, which reaches a connector in another process.
+Importing a client package raises ``ClientLibraryRefusedError`` with reason
+``RAW_CLIENT_IMPORT`` from a ``sys.meta_path`` finder placed first, so a
+framework that brings a client with it is refused at its own import while one
+that does not imports normally. Loading a client shared library raises the
+same error from the loaders every ``ctypes`` spelling funnels into
+(``ctypes._dlopen`` and ``_ctypes.dlopen``) and from the deferred loader rows it
+is passed (``cffi``'s ``FFI.dlopen``): a library is refused by its basename
+before it loads, and after it loads when it exports a Channel Access symbol, so
+a renamed copy of ``libca`` is refused too. On Windows the loader has no symbol
+lookup, and a library is refused by name only. A client imported before the
+install cannot be unloaded honestly, so the install itself raises. There are
+no escape-route rows: the process keeps ``subprocess`` for package installs,
+git and plotting, and a fresh interpreter it starts carries no block.
 
 This module is stdlib-only at module scope and importing it has no side effects.
 Both properties are load-bearing: the executor embeds this file's *source* into
@@ -68,6 +88,7 @@ the spot.
 import importlib
 import inspect
 import logging
+import os
 import platform
 import sys
 import weakref
@@ -87,6 +108,10 @@ _GUARD_ATTR = "_osprey_readonly_guard"
 #: Attribute every replacement armed mode installs carries, so a second install,
 #: a re-export or the pvaPy sweep finds it already in place and leaves it.
 _ARMED_ATTR = "_osprey_armed_block"
+
+#: Attribute every loader the ``no_client`` mode installs carries, so a second
+#: install finds it in place and never wraps it again.
+_NO_CLIENT_ATTR = "_osprey_no_client_gate"
 
 #: Logger armed refusals are reported under. Spelled out, not ``__name__``: the
 #: executor runs this source in a namespace that has no module name.
@@ -279,6 +304,60 @@ def _raw_write_refusal(marker: str, address: str) -> Exception:
             "approval apply."
         )
     return ChannelWriteBlockedError(address, "RAW_CLIENT_WRITE", raw_client_write_message(address))
+
+
+def _client_refusal(*, package: str | None = None, library: str | None = None) -> Exception:
+    """The error a refused client import or library load raises.
+
+    Imported on each refusal: this module is stdlib-only at module scope.
+    """
+    from osprey_connectors.errors import ClientLibraryRefusedError
+
+    return ClientLibraryRefusedError(package=package, library=library)
+
+
+def _matches_stem(basename: str, stem: str) -> bool:
+    """Whether *basename* is a build of the library *stem* names.
+
+    Case folded: the basename equals the stem, or continues it with ``.`` or
+    ``-``. ``libca.so.3.15`` and ``libca.3.15.dylib`` are ``libca``;
+    ``libcairo.so`` is not.
+    """
+    basename = basename.casefold()
+    stem = stem.casefold()
+    return basename == stem or basename.startswith((f"{stem}.", f"{stem}-"))
+
+
+def _client_library(name: Any, stems: Iterable[str]) -> str | None:
+    """The basename under which *name* is a client library, or None.
+
+    Both the name as given and, where it is a path that exists, the file it
+    resolves to are checked, so neither a symlink to ``libca`` nor a link named
+    after it gets through.
+    """
+    if name is None:
+        return None
+    try:
+        path: str = os.fsdecode(name)
+    except TypeError:
+        return None
+    candidates = [os.path.basename(path)]
+    if os.path.exists(path):
+        candidates.append(os.path.basename(os.path.realpath(path)))
+    for basename in candidates:
+        if any(_matches_stem(basename, stem) for stem in stems):
+            return basename
+    return None
+
+
+def _library_label(name: Any) -> str:
+    """How a refusal names a library that loaded under *name*."""
+    if name is None:
+        return "<process>"
+    try:
+        return os.path.basename(os.fsdecode(name)) or str(name)
+    except TypeError:
+        return repr(name)
 
 
 def _refusal_text(texts: Mapping[str, str], dotted: str, attr: str) -> str | None:
@@ -662,6 +741,118 @@ def _install_armed(
     _patch_rows("armed raw-put block", (), blocked + rpc + provider, _armed_replacement)
 
 
+def _install_no_client(
+    *,
+    denied_packages: Iterable[str],
+    library_names: Iterable[str],
+    library_symbols: Iterable[str],
+    loader_targets: Rows,
+    marker: str,  # noqa: ARG001 - the contract's marker; the error spells its own text
+) -> None:
+    """Refuse every client package at import and every client library at load."""
+    import _ctypes
+    import ctypes
+
+    denied = frozenset(denied_packages)
+    stems = tuple(library_names)
+    symbols = tuple(library_symbols)
+
+    # A client already loaded cannot be unloaded, so a process holding one
+    # cannot be made to hold none.
+    loaded = sorted(
+        {
+            name.split(".")[0]
+            for name, module in list(sys.modules.items())
+            if module is not None and name.split(".")[0] in denied
+        }
+    )
+    if loaded:
+        raise _client_refusal(package=loaded[0])
+
+    def _exports_a_client_symbol(handle: Any) -> bool:
+        dlsym = getattr(_ctypes, "dlsym", None)
+        if dlsym is None:
+            return False
+        for symbol in symbols:
+            try:
+                dlsym(handle, symbol)
+            except Exception:
+                continue
+            return True
+        return False
+
+    def _gated_load(original: Callable[..., Any]) -> Callable[..., Any]:
+        if getattr(original, _NO_CLIENT_ATTR, False):
+            return original
+
+        def _osprey_no_client_load(name: Any, *args: Any, **kwargs: Any) -> Any:
+            library = _client_library(name, stems)
+            if library is not None:
+                raise _client_refusal(library=library)
+            handle = original(name, *args, **kwargs)
+            if _exports_a_client_symbol(handle):
+                try:
+                    _ctypes.dlclose(handle)
+                except Exception:
+                    pass
+                raise _client_refusal(library=_library_label(name))
+            return handle
+
+        setattr(_osprey_no_client_load, _NO_CLIENT_ATTR, True)
+        return _osprey_no_client_load
+
+    def _gated_ffi_load(_dotted: str, _attr: str, original: Any, _owner: Any) -> Any:
+        # A deferred loader row is shaped like cffi's ``FFI.dlopen(self, name,
+        # flags=0)``: the library comes back as an object whose attributes are
+        # its declared symbols.
+        if getattr(original, _NO_CLIENT_ATTR, False):
+            return original
+
+        def _osprey_no_client_ffi_load(self: Any, name: Any, *args: Any, **kwargs: Any) -> Any:
+            library = _client_library(name, stems)
+            if library is not None:
+                raise _client_refusal(library=library)
+            lib = original(self, name, *args, **kwargs)
+            for symbol in symbols:
+                try:
+                    getattr(lib, symbol)
+                except Exception:
+                    continue
+                try:
+                    self.dlclose(lib)
+                except Exception:
+                    pass
+                raise _client_refusal(library=_library_label(name))
+            return lib
+
+        setattr(_osprey_no_client_ffi_load, _NO_CLIENT_ATTR, True)
+        return _osprey_no_client_ffi_load
+
+    # Every ``ctypes`` spelling — ``CDLL``, ``PyDLL``, ``cdll.LoadLibrary``,
+    # ``cdll.<name>`` — loads through the module-global ``ctypes._dlopen``;
+    # ``_ctypes`` is the binding a script can reach without ``ctypes``.
+    ctypes._dlopen = _gated_load(ctypes._dlopen)  # type: ignore[attr-defined]
+    for attr in ("dlopen", "LoadLibrary"):
+        if hasattr(_ctypes, attr):
+            setattr(_ctypes, attr, _gated_load(getattr(_ctypes, attr)))
+    _patch_rows("no-client block", (), loader_targets, _gated_ffi_load)
+
+    class _OspreyNoClientFinder:
+        """Refuse the import of every denied package and its submodules."""
+
+        # The other guards' finders skip this one rather than delegate to it.
+        _osprey_readonly_guard = True
+
+        def find_spec(self, fullname: str, _path: Any, _target: Any = None) -> Any:
+            package = fullname.split(".")[0]
+            if package in denied:
+                raise _client_refusal(package=package)
+            return None
+
+    # Placed after the loader rows' finder, so this one is consulted first.
+    sys.meta_path.insert(0, _OspreyNoClientFinder())  # type: ignore[arg-type]
+
+
 def install(mode: str, **contract: Any) -> None:
     """Install the raw-put block in *mode*, in this process.
 
@@ -685,10 +876,24 @@ def install(mode: str, **contract: Any) -> None:
     names pvaPy-shaped classes whose puts are refused like a blocked row unless
     the channel was constructed on PVAccess, which calls through. Nothing else
     is touched.
+
+    ``"no_client"`` takes ``denied_packages``, ``library_names``,
+    ``library_symbols``, ``loader_targets`` and ``marker``. Importing a
+    module whose top-level package is in *denied_packages* raises
+    ``ClientLibraryRefusedError`` with reason ``RAW_CLIENT_IMPORT``, and so
+    does the install when one is already imported. Loading a shared library
+    raises the same error when its basename matches a stem in
+    *library_names*, before it loads, or when it exports a symbol in
+    *library_symbols*, after it loads and is closed again. The ``ctypes``
+    loaders are gated, and so is every ``(dotted, attrs)`` row in
+    *loader_targets*, when its module is imported (or now, when it already
+    is).
     """
     if mode == "readonly":
         _install_readonly(**contract)
     elif mode == "armed":
         _install_armed(**contract)
+    elif mode == "no_client":
+        _install_no_client(**contract)
     else:
         raise ValueError(f"unknown raw-put block mode: {mode!r}")

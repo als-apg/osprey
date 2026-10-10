@@ -10,9 +10,11 @@ put all of that back, or the next test runs against a patched process.
 :func:`patch_restore` snapshots the namespaces a test names (modules and
 classes) together with ``sys.meta_path``, and on exit restores every attribute
 that changed, removes every attribute that was added, and drops every guard
-finder. The :func:`restore_patches` fixture wraps it for pytest: call the
-yielded ``track(*namespaces)`` before ``install`` for each object the rows can
-reach.
+finder. It also restores the shared-library loaders the ``no_client`` mode
+replaces whatever the test names: ``ctypes._dlopen``, ``_ctypes.dlopen`` and,
+where ``cffi`` is importable, ``cffi.api.FFI.dlopen``. The
+:func:`restore_patches` fixture wraps it for pytest: call the yielded
+``track(*namespaces)`` before ``install`` for each object the rows can reach.
 """
 
 from __future__ import annotations
@@ -57,6 +59,22 @@ class _Snapshot:
                     setattr(namespace, name, value)
 
 
+def _loader_slots() -> list[tuple[Any, str, Any]]:
+    """Each shared-library loader the ``no_client`` mode replaces, with its value now."""
+    import _ctypes
+    import ctypes
+
+    owners: list[tuple[Any, str]] = [(ctypes, "_dlopen")]
+    owners += [(_ctypes, attr) for attr in ("dlopen", "LoadLibrary") if hasattr(_ctypes, attr)]
+    try:
+        from cffi.api import FFI
+    except ImportError:
+        pass
+    else:
+        owners.append((FFI, "dlopen"))
+    return [(owner, attr, getattr(owner, attr)) for owner, attr in owners]
+
+
 def drop_guard_finders() -> None:
     """Remove every finder the block registered from ``sys.meta_path``."""
     sys.meta_path[:] = [f for f in sys.meta_path if not getattr(f, GUARD_ATTR, False)]
@@ -64,17 +82,20 @@ def drop_guard_finders() -> None:
 
 @contextmanager
 def patch_restore(*namespaces: Any) -> Iterator[_Snapshot]:
-    """Snapshot *namespaces* and ``sys.meta_path``; restore both on exit.
+    """Snapshot *namespaces*, ``sys.meta_path`` and the loaders; restore all on exit.
 
     More namespaces can be added through the yielded snapshot's ``track``.
     """
     snapshot = _Snapshot()
     snapshot.track(*namespaces)
     meta_path = list(sys.meta_path)
+    loaders = _loader_slots()
     try:
         yield snapshot
     finally:
         snapshot.restore()
+        for owner, attr, value in loaders:
+            setattr(owner, attr, value)
         sys.meta_path[:] = meta_path
         drop_guard_finders()
 
