@@ -275,6 +275,13 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # the build derives every persona's `project`/`project_path` from the
     # profile's `project_name`. The five `extends` children inherit the
     # catalog; the other three stand still.
+    # The thirty-eighth move, and hello-world alone: its control system is the
+    # simulator served in process, `control_system.type: virtual_accelerator`
+    # with `control_system.connector.virtual_accelerator.serving: in_process`,
+    # in place of the retired `mock` type, which the build now refuses. A
+    # rebuilt project serves the same channels in process and baselines on
+    # `va`, so the staleness advisory firing on already-deployed projects is
+    # the correct signal. Every other preset stands still.
     "ariel-standalone": ("sha256:31c1eace09974cac6b8dbfc744685b7d8e6f5b9cd58431b04659c79c93d3bb23"),
     "channel-finder-standalone": (
         "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
@@ -297,7 +304,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     "control-assistant-readwrite": (
         "sha256:17d6c7ab3f56efaaf0d357b472c4b349dc3a01b1ff172fbd9010d9481cfff7ca"
     ),
-    "hello-world": ("sha256:d9328877c94d4e066e6bb98e54f38f9bb2918025928ed37f598141c91082c5d7"),
+    "hello-world": ("sha256:274f48f804eea7f86fb14d30673e9935cf325bd5236f9de2361d4a07a34c275d"),
 }
 
 

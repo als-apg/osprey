@@ -7,11 +7,11 @@ What IS verified:
   - Preset parses and passes artifact validation
   - data_bundle is correctly resolved to "hello_world"
   - Key structural files are generated (CLAUDE.md, .mcp.json, config.yml)
-  - config.yml has mock control system with limits checking enabled, in
+  - config.yml serves the simulator in process with limits checking enabled, in
     ``optional`` mode, reading the limits database the build writes
   - channel_limits.json holds the three records of data/facility/limits.yaml
   - Hook files are present in .claude/hooks/
-  - MockConnector reads tutorial channels successfully
+  - VAInProcessConnector reads tutorial channels successfully
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import yaml
 
 from osprey.cli.build_cmd import _profile_data_bundle
 from tests._builds import BuiltProject, init_project, run_build
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -84,7 +84,10 @@ class TestHelloWorldBuildOutput:
 
         # Parse and verify config.yml
         config = yaml.safe_load((hello_world_project / "config.yml").read_text())
-        assert config["control_system"]["type"] == "mock"
+        assert config["control_system"]["type"] == "virtual_accelerator"
+        assert config["control_system"]["connector"]["virtual_accelerator"]["serving"] == (
+            "in_process"
+        )
         assert config["control_system"]["limits_checking"] == {
             "enabled": True,
             "mode": "optional",
@@ -139,28 +142,30 @@ class TestHelloWorldBuildOutput:
 
 
 @pytest.mark.asyncio
-class TestMockConnectorTutorialChannels:
-    """Verify MockConnector can read tutorial channel names."""
+class TestVAInProcessConnectorTutorialChannels:
+    """Verify VAInProcessConnector can read tutorial channel names."""
 
-    async def test_mock_connector_reads_tutorial_channels(self, tmp_path: Path):
-        """Instantiate MockConnector and read tutorial channels."""
-        from osprey.connectors.control_system.mock_connector import MockConnector
+    async def test_in_process_connector_reads_tutorial_channels(self, tmp_path: Path):
+        """Instantiate VAInProcessConnector and read tutorial channels."""
+        from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 
         channel_names = ["SR:BEAM:CURRENT", "SR:MAG:QF:01:CURRENT:RB"]
-        connector = MockConnector()
-        await connector.connect(mock_config(served_tree(tmp_path, readings=channel_names)))
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(served_tree(tmp_path, readings=channel_names)))
 
         for name in channel_names:
             result = await connector.read_channel(name)
             assert result is not None
             assert isinstance(result.value, (int, float))
 
-    async def test_the_render_s_mock_reads_a_stored_beam_current(self, hello_world_project: Path):
+    async def test_the_render_s_simulator_reads_a_stored_beam_current(
+        self, hello_world_project: Path
+    ):
         """The tutorial's first reading is a stored beam near its seeded nominal."""
-        from osprey.connectors.control_system.mock_connector import MockConnector
+        from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 
-        connector = MockConnector()
-        await connector.connect(mock_config(hello_world_project / "data" / "simulator"))
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(hello_world_project / "data" / "simulator"))
         try:
             result = await connector.read_channel("SR:BEAM:CURRENT")
         finally:

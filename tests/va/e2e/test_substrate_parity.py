@@ -153,7 +153,7 @@ from statistics import NormalDist  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
-from osprey_connectors.control_system.mock_connector import UDF_SEVERITY  # noqa: E402
+from osprey_connectors.control_system.va_in_process_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import decode_char_waveform  # noqa: E402
 from osprey_connectors.simulation.view import (  # noqa: E402
     TEXTURE,
