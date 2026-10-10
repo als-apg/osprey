@@ -287,6 +287,26 @@ class ControlContext:
         }
 
 
+def claimed(record: ControlContext, baseline: str) -> ControlContext:
+    """*record* as a process claiming it holds it, given the deployment's *baseline*.
+
+    A record nobody has switched follows the deployment's baseline; every
+    applied switch mints ``generation + 1``, so generation 0 is a claim and
+    never a switch. An unswitched record on another target moves to
+    *baseline* and keeps its generation, owner, posture narrowings (they only
+    ever refuse) and last switch terminus. A switched record, or one already
+    on *baseline*, is returned as it is.
+    """
+    if record.generation != 0 or record.target == baseline:
+        return record
+    logger.warning(
+        "control context: unswitched record on %r follows the deployment's baseline %r",
+        record.target,
+        baseline,
+    )
+    return replace(record, target=baseline)
+
+
 # -- path resolution --------------------------------------------------------
 
 
