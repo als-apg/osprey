@@ -113,15 +113,14 @@ _ADDRESSES: dict[str, object] = {
 }
 
 #: Prose a phrase search can match against, per node type. ``presence`` is the
-#: part an agent cannot guess: these predicates are a *generator* convention, so
-#: they exist in corpora built from a channel database and are simply absent
-#: from one imported straight from a facility export.
+#: part an agent cannot guess: the prose is the facility file's, so a corpus
+#: loaded from a facility export may carry none of it.
 _PROSE_IS_CORPUS_DEPENDENT = (
-    "Present in generator-built corpora such as the demo machine, whose source "
-    "channel database carries prose. A corpus imported straight from a facility "
-    "export may carry none of them, and a phrase search against them then "
-    "returns no rows — confirm with get_schema before concluding the phrase "
-    "is wrong."
+    "Present when the facility file carries descriptions, as the demo machine "
+    "does: the build writes each one onto its binding. A corpus loaded from a "
+    "facility export may carry none of them, and a phrase search against them "
+    "then returns no rows — confirm with get_schema before concluding the "
+    "phrase is wrong."
 )
 
 _DESCRIPTION_PREDICATES: dict[str, dict[str, object]] = {
@@ -175,11 +174,11 @@ _CORPUS: dict[str, object] = {
         "manifest cannot answer it. Every device carries it in facility. The "
         "example_queries parameter values belong to the demo machine; on any "
         "other corpus, take values from the rows the structural queries return.",
-        "Corpora differ in what they carry, not in the Cypher. The generated "
-        "demo corpus comes from a channel database that carries prose, so it "
-        "has every description predicate above; a corpus with no source "
-        "database has none of them, and on that corpus a phrase search returns "
-        "no rows while the structural queries still work.",
+        "Corpora differ in what they carry, not in the Cypher. The demo "
+        "machine's facility file carries prose, so its corpus has every "
+        "description predicate above; a corpus whose facility file carries "
+        "none has none of them, and on that corpus a phrase search returns no "
+        "rows while the structural queries still work.",
     ],
 }
 
