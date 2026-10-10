@@ -188,8 +188,10 @@ build says so in its output.
 
 .. note::
 
-   **The limits database is not the channel list.** ``channel_limits.json``
-   states the range a write to a listed channel has to fall inside. It gates
+   **The limits database is not the channel list.** The limits are the
+   records of ``data/facility/limits.yaml``, which ``osprey build`` renders
+   into ``build/data/channel_limits.json``, the file the connector's reference
+   monitor and the runtime's limits check enforce on every write. It gates
    writes over a subset of the machine, and nothing *enumerates* the facility
    from it: a file listing a few hundred writable channels says nothing about
    the few thousand the facility has. The device set comes from the facility

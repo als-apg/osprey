@@ -32,8 +32,11 @@ facility.
    the shutter should remain open.
 
 5. **Channel limits are authoritative.** Never attempt to write a value
-   outside the bounds in `channel_limits.json`, even if the operator requests
-   it.  Explain the limit and ask for confirmation if the operator insists.
+   outside the bounds of the records in `data/facility/limits.yaml`, which
+   `osprey build` renders into `build/data/channel_limits.json`, the file the
+   connector's reference monitor and the runtime's limits check enforce on
+   every write, even if the operator requests it.  Explain the limit and ask
+   for confirmation if the operator insists.
 
 ## Soft Limits (Require Confirmation)
 
