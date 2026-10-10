@@ -478,20 +478,18 @@ def _pip_member_requirements(osprey_spec: str) -> list[str]:
 
     from osprey.deployment.members import WORKSPACE_MEMBERS
 
-    location: str | None = osprey_spec
-    if not osprey_spec.startswith((".", "~", "/")):
-        try:
-            # A named requirement: its direct-reference URL, or None for a release.
-            location = Requirement(osprey_spec).url
-        except InvalidRequirement:
-            pass  # A bare URL, which is no PEP 508 requirement.
+    location: str | None
+    try:
+        # A local path becomes a file:// direct reference; a named requirement
+        # carries its direct-reference URL, or None for a release.
+        location = Requirement(_osprey_requirement(osprey_spec)).url
+    except InvalidRequirement:
+        location = osprey_spec  # A bare URL, which is no PEP 508 requirement.
     if location is None:
         return []
 
     if location.startswith("file://"):
-        location = unquote(urlparse(location).path)
-    if location.startswith((".", "~", "/")):
-        source_root = Path(location).expanduser()
+        source_root = Path(unquote(urlparse(location).path))
         return [str(source_root / "packages" / member) for member in WORKSPACE_MEMBERS]
     if location.startswith("git+"):
         base = location.split("#", 1)[0]
