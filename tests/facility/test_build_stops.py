@@ -246,6 +246,8 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "two model names equal case-insensitively",
     ),
     ("source_invalid__computed_slot", "source-invalid", "a layer writes a computed slot"),
+    ("source_invalid__bare_noise", "source-invalid", "a bare-float seed `noise`"),
+    ("source_invalid__seed_noise_abs", "source-invalid", "a seed `noise` stating `noise_abs`"),
     (
         "layer_conflict__map_slot",
         "layer-conflict",
@@ -348,6 +350,17 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("value_invalid__options_presence", "value-invalid", "`options` presence wrong"),
     ("value_invalid__shape_presence", "value-invalid", "`shape` presence wrong"),
     ("value_invalid__motion_non_float", "value-invalid", "motion on non-float"),
+    ("value_invalid__noise_both_terms", "value-invalid", "a seed `noise` stating both terms"),
+    (
+        "value_invalid__scenario_noise_abs",
+        "value-invalid",
+        "a scenario `noise` entry stating `noise_abs`",
+    ),
+    (
+        "value_invalid__scenario_noise_both_terms",
+        "value-invalid",
+        "a scenario `noise` entry stating both terms",
+    ),
     ("value_invalid__enum_bounds", "value-invalid", "enum bounds"),
     ("value_invalid__linear_wired", "value-invalid", "`linear` inputs wired"),
     ("value_invalid__linear_cyclic", "value-invalid", "`linear` inputs cyclic"),
@@ -375,6 +388,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("seed_invalid__nominal_out_of_band", "seed-invalid", "nominal out of band"),
     ("seed_invalid__nominal_wired", "seed-invalid", "nominal on a wired channel"),
     ("seed_invalid__motion_on_setpoint", "seed-invalid", "noise/drift on a setpoint"),
+    (
+        "seed_invalid__relative_noise_without_nominal",
+        "seed-invalid",
+        "a relative `noise` on a seed without a `nominal`",
+    ),
     ("seed_invalid__paired_seed", "seed-invalid", "paired seed disagrees"),
     ("seed_invalid__int_nominal", "seed-invalid", "non-integral nominal on an int channel"),
     ("seed_invalid__int_override", "seed-invalid", "non-integral override on an int channel"),
@@ -698,6 +716,20 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "`s` from records/devices.yaml"
         ),
     ),
+    "source_invalid__bare_noise": (
+        _plain(seeds(**{"BPM1:X": {"noise": 0.1}})),
+        (
+            "facility: source-invalid: path channels.0.simulation.noise — seeds.yaml: input "
+            "should be a valid dictionary or instance of Noise; fix: correct `noise` in seeds.yaml"
+        ),
+    ),
+    "source_invalid__seed_noise_abs": (
+        _plain(seeds(**{"BPM1:X": {"noise": {"noise_abs": 0.1}}})),
+        (
+            "facility: source-invalid: path channels.0.simulation.noise.noise_abs — seeds.yaml: "
+            "extra inputs are not permitted; fix: remove `noise_abs` from seeds.yaml"
+        ),
+    ),
     "layer_conflict__map_slot": (
         _plain(
             put("models.yaml", [{**NO_DECK, "settings": {"pyat": {"solve": "single_pass"}}}]),
@@ -989,7 +1021,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "reference_missing__noise": (
-        _plain(scenario("warm", {"noise": {"Q9:RB": {"noise": 0.0, "noise_abs": 0.1}}})),
+        _plain(scenario("warm", {"noise": {"Q9:RB": {"absolute": 0.1}}})),
         (
             "facility: reference-missing: scenario warm — scenarios/warm.yaml `noise` names "
             "channel Q9:RB, which does not exist; fix: add channel Q9:RB or correct `noise`"
@@ -1284,11 +1316,34 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "value_invalid__motion_non_float": (
         _plain(
             append("records/channels.yaml", {"id": "T", "value_type": "int"}),
-            seeds(T={"noise": 1.0}),
+            seeds(T={"noise": {"absolute": 1.0}}),
         ),
         (
             "facility: value-invalid: channel T — a int channel carries `noise`; motion, `clamp` "
             "and `linear` apply to float channels only; fix: remove `noise`"
+        ),
+    ),
+    "value_invalid__noise_both_terms": (
+        _plain(seeds(**{"BPM1:X": {"nominal": 1.0, "noise": {"absolute": 0.1, "relative": 0.01}}})),
+        (
+            "facility: value-invalid: channel BPM1:X — `noise` states both `absolute` and "
+            "`relative`; fix: write `noise: {absolute: <sigma>}` or `noise: {relative: "
+            "<fraction>}`"
+        ),
+    ),
+    "value_invalid__scenario_noise_abs": (
+        _plain(scenario("warm", {"noise": {"BPM1:X": {"noise": 0.0, "noise_abs": 0.1}}})),
+        (
+            "facility: value-invalid: scenario warm — `noise.BPM1:X` states `noise`, `noise_abs`; "
+            "fix: write `BPM1:X: {absolute: <sigma>}`"
+        ),
+    ),
+    "value_invalid__scenario_noise_both_terms": (
+        _plain(scenario("warm", {"noise": {"BPM1:X": {"absolute": 0.1, "relative": 0.01}}})),
+        (
+            "facility: value-invalid: scenario warm — `noise.BPM1:X` states both `absolute` and "
+            "`relative`; fix: write `BPM1:X: {absolute: <sigma>}` or `BPM1:X: {relative: "
+            "<fraction>}`"
         ),
     ),
     "value_invalid__enum_bounds": (
@@ -1445,10 +1500,18 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "seed_invalid__motion_on_setpoint": (
-        _plain(seeds(**{"Q1:SP": {"noise": 0.1}})),
+        _plain(seeds(**{"Q1:SP": {"noise": {"absolute": 0.1}}})),
         (
             "facility: seed-invalid: channel Q1:SP — a setpoint carries `noise`; fix: remove "
             "`noise`; a setpoint holds the value written to it"
+        ),
+    ),
+    "seed_invalid__relative_noise_without_nominal": (
+        _plain(seeds(**{"BPM1:X": {"noise": {"relative": 0.01}}})),
+        (
+            "facility: seed-invalid: channel BPM1:X — a relative `noise` is taken of the seed's "
+            "`nominal`, which this seed does not state; fix: state `absolute`, or give the seed a "
+            "`nominal`"
         ),
     ),
     "seed_invalid__paired_seed": (

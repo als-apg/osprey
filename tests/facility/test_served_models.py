@@ -95,8 +95,11 @@ def test_a_changed_seed_changes_the_facility_file(
         if name == "reseeded":
             seeds = facility_dir / SEEDS
             text = seeds.read_text(encoding="utf-8")
-            assert "noise: 0.005\n" in text
-            seeds.write_text(text.replace("noise: 0.005\n", "noise: 0.006\n", 1), encoding="utf-8")
+            stated = "noise:\n    absolute: 0.005\n"
+            assert stated in text
+            seeds.write_text(
+                text.replace(stated, "noise:\n    absolute: 0.006\n", 1), encoding="utf-8"
+            )
         document = build_facility(facility_dir, project_name="demo")
         render_dir = _render(tmp_path / name / "render", document, {}, facility_dir)
         rendered[name] = (render_dir / FACILITY_FILE).read_bytes()

@@ -151,13 +151,22 @@ class TestStageRunner:
         result = run_stages(root, project_name="p", later=[("compute", compute), ("views", views)])
         assert result.failed == "compute" and seen == ["compute"]
 
-        bad = _write(tmp_path / "bad", _tree(**{"seeds.yaml": {"NOPE": {"noise": 1.0}}}))
+        bad = _write(
+            tmp_path / "bad", _tree(**{"seeds.yaml": {"NOPE": {"noise": {"absolute": 1.0}}}})
+        )
         seen.clear()
         result = run_stages(bad, project_name="p", later=[("compute", compute)])
         assert result.failed == "references" and seen == []
 
     def test_raise_first_raises_the_first_sorted_error(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"B:GONE": {"noise": 1.0}, "A:GONE": {"noise": 1.0}}})
+        files = _tree(
+            **{
+                "seeds.yaml": {
+                    "B:GONE": {"noise": {"absolute": 1.0}},
+                    "A:GONE": {"noise": {"absolute": 1.0}},
+                }
+            }
+        )
         result = _run(tmp_path, files)
         with pytest.raises(FacilityBuildError) as caught:
             result.raise_first()
@@ -191,7 +200,10 @@ class TestGather:
     def test_validate_prints_every_error_of_the_first_failing_stage(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "seeds.yaml": {"B:GONE": {"noise": 1.0}, "A:GONE": {"noise": 1.0}},
+                "seeds.yaml": {
+                    "B:GONE": {"noise": {"absolute": 1.0}},
+                    "A:GONE": {"noise": {"absolute": 1.0}},
+                },
                 "records/devices.yaml": [QUAD, {**BPM, "class": "NoSuchClass"}],
             }
         )
@@ -412,7 +424,7 @@ class TestReferences:
         _missing(error, "channel", "T", "`on.device` names device SR/GONE")
 
     def test_seed_address(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"GONE": {"noise": 0.1}}})
+        files = _tree(**{"seeds.yaml": {"GONE": {"noise": {"absolute": 0.1}}}})
         _missing(_one(tmp_path, files, "references"), "seed", "GONE", "seeds.yaml")
 
     def test_limit_address(self, tmp_path: Path) -> None:
@@ -428,7 +440,7 @@ class TestReferences:
             ({"archiver": [{"channel": "GONE", "events": []}]}, "`archiver.channel` names"),
             ({"faults": {"nomodel": {"Q1:SP": 1.0}}}, "`faults` names model nomodel"),
             ({"couple": {"GONE": [{"driver": "d", "gain": 1.0}]}}, "`couple` names channel GONE"),
-            ({"noise": {"GONE": {"noise_abs": 0.1}}}, "`noise` names channel GONE"),
+            ({"noise": {"GONE": {"absolute": 0.1}}}, "`noise` names channel GONE"),
         ],
         ids=["override", "archiver", "fault-model", "couple", "noise"],
     )
@@ -473,7 +485,7 @@ class TestReferences:
         files = _tree(
             **{
                 "records/channels.yaml": [SP, RB, renamed],
-                "seeds.yaml": {"OLD:X": {"noise": 0.1}},
+                "seeds.yaml": {"OLD:X": {"noise": {"absolute": 0.1}}},
             }
         )
         error = _one(tmp_path, files, "references")
@@ -515,7 +527,9 @@ class TestDroppedReferences:
 
     def test_seed(self, tmp_path: Path) -> None:
         error = _one(
-            tmp_path, _dropping_tree(**{"seeds.yaml": {"X2": {"noise": 0.1}}}), "references"
+            tmp_path,
+            _dropping_tree(**{"seeds.yaml": {"X2": {"noise": {"absolute": 0.1}}}}),
+            "references",
         )
         self._check(error, "seed", "X2")
 
@@ -759,7 +773,9 @@ class TestValueRules:
         result = _run(tmp_path, _with_channels({"id": "T", "value_type": "bool"}))
         assert result.ok
 
-    @pytest.mark.parametrize("seed", [{"noise": 0.1}, {"drift": {"amplitude": 1, "period_s": 5}}])
+    @pytest.mark.parametrize(
+        "seed", [{"noise": {"absolute": 0.1}}, {"drift": {"amplitude": 1, "period_s": 5}}]
+    )
     def test_motion_on_a_non_float_is_value_invalid_only(
         self, tmp_path: Path, seed: dict[str, Any]
     ) -> None:
@@ -961,12 +977,17 @@ class TestLimitRules:
 
 class TestSeedRules:
     def test_noise_on_a_setpoint(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"Q1:SP": {"noise": 0.1}}})
+        files = _tree(**{"seeds.yaml": {"Q1:SP": {"noise": {"absolute": 0.1}}}})
         error = _rule(tmp_path, files, "seed-invalid")
         assert error.detail == "a setpoint carries `noise`"
 
     def test_noise_on_a_wired_readback_builds(self, tmp_path: Path) -> None:
-        files = _tree(**{"models.yaml": [_wired("BPM1:X")], "seeds.yaml": {"BPM1:X": {"noise": 1}}})
+        files = _tree(
+            **{
+                "models.yaml": [_wired("BPM1:X")],
+                "seeds.yaml": {"BPM1:X": {"noise": {"absolute": 1}}},
+            }
+        )
         assert _run(tmp_path, files).ok
 
     def test_nominal_on_a_wired_channel(self, tmp_path: Path) -> None:

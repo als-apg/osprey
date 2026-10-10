@@ -71,9 +71,9 @@ VALID = "SR:STATUS:VALID"
 
 #: The simulator view's channels: three moving floats and a flag.
 CHANNELS = {
-    PRESSURE: {"nominal": 1e-9, "noise": 1e-11},
-    "SR:RF:CAV01:TEMP:BODY": {"nominal": 25.0, "noise": 0.05},
-    "SR:DIAG:BPM:12:POSITION:X": {"nominal": 0.0, "noise": 0.002},
+    PRESSURE: {"nominal": 1e-9, "noise": {"absolute": 1e-11}},
+    "SR:RF:CAV01:TEMP:BODY": {"nominal": 25.0, "noise": {"absolute": 0.05}},
+    "SR:DIAG:BPM:12:POSITION:X": {"nominal": 0.0, "noise": {"absolute": 0.002}},
     VALID: {"value_type": "bool", "nominal": "TRUE"},
 }
 ADDRESSES = sorted(CHANNELS)

@@ -65,9 +65,9 @@ ADDRESSES_SCHEMA = "osprey.facility.addresses/1"
 VARIABLES_FILE = "variables.json"
 VARIABLES_SCHEMA = "osprey.facility.simulator/2"
 SEEDS_FILE = "seeds.json"
-SEEDS_SCHEMA = "osprey.facility.seeds/1"
+SEEDS_SCHEMA = "osprey.facility.seeds/2"
 SCENARIOS_FILE = "scenarios.json"
-SCENARIOS_SCHEMA = "osprey.facility.scenarios/1"
+SCENARIOS_SCHEMA = "osprey.facility.scenarios/2"
 #: The directory holding a byte copy of each deck-bearing model's deck.
 DECKS_DIR = "decks"
 #: The directory holding each scenario's attached files, ``scenarios/<name>/``,

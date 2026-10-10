@@ -13,8 +13,9 @@ One settable per setpoint channel, whose ``readback`` is the channel's ``pair``
 when the pair is another channel and is absent otherwise; one readable per
 readback channel, paired or not; a channel whose role is ``none`` is no device.
 A settable carries ``settle_tolerance`` when the channel it reads back declares
-motion in its ``simulation`` seed: the band
-:func:`osprey.facility.motion.settle_band` derives from that seed. A settable
+motion in its ``simulation`` seed: the envelope
+:func:`osprey_connectors.simulation.envelope.motion_envelope` derives from that
+seed. A settable
 whose readback declares none carries no key and settles within the profile's
 floor.
 A device's name is its address. Entries follow the facility file's channel
@@ -60,10 +61,11 @@ def _records(doc: Mapping[str, Any], facility_file: Path) -> list[Any]:
 
 
 def _settle_bands(doc: Mapping[str, Any]) -> dict[str, float]:
-    from osprey.facility.motion import settle_band
+    from osprey_connectors.simulation.envelope import motion_envelope
 
     return {
-        channel["id"]: settle_band(channel.get("simulation")) for channel in doc.get("channels", [])
+        channel["id"]: motion_envelope(channel.get("simulation"))
+        for channel in doc.get("channels", [])
     }
 
 

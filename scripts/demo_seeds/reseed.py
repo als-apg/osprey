@@ -4,7 +4,7 @@
 Every float readback of ``src/osprey/templates/facilities/example`` that carries
 no ``linear`` key gets its ``noise`` and ``drift`` from the one row of
 ``rules.yaml`` that matches its device's class and its signal, converted into the
-channel's unit. A channel no row matches stays still, unless its committed seed
+channel's unit; ``noise`` is written as ``{absolute: <sigma>}``. A channel no row matches stays still, unless its committed seed
 moves, which is an error. Every other seed key (``nominal``, ``clamp``,
 ``linear``) is carried through as data.
 
@@ -149,7 +149,7 @@ def motion(row: dict[str, Any], unit: str) -> dict[str, Any]:
     stamped: dict[str, Any] = {}
     noise = convert(row["noise"], unit)
     if noise is not None:
-        stamped["noise"] = noise
+        stamped["noise"] = {"absolute": noise}
     drift = row.get("drift", NONE)
     if drift != NONE:
         stamped["drift"] = {

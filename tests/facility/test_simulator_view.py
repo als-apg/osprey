@@ -28,6 +28,7 @@ from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -507,7 +508,7 @@ def test_seeds_are_each_channel_seed_record(built_control_assistant: BuiltProjec
     }
 
     assert set(seeds) == {"schema", "seeds"}
-    assert seeds["schema"] == "osprey.facility.seeds/1"
+    assert seeds["schema"] == SEEDS_SCHEMA
     assert seeds["seeds"] == expected
     assert list(seeds["seeds"]) == sorted(expected)
 
@@ -520,7 +521,7 @@ def test_scenarios_carry_every_scenario_and_its_blocks(
     names = sorted(path.stem for path in source.glob("*.yaml"))
 
     assert set(scenarios) == {"schema", "scenarios"}
-    assert scenarios["schema"] == "osprey.facility.scenarios/1"
+    assert scenarios["schema"] == SCENARIOS_SCHEMA
     assert [entry["name"] for entry in scenarios["scenarios"]] == names
     for entry in scenarios["scenarios"]:
         authored = yaml.safe_load((source / f"{entry['name']}.yaml").read_text())

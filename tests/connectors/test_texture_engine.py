@@ -88,17 +88,17 @@ def _view() -> tuple[dict[str, Any], dict[str, Any]]:
             "T:HEAT:SP": {"nominal": 20.0},
             "T:NOISY": {
                 "nominal": 10.0,
-                "noise": 0.5,
+                "noise": {"absolute": 0.5},
                 "drift": {"amplitude": 1.0, "period_s": 600},
             },
-            "T:CLAMPED": {"nominal": 3.0, "noise": 5.0, "clamp": [0.0, None]},
+            "T:CLAMPED": {"nominal": 3.0, "noise": {"absolute": 5.0}, "clamp": [0.0, None]},
             "T:SUM": {"linear": {"T:HEAT:SP": 2.0, "T:NOISY": {"coefficient": -1.0}}},
             "T:VALVE": {"nominal": "TRUE"},
             "T:MODE": {"nominal": "STANDBY"},
             "T:COUNT": {"nominal": 7},
             "T:NAME": {"nominal": "alpha"},
             "T:TRACE": {"nominal": [[1, 2, 3], [4, 5, 6]]},
-            "P:SERVED:RB": {"noise": 0.25},
+            "P:SERVED:RB": {"noise": {"absolute": 0.25}},
         },
     }
     return variables, seeds
@@ -150,7 +150,7 @@ def test_clamp_holds_the_stated_side_and_leaves_the_null_side_open():
 def test_an_int_clamp_side_reads_as_a_float():
     variables, seeds = _view()
     variables["channels"].append(_channel("T:INT:CLAMPED"))
-    seeds["seeds"]["T:INT:CLAMPED"] = {"nominal": 3.0, "noise": 5.0, "clamp": [0, 1]}
+    seeds["seeds"]["T:INT:CLAMPED"] = {"nominal": 3.0, "noise": {"absolute": 5.0}, "clamp": [0, 1]}
     reads = [
         TextureModel(variables, seeds, clock=lambda t=T0 + k * 0.137: t).get("T:INT:CLAMPED")
         for k in range(50)
@@ -347,26 +347,60 @@ def test_a_gain_wander_coupling_differs_from_the_plain_one():
 
 
 def test_a_zero_noise_replacement_silences_a_seeded_channel():
-    model = _coupled_model({}, {"T:NOISY": {"noise": 0.0, "noise_abs": 0.0}})
+    model = _coupled_model({}, {"T:NOISY": {"absolute": 0.0}})
     drift = series.wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
 
     assert model.get("T:NOISY") == pytest.approx(10.0 + drift)
 
 
-def test_a_noise_replacement_scales_the_value_then_adds_its_absolute_term():
-    model = _coupled_model({}, {"T:A": {"noise": 0.1, "noise_abs": 0.2}})
+def test_an_absolute_record_serves_todays_samples():
+    model = _coupled_model({})
+    times = T0 + np.arange(0.0, 5.0, 0.25)
+    key = series.channel_key_bytes("P:SERVED:RB")
+    counters = np.rint(times * 1000).astype(np.int64)
+
+    moved = model.motion("P:SERVED:RB", times, base=9.0)
+
+    assert np.array_equal(moved, 0.25 * series.keyed_normals(key, counters))
+
+
+def test_a_scenario_absolute_keeps_the_noise_abs_stream():
+    model = _coupled_model({}, {"T:A": {"absolute": 0.2}})
+    key = series.channel_key_bytes("T:A")
+    counter = np.array([round(T0 * 1000)])
+    absolute = series.keyed_normals(key + b":noise_abs", counter)[0]
+
+    assert model.get("T:A") == 1.0 + 0.2 * absolute
+
+
+def test_a_scenario_relative_scales_the_value_on_the_noise_stream():
+    model = _coupled_model({}, {"T:A": {"relative": 0.1}})
     key = series.channel_key_bytes("T:A")
     counter = np.array([round(T0 * 1000)])
     relative = series.keyed_normals(key + b":noise", counter)[0]
-    absolute = series.keyed_normals(key + b":noise_abs", counter)[0]
 
-    assert model.get("T:A") == pytest.approx(1.0 * (1.0 + 0.1 * relative) + 0.2 * absolute)
+    assert model.get("T:A") == pytest.approx(1.0 * (1.0 + 0.1 * relative))
+
+
+def test_a_relative_seed_scales_the_reading():
+    variables, seeds = _view()
+    variables["channels"].append(_channel("T:REL"))
+    seeds["seeds"]["T:REL"] = {"nominal": 200.0, "noise": {"relative": 1e-3}}
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+    key = series.channel_key_bytes("T:REL")
+    counter = np.array([round(T0 * 1000)])
+    draw = series.keyed_normals(key, counter)[0]
+
+    assert model.get("T:REL") == pytest.approx(200.0 * (1.0 + 1e-3 * draw))
+    assert model.motion("T:REL", np.array([T0]), base=400.0)[0] == pytest.approx(
+        400.0 * 1e-3 * draw
+    )
 
 
 def test_an_empty_motion_restores_the_seed_motion():
     model = _coupled_model(
         {"T:NOISY": [{"driver": "d1", "gain": 3.0, "drive": _DRIVE}]},
-        {"T:NOISY": {"noise": 0.0, "noise_abs": 0.0}},
+        {"T:NOISY": {"absolute": 0.0}},
     )
     moved = model.get("T:NOISY")
 
@@ -391,13 +425,16 @@ _COUPLING = [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]
 @pytest.mark.parametrize(
     ("value_type", "seed", "couple", "noise", "expected"),
     [
-        ("int", {"nominal": 1, "noise": 0.5}, _COUPLING, {}, False),
+        ("int", {"nominal": 1, "noise": {"absolute": 0.5}}, _COUPLING, {}, False),
         ("float", {"nominal": 1.0}, None, {}, False),
         ("float", {"nominal": 1.0, "drift": {"amplitude": 1.0, "period_s": 600}}, None, {}, True),
         ("float", {"nominal": 1.0}, _COUPLING, {}, True),
-        ("float", {"nominal": 1.0, "noise": 0.5}, None, {}, True),
-        ("float", {"nominal": 1.0, "noise": 0.5}, None, {"noise": 0.0, "noise_abs": 0.0}, False),
-        ("float", {"nominal": 1.0}, None, {"noise_abs": 0.2}, True),
+        ("float", {"nominal": 1.0, "noise": {"absolute": 0.5}}, None, {}, True),
+        ("float", {"nominal": 1.0, "noise": {"absolute": 0.5}}, None, {"absolute": 0.0}, False),
+        ("float", {"nominal": 1.0, "noise": {"absolute": 0.5}}, None, {"relative": 0.0}, False),
+        ("float", {"nominal": 1.0, "noise": {"absolute": 0.0}}, None, {}, False),
+        ("float", {"nominal": 1.0, "noise": {"relative": 0.5}}, None, {}, True),
+        ("float", {"nominal": 1.0}, None, {"absolute": 0.2}, True),
     ],
     ids=[
         "non-float",
@@ -405,7 +442,10 @@ _COUPLING = [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]
         "drift-only",
         "coupling-only",
         "seed-noise-only",
-        "zero-replacement-over-noisy-seed",
+        "zero-absolute-replacement-over-noisy-seed",
+        "zero-relative-replacement-over-noisy-seed",
+        "zero-absolute-seed",
+        "relative-seed",
         "replacement-noise",
     ],
 )
@@ -428,11 +468,11 @@ def test_has_motion_follows_set_motion():
     assert model.has_motion("T:A") is False
     assert model.has_motion("T:NOISY") is True
 
-    model.set_motion({"T:A": _COUPLING}, {"T:NOISY": {"noise": 0.0, "noise_abs": 0.0}})
+    model.set_motion({"T:A": _COUPLING}, {"T:NOISY": {"absolute": 0.0}})
     assert model.has_motion("T:A") is True
     assert model.has_motion("T:NOISY") is True  # its seed drift still moves it
 
-    model.set_motion({}, {"T:CLAMPED": {"noise": 0.0}})
+    model.set_motion({}, {"T:CLAMPED": {"relative": 0.0}})
     assert model.has_motion("T:A") is False
     assert model.has_motion("T:CLAMPED") is False
 

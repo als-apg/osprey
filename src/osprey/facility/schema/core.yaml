@@ -332,8 +332,8 @@ classes:
         range: Any
         description: The value at start, of the channel's value_type.
       noise:
-        range: float
-        description: Additive Gaussian sigma in the channel's unit.
+        range: Noise
+        inlined: true
       drift:
         range: Drift
         inlined: true
@@ -350,6 +350,19 @@ classes:
         inlined: true
         list_elements_ordered: true
         description: "The value as a weighted sum of other channels, `{<address>: <coefficient>}`."
+
+  Noise:
+    description: >-
+      Additive Gaussian noise, stating exactly one of `absolute`, `relative`.
+    attributes:
+      absolute:
+        range: float
+        minimum_value: 0
+        description: Gaussian sigma in the channel's unit.
+      relative:
+        range: float
+        minimum_value: 0
+        description: Gaussian sigma as a fraction of the reading.
 
   Drift:
     attributes:
@@ -659,8 +672,8 @@ classes:
       noise:
         range: Any
         description: >-
-          `{<address>: {noise, noise_abs}}`, the channel's noise while the
-          scenario is active, in place of its seed's.
+          `{<address>: {absolute: <sigma>} | {relative: <fraction>}}`, the
+          channel's noise while the scenario is active, in place of its seed's.
 
   Any:
     class_uri: linkml:Any

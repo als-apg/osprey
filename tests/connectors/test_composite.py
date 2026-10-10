@@ -241,8 +241,8 @@ def _view(
         "seeds.json": {
             "seeds": {
                 "T:SP": {"nominal": 5.0},
-                "T:NOISY": {"nominal": 10.0, "noise": 0.5},
-                "M:RB": {"noise": 0.1},
+                "T:NOISY": {"nominal": 10.0, "noise": {"absolute": 0.5}},
+                "M:RB": {"noise": {"absolute": 0.1}},
                 "M:BPM:X": {"drift": {"amplitude": 0.01, "period_s": 600}},
                 "M:BPM:Y": {"drift": {"amplitude": 0.01, "period_s": 600}},
                 "T:STEP:SP": {"nominal": 3.0},
@@ -718,7 +718,7 @@ def test_a_scenarios_drivers_move_the_readbacks_it_couples(tmp_path: Path) -> No
                 "T:RB": [{"driver": "d", "gain": 0.5}],
                 "M:RB": [{"driver": "d", "gain": 2.0}],
             },
-            "noise": {"M:RB": {"noise": 0.0, "noise_abs": 0.0}},
+            "noise": {"M:RB": {"absolute": 0.0}},
         }
     ]
     composite = _composite(tmp_path, scenarios=scenarios)
@@ -739,7 +739,7 @@ def test_moving_follows_active_scenarios(tmp_path: Path) -> None:
             "name": "thermal",
             "drivers": {"d": {"kind": "wander", "amplitude": 1.0, "period_s": 300}},
             "couple": {"T:RB": [{"driver": "d", "gain": 0.5}]},
-            "noise": {"T:NOISY": {"noise": 0.0, "noise_abs": 0.0}},
+            "noise": {"T:NOISY": {"absolute": 0.0}},
         }
     ]
     composite = _composite(tmp_path, scenarios=scenarios)
