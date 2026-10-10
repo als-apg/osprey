@@ -13,7 +13,11 @@ import yaml
 at = pytest.importorskip("at")
 
 from osprey.facility import compute  # noqa: E402
-from osprey.facility.build import LATER_STAGES, build_facility  # noqa: E402
+from osprey.facility.build import (  # noqa: E402
+    LATER_STAGES,
+    build_facility,
+    build_facility_with_warnings,
+)
 from osprey.facility.errors import FacilityBuildError  # noqa: E402
 from osprey.facility.validate import StageReport, run_stages, validate  # noqa: E402
 
@@ -25,6 +29,8 @@ READING = {"attribute": "PolynomB", "index": 0}
 #: The periodic deck: QF split in two halves at its start and end.
 QF_HALF = 0.25
 SR_LENGTH = 3.8
+#: How ``:.9g`` prints (SR_LENGTH + 13e-6) % SR_LENGTH.
+WRAPPED = "1.3e-05"
 
 
 def _sr_deck(path: Path) -> None:
@@ -151,6 +157,12 @@ def _ok(tmp_path: Path, files: dict[str, Any]) -> dict[str, Any]:
     document = result.validated.document
     assert document is not None
     return document
+
+
+def _warnings(tmp_path: Path, files: dict[str, Any]) -> list[str]:
+    result = _run(tmp_path, files)
+    assert result.ok, _lines(result)
+    return [warning.line for warning in result.validated.warnings]
 
 
 def _devices(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -352,13 +364,19 @@ class TestStatedPositions:
         defaults = set(qd["provenance"]["defaults"])
         assert "length" in defaults
         assert not {"model", "s"} & defaults
+        assert _warnings(tmp_path / "again", files) == []
 
     def test_a_periodic_s_agrees_modulo_the_deck_length(self, tmp_path):
         files = _tree()
         files["records/devices.yaml"][0]["s"] = -QF_HALF
-        qf = _devices(_ok(tmp_path, files))["SR/QF"]
+        result = _run(tmp_path, files)
+        assert result.ok, _lines(result)
+        qf = _devices(result.validated.document)["SR/QF"]
         assert qf["s"] == -QF_HALF
         assert qf["ordinalInModel"] == 2
+        assert [(w.kind, w.record_kind, w.record_id) for w in result.validated.warnings] == [
+            ("place-wrapped", "device", "SR/QF")
+        ]
 
     def test_a_stated_length_without_s_is_carried(self, tmp_path):
         files = _tree()
@@ -388,14 +406,73 @@ class TestStatedPositions:
         assert spare["s"] == SR_LENGTH + 2.0
         assert spare["place"] == "SR/A"
         assert (spare["ordinalInPlace"], spare["ordinalInModel"]) == (2, 2)
+        result = _run(tmp_path / "again", files)
+        assert [(w.kind, w.record_kind, w.record_id) for w in result.validated.warnings] == [
+            ("place-wrapped", "device", "SR/SPARE")
+        ]
 
     def test_a_stated_s_outside_a_single_pass_deck_stops(self, tmp_path):
         files = _tree()
         files["imported/mml/devices.yaml"] = [{"id": "SR/SPARE", "model": "LINE", "s": 9.0}]
-        assert _lines(_run(tmp_path, files)) == [
+        result = _run(tmp_path, files)
+        assert _lines(result) == [
             "facility: place-conflict: device SR/SPARE — layer mml states s 9 in model LINE, "
             "outside its deck of length 2.2; fix: state an s inside the deck, or drop it"
         ]
+        assert result.validated.warnings == []
+
+    def test_a_stated_s_just_past_a_periodic_deck_warns_once_per_device(self, tmp_path):
+        files = _tree()
+        files["records/devices.yaml"][4].update(model="SR", s=SR_LENGTH + 13e-6)
+        files["records/devices.yaml"].append(
+            {"id": "SR/SPARE2", "class": QUAD, "model": "SR", "s": SR_LENGTH + 13e-6}
+        )
+        # Nine significant digits show the float residue of the modulo.
+        assert _warnings(tmp_path, files) == [
+            f"facility: place-wrapped: device {device} — layer authored states s 3.800013 in "
+            "periodic model SR, outside its deck of length 3.8; the device is placed at "
+            f"s {WRAPPED}; fix: state s {WRAPPED}, or drop it"
+            for device in ("SR/SPARE", "SR/SPARE2")
+        ]
+
+    @pytest.mark.parametrize("s", [2.0, 0.0, SR_LENGTH])
+    def test_a_stated_s_inside_a_periodic_deck_does_not_warn(self, tmp_path, s):
+        files = _tree()
+        files["records/devices.yaml"][4].update(model="SR", s=s)
+        assert _warnings(tmp_path, files) == []
+
+    def test_a_negative_stated_s_on_a_periodic_deck_warns(self, tmp_path):
+        files = _tree()
+        files["records/devices.yaml"][4].update(model="SR", s=-0.5)
+        assert _warnings(tmp_path, files) == [
+            "facility: place-wrapped: device SR/SPARE — layer authored states s -0.5 in "
+            "periodic model SR, outside its deck of length 3.8; the device is placed at "
+            "s 3.3; fix: state s 3.3, or drop it"
+        ]
+
+    def test_a_failing_stage_keeps_its_stops_and_a_wrap_does_not_hide_them(self, tmp_path):
+        files = _tree()
+        files["records/devices.yaml"][4].update(model="SR", s=-0.5)
+        files["records/devices.yaml"].append(
+            {"id": "LINE/SPARE", "class": QUAD, "model": "LINE", "s": 9.0}
+        )
+        result = _run(tmp_path, files)
+        assert _lines(result) == [
+            "facility: place-conflict: device LINE/SPARE — layer authored states s 9 in "
+            "model LINE, outside its deck of length 2.2; fix: state an s inside the deck, "
+            "or drop it"
+        ]
+
+    def test_the_build_returns_the_warnings_beside_the_file(self, tmp_path):
+        files = _tree()
+        files["records/devices.yaml"][4].update(model="SR", s=-0.5)
+        root = _write(tmp_path / "facility", files)
+        document, warnings = build_facility_with_warnings(root, project_name="p")
+        assert document == build_facility(root, project_name="p")
+        assert [w.record_id for w in warnings] == ["SR/SPARE"]
+        stream = io.StringIO()
+        assert validate(root, project_name="p", file=stream) == 0
+        assert stream.getvalue().splitlines() == [w.line for w in warnings]
 
 
 class TestOrdinals:

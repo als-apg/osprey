@@ -6,7 +6,8 @@
     compute   positions, places, ordinals, deck checks     (compute.py)
 
 and returns the facility file, or raises the first error of the first stage
-that fails. Nothing is written to disk.
+that fails. Nothing is written to disk. ``build_facility_with_warnings``
+returns the warnings of a clean build beside the file.
 """
 
 from __future__ import annotations
@@ -15,10 +16,11 @@ from pathlib import Path
 from typing import Any, TypeAlias
 
 from osprey.facility.compute import check_compute
+from osprey.facility.errors import FacilityBuildWarning
 from osprey.facility.validate import Stage, run_stages
 from osprey.facility.wiring import fill_wiring_slots
 
-__all__ = ["LATER_STAGES", "FacilityDocument", "build_facility"]
+__all__ = ["LATER_STAGES", "FacilityDocument", "build_facility", "build_facility_with_warnings"]
 
 #: The combined facility file, the shape ``build/facility.json`` holds.
 FacilityDocument: TypeAlias = dict[str, Any]
@@ -45,9 +47,30 @@ def build_facility(facility_dir: Path, *, project_name: str) -> FacilityDocument
     Raises:
         FacilityBuildError: The first error of the first stage that fails.
     """
+    return build_facility_with_warnings(facility_dir, project_name=project_name)[0]
+
+
+def build_facility_with_warnings(
+    facility_dir: Path, *, project_name: str
+) -> tuple[FacilityDocument, list[FacilityBuildWarning]]:
+    """Build the facility file in memory, with the warnings of the build.
+
+    Args:
+        facility_dir: The ``data/facility`` directory itself; a missing one
+            is zero sources.
+        project_name: The project's name, folded into the identity ``code``
+            when there is no ``identity.yaml``.
+
+    Returns:
+        The facility file and the warnings the stages found, in the order
+        found.
+
+    Raises:
+        FacilityBuildError: The first error of the first stage that fails.
+    """
     report = run_stages(facility_dir, project_name=project_name, later=LATER_STAGES)
     report.raise_first()
     document = report.validated.document
     if document is None:
         raise RuntimeError("the stages ran clean without producing the document")
-    return document
+    return document, report.validated.warnings

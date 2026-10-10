@@ -7,7 +7,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.facility import PN_LOCAL, fold_code
-from osprey.facility.errors import KINDS, FacilityBuildError
+from osprey.facility.errors import KINDS, WARNING_KINDS, FacilityBuildError, FacilityBuildWarning
 
 
 def _error(**overrides: object) -> FacilityBuildError:
@@ -64,6 +64,40 @@ class TestLineGrammar:
     def test_unknown_kind_is_refused(self) -> None:
         with pytest.raises(ValueError, match="no-such-kind"):
             _error(kind="no-such-kind")
+
+
+def _warning(**overrides: str) -> FacilityBuildWarning:
+    fields = {
+        "kind": "place-wrapped",
+        "record_kind": "device",
+        "record_id": "SR/SPARE",
+        "detail": "layer authored states s -0.5 in periodic model SR, outside its deck of "
+        "length 3.8; the device is placed at s 3.3",
+        "remedy": "state s 3.3, or drop it",
+    }
+    fields.update(overrides)
+    return FacilityBuildWarning(**fields)
+
+
+class TestWarningLine:
+    def test_summary_has_the_stop_line_shape_without_the_remedy(self) -> None:
+        assert _warning().summary == (
+            "facility: place-wrapped: device SR/SPARE — layer authored states s -0.5 in "
+            "periodic model SR, outside its deck of length 3.8; the device is placed at s 3.3"
+        )
+
+    def test_line_appends_the_remedy(self) -> None:
+        assert _warning().line == f"{_warning().summary}; fix: state s 3.3, or drop it"
+        assert "\n" not in _warning().line
+
+    def test_unknown_kind_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="no-such-kind"):
+            _warning(kind="no-such-kind")
+
+    def test_a_stop_kind_is_not_a_warning_kind(self) -> None:
+        assert not set(WARNING_KINDS) & set(KINDS)
+        with pytest.raises(ValueError, match="place-conflict"):
+            _warning(kind="place-conflict")
 
 
 class TestKinds:

@@ -40,7 +40,7 @@ import click
 
 from osprey.facility import fold_code
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
-from osprey.facility.errors import FacilityBuildError, quoted_slots
+from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, load_sources
 
@@ -59,6 +59,7 @@ __all__ = [
     "ordered_slots",
     "paired_nominal_error",
     "report",
+    "report_warnings",
     "run_stages",
     "schema_document",
     "signal_roles",
@@ -160,6 +161,8 @@ class Validated:
         combined: What S2 combined.
         document: The combined file with its header and identity, the shape
             S3 validated; set once S2 is clean.
+        warnings: The warnings the stages found, in the order found; a stage
+            appends, none removes.
     """
 
     facility_dir: Path
@@ -167,6 +170,7 @@ class Validated:
     sources: Sources | None = None
     combined: CombineResult | None = None
     document: dict[str, Any] | None = None
+    warnings: list[FacilityBuildWarning] = field(default_factory=list)
 
 
 #: A later stage: reads what the earlier stages produced, returns its errors.
@@ -295,8 +299,24 @@ def report(errors: Iterable[FacilityBuildError], file: IO[Any] | None = None) ->
             click.echo(error.format_message(), file=file)
 
 
+def report_warnings(warnings: Iterable[FacilityBuildWarning], file: IO[Any] | None = None) -> None:
+    """Print each warning's line, to stderr unless a stream is given.
+
+    Args:
+        warnings: The warnings, in print order.
+        file: The stream to write to.
+    """
+    for warning in warnings:
+        if file is None:
+            click.echo(warning.line, err=True)
+        else:
+            click.echo(warning.line, file=file)
+
+
 def validate(facility_dir: Path, *, project_name: str, file: IO[Any] | None = None) -> int:
     """Check a facility directory and print every error of the first failing stage.
+
+    A clean directory prints the warnings of its build instead.
 
     Args:
         facility_dir: The ``data/facility`` directory.
@@ -310,6 +330,8 @@ def validate(facility_dir: Path, *, project_name: str, file: IO[Any] | None = No
 
     result = run_stages(facility_dir, project_name=project_name, later=LATER_STAGES)
     report(result.errors, file)
+    if result.ok:
+        report_warnings(result.validated.warnings, file)
     return 0 if result.ok else 1
 
 
