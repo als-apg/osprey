@@ -77,6 +77,7 @@ def render_facility_outputs(
     facility_dir: Path,
     *,
     omitted_reported: set[str] | None = None,
+    tolerance_warnings: bool = True,
 ) -> list[Path]:
     """Write the facility outputs of one render.
 
@@ -90,6 +91,8 @@ def render_facility_outputs(
             written, and the view notes it has printed; one in it is not
             printed again and each one printed is added. ``None`` prints every
             one.
+        tolerance_warnings: Whether the Bluesky view prints its settle
+            tolerance warnings.
 
     Each view whose predicate is false is named on stderr, one line each, once
     per build, unless a selector picks it from among its alternatives: a view
@@ -112,6 +115,7 @@ def render_facility_outputs(
         facility_dir=facility_dir,
         served=resolve_served(rendered_config, doc),
         reported=omitted_reported,
+        tolerance_warnings=tolerance_warnings,
     )
     check_served_probes(rendered_config, doc)
     target = render_dir / FACILITY_FILE

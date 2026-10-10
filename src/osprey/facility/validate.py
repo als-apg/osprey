@@ -64,6 +64,8 @@ __all__ = [
     "sort_errors",
     "stale_scenarios",
     "stating_files",
+    "tolerance_bound",
+    "tolerance_warnings",
     "validate",
     "vocabulary",
 ]
@@ -1804,6 +1806,80 @@ def _clamp_problem(clamp: Any) -> str | None:
     if low is not None and high is not None and low > high:
         return f"`clamp` low {low} is above high {high}"
     return None
+
+
+#: The most setpoint addresses a lane's tolerance warning lists.
+_WARNED_ADDRESSES = 10
+
+
+def tolerance_warnings(
+    document: Mapping[str, Any], lanes: Sequence[tuple[str, bool, float]]
+) -> list[str]:
+    """What a render's Bluesky lanes should know about the declared tolerances.
+
+    Two kinds of warning, each one string: a scenario that, active on its own,
+    moves a toleranced setpoint's readback beyond the tolerance, so its moves
+    time out while it is active; and, per lane that does not serve the
+    simulator, the count of float setpoints that declare no ``tolerance`` and
+    so settle within the lane's floor, the first line followed by up to
+    :data:`_WARNED_ADDRESSES` of their addresses, one per line.
+
+    Args:
+        document: The facility file.
+        lanes: Each lane as ``(service key, serves the simulator, floor)``.
+
+    Returns:
+        The warnings, scenario lines first.
+    """
+    from osprey_connectors.simulation.envelope import active_envelopes
+
+    channels = _by_key(document.get("channels"), "id")
+    seeds = {
+        address: channel["simulation"]
+        for address, channel in channels.items()
+        if isinstance(channel.get("simulation"), Mapping)
+    }
+    scenarios = {
+        str(scenario["name"]): scenario
+        for scenario in document.get("scenarios") or []
+        if isinstance(scenario, Mapping) and "name" in scenario
+    }
+    toleranced = {
+        address: bound
+        for address, channel in sorted(channels.items())
+        if (bound := tolerance_bound(channel)) is not None
+    }
+    lines: list[str] = []
+    for name in sorted(scenarios):
+        envelopes = active_envelopes(seeds, scenarios, [name])
+        for setpoint, bound in toleranced.items():
+            channel = channels[setpoint]
+            readback = str(channel.get("pair", setpoint))
+            envelope = envelopes.get(readback, 0.0)
+            if envelope > bound:
+                unit = channel.get("unit", "")
+                lines.append(
+                    f"scenario {name} moves {readback} up to {envelope:g} {unit}, beyond "
+                    f"{setpoint}'s tolerance {bound:g} {unit}; its moves time out while it is "
+                    "active"
+                )
+    bare = [
+        address
+        for address, channel in sorted(channels.items())
+        if channel.get("role") == "setpoint"
+        and channel.get("value_type", "float") == "float"
+        and not channel.get("tolerance")
+    ]
+    for key, simulated, floor in lanes:
+        if simulated or not bare:
+            continue
+        listed = "".join(f"\n{address}" for address in bare[:_WARNED_ADDRESSES])
+        more = len(bare) - _WARNED_ADDRESSES
+        lines.append(
+            f"{len(bare)} setpoints declare no `tolerance`; on lane {key} they settle within the "
+            f"floor {floor:g}{listed}" + (f"\nand {more} more" if more > 0 else "")
+        )
+    return lines
 
 
 def tolerance_bound(channel: Mapping[str, Any]) -> float | None:
