@@ -677,6 +677,72 @@ def test_the_in_process_simulator_carrying_a_live_block_is_switch_capable():
     assert switch_capable(section) is True
 
 
+@pytest.mark.parametrize(
+    "section",
+    [
+        pytest.param(_section(EPICS, connector={"epics": {"gateways": {}}}), id="live-only"),
+        pytest.param(
+            _section(VIRTUAL_ACCELERATOR, connector={"virtual_accelerator": {"port": 5064}}),
+            id="va-only",
+        ),
+        pytest.param(
+            _section(LIVE_STANDIN, connector={LIVE_STANDIN: {"port": 5074}}), id="standin-only"
+        ),
+        pytest.param(_section(), id="no-type"),
+        pytest.param(
+            _section(
+                EPICS,
+                connector={
+                    "epics": {"gateways": {"read_only": {"address": "gw"}}},
+                    "virtual_accelerator": {"port": 5064},
+                },
+            ),
+            id="live-and-va",
+        ),
+        pytest.param(
+            _section(
+                VIRTUAL_ACCELERATOR,
+                connector={
+                    "virtual_accelerator": {"writes_enabled": True},
+                    LIVE_STANDIN: {"port": 5074},
+                },
+            ),
+            id="va-and-standin",
+        ),
+        pytest.param(
+            _section(
+                LIVE_STANDIN,
+                connector={
+                    "epics": {"gateways": {"read_only": {"address": "gw"}}},
+                    "virtual_accelerator": {"writes_enabled": True},
+                    LIVE_STANDIN: {"port": 5074},
+                },
+            ),
+            id="standin-baseline-three-blocks",
+        ),
+        pytest.param(
+            _section(
+                VIRTUAL_ACCELERATOR,
+                connector={
+                    "epics": {"gateways": {"read_only": {"address": "gw"}}},
+                    "virtual_accelerator": {"serving": IN_PROCESS},
+                },
+            ),
+            id="in-process-va-and-epics",
+        ),
+    ],
+)
+def test_switch_capable_is_two_configured_targets(section):
+    """A resolvable section is switch-capable exactly when it configures two targets."""
+    assert switch_capable(section) is (len(configured_targets(section)) >= 2)
+
+
+@pytest.mark.parametrize("section", [None, [], "epics"])
+def test_a_section_that_is_not_a_mapping_is_not_switch_capable(section):
+    """Only a ``control_system:`` mapping can configure a target."""
+    assert switch_capable(section) is False
+
+
 def test_a_standin_baseline_posture_names_three_targets_in_vocabulary_order():
     """The baseline is among them, in the constant's order rather than first.
 
