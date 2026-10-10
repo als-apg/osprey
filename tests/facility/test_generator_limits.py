@@ -219,7 +219,6 @@ def test_measurement_carries_every_pyaml_step_and_settle_key() -> None:
         "n_step": 5,
         "n_avg_meas": 1,
         "fit_order": 2,
-        "singular_values": 16,
         "sleep_between_step": 0.0,
         "sleep_between_meas": 0.0,
         "corrector_delta": 1.0e-5,
