@@ -4,13 +4,15 @@ The merge works per (kind, id, field). Each layer states only the fields its
 source states; combine collects every layer's present value and stops on
 nothing while collecting. A field is a top-level slot of the record, and a
 map-valued slot (``simulation``, ``settings``, ``engine``, ``calibration``,
-``span``, ``measurement``, ``attributes``, ``signals``) is one value, compared
-whole like a list.
+``span``, ``measurement``, ``attributes``) is one value, compared whole like a
+list.
 
 Then the fixes apply as a set — ``set`` and ``add`` first, then ``drop`` — and
 the conflict check runs over what is left: two present unequal values on a
 field no ``set`` names stop the build (``layer-conflict``). Last, the schema
-defaults are filled and recorded in each record's provenance.
+defaults are filled and recorded in each record's provenance: a channel that
+states no description but names a signal is given one composed from its
+owner, its signal and its unit, recorded as a default.
 
 ``fixes.yaml``::
 
@@ -37,7 +39,7 @@ does not depend on the order of fixes.yaml.
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -679,9 +681,11 @@ class _Combiner:
 
     def _emit(self) -> dict[str, Any]:
         merged = {key: self._merged(record) for key, record in sorted(self.records.items())}
+        devices = {rid: fields for (kind, rid), (fields, _) in merged.items() if kind == "device"}
         for (kind, rid), (fields, defaults) in merged.items():
             if kind == "channel":
                 _channel_defaults(rid, fields, defaults)
+                _channel_description(fields, defaults, devices)
         for (kind, rid), (fields, defaults) in merged.items():
             if kind == "wiring":
                 channel = merged.get(("channel", rid.partition("/")[2]))
@@ -748,6 +752,40 @@ def _channel_defaults(address: str, fields: dict[str, Any], defaults: set[str]) 
     if fields["value_type"] == "bool" and "options" not in fields:
         fields["options"] = list(DEFAULT_BOOL_OPTIONS)
         defaults.add("options")
+
+
+def _owner_name(device_id: Any, devices: Mapping[str, Mapping[str, Any]]) -> str:
+    """A device's label, else its id."""
+    label = (devices.get(str(device_id)) or {}).get("label")
+    return str(label) if label else str(device_id)
+
+
+def _channel_description(
+    fields: dict[str, Any], defaults: set[str], devices: Mapping[str, Mapping[str, Any]]
+) -> None:
+    """Compose a description for a channel that states none but names a signal.
+
+    The description is ``<owner> <signal words> (<unit>)``: the owner is the
+    ``on`` device's label (else its id), else the ``endpoint_of`` devices'
+    names joined by ``", "``, else the ``on`` place's id, else nothing.
+    """
+    signal = fields.get("signal")
+    if "description" in fields or not signal:
+        return
+    stated_on = fields.get("on")
+    on: Mapping[str, Any] = stated_on if isinstance(stated_on, dict) else {}
+    endpoints = fields.get("endpoint_of") or []
+    owner: str | None = None
+    if on.get("device"):
+        owner = _owner_name(on["device"], devices)
+    elif endpoints:
+        owner = ", ".join(_owner_name(device, devices) for device in endpoints)
+    elif on.get("place"):
+        owner = str(on["place"])
+    unit = fields.get("unit")
+    parts = (owner, str(signal).replace("_", " "), f"({unit})" if unit else None)
+    fields["description"] = " ".join(part for part in parts if part)
+    defaults.add("description")
 
 
 def _slice_devices(device: Any, fields: dict[str, Any], defaults: set[str]) -> None:
