@@ -203,7 +203,11 @@ files beside them --- ``limits.yaml``, ``seeds.yaml``, ``identity.yaml``,
 ``classes.yaml`` and ``measurement/<model>.yaml`` --- are created only when
 absent and never rewritten, so your edits to them survive a re-import.
 
-Each device carries the export's ``CommonNames`` entry as its ``label``.
+Each device carries the export's ``CommonNames`` entry as its ``label``. The
+import writes one group per physical family: families that list the same
+devices (``BPMx`` and ``BPMy``) are one group named by their common stem and
+described by the family sentences. Each channel is described as
+``<device>: <field sentence>``, from the mapping.
 ``imported/mml/rows.json`` records which device each export ``DeviceList`` row
 became, and the response check reads it.
 
