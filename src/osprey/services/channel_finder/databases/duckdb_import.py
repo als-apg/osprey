@@ -67,11 +67,14 @@ CREATE TABLE IF NOT EXISTS channels (
     UNIQUE (channel_name, system, family, field, subfield)
 );
 
-CREATE TABLE IF NOT EXISTS device_map (
+DROP TABLE IF EXISTS device_map;
+
+CREATE TABLE device_map (
     system       TEXT NOT NULL,
     family       TEXT NOT NULL,
     device_index INTEGER NOT NULL,
-    sector       INTEGER,
+    place        TEXT,
+    place_index  INTEGER,
     device       INTEGER,
     common_name  TEXT DEFAULT '',
     PRIMARY KEY (system, family, device_index)
@@ -80,7 +83,11 @@ CREATE TABLE IF NOT EXISTS device_map (
 
 
 def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
-    """Create tables if they don't already exist."""
+    """Create tables if they don't already exist.
+
+    ``device_map`` is wholly derived from the JSON, so it is created anew and
+    an existing file never keeps another column set.
+    """
     ensure_fts(con)
     for stmt in _SCHEMA_SQL.strip().split(";"):
         stmt = stmt.strip()
@@ -208,7 +215,7 @@ def _import_channels(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) ->
 
 
 def _import_device_map(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> int:
-    """Import device maps (``setup`` or ``_setup``: DeviceList + CommonNames). Returns row count."""
+    """Import device maps (``setup`` or ``_setup``: DeviceList, PlaceList, CommonNames). Returns row count."""
     con.execute("DELETE FROM device_map")
     rows = []
 
@@ -224,18 +231,20 @@ def _import_device_map(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) 
             if not device_list:
                 continue
             common_names = setup.get("CommonNames") or []
+            places = setup.get("PlaceList") or []
 
             for idx, entry in enumerate(device_list):
                 if not isinstance(entry, (list, tuple)) or len(entry) < 2:
                     continue
-                sector, device = entry[0], entry[1]
+                place_index, device = entry[0], entry[1]
                 cname = common_names[idx] if idx < len(common_names) else ""
-                rows.append((system, family, idx, sector, device, cname))
+                place = places[idx] if idx < len(places) else None
+                rows.append((system, family, idx, place, place_index, device, cname))
 
     return bulk_insert(
         con,
         "device_map",
-        ("system", "family", "device_index", "sector", "device", "common_name"),
+        ("system", "family", "device_index", "place", "place_index", "device", "common_name"),
         rows,
     )
 

@@ -215,19 +215,19 @@ class TestMiddleLayerExplore:
         mock_db.list_channel_names.return_value = ["SR:BPM:01:X"]
         with patch(_DB_PATCH, return_value=mock_db):
             resp = client.get(
-                "/api/explore/channels?system=SR&family=BPM&field=Monitor&sectors=[1,2]"
+                "/api/explore/channels?system=SR&family=BPM&field=Monitor&place=SR/SECT3"
             )
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
         mock_db.list_channel_names.assert_called_once_with(
-            "SR", "BPM", "Monitor", None, [1, 2], None
+            "SR", "BPM", "Monitor", None, "SR/SECT3", None
         )
 
     def test_explore_channels_invalid_json_422(self, client):
         _set_pipeline(client, "middle_layer")
         with patch(_DB_PATCH, return_value=MagicMock(spec=MiddleLayerDatabase)):
             resp = client.get(
-                "/api/explore/channels?system=SR&family=BPM&field=Monitor&sectors=[bad"
+                "/api/explore/channels?system=SR&family=BPM&field=Monitor&devices=[bad"
             )
         assert resp.status_code == 422
 

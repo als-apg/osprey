@@ -60,7 +60,8 @@ The middle-layer index is written to
         "_description": <text>,
         <Family>: {
           "_description": <text>,
-          "_setup": {"CommonNames": [...], "DeviceList": [...], "ElementList": [...]},
+          "_setup": {"CommonNames": [...], "DeviceList": [...], "PlaceList": [...],
+                     "ElementList": [...]},
           <Field>: {"_description": <text>, "ChannelNames": [<address>, ...]}
         }
       }
@@ -80,12 +81,14 @@ vocabulary's sentence for the signal, else by the description its channels
 share; a channel whose signal some member lacks or holds twice, or that has no
 signal, is its own Field keyed by its address and described by the channel.
 ``_setup`` is derived from the members, never read from them: ``CommonNames``
-is each member's ``label``, else its id; ``DeviceList`` is ``[index, k]`` for a
-member whose place has siblings (places of one parent and level, ordered by
-the lowest ``s`` below each, then in natural id order), ``k`` its ordinal among
-the family's members in that place, else ``[n, 1]`` by member order;
-``ElementList`` is each member's position in member order. No record carries a
-``DeviceList``, an ``ElementList`` or a positional name. A System is
+is each member's ``label``, else its id; ``DeviceList`` is ``[index, k]`` — ``index``
+the member's place numbered among its siblings (places of one parent and level,
+ordered by the lowest ``s`` below each, then in natural id order), else 0 for a
+member whose place has no sibling or that has no place; ``k`` its ordinal among
+the family's members with that place, the index-0 members counted together;
+``PlaceList`` is each member's place id, else ``null``; ``ElementList`` is each
+member's position in member order. No record carries a ``DeviceList``, a
+``PlaceList``, an ``ElementList`` or a positional name. A System is
 described by its place's description, a group's Family by the group's
 description, else its label. A channel of no family is left out; the build
 names how many channels it left out and how many it keyed by address in one
@@ -665,6 +668,10 @@ def middle_layer_families(doc: Mapping[str, Any]) -> dict[str, list[tuple[str, s
 #: A run of digits, which natural order compares as a number.
 _DIGITS = re.compile(r"(\d+)")
 
+#: The place index of a device whose place has no sibling places; sibling
+#: indices start at 1, so these rows meet no indexed row.
+NO_PLACE_INDEX = 0
+
 
 def _natural(text: str) -> tuple[tuple[int, int | str], ...]:
     """``text`` as natural-order parts: digit runs compare as numbers."""
@@ -721,25 +728,28 @@ def _setup(members: Sequence[Mapping[str, Any]], indices: Mapping[str, int]) -> 
     """A family's ``_setup``, derived from its members in member order.
 
     ``CommonNames`` holds each member's ``label``, else its id. ``DeviceList``
-    holds ``[index, k]`` for a member whose place has an index among its
-    siblings, ``k`` its 1-based position among the family's members in that
-    place; any other member gets ``[n, 1]``, ``n`` its 1-based position among
-    all members. ``ElementList`` holds each member's 1-based position.
+    holds ``[index, k]``: ``index`` the member's place numbered among its
+    sibling places, else 0 for a member whose place has none (one at its
+    System, in an only-child place, or with no place); ``k`` its 1-based
+    ordinal among the family's members with that place, all index-0 members
+    counted together. ``PlaceList`` holds each member's place id, else
+    ``None``. ``ElementList`` holds each member's 1-based position.
     """
     names = [str(member.get("label") or member["id"]) for member in members]
-    seen: Counter[str] = Counter()
+    seen: Counter[str | None] = Counter()
     device_list: list[list[int]] = []
-    for position, member in enumerate(members, start=1):
-        place = member.get("place")
-        index = indices.get(str(place)) if place else None
-        if index is None:
-            device_list.append([position, 1])
-            continue
-        seen[str(place)] += 1
-        device_list.append([index, seen[str(place)]])
+    place_list: list[str | None] = []
+    for member in members:
+        place = str(member["place"]) if member.get("place") else None
+        index = indices.get(place) if place else None
+        counted = place if index is not None else None
+        seen[counted] += 1
+        device_list.append([NO_PLACE_INDEX if index is None else index, seen[counted]])
+        place_list.append(place)
     return {
         "CommonNames": names,
         "DeviceList": device_list,
+        "PlaceList": place_list,
         "ElementList": list(range(1, len(members) + 1)),
     }
 

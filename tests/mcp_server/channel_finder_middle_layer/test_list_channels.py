@@ -44,7 +44,7 @@ def test_list_channels_returns_channels(tmp_path, monkeypatch):
 
 
 def test_list_channels_with_subfield_and_filters(tmp_path, monkeypatch):
-    """Subfield and sector/device filters are passed to database."""
+    """Subfield and place/device filters are passed to database."""
     _setup(tmp_path, monkeypatch)
     mock_db = MagicMock()
     mock_db.list_channel_names.return_value = ["SR:C01-MG:BPM1:X"]
@@ -63,14 +63,14 @@ def test_list_channels_with_subfield_and_filters(tmp_path, monkeypatch):
             family="BPM",
             field="Monitor",
             subfield="X",
-            sectors=[1, 2],
+            place="SR/SECT3",
             devices=[1],
         )
 
     data = extract_response_dict(result)
     assert data["total"] == 1
     assert "SR:C01-MG:BPM1:X" in data["channels"]
-    mock_db.list_channel_names.assert_called_once_with("SR", "BPM", "Monitor", "X", [1, 2], [1])
+    mock_db.list_channel_names.assert_called_once_with("SR", "BPM", "Monitor", "X", "SR/SECT3", [1])
 
 
 def test_list_channels_validation_error(tmp_path, monkeypatch):

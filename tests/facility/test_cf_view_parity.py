@@ -20,7 +20,8 @@ fewer benchmark queries answerable by whole index cells than the copies answer. 
 called the same way, holds the in_context golden's address set, and every
 in_context benchmark target is one of its rows. Each query file is checked
 against the indexes its pipeline scores. The transfer line, which has no copy,
-is held to the Families and ``DeviceList`` entries its records derive.
+is held to the Families and the ``DeviceList`` and ``PlaceList`` entries its
+records derive.
 """
 
 from __future__ import annotations
@@ -578,29 +579,39 @@ def _member_order(device: dict[str, Any]) -> tuple[bool, float, str]:
 def _derived_rows(members: list[dict[str, Any]], index: dict[str, int]) -> list[list[int]]:
     """A Family's ``DeviceList`` for ``members`` in member order, from their places."""
     seen: dict[str, int] = defaultdict(int)
+    unindexed = 0
     rows = []
-    for n, device in enumerate(members, 1):
+    for device in members:
         place = device.get("place")
         if place in index:
             seen[place] += 1
             rows.append([index[place], seen[place]])
         else:
-            rows.append([n, 1])
+            unindexed += 1
+            rows.append([0, unindexed])
     return rows
 
 
-def _derived_device_lists(facility: dict[str, Any]) -> dict[tuple[str, str], list[list[int]]]:
-    """Each (System, group id)'s ``DeviceList``, derived from the places and the members' ``s``."""
+def _derived_places(members: list[dict[str, Any]]) -> list[str | None]:
+    """A Family's ``PlaceList`` for ``members`` in member order: each one's place, else ``None``."""
+    return [device.get("place") or None for device in members]
+
+
+def _derived_device_lists(
+    facility: dict[str, Any],
+) -> dict[tuple[str, str], tuple[list[list[int]], list[str | None]]]:
+    """Each (System, group id)'s ``DeviceList`` and ``PlaceList``, derived from the records."""
     index = _sibling_indices(facility)
     devices = {device["id"]: device for device in facility["devices"]}
-    out: dict[tuple[str, str], list[list[int]]] = {}
+    out: dict[tuple[str, str], tuple[list[list[int]], list[str | None]]] = {}
     for group in facility["groups"]:
         by_system: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for member in group["members"]:
             device = devices[member]
             by_system[str(device.get("place") or "-").split("/")[0]].append(device)
         for system, members in by_system.items():
-            out[(system, group["id"])] = _derived_rows(sorted(members, key=_member_order), index)
+            ordered = sorted(members, key=_member_order)
+            out[(system, group["id"])] = (_derived_rows(ordered, index), _derived_places(ordered))
     return out
 
 
@@ -642,7 +653,9 @@ def test_every_pre_line_family_s_device_list_is_derived_from_places(
             continue
         setup = middle_layer_view[system][family]["_setup"]
         assert len(setup["DeviceList"]) == len(setup["CommonNames"]), (system, family)
-        assert setup["DeviceList"] == derived[(system, f"{system}/{family}")], (system, family)
+        rows, places = derived[(system, f"{system}/{family}")]
+        assert setup["DeviceList"] == rows, (system, family)
+        assert setup["PlaceList"] == places, (system, family)
 
 
 @pytest.mark.slow
@@ -672,3 +685,4 @@ def test_every_line_device_sits_in_each_family_derived_from_its_records(
         setup = middle_layer_view["LINE"][name]["_setup"]
         assert setup["CommonNames"] == [d.get("label") or d["id"] for d in members], name
         assert setup["DeviceList"] == _derived_rows(members, index), name
+        assert setup["PlaceList"] == _derived_places(members), name

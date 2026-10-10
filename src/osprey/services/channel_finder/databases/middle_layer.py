@@ -29,7 +29,8 @@ Example structure:
       },
       "setup": {
         "CommonNames": ["BPM 1", "BPM 2", ...],
-        "DeviceList": [[1, 1], [1, 2], ...]  # [sector, device] pairs
+        "DeviceList": [[1, 1], [1, 2], ...],  # [place index, ordinal] pairs
+        "PlaceList": ["SR/S01", "SR/S01", ...]  # each device's place, optional
       }
     }
   }
@@ -125,7 +126,7 @@ class MiddleLayerDatabase(BaseDatabase):
     """
     Database for middle-layer (MML) style channel organization.
 
-    Supports functional hierarchy with optional device/sector filtering.
+    Supports functional hierarchy with optional place/device filtering.
     Designed for React agent-style exploration using query tools.
     """
 
@@ -502,7 +503,7 @@ class MiddleLayerDatabase(BaseDatabase):
         family: str,
         field: str,
         subfield: str | None = None,
-        sectors: list[int] | None = None,
+        place: str | None = None,
         devices: list[int] | None = None,
         *,
         protocol: str | None = None,
@@ -515,8 +516,11 @@ class MiddleLayerDatabase(BaseDatabase):
             family: Family name
             field: Field name
             subfield: Optional subfield name
-            sectors: Optional list of sector numbers to filter by
-            devices: Optional list of device numbers to filter by
+            place: Optional place id or path prefix to include: the place
+                itself and every place below it, matched against the family's
+                ``PlaceList``. A family with no ``PlaceList`` takes the bare
+                place index its rows carry.
+            devices: Optional list of device ordinals inside their place to include
             protocol: ``"ca"`` for the ``ChannelNames`` list or ``"tango"`` for
                 the ``TangoNames`` list. When omitted, the list under the first
                 present key in ``CHANNEL_KEYS`` order is returned.
@@ -582,31 +586,32 @@ class MiddleLayerDatabase(BaseDatabase):
             channel_names = [channel_names]
 
         # Apply filtering if requested
-        if sectors or devices:
-            channel_names = self._filter_by_device_sectors(
-                system, family, channel_names, sectors, devices
+        if place is not None or devices:
+            channel_names = self._filter_by_device_places(
+                system, family, channel_names, place, devices
             )
 
         # Strip whitespace and filter empty strings
         return [name.strip() for name in channel_names if name.strip()]
 
-    def _filter_by_device_sectors(
+    def _filter_by_device_places(
         self,
         system: str,
         family: str,
         channel_names: list[str],
-        sectors: list[int] | None,
+        place: str | None,
         devices: list[int] | None,
     ) -> list[str]:
         """
-        Filter channel names by device and sector numbers.
+        Filter channel names by place and device ordinal.
 
         Args:
             system: System name
             family: Family name
             channel_names: Full list of channel names
-            sectors: Optional list of sectors to include
-            devices: Optional list of devices to include
+            place: Optional place id or path prefix to include; the bare place
+                index where the family has no ``PlaceList``
+            devices: Optional list of device ordinals to include
 
         Returns:
             Filtered list of channel names
@@ -621,7 +626,7 @@ class MiddleLayerDatabase(BaseDatabase):
 
         if not device_list:
             raise ValueError(
-                f"Cannot filter by sectors/devices for '{system}:{family}' - "
+                f"Cannot filter by place/devices for '{system}:{family}' - "
                 f"DeviceList not defined in database"
             )
 
@@ -631,9 +636,15 @@ class MiddleLayerDatabase(BaseDatabase):
                 f"DeviceList length ({len(device_list)}) for '{system}:{family}'"
             )
 
+        place_list = setup.get("PlaceList")
+        if place_list is not None and len(place_list) != len(device_list):
+            raise ValueError(
+                f"PlaceList length ({len(place_list)}) does not match "
+                f"DeviceList length ({len(device_list)}) for '{system}:{family}'"
+            )
+
         # Build filtered list
         filtered = []
-        sectors_set = set(sectors) if sectors else None
         devices_set = set(devices) if devices else None
 
         for i, (channel_name, device_entry) in enumerate(
@@ -642,19 +653,26 @@ class MiddleLayerDatabase(BaseDatabase):
             if not isinstance(device_entry, list) or len(device_entry) != 2:
                 raise ValueError(f"Invalid DeviceList entry at index {i}: {device_entry}")
 
-            sector, device = device_entry
+            place_index, device = device_entry
 
             # Check filters
-            sector_match = sectors_set is None or sector in sectors_set
+            if place is None:
+                place_match = True
+            elif place_list is None:
+                place_match = str(place_index) == place
+            else:
+                held = place_list[i]
+                place_match = held is not None and (
+                    held == place or str(held).startswith(place + "/")
+                )
             device_match = devices_set is None or device in devices_set
 
-            if sector_match and device_match:
+            if place_match and device_match:
                 filtered.append(channel_name)
 
         if not filtered:
             raise ValueError(
-                f"No channels match filter criteria. "
-                f"Requested sectors: {sectors}, devices: {devices}"
+                f"No channels match filter criteria. Requested place: {place}, devices: {devices}"
             )
 
         return filtered
@@ -685,14 +703,13 @@ class MiddleLayerDatabase(BaseDatabase):
             family: Family name.
 
         Returns:
-            Dict with common_names, device_list, sectors, devices_per_sector,
-            and total_devices.
+            Dict with common_names, device_list, place_list (``None`` where the
+            family states no ``PlaceList``) and total_devices.
         """
         empty: dict[str, Any] = {
             "common_names": None,
             "device_list": None,
-            "sectors": [],
-            "devices_per_sector": {},
+            "place_list": None,
             "total_devices": 0,
         }
         if system not in self.data or family not in self.data[system]:
@@ -705,15 +722,9 @@ class MiddleLayerDatabase(BaseDatabase):
         if not device_list:
             return {**empty, "common_names": common_names}
 
-        from collections import Counter
-
-        sector_counts = Counter(entry[0] for entry in device_list if len(entry) >= 2)
-        sectors = sorted(sector_counts.keys())
-
         return {
             "common_names": common_names,
             "device_list": device_list,
-            "sectors": sectors,
-            "devices_per_sector": dict(sector_counts),
+            "place_list": setup.get("PlaceList"),
             "total_devices": len(device_list),
         }
