@@ -64,6 +64,25 @@ contribute to what this child talks to: the endpoint is derived by
 is only meaningful because anything left in the environment afterwards was put
 there by ``connect()`` itself.
 
+Start marks
+-----------
+A supervisor may hand the child the write end of a pipe and name its
+descriptor in :data:`START_MARKS_FD_ENV`. The child then writes one line per
+start phase it completes, ``"<name> <time.monotonic()>\n"``, in the order of
+:data:`START_PHASES`, and closes the descriptor before it serves:
+
+* ``main`` — the interpreter is up and this module, with everything it
+  imports, is loaded;
+* ``init`` — the init frame has been read;
+* ``imports`` — every built-in connector and archiver module is imported;
+* ``connected`` — the connector is built: its own module imported and its
+  ``connect()`` returned.
+
+The time between two marks is the time the later phase took. The marks are
+diagnostics beside the frame channel, never part of it: a child handed no
+descriptor writes none, and a supervisor that reads none learns nothing less
+from the frames.
+
 The post-connect report
 -----------------------
 The **first frame the child sends** is the result frame answering ``init``. It
@@ -170,6 +189,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import stat
 import sys
 import threading
 import time
@@ -185,6 +205,8 @@ __all__ = [
     "EXIT_ORPHANED",
     "INIT_METHOD",
     "PROXY_METHODS",
+    "START_MARKS_FD_ENV",
+    "START_PHASES",
     "main",
     "scrub_epics_env",
 ]
@@ -202,6 +224,45 @@ EXIT_ORPHANED = 3
 
 #: Method name of the configuration frame, which must arrive first.
 INIT_METHOD = "init"
+
+#: Names the inherited descriptor a child writes its start marks to.
+START_MARKS_FD_ENV = "OSPREY_CONNECTOR_HOST_START_MARKS_FD"
+
+#: The start marks a child writes, in the order it reaches them.
+START_PHASES = ("main", "init", "imports", "connected")
+
+
+class _StartMarks:
+    """Writes this child's start marks to the descriptor its supervisor passed.
+
+    The variable naming the descriptor is removed from the environment as it
+    is read, so nothing this child starts inherits a number that means
+    something else there. A descriptor that is not a pipe is never written to.
+    """
+
+    def __init__(self) -> None:
+        self._fd: int | None = None
+        raw = os.environ.pop(START_MARKS_FD_ENV, None)
+        if raw is None or not raw.isdigit():
+            return
+        with contextlib.suppress(OSError):
+            if stat.S_ISFIFO(os.fstat(int(raw)).st_mode):
+                self._fd = int(raw)
+
+    def mark(self, phase: str) -> None:
+        if self._fd is None:
+            return
+        try:
+            os.write(self._fd, f"{phase} {time.monotonic():.6f}\n".encode())
+        except OSError:
+            self._fd = None
+
+    def close(self) -> None:
+        if self._fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(self._fd)
+            self._fd = None
+
 
 #: Connector methods forwarded verbatim. ``spawn_probe`` is served separately
 #: because it is this module's own method, not the connector's.
@@ -534,12 +595,16 @@ def _post_connect_report(
 # --------------------------------------------------------------------------
 
 
-async def _build_connector(payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+async def _build_connector(
+    payload: dict[str, Any], marks: _StartMarks | None = None
+) -> tuple[Any, dict[str, Any]]:
     """Apply the init payload and bring up the connector it describes.
 
     Args:
         payload: The ``init`` frame's kwargs, as documented in the module
             docstring.
+        marks: Where the ``imports`` and ``connected`` start marks are written,
+            or ``None`` to write none.
 
     Returns:
         The live connector and its post-connect report.
@@ -570,6 +635,8 @@ async def _build_connector(payload: dict[str, Any]) -> tuple[Any, dict[str, Any]
 
     connector_type = types.resolve_target(section, target)
     register_builtin_connectors()
+    if marks is not None:
+        marks.mark("imports")
 
     # The section is passed whole with only its type replaced: writes_enabled and
     # the limits block, per-channel confirm included, travel with it, and the
@@ -582,6 +649,8 @@ async def _build_connector(payload: dict[str, Any]) -> tuple[Any, dict[str, Any]
     connector = await ConnectorFactory.create_control_system_connector(
         config, control_target=target
     )
+    if marks is not None:
+        marks.mark("connected")
 
     report = _post_connect_report(connector, connector_type, str(target), section)
     logger.warning(
@@ -761,7 +830,7 @@ async def _stdin_frames() -> _FrameStream:
     return _FrameStream(reader)
 
 
-async def _run(channel_fd: int) -> int:
+async def _run(channel_fd: int, marks: _StartMarks) -> int:
     """Read the init frame, report, then serve until told otherwise."""
     stream = await _stdin_frames()
     writer = _FrameWriter(channel_fd)
@@ -770,6 +839,7 @@ async def _run(channel_fd: int) -> int:
     if init is None:
         logger.warning("connector host: stdin closed before the init frame; exiting")
         return EXIT_OK
+    marks.mark("init")
     if not isinstance(init, frames.RequestFrame) or init.method != INIT_METHOD:
         request_id = getattr(init, "request_id", "init")
         await writer.send(
@@ -784,11 +854,15 @@ async def _run(channel_fd: int) -> int:
         return EXIT_INIT_FAILED
 
     try:
-        connector, report = await _build_connector(init.kwargs)
+        connector, report = await _build_connector(init.kwargs, marks)
     except Exception as exc:
         logger.warning("connector host: connect failed: %r", exc)
         await writer.send(_error_frame(init.request_id, exc))
         return EXIT_INIT_FAILED
+    finally:
+        # Nothing the child serves, and nothing it starts while serving, holds
+        # the supervisor's pipe open.
+        marks.close()
 
     await writer.send(frames.encode_result(init.request_id, report))
     return await _serve(connector, stream, writer)
@@ -797,6 +871,8 @@ async def _run(channel_fd: int) -> int:
 def main(argv: list[str] | None = None) -> int:
     """Entry point for ``python -m osprey_connectors.ipc.host``."""
     parent = os.getppid()
+    marks = _StartMarks()
+    marks.mark("main")
     del argv  # the launch contract carries no arguments; config arrives on the wire
     removed = scrub_epics_env()
     channel_fd = _claim_frame_channel()
@@ -809,7 +885,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _start_watchdog(WATCHDOG_INTERVAL_S, parent_pid=parent)
     try:
-        return asyncio.run(_run(channel_fd))
+        return asyncio.run(_run(channel_fd, marks))
     except KeyboardInterrupt:  # pragma: no cover - parent-initiated
         return EXIT_OK
 

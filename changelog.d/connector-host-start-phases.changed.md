@@ -1,0 +1,1 @@
+A connector host that does not answer within its start bound, or exits before answering, now says how far it had got — interpreter up, init frame read, connector modules imported, connector built — and when, so a slow start names the phase that was slow.

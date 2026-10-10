@@ -28,6 +28,7 @@ import asyncio
 import json
 import os
 import queue
+import select
 import signal
 import subprocess
 import sys
@@ -57,6 +58,9 @@ PYTHONPATH = os.pathsep.join(
 
 #: The mock connector by dotted path, so ``live`` resolves to it.
 MOCK_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+
+#: A connector whose ``connect()`` never returns, by dotted path.
+HANGING_TYPE = "tests.connectors.ipc._pool_connectors.HangingConnector"
 
 #: The addresses a spawned child writes, and the ones it only reads.
 SETPOINTS = ("SR:CORR:1:SP", "SR:CORR:2:SP")
@@ -114,7 +118,7 @@ CHILD_STARTUP_TIMEOUT_S = 30.0
 class Child:
     """A spawned connector host, with its frame channel pumped by a thread."""
 
-    def __init__(self, cwd, env_extra=None):
+    def __init__(self, cwd, env_extra=None, pass_fds=()):
         self.cwd = Path(cwd)
         env = {k: v for k, v in os.environ.items() if k != "CONFIG_FILE"}
         env["PYTHONPATH"] = PYTHONPATH
@@ -126,6 +130,7 @@ class Child:
             stderr=subprocess.PIPE,
             cwd=str(cwd),
             env=env,
+            pass_fds=pass_fds,
         )
         self._frames: queue.Queue = queue.Queue()
         self._stderr: deque = deque(maxlen=200)
@@ -232,6 +237,23 @@ def ready_child(child):
     """A child that has already answered its init frame."""
     child.init()
     return child
+
+
+def _marks_until(read_fd, last, timeout=CHILD_STARTUP_TIMEOUT_S):
+    """The start marks a child wrote, as ``(name, time)``, once *last* has arrived."""
+    deadline = time.monotonic() + timeout
+    written = b""
+    while True:
+        whole = written[: written.rfind(b"\n") + 1].decode()
+        marks = [(name, float(at)) for name, at in map(str.split, whole.splitlines())]
+        if any(name == last for name, _ in marks):
+            return marks
+        remaining = deadline - time.monotonic()
+        readable = select.select([read_fd], [], [], max(remaining, 0.0))[0] if remaining > 0 else []
+        chunk = os.read(read_fd, 4096) if readable else b""
+        if not chunk:
+            pytest.fail(f"no {last!r} start mark within {timeout}s; the child wrote {marks}")
+        written += chunk
 
 
 # ------------------------------------------------------------ init / report
@@ -1174,6 +1196,81 @@ def limits_deployment(tmp_path):
     config_file = tmp_path / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": section}))
     return section, str(config_file)
+
+
+# -------------------------------------------------------------- start marks
+
+
+def test_a_child_marks_each_start_phase_before_it_answers_init(tmp_path):
+    read_fd, write_fd = os.pipe()
+    spawned = Child(
+        cwd=tmp_path,
+        env_extra={host.START_MARKS_FD_ENV: str(write_fd)},
+        pass_fds=(write_fd,),
+    )
+    os.close(write_fd)
+    try:
+        frame = spawned.init()
+        assert isinstance(frame, frames.ResultFrame)
+
+        marks = _marks_until(read_fd, "connected")
+        assert [name for name, _ in marks] == ["main", "init", "imports", "connected"]
+        times = [at for _, at in marks]
+        assert times == sorted(times)
+        # The child closed its end before it served, so the pipe is at its end.
+        assert select.select([read_fd], [], [], REPLY_TIMEOUT_S)[0] == [read_fd]
+        assert os.read(read_fd, 1) == b""
+    finally:
+        spawned.close()
+        os.close(read_fd)
+
+
+def test_a_child_stuck_in_connect_has_marked_everything_before_it(tmp_path):
+    served = _control_system(tmp_path / "served")
+    hanging = {
+        **served,
+        "type": HANGING_TYPE,
+        "connector": {HANGING_TYPE: served["connector"][MOCK_TYPE]},
+    }
+    read_fd, write_fd = os.pipe()
+    spawned = Child(
+        cwd=tmp_path,
+        env_extra={
+            host.START_MARKS_FD_ENV: str(write_fd),
+            "PYTHONPATH": os.pathsep.join([str(REPO_ROOT), PYTHONPATH]),
+        },
+        pass_fds=(write_fd,),
+    )
+    os.close(write_fd)
+    try:
+        spawned.send("init", control_system=hanging, target="live")
+
+        marks = _marks_until(read_fd, "imports")
+        assert [name for name, _ in marks] == ["main", "init", "imports"]
+    finally:
+        spawned.close()
+        os.close(read_fd)
+
+
+def test_the_start_marks_variable_does_not_outlive_the_child_reading_it(monkeypatch, tmp_path):
+    read_fd, write_fd = os.pipe()
+    try:
+        monkeypatch.setenv(host.START_MARKS_FD_ENV, str(write_fd))
+        marks = host._StartMarks()
+        assert host.START_MARKS_FD_ENV not in os.environ
+        marks.mark("main")
+        assert os.read(read_fd, 64).startswith(b"main ")
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+    plain = tmp_path / "not-a-pipe"
+    with plain.open("wb") as handle:
+        monkeypatch.setenv(host.START_MARKS_FD_ENV, str(handle.fileno()))
+        marks = host._StartMarks()
+        assert host.START_MARKS_FD_ENV not in os.environ
+        marks.mark("main")
+    assert plain.read_bytes() == b""
 
 
 def _child_limits_policy(section: dict, config_file: str, target: str) -> dict:

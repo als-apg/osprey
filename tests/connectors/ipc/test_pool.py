@@ -28,6 +28,7 @@ import yaml
 
 from osprey_connectors.control_system.base import WriteOutcome
 from osprey_connectors.ipc import pool as pool_module
+from osprey_connectors.ipc.host import START_PHASES
 from osprey_connectors.ipc.pool import (
     ConnectorHostError,
     ConnectorHostLostError,
@@ -511,6 +512,37 @@ async def test_a_child_that_never_finishes_connecting_hits_the_start_timeout(poo
 
     assert caught.value.stage == "init"
     await _wait_for(lambda: not _alive(caught.value.pid))
+    names = [name for name, _ in caught.value.phases]
+    assert names == list(START_PHASES[: len(names)])
+    assert "connected" not in names
+    assert pool_module._describe_start(caught.value.phases) in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("phases", "words"),
+    [
+        ((), "had not finished starting its interpreter"),
+        ((("main", 0.4),), "had not read its init frame"),
+        ((("main", 0.4), ("init", 0.5)), "was importing the connector modules"),
+        (
+            (("main", 0.4), ("init", 0.5), ("imports", 1.2)),
+            "was building its connector (connect())",
+        ),
+        (
+            (("main", 0.4), ("init", 0.5), ("imports", 1.2), ("connected", 1.3)),
+            "had not answered",
+        ),
+    ],
+)
+def test_a_start_failure_sentence_names_the_phase_the_child_was_in(phases, words):
+    sentence = pool_module._describe_start(phases)
+
+    assert words in sentence
+    if phases:
+        assert f"after {phases[-1][1]:.1f}s" in sentence
+    assert ("Start marks:" in sentence) == bool(phases)
+    for name, seconds in phases:
+        assert f"{name} +{seconds:.1f}s" in sentence
 
 
 async def test_an_unresolved_placeholder_refuses_before_anything_is_spawned(
@@ -899,6 +931,7 @@ async def test_a_child_that_exits_before_answering_init_is_refused_at_the_init_s
 
     assert caught.value.stage == "init"
     assert "exited before answering its init frame (exit code 3)" in str(caught.value)
+    assert [name for name, _ in caught.value.phases] == ["main", "init", "imports"]
     assert spawns[0][1].returncode == 3
     assert pool.pids() == {}
 
