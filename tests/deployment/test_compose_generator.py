@@ -22,9 +22,10 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 from unittest import mock
 
 import pytest
@@ -2058,6 +2059,11 @@ def test_bluesky_tiled_absent_when_disabled() -> None:
 
 _TILED_KEY = "k3y"
 
+#: How long a held start script is given to say why it is not serving. Far above
+#: what a loaded host needs to start the stub, so only a script that says
+#: nothing at all runs into it.
+_TILED_REASON_TIMEOUT_S = 30.0
+
 
 def _run_tiled_start(
     storage: Path, *, upgrade_rc: int = 0, hold_s: float | None = None
@@ -2068,8 +2074,10 @@ def _run_tiled_start(
     escape is undone, so the script runs as the container's shell would run it.
     The stub records each invocation and exits *upgrade_rc* for
     ``upgrade-database``. With *hold_s* set the script is expected NOT to exit:
-    it is checked alive after that long, then sent SIGTERM, and the completed
-    process is ``None``.
+    once it has written its first line to stderr it is checked alive after that
+    long, then sent SIGTERM, and the completed process is ``None``. The hold is
+    timed from that line, not from the spawn, so how long the stub takes to
+    start never eats into it.
 
     Returns the recorded invocations, the completed process, and stderr.
     """
@@ -2101,14 +2109,36 @@ def _run_tiled_start(
         stderr = done.stderr
     else:
         proc = subprocess.Popen(["sh", "-c", script], env=env, stderr=subprocess.PIPE, text=True)
+        assert proc.stderr is not None
+        lines: list[str] = []
+        said_something = threading.Event()
+
+        def _collect(stream: IO[str]) -> None:
+            for line in stream:
+                lines.append(line)
+                said_something.set()
+            # End of file with nothing said still ends the wait below.
+            said_something.set()
+
+        reader = threading.Thread(target=_collect, args=(proc.stderr,), daemon=True)
+        reader.start()
         try:
-            proc.wait(timeout=hold_s)
-            pytest.fail(f"the start script exited ({proc.returncode}) instead of holding")
-        except subprocess.TimeoutExpired:
-            pass
-        proc.terminate()
-        proc.wait(timeout=5)
-        stderr = proc.stderr.read() if proc.stderr else ""
+            if not said_something.wait(timeout=_TILED_REASON_TIMEOUT_S):
+                pytest.fail(
+                    "the start script wrote nothing to stderr within "
+                    f"{_TILED_REASON_TIMEOUT_S:.0f} s: its reason for not serving never arrived"
+                )
+            try:
+                proc.wait(timeout=hold_s)
+                pytest.fail(f"the start script exited ({proc.returncode}) instead of holding")
+            except subprocess.TimeoutExpired:
+                pass
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+            proc.wait(timeout=5)
+        reader.join(timeout=5)
+        stderr = "".join(lines)
         done = None
 
     recorded = (
