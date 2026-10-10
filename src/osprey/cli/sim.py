@@ -73,7 +73,7 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
     """Return ``(repo_root, config)`` for the deployment being acted on.
 
     The repo root is what every path here anchors on, because it is what
-    ``project_root`` means in the rendered config — the value the mock
+    ``project_root`` means in the rendered config — the value the in-process
     connectors resolve their own model and state against at runtime. Anchoring
     the CLI anywhere else would let ``sim apply`` write an active-scenario file
     that the running connectors never read.
@@ -143,7 +143,7 @@ async def _model_statuses(
 ) -> dict[str, str]:
     """Each model's status, read through the connector built for ``target``.
 
-    A mock connector answers from the composite it serves in process; any
+    The simulator served in process answers from the composite it holds; any
     other connector reads each model's status channel, ``addresses[model]``.
     """
     from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
@@ -256,7 +256,12 @@ def list_command(repo: Path | None) -> None:
 )
 def status_command(repo: Path | None, target: str | None) -> None:
     """Show each served physics model's status and the log it writes."""
-    from osprey_connectors.types import MOCK, resolve_control_system_type, resolve_target
+    from osprey_connectors.types import (
+        TRANSPORT_IN_PROCESS,
+        connector_transport,
+        resolve_control_system_type,
+        resolve_target,
+    )
 
     repo_root, config = _resolve_deployment(repo)
     section = config.get("control_system") or {}
@@ -270,7 +275,11 @@ def status_command(repo: Path | None, target: str | None) -> None:
             raise SystemExit(1) from None
     view = _require_simulator_view(repo_root)
     models = [model.name for model in view.physics_models()]
-    addresses = None if connector_type == MOCK else dict(view.status_addresses())
+    addresses = (
+        None
+        if connector_transport(section, connector_type) == TRANSPORT_IN_PROCESS
+        else dict(view.status_addresses())
+    )
     statuses = asyncio.run(_model_statuses(section, target, models, addresses))
     for model in models:
         output.report(f"{model}: {statuses[model]}")

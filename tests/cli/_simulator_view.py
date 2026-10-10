@@ -24,12 +24,15 @@ from osprey_connectors.simulation.composite import ENGINE_GROUP
 from osprey_connectors.simulation.view import SCHEMAS
 from tests._simulator_view import write_scenarios_view
 
-#: The rendered config of a mock deployment serving the view.
-MOCK_CONFIG = """\
+#: The rendered config of a deployment serving the view's simulator in process.
+IN_PROCESS_CONFIG = """\
 claude_code:
   provider: anthropic
 control_system:
-  type: mock
+  type: virtual_accelerator
+  connector:
+    virtual_accelerator:
+      serving: in_process
 """
 
 #: The error text ``SR`` fails with while a scenario seeds its ``poison`` fault.

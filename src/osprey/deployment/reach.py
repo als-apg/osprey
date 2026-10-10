@@ -510,10 +510,20 @@ def _va_connector_on(config: Mapping[str, Any]) -> bool:
     session that switches to it, and its persona renders still have to be told
     the port that session would dial; gating on the baseline withheld the
     projection from exactly those renders.
-    """
-    from osprey_connectors.types import TARGET_VA
 
-    return _target_configured(config, TARGET_VA)
+    And the ``va`` it resolves to talks to a network: the simulator served in
+    process lives inside the process that asks, so there is no container port
+    for a session to dial and none is projected.
+    """
+    from osprey_connectors.types import TARGET_VA, resolve_target, talks_to_network
+
+    if not _target_configured(config, TARGET_VA):
+        return False
+    section = as_dict(config).get("control_system")
+    try:
+        return talks_to_network(section, resolve_target(section, TARGET_VA))
+    except ValueError:
+        return False
 
 
 def _live_standin_on(config: Mapping[str, Any]) -> bool:
