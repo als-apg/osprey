@@ -19,7 +19,8 @@ sentence on the channels it described, every benchmark target indexed, and no
 fewer benchmark queries answerable by whole index cells than the copies answer. The in_context view,
 called the same way, holds the in_context golden's address set, and every
 in_context benchmark target is one of its rows. Each query file is checked
-against the indexes its pipeline scores.
+against the indexes its pipeline scores. The transfer line, which has no copy,
+is held to the Families and ``DeviceList`` entries its records derive.
 """
 
 from __future__ import annotations
@@ -550,8 +551,8 @@ def _digit_key(text: str) -> list[tuple[int, int | str]]:
     return [(0, int(run)) if run.isdigit() else (1, run) for run in re.split(r"(\d+)", text) if run]
 
 
-def _derived_device_lists(facility: dict[str, Any]) -> dict[tuple[str, str], list[list[int]]]:
-    """Each (System, group id)'s ``DeviceList``, derived from the places and the members' ``s``."""
+def _sibling_indices(facility: dict[str, Any]) -> dict[str, int]:
+    """Each place's 1-based rank among same-level siblings, for a place that has siblings."""
     lowest: dict[str, float] = {}
     for device in facility["devices"]:
         parts = str(device.get("place") or "").split("/")
@@ -567,6 +568,30 @@ def _derived_device_lists(facility: dict[str, Any]) -> dict[tuple[str, str], lis
     for ids in siblings.values():
         ranked = sorted(ids, key=lambda i: (i not in lowest, lowest.get(i, 0.0), _digit_key(i)))
         index.update({i: n for n, i in enumerate(ranked, 1) if len(ids) > 1})
+    return index
+
+
+def _member_order(device: dict[str, Any]) -> tuple[bool, float, str]:
+    return (device.get("s") is None, device.get("s", 0.0), device["id"])
+
+
+def _derived_rows(members: list[dict[str, Any]], index: dict[str, int]) -> list[list[int]]:
+    """A Family's ``DeviceList`` for ``members`` in member order, from their places."""
+    seen: dict[str, int] = defaultdict(int)
+    rows = []
+    for n, device in enumerate(members, 1):
+        place = device.get("place")
+        if place in index:
+            seen[place] += 1
+            rows.append([index[place], seen[place]])
+        else:
+            rows.append([n, 1])
+    return rows
+
+
+def _derived_device_lists(facility: dict[str, Any]) -> dict[tuple[str, str], list[list[int]]]:
+    """Each (System, group id)'s ``DeviceList``, derived from the places and the members' ``s``."""
+    index = _sibling_indices(facility)
     devices = {device["id"]: device for device in facility["devices"]}
     out: dict[tuple[str, str], list[list[int]]] = {}
     for group in facility["groups"]:
@@ -575,18 +600,36 @@ def _derived_device_lists(facility: dict[str, Any]) -> dict[tuple[str, str], lis
             device = devices[member]
             by_system[str(device.get("place") or "-").split("/")[0]].append(device)
         for system, members in by_system.items():
-            members.sort(key=lambda d: (d.get("s") is None, d.get("s", 0.0), d["id"]))
-            seen: dict[str, int] = defaultdict(int)
-            rows = []
-            for n, device in enumerate(members, 1):
-                place = device.get("place")
-                if place in index:
-                    seen[place] += 1
-                    rows.append([index[place], seen[place]])
-                else:
-                    rows.append([n, 1])
-            out[(system, group["id"])] = rows
+            out[(system, group["id"])] = _derived_rows(sorted(members, key=_member_order), index)
     return out
+
+
+def _line_families(facility: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Each Family of System ``LINE`` derived from the records, with its members in order.
+
+    A group with a member placed in ``LINE`` is a Family named by its id less
+    ``LINE/``; a classed ``LINE`` device that no single-class such group holds
+    files into the Family named by its class.
+    """
+    devices = {
+        device["id"]: device
+        for device in facility["devices"]
+        if str(device.get("place") or "").split("/")[0] == "LINE"
+    }
+    families: dict[str, list[dict[str, Any]]] = {}
+    covered: set[str] = set()
+    for group in facility["groups"]:
+        members = [devices[member] for member in group["members"] if member in devices]
+        if not members:
+            continue
+        families[group["id"].removeprefix("LINE/")] = members
+        classes = {member.get("class") for member in members}
+        if len(classes) == 1 and None not in classes:
+            covered.update(member["id"] for member in members)
+    for device_id, device in devices.items():
+        if device.get("class") and device_id not in covered:
+            families.setdefault(device["class"], []).append(device)
+    return {name: sorted(members, key=_member_order) for name, members in families.items()}
 
 
 @pytest.mark.slow
@@ -609,3 +652,23 @@ def test_the_views_answer_no_fewer_tree_queries_than_the_pre_line_copies(
     golden = answerable_count(pre_line_index("hierarchical"), pre_line_index("middle_layer"))
     assert golden > 0
     assert answerable_count(hierarchical_view, middle_layer_view) >= golden
+
+
+@pytest.mark.slow
+def test_every_line_device_sits_in_each_family_derived_from_its_records(
+    built_control_assistant: BuiltProject, middle_layer_view: dict[str, Any]
+) -> None:
+    facility = built_control_assistant.facility
+    families = _line_families(facility)
+    line_devices = {
+        device["id"]
+        for device in facility["devices"]
+        if str(device.get("place") or "").split("/")[0] == "LINE"
+    }
+    assert line_devices
+    assert {device["id"] for members in families.values() for device in members} == line_devices
+    index = _sibling_indices(facility)
+    for name, members in families.items():
+        setup = middle_layer_view["LINE"][name]["_setup"]
+        assert setup["CommonNames"] == [d.get("label") or d["id"] for d in members], name
+        assert setup["DeviceList"] == _derived_rows(members, index), name
