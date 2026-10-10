@@ -1,0 +1,1 @@
+`osprey channel-finder preview` prints each in_context row as written, so an address such as `SR:DIAG:BPM:01:POSITION:X` is no longer rendered with an emoji in place of `:X:`, and a bracket in a description is no longer read as markup.

@@ -15,6 +15,7 @@ from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 from rich.tree import Tree
 
 from osprey.services.channel_finder.databases import (
@@ -853,7 +854,9 @@ def preview_in_context(db_path: str, show_full: bool = False, console: Console |
 
     formatted = database.format_chunk_for_prompt(sample_channels, include_addresses=False)
 
-    console.print(Panel(formatted, title=title, border_style="primary", padding=(1, 2)))
+    # The rows are data: an address such as ``…:X:`` is printed as written, never
+    # read as markup or an emoji code.
+    console.print(Panel(Text(formatted), title=title, border_style="primary", padding=(1, 2)))
 
     if not show_full and len(all_channels) > 20:
         console.print()
