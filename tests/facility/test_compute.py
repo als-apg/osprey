@@ -323,6 +323,81 @@ class TestPlaces:
         assert "place_from" not in built["SR/SPARE"]["provenance"]
 
 
+class TestStatedPositions:
+    def test_a_stated_s_of_an_unwired_device_is_placed_by_its_span(self, tmp_path):
+        files = _tree()
+        files["records/devices.yaml"][4].update(model="SR", s=2.0)
+        spare = _devices(_ok(tmp_path, files))["SR/SPARE"]
+        assert (spare["model"], spare["s"]) == ("SR", 2.0)
+        assert spare["place"] == "SR/A"
+        assert spare["provenance"]["place_from"] == "span"
+        assert spare["ordinalInPlace"] == 2
+        assert spare["ordinalInModel"] == 2
+        assert "length" not in spare
+        assert not {"model", "s"} & set(spare["provenance"]["defaults"])
+
+    def test_a_stated_s_without_a_model_is_numbered_in_no_model(self, tmp_path):
+        files = _tree()
+        files["records/devices.yaml"][4]["s"] = 2.0
+        spare = _devices(_ok(tmp_path, files))["SR/SPARE"]
+        assert spare["s"] == 2.0
+        assert not {"model", "place", "ordinalInModel", "ordinalInPlace"} & set(spare)
+
+    def test_a_wired_device_stating_its_computed_s_builds(self, tmp_path):
+        files = _tree()
+        files["records/devices.yaml"][1].update(model="SR", s=1.25)
+        qd = _devices(_ok(tmp_path, files))["SR/QD"]
+        assert (qd["model"], qd["s"]) == ("SR", 1.25)
+        assert qd["length"] == pytest.approx(0.3)
+        defaults = set(qd["provenance"]["defaults"])
+        assert "length" in defaults
+        assert not {"model", "s"} & defaults
+
+    def test_a_periodic_s_agrees_modulo_the_deck_length(self, tmp_path):
+        files = _tree()
+        files["records/devices.yaml"][0]["s"] = -QF_HALF
+        qf = _devices(_ok(tmp_path, files))["SR/QF"]
+        assert qf["s"] == -QF_HALF
+        assert qf["ordinalInModel"] == 2
+
+    def test_a_stated_length_without_s_is_carried(self, tmp_path):
+        files = _tree()
+        files["records/devices.yaml"][4]["length"] = 0.4
+        spare = _devices(_ok(tmp_path, files))["SR/SPARE"]
+        assert spare["length"] == 0.4
+        assert "s" not in spare
+
+    def test_a_wired_device_stating_another_s_stops(self, tmp_path):
+        files = _tree()
+        files["imported/mml/devices.yaml"] = [{"id": "SR/QD", "s": 99.0}]
+        assert _lines(_run(tmp_path, files)) == [
+            "facility: place-conflict: device SR/QD — layer mml states s 99 in model SR, but "
+            "the deck puts the device at s 1.25; fix: drop `s` from the layer, or add a fix "
+            "`set` of the deck's value"
+        ]
+
+    def test_a_wired_device_stating_another_model_stops(self, tmp_path):
+        files = _tree()
+        files["imported/mml/devices.yaml"] = [{"id": "SR/QD", "model": "LINE"}]
+        assert _stops(tmp_path, files) == [("place-conflict", "device", "SR/QD")]
+
+    def test_a_stated_s_past_the_end_of_a_periodic_deck_wraps(self, tmp_path):
+        files = _tree()
+        files["records/devices.yaml"][4].update(model="SR", s=SR_LENGTH + 2.0)
+        spare = _devices(_ok(tmp_path, files))["SR/SPARE"]
+        assert spare["s"] == SR_LENGTH + 2.0
+        assert spare["place"] == "SR/A"
+        assert (spare["ordinalInPlace"], spare["ordinalInModel"]) == (2, 2)
+
+    def test_a_stated_s_outside_a_single_pass_deck_stops(self, tmp_path):
+        files = _tree()
+        files["imported/mml/devices.yaml"] = [{"id": "SR/SPARE", "model": "LINE", "s": 9.0}]
+        assert _lines(_run(tmp_path, files)) == [
+            "facility: place-conflict: device SR/SPARE — layer mml states s 9 in model LINE, "
+            "outside its deck of length 2.2; fix: state an s inside the deck, or drop it"
+        ]
+
+
 class TestOrdinals:
     def test_per_class_in_model_and_in_place(self, built):
         assert built["SR/QD"]["ordinalInModel"] == 1

@@ -68,9 +68,7 @@ LAYER_OWN_FILES: frozenset[str] = frozenset({"mapping.yaml"})
 #: The slots the build alone writes, per record kind.
 COMPUTED_SLOTS: dict[str, frozenset[str]] = {
     "place": frozenset({"provenance"}),
-    "device": frozenset(
-        {"model", "s", "length", "ordinalInPlace", "ordinalInModel", "groups", "provenance"}
-    ),
+    "device": frozenset({"ordinalInPlace", "ordinalInModel", "groups", "provenance"}),
     "channel": frozenset({"provenance"}),
     "group": frozenset({"provenance"}),
     "model": frozenset({"provenance"}),
