@@ -714,9 +714,10 @@ config:
   # 503, MCP server refuses to start). Check edits with
   # `osprey ariel vocab-check data/ariel/vocabulary.yml`.
   ariel.vocabulary.enabled: true
-  # A twenty-concept EXAMPLE covering what most storage-ring facilities share
-  # (a linac or FEL should delete the orbit-and-ring group). A starting point,
-  # not your vocabulary: edit it. Relative to the project root.
+  # A twenty-concept EXAMPLE covering what most circular-accelerator facilities
+  # share (a linac or FEL should delete the group the file's header marks for
+  # it). A starting point, not your vocabulary: edit it. Relative to the
+  # project root.
   ariel.vocabulary.path: data/ariel/vocabulary.yml
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.

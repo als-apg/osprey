@@ -155,7 +155,7 @@ on a session already mid-conversation.
 it, so its rules are restated here — a change there is a change here.
 
 **1. Whose narrowing it is.** The deployment's. It is keyed by TARGET and by
-nothing else: an operator taking the ring away takes it away from every agent
+nothing else: an operator taking a target away takes it away from every agent
 on this deployment, and a hook that asked whether the narrowing was addressed
 to *its own* session would let a session the operator never saw write to the
 machine they just closed.
