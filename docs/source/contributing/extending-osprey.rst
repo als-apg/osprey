@@ -286,7 +286,7 @@ What a plug-in is given and asked for:
   ``build(model, wiring, deck, settings, active=...)`` once per served model.
   ``wiring`` is the model's wiring records from the simulator view's
   ``variables.json``, ``deck`` is the path of the model's deck,
-  ``decks/<model>.json``, or ``None`` for a model that names none,
+  ``decks/<model>.<its suffix>``, or ``None`` for a model that names none,
   ``settings`` is the model record's settings, and ``active`` holds the active
   scenarios' setpoint values and fault seeds. It returns the ``LUMEModel``.
 - **Set and get.** The composite reaches the model only through its ``set()``

@@ -85,12 +85,14 @@ tree the build cannot render stops in ``osprey facility validate``'s own stops
 before the view is written.
 
 A channel's role, not its address, says what it is. A channel record with
-``role: setpoint`` is written, and its readback is the record's ``pair``; a
-setpoint that names no ``pair`` is its own readback. A setpoint's ``tolerance``,
-next to its ``pair``, says how close that readback must come before a move
-counts as done; the build stops when the readback's seeded motion is wider
-than it. A channel with no role is a readback. The address text is the facility's own and is served as it is
-written: no token inside it means anything to OSPREY.
+``role: setpoint`` is written, and its readback is the record's ``pair``. A
+setpoint that names none is paired by the build with the one readback on the
+same device whose signal names the same quantity, else it is its own readback.
+A setpoint's ``tolerance``, next to its ``pair``, says how close that readback
+must come before a move counts as done; the build stops when the readback's
+seeded motion is wider than it. A channel with no role is a readback. The
+address text is the facility's own and is served as it is written: no token
+inside it means anything to OSPREY.
 
 A facility whose models wire no channel is served by the texture alone: a
 setpoint holds the value written to it, a readback follows its seed, and no
