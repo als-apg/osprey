@@ -1264,7 +1264,7 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
    ``--shell TEXT`` — Shell command to run (default: ``claude``).
 
-   ``--repo PATH`` — Deployment repo to act on (default: nearest ``profile.yml`` at or above cwd).
+   ``--repo DIRECTORY`` — Deployment repo to act on (default: nearest ``profile.yml`` at or above cwd).
 
    ``--detach`` — Run in background (PID written to ``var/osprey-web.pid``). The
    login token is held only in memory; if the printed URL is lost, stop and
@@ -1456,13 +1456,13 @@ All subcommands accept a common flag:
    Group for the two verbs that check and render the deployment's
    ``modules.web_terminals`` stanza.
 
-``osprey scaffold web-terminals lint [--repo PATH]``
+``osprey scaffold web-terminals lint [--repo DIRECTORY]``
    Validate the deployment's ``modules.web_terminals`` stanza (port-family
    allocation, reserved service names, duplicate users, persona references).
    Exits non-zero on error-severity findings; warnings do not fail the check,
    so it is safe to wire into a CI gate.
 
-``osprey scaffold web-terminals render [--repo PATH] -o DIRECTORY``
+``osprey scaffold web-terminals render [--repo DIRECTORY] -o DIRECTORY``
    Render the multi-user deployment artifacts (docker-compose overlay, nginx
    routing fragment, static landing page) into ``-o/--output``. Lints first by
    default and aborts on errors; ``--no-lint`` skips the pre-check.
