@@ -1,6 +1,6 @@
-"""Mock control system connector: the built facility's simulator, in process.
+"""The simulator, served in this process: the built facility's simulator, with no network.
 
-The mock serves exactly the channel and status addresses of the simulator view
+The connector serves exactly the channel and status addresses of the simulator view
 ``osprey build`` writes at ``data/simulator/`` beside the rendered config,
 through the composite (:class:`~osprey_connectors.simulation.composite.Composite`):
 the texture and one physics child per served model whose engine is not
@@ -20,9 +20,9 @@ the texture and one physics child per served model whose engine is not
   write a subscription fires for its channel when the held value changed or
   the channel declares motion.
 
-**Session writes.** Only :meth:`MockConnector.write_channel` journals: after
+**Session writes.** Only :meth:`VAInProcessConnector.write_channel` journals: after
 the limits validator and a successful put it appends ``[seq, address, value]``
-to ``<simulation state dir>/mock/writes.json``, a document
+to ``<simulation state dir>/inprocess/writes.json``, a document
 ``{active_set_sha256, seq, writes}`` updated under ``flock`` on
 ``writes.json.lock`` and replaced atomically. Every operation reads the active
 scenario set first, then the journal: when ``seq`` moved, the composite is
@@ -32,7 +32,7 @@ active set; otherwise nothing from it is applied, one line
 ``writes journal rejected: <address>: <reason>`` is logged, a
 ``journal-rejected`` record is appended to every physics model's log, and the
 journal is emptied, so the writes that follow are journalled afresh. A reset or a
-change of the active set empties the journal. The journal is the mock's alone:
+change of the active set empties the journal. The journal is this connector's alone:
 no hardware path reads it.
 
 ``lume`` and the simulation package are imported when used, never at module import.
@@ -75,7 +75,7 @@ from osprey_connectors.simulation.view import (
 if TYPE_CHECKING:
     from osprey_connectors.simulation.composite import Composite
 
-logger = get_logger("mock_connector")
+logger = get_logger("va_in_process_connector")
 
 __all__ = [
     "JOURNAL_DIR",
@@ -85,7 +85,7 @@ __all__ = [
     "JOURNAL_REJECTED_EVENT",
     "NO_VIEW_MESSAGE",
     "SIMULATOR_VIEW_SETTING",
-    "MockConnector",
+    "VAInProcessConnector",
     "active_set_sha256",
     "not_in_facility",
     "simulation_state_dir",
@@ -95,8 +95,8 @@ __all__ = [
 #: The ``connect()`` setting naming the simulator view directory to serve.
 SIMULATOR_VIEW_SETTING = "simulator_view"
 
-#: Why a mock refuses to connect without a built simulator view.
-NO_VIEW_MESSAGE = "mock connector needs a built simulator view: run osprey build"
+#: Why the in-process simulator refuses to connect without a built simulator view.
+NO_VIEW_MESSAGE = "the in-process simulator needs a built simulator view: run osprey build"
 
 #: Why a write to a channel that is not a writable setpoint is refused.
 NOT_WRITABLE = "not a writable setpoint"
@@ -110,7 +110,7 @@ _LABELLED = ("bool", "enum")
 _REFUSED_BY_SIMULATOR = "CONTROL_SYSTEM_REFUSED"
 
 #: The session-writes journal, under the simulation state directory.
-JOURNAL_DIR = "mock"
+JOURNAL_DIR = "inprocess"
 JOURNAL_FILE = "writes.json"
 _JOURNAL_LOCK = f"{JOURNAL_FILE}.lock"
 
@@ -124,7 +124,7 @@ JOURNAL_REJECTED_EVENT = "journal-rejected"
 JOURNAL_NOT_UPDATED = "writes journal not updated"
 
 #: Why an operation on a connector that is not connected is refused.
-NOT_CONNECTED = "mock connector is not connected"
+NOT_CONNECTED = "the in-process simulator is not connected"
 
 #: Why an address the built facility file does not hold is refused.
 _NOT_IN_FACILITY = "not in build/facility.json"
@@ -150,7 +150,7 @@ def _loaded_config_path() -> str | None:
 
 
 def simulator_view_dir(setting: str | Path | None = None) -> SimulatorView:
-    """The simulator view a mock serves, opened.
+    """The simulator view the in-process simulator serves, opened.
 
     Args:
         setting: The view directory a ``connect()`` call names; ``None`` reads
@@ -265,11 +265,11 @@ def _mark(document: Any, text: str) -> int | str:
     return (0 if not text else text) if seq is None else seq
 
 
-class MockConnector(ControlSystemConnector):
+class VAInProcessConnector(ControlSystemConnector):
     """Serve the built facility's simulator view in process.
 
     Example:
-        >>> connector = MockConnector()
+        >>> connector = VAInProcessConnector()
         >>> await connector.connect({"response_delay_ms": 10})
         >>> value = await connector.read_channel("SR:DIAG:BPM:01:POSITION:X")
     """
@@ -316,7 +316,7 @@ class MockConnector(ControlSystemConnector):
 
         self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
         if self._limits_validator:
-            logger.debug("Mock connector: limits validator initialized")
+            logger.debug("In-process simulator: limits validator initialized")
 
         view = simulator_view_dir(config.get(SIMULATOR_VIEW_SETTING))
         _config_path, rendered = _rendered_config(view.path)
@@ -343,7 +343,7 @@ class MockConnector(ControlSystemConnector):
         self._sync()
         self._connected = True
         self._tick_task = asyncio.create_task(self._tick())
-        logger.debug(f"Mock connector serving {view.path}")
+        logger.debug(f"In-process simulator serving {view.path}")
 
     async def disconnect(self) -> None:
         """Stop the tick and drop the composite."""
@@ -362,7 +362,7 @@ class MockConnector(ControlSystemConnector):
         self._channels = frozenset()
         self._moving = frozenset()
         self._connected = False
-        logger.debug("Mock connector disconnected")
+        logger.debug("In-process simulator disconnected")
 
     # -- the journal -----------------------------------------------------------
 
@@ -607,7 +607,7 @@ class MockConnector(ControlSystemConnector):
     async def read_channel(
         self,
         channel_address: str,
-        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.read_channel signature; a mock read never blocks
+        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.read_channel signature; an in-process read never blocks
     ) -> ChannelValue:
         """Read a channel as the simulator serves it, motion included.
 
@@ -658,7 +658,7 @@ class MockConnector(ControlSystemConnector):
     # -- writes ----------------------------------------------------------------
 
     def _refused(self, address: str, value: Any, message: str) -> ChannelWriteResult:
-        logger.warning(f"Mock write refused: {address}: {message}")
+        logger.warning(f"In-process write refused: {address}: {message}")
         return ChannelWriteResult(
             channel_address=address,
             value_written=value,
@@ -686,7 +686,7 @@ class MockConnector(ControlSystemConnector):
         self,
         channel_address: str,
         value: Any,
-        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.write_channel signature; a mock write never blocks
+        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.write_channel signature; an in-process write never blocks
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """Write a value to a setpoint, confirming it unless asked not to.
@@ -699,7 +699,7 @@ class MockConnector(ControlSystemConnector):
         Args:
             channel_address: A writable setpoint of the view.
             value: Value to write.
-            timeout: Ignored for mock connector.
+            timeout: Ignored in process.
             confirm: Whether to re-read the channel and compare, or ``None`` to
                 resolve the policy for this channel from the limits database.
 
@@ -745,12 +745,12 @@ class MockConnector(ControlSystemConnector):
         try:
             stored = self._coerce(channel_address, value)
         except Exception as e:
-            logger.warning(f"Mock write failed for {channel_address}: {e}")
+            logger.warning(f"In-process write failed for {channel_address}: {e}")
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
-                error_message=f"Mock write failed: {e}",
+                error_message=f"In-process write failed: {e}",
             )
 
         before = self._subscribed_held()
@@ -761,12 +761,12 @@ class MockConnector(ControlSystemConnector):
 
             if isinstance(e, ValueError | ReadOnlyError):
                 return self._refused(channel_address, value, str(e))
-            logger.warning(f"Mock write failed for {channel_address}: {e}")
+            logger.warning(f"In-process write failed for {channel_address}: {e}")
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.FAILED,
-                error_message=f"Mock write failed: {e}",
+                error_message=f"In-process write failed: {e}",
             )
         try:
             self._append(channel_address, stored)
@@ -778,24 +778,24 @@ class MockConnector(ControlSystemConnector):
         await self._notify(before)
 
         if not confirm:
-            logger.debug(f"Mock write (unconfirmed by policy): {channel_address} = {value}")
+            logger.debug(f"In-process write (unconfirmed by policy): {channel_address} = {value}")
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.UNREQUESTED,
-                notes="Confirmation not requested (mock)",
+                notes="Confirmation not requested (in process)",
             )
 
         try:
             observed = await self._confirming_read(channel_address)
         except Exception as e:
-            logger.warning(f"Mock confirming read failed for {channel_address}: {e}")
+            logger.warning(f"In-process confirming read failed for {channel_address}: {e}")
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 outcome=WriteOutcome.UNCONFIRMED,
-                error_message=f"Mock confirming read failed: {e}",
-                notes=f"Confirming read raised: {e} (mock)",
+                error_message=f"In-process confirming read failed: {e}",
+                notes=f"Confirming read raised: {e} (in process)",
             )
 
         outcome = (
@@ -805,7 +805,7 @@ class MockConnector(ControlSystemConnector):
         )
         if outcome is WriteOutcome.MISMATCH:
             logger.warning(
-                f"Mock write mismatch: {channel_address} sent {value}, observed {observed.value}"
+                f"In-process write mismatch: {channel_address} sent {value}, observed {observed.value}"
             )
         return ChannelWriteResult(
             channel_address=channel_address,
@@ -814,7 +814,7 @@ class MockConnector(ControlSystemConnector):
             observed_value=observed.value,
             alarm_status=observed.metadata.alarm_status,
             alarm_severity=observed.metadata.alarm_severity,
-            notes=f"Observed {observed.value}, sent {value} (mock)",
+            notes=f"Observed {observed.value}, sent {value} (in process)",
         )
 
     def _put(self, channel_address: str, value: Any) -> None:
@@ -833,17 +833,17 @@ class MockConnector(ControlSystemConnector):
         """
         self._require(channel_address)
         self._sync()
-        sub_id = f"mock_{channel_address}_{id(callback)}"
+        sub_id = f"inprocess_{channel_address}_{id(callback)}"
         self._subscriptions[sub_id] = (channel_address, callback)
         self._last_held[channel_address] = self._held_value(channel_address)
-        logger.debug(f"Mock subscription created: {sub_id}")
+        logger.debug(f"In-process subscription created: {sub_id}")
         return sub_id
 
     async def unsubscribe(self, subscription_id: str) -> None:
         """Unsubscribe from channel changes."""
         if subscription_id in self._subscriptions:
             del self._subscriptions[subscription_id]
-            logger.debug(f"Mock subscription removed: {subscription_id}")
+            logger.debug(f"In-process subscription removed: {subscription_id}")
 
     def _subscribed_held(self) -> dict[str, Any]:
         addresses = sorted({address for address, _ in self._subscriptions.values()})
@@ -871,7 +871,7 @@ class MockConnector(ControlSystemConnector):
                 if inspect.isawaitable(result):
                     await result
             except Exception as exc:
-                logger.warning(f"Mock subscription callback for {address} raised: {exc}")
+                logger.warning(f"In-process subscription callback for {address} raised: {exc}")
 
     async def _tick(self) -> None:
         """Every ``tick_s``: fire the subscriptions that are due."""
@@ -881,4 +881,4 @@ class MockConnector(ControlSystemConnector):
                 self._sync()
                 await self._notify()
             except Exception as exc:
-                logger.warning(f"Mock tick failed: {exc}")
+                logger.warning(f"In-process tick failed: {exc}")

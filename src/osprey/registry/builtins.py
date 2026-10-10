@@ -12,7 +12,6 @@ from osprey.connectors.types import (
     EPICS,
     EPICS_ARCHIVER,
     LIVE_STANDIN,
-    MOCK,
     MOCK_ARCHIVER,
     MONGODB_ARCHIVER,
     MYA_ARCHIVER,
@@ -61,13 +60,6 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
             # Framework connectors for control systems and archivers
             connectors=[
                 # Control system connectors
-                ConnectorRegistration(
-                    name=MOCK,
-                    connector_type="control_system",
-                    module_path="osprey.connectors.control_system.mock_connector",
-                    class_name="MockConnector",
-                    description="Mock control system connector for development and testing",
-                ),
                 ConnectorRegistration(
                     name=EPICS,
                     connector_type="control_system",

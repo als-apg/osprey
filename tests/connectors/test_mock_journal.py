@@ -24,11 +24,14 @@ import pytest
 import yaml
 
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector, simulation_state_dir
-from tests.facility.served_tree import MOCK_RENDER_CONFIG, mock_config, served_tree
+from osprey.connectors.control_system.va_in_process_connector import (
+    VAInProcessConnector,
+    simulation_state_dir,
+)
+from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config, served_tree
 
 REPO = Path(__file__).resolve().parents[2]
-JOURNAL = ("mock", "writes.json")
+JOURNAL = ("inprocess", "writes.json")
 
 
 def _writes_enabled(key, default=None):
@@ -55,13 +58,13 @@ def _rebuild(view: Path) -> Path:
     facility_dir = root / "data" / "facility"
     render_dir = root / "build"
     document = build_facility(facility_dir, project_name="served")
-    render_facility_outputs(render_dir, document, MOCK_RENDER_CONFIG, facility_dir)
+    render_facility_outputs(render_dir, document, IN_PROCESS_RENDER_CONFIG, facility_dir)
     return render_dir / "data" / "simulator"
 
 
-async def _connected(view: Path) -> MockConnector:
-    connector = MockConnector()
-    await connector.connect(mock_config(view, response_delay_ms=0))
+async def _connected(view: Path) -> VAInProcessConnector:
+    connector = VAInProcessConnector()
+    await connector.connect(in_process_config(view, response_delay_ms=0))
     return connector
 
 
@@ -70,7 +73,7 @@ def view(tmp_path):
     return served_tree(tmp_path, {"A:SP": "A:RB", "B:SP": None})
 
 
-async def test_a_write_the_mock_took_is_journalled(view):
+async def test_a_write_the_in_process_simulator_took_is_journalled(view):
     connector = await _connected(view)
 
     result = await connector.write_channel("A:SP", 4.5)
@@ -218,10 +221,10 @@ _WRITER = """
     config.get_config_value = lambda key, default=None, config_path=None: (
         True if key == "control_system.writes_enabled" else real(key, default, config_path)
     )
-    from osprey_connectors.control_system.mock_connector import MockConnector
+    from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 
     async def main():
-        connector = MockConnector()
+        connector = VAInProcessConnector()
         await connector.connect({"simulator_view": sys.argv[1], "response_delay_ms": 0})
         for value in range(50):
             result = await connector.write_channel(sys.argv[2], float(value), confirm=False)
@@ -261,10 +264,10 @@ async def test_a_composite_written_directly_changes_nothing_another_process_read
     direct = _subprocess(
         """
         import asyncio, sys
-        from osprey_connectors.control_system.mock_connector import MockConnector
+        from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 
         async def main():
-            connector = MockConnector()
+            connector = VAInProcessConnector()
             await connector.connect({"simulator_view": sys.argv[1], "response_delay_ms": 0})
             connector._composite.set({"A:SP": 9.0})
             await connector.disconnect()
@@ -478,7 +481,7 @@ async def test_a_well_formed_entry_is_replayed(view):
     await connector.disconnect()
 
 
-def test_the_journal_is_named_in_the_mock_connector_only():
+def test_the_journal_is_named_in_the_in_process_connector_only():
     """No other module under src/ or packages/ reads or writes the journal."""
     token = re.compile(r"writes\.json(?![\w])")
     hits = sorted(
@@ -488,7 +491,7 @@ def test_the_journal_is_named_in_the_mock_connector_only():
         if token.search(path.read_text(encoding="utf-8"))
     )
     assert hits == [
-        "packages/osprey-connectors/src/osprey_connectors/control_system/mock_connector.py"
+        "packages/osprey-connectors/src/osprey_connectors/control_system/va_in_process_connector.py"
     ]
 
 
@@ -502,11 +505,11 @@ def test_no_other_simulation_module_constructs_a_journal_reader():
             for node in ast.walk(tree)
             if isinstance(node, ast.Name | ast.Attribute)
         }
-        assert "MockConnector" not in names, path
-        assert "mock_connector" not in path.read_text(encoding="utf-8"), path
+        assert "VAInProcessConnector" not in names, path
+        assert "va_in_process_connector" not in path.read_text(encoding="utf-8"), path
 
 
-async def test_the_mock_refuses_a_version_one_view_with_rebuild(view):
+async def test_the_in_process_simulator_refuses_a_version_one_view_with_rebuild(view):
     path = view / "variables.json"
     document = json.loads(path.read_text(encoding="utf-8"))
     path.write_text(
