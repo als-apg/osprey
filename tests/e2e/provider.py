@@ -23,6 +23,9 @@ E2E_PROVIDER_ENV = "OSPREY_E2E_PROVIDER"
 #: whatever each call site pinned. The benchmark matrix sets it per cell.
 FORCE_PROVIDER_ENV = "OSPREY_E2E_FORCE_PROVIDER"
 
+#: Names the one model a whole run uses, whatever each call site pinned.
+FORCE_MODEL_ENV = "OSPREY_E2E_FORCE_MODEL"
+
 
 #: Marks a test that reaches no model, and so runs in a session that names no provider.
 MODEL_FREE_MARKER = "model_free"
@@ -111,13 +114,30 @@ def build_provider(pinned: str) -> str:
 E2E_MODEL = "claude-haiku-5-5"
 
 
+def forced_model() -> str | None:
+    """The one model the run was told to use everywhere, or ``None``.
+
+    Read the way :func:`build_provider` reads its override: stripped, and empty
+    means unset.
+    """
+    return os.environ.get(FORCE_MODEL_ENV, "").strip() or None
+
+
 def build_model(pinned: str | None) -> str:
     """The model to build a project with, given what the call site pinned.
 
     A call site that names a model keeps it. One that names none builds with
     :data:`E2E_MODEL`, never the provider's catalog default: the budgets the
     suite asserts against are that model's.
+
+    :data:`FORCE_MODEL_ENV` replaces both. The build writes each agent's model
+    id into that agent's own definition, and a subagent runs the id written
+    there, so a model forced only when the query is sent reaches the main agent
+    and leaves every subagent on the model the project was built with.
     """
+    forced = forced_model()
+    if forced is not None:
+        return forced
     return pinned if pinned is not None else E2E_MODEL
 
 
