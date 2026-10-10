@@ -165,18 +165,9 @@ def test_channel_declares_an_optional_signal(core: dict) -> None:
     assert signal.get("range", core["default_range"]) == "string"
 
 
-def test_group_declares_an_optional_signals_map_of_strings(core: dict) -> None:
-    signals = _attrs(core, "Group")["signals"]
-    assert not signals.get("required")
-    assert signals.get("multivalued") and signals.get("inlined")
-    assert not signals.get("inlined_as_list")
-    entry = _attrs(core, signals["range"])
-    keys = [name for name, slot in entry.items() if slot and slot.get("key")]
-    values = [name for name in entry if name not in keys]
-    assert len(keys) == 1 and len(values) == 1
-    value = entry[values[0]]
-    assert value.get("required")
-    assert value.get("range", core["default_range"]) == "string"
+def test_a_group_has_no_signals_slot(core: dict) -> None:
+    assert "signals" not in _attrs(core, "Group")
+    assert "SignalSentence" not in core["classes"]
 
 
 def test_device_attributes_is_a_free_map(core: dict) -> None:

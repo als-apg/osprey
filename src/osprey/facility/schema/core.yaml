@@ -299,6 +299,10 @@ classes:
       unit:
         description: Free text.
       description:
+        description: >-
+          What this channel is. When a source states none and the channel names
+          a `signal`, the build composes one from its owner, its signal and its
+          unit, and records it in `provenance.defaults`.
       label:
         description: The one name a person reads for the record; a view that shows one name takes it, else the id.
       names:
@@ -404,12 +408,15 @@ classes:
         required: true
 
   Group:
-    description: A named set of devices.
+    description: >-
+      A named set of devices. A channel's meaning is on the channel: its
+      `signal` and its `description`.
     attributes:
       id:
         identifier: true
         required: true
       description:
+        description: What the set is, in the facility's words.
       label:
         description: The one name a person reads for the record; a view that shows one name takes it, else the id.
       names:
@@ -418,24 +425,9 @@ classes:
       members:
         multivalued: true
         description: Device ids.
-      signals:
-        range: SignalSentence
-        multivalued: true
-        inlined: true
-        list_elements_ordered: true
-        description: >-
-          One sentence per kind of signal the members carry,
-          `{<field or field/subfield>: <sentence>}`, carried verbatim.
       provenance:
         range: Provenance
         inlined: true
-
-  SignalSentence:
-    attributes:
-      key:
-        key: true
-      sentence:
-        required: true
 
   Model:
     description: One simulation model and how it is wired to channels.

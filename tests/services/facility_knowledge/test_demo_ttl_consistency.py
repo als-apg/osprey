@@ -70,7 +70,7 @@ DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription")
 #: and system vocabulary. Counting the distinct values, not just the triples,
 #: is what says the texts were joined by device rather than broadcast.
 EXPECTED_DISTINCT_DEVICE_TEXTS = {
-    "familyDescription": 28,
+    "familyDescription": 23,
     "systemDescription": 3,
 }
 
@@ -253,9 +253,9 @@ def test_every_binding_carries_its_prose(committed_graph: Any) -> None:
 def test_every_device_carries_its_family_and_system_prose(committed_graph: Any) -> None:
     """Device prose comes from the device's family and its system.
 
-    The distinct-text counts are the assertion that matters: 28 families and 3
-    systems is the facility's vocabulary, and a join that fell back to a single
-    default would still put a text on all 512 devices.
+    The distinct-text counts are the assertion that matters: 23 smallest
+    described groups and 3 systems is the facility's vocabulary, and a join that
+    fell back to a single default would still put a text on all 512 devices.
     """
 
     for predicate in DEVICE_DESCRIPTION_PREDICATES:

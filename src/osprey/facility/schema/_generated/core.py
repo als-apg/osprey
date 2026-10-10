@@ -1258,7 +1258,7 @@ class Channel(ConfiguredBaseModel):
     endpoint_of: Optional[list[str]] = Field(default=None, description="""The devices sharing this channel as an endpoint.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     signal: Optional[str] = Field(default=None, description="""A vocabulary signal role.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     unit: Optional[str] = Field(default=None, description="""Free text.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel', 'Wiring']} })
-    description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
+    description: Optional[str] = Field(default=None, description="""What this channel is. When a source states none and the channel names a `signal`, the build composes one from its owner, its signal and its unit, and records it in `provenance.defaults`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
                        'Place',
                        'Device',
@@ -1327,12 +1327,12 @@ class LinearTerm(ConfiguredBaseModel):
 
 class Group(ConfiguredBaseModel):
     """
-    A named set of devices.
+    A named set of devices. A channel's meaning is on the channel: its `signal` and its `description`.
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     id: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Wiring']} })
-    description: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
+    description: Optional[str] = Field(default=None, description="""What the set is, in the facility's words.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
                        'FacilityClass',
                        'Place',
                        'Device',
@@ -1342,15 +1342,7 @@ class Group(ConfiguredBaseModel):
     label: Optional[str] = Field(default=None, description="""The one name a person reads for the record; a view that shows one name takes it, else the id.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device', 'Channel', 'Group']} })
     names: Optional[list[str]] = Field(default=None, description="""Other names a person at the facility uses for the record; a set, compared and written sorted.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group']} })
     members: Optional[list[str]] = Field(default=None, description="""Device ids.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Group']} })
-    signals: Optional[dict[str, Union[str, SignalSentence]]] = Field(default=None, description="""One sentence per kind of signal the members carry, `{<field or field/subfield>: <sentence>}`, carried verbatim.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Group'], 'list_elements_ordered': True} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
-
-
-class SignalSentence(ConfiguredBaseModel):
-    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
-
-    key: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SignalSentence']} })
-    sentence: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['SignalSentence']} })
 
 
 class Model(ConfiguredBaseModel):
@@ -1590,7 +1582,6 @@ Tolerance.model_rebuild()
 Drift.model_rebuild()
 LinearTerm.model_rebuild()
 Group.model_rebuild()
-SignalSentence.model_rebuild()
 Model.model_rebuild()
 Wiring.model_rebuild()
 Slice.model_rebuild()
