@@ -66,10 +66,13 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     assert view.code == variables["code"]
     assert [model.name for model in view.models()] == [m["name"] for m in variables["models"]]
     assert all(isinstance(model, Model) for model in view.models())
-    assert view.served() == ("SR", TEXTURE)
-    assert [model.name for model in view.physics_models()] == ["SR"]
+    assert view.served() == ("LINE", "SR", TEXTURE)
+    assert [model.name for model in view.physics_models()] == ["LINE", "SR"]
     assert view.channels() == tuple(addresses["channels"])
-    assert dict(view.status_addresses()) == {"SR": f"{view.code}:SIM:SR:STATUS"}
+    assert dict(view.status_addresses()) == {
+        "LINE": f"{view.code}:SIM:LINE:STATUS",
+        "SR": f"{view.code}:SIM:SR:STATUS",
+    }
     assert isinstance(view.status_addresses(), MappingProxyType)
 
     sr = view.model("SR")
@@ -78,25 +81,30 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     assert sr.deck == demo_view / "decks" / "SR.json"
     assert sr.deck.is_file()
     assert dict(sr.settings) == {"pyat": {"solve": "periodic"}}
-    assert len(sr.bindings) == len(variables["models"][0]["wiring"]) > 0
+    wiring = {model["name"]: model["wiring"] for model in variables["models"]}
+    assert len(sr.bindings) == len(wiring["SR"]) > 0
+    line = view.model("LINE")
+    assert dict(line.settings)["pyat"]["solve"] == "single_pass"
+    assert len(line.bindings) == len(wiring["LINE"]) > 0
     assert view.model(TEXTURE).bindings == ()
     with pytest.raises(KeyError):
         view.model("NOPE")
 
     bindings = view.bindings()
-    assert bindings == sr.bindings
+    assert bindings == line.bindings + sr.bindings
     assert {binding.role for binding in bindings} == set(ROLES)
     assert {binding.plane for binding in bindings} <= {*PLANES, None}
     assert {binding.refresh for binding in bindings} <= set(REFRESH)
     first = bindings[0]
     assert isinstance(first, Binding)
     assert view.binding(first.address) == first
-    assert dict(first.record) == variables["models"][0]["wiring"][0]
+    assert dict(first.record) == wiring["LINE"][0]
     assert isinstance(first.record, MappingProxyType)
 
     channel = view.channel(first.address)
     assert isinstance(channel, Channel)
-    assert channel.owner == "SR"
+    assert channel.owner == "LINE"
+    assert view.channel(sr.bindings[0].address).owner == "SR"
     textured = next(address for address in view.channels() if view.binding(address) is None)
     assert view.channel(textured).owner == TEXTURE
 
@@ -132,10 +140,11 @@ def test_a_channels_motion_envelope_follows_its_seed_and_the_active_scenarios(
 
 def test_monitor_bindings_of_a_plane_are_the_element_reads_on_that_axis(demo_view: Path) -> None:
     view = SimulatorView.open(demo_view)
-    (sr,) = [m for m in _raw(demo_view, VARIABLES_FILE)["models"] if m["name"] == "SR"]
+    models = sorted(_raw(demo_view, VARIABLES_FILE)["models"], key=lambda m: m["name"])
     expected = [
         record["address"]
-        for record in sr["wiring"]
+        for model in models
+        for record in model["wiring"]
         if record["role"] == "monitor" and record["plane"] == "x"
     ]
 

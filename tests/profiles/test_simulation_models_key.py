@@ -42,7 +42,7 @@ def test_null_and_absent_resolve_byte_equal_lists(demo: dict[str, Any]) -> None:
     block_without_key = resolve_served({"simulation": {}}, demo)
     assert json.dumps(null).encode() == json.dumps(absent).encode()
     assert block_without_key == absent
-    assert absent == ["SR", TEXTURE]
+    assert absent == ["LINE", "SR", TEXTURE]
 
 
 @pytest.mark.parametrize("models", [[], [TEXTURE]])
