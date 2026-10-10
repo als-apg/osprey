@@ -38,10 +38,10 @@ def test_lattice_fidelity_against_matlab_reference():
     r = load_sr_deck_4d()
     assert r.is_6d is False
 
-    res = at.get_optics(r, get_chrom=True, dp=1e-6)  # (elemdata0, ringdata, elemdata)
-    ringdata = res[1]
-    nu = ringdata["tune"]
-    xi = ringdata["chromaticity"]
+    res = at.get_optics(r, get_chrom=True, dp=1e-6)  # (elemdata0, latticedata, elemdata)
+    latticedata = res[1]
+    nu = latticedata["tune"]
+    xi = latticedata["chromaticity"]
 
     dnu_x = abs((nu[0] % 1.0) - ref.NU_X)
     dnu_y = abs((nu[1] % 1.0) - ref.NU_Y)

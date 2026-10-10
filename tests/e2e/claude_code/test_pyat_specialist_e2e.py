@@ -245,7 +245,7 @@ def _ground_truth(render: Path) -> dict:
     lattice = at.load_lattice(deck)
     lattice4d = copy.deepcopy(lattice)
     lattice4d.disable_6d()
-    _, ringdata, elemdata = at.get_optics(lattice4d, refpts=range(len(lattice4d)))
+    _, latticedata, elemdata = at.get_optics(lattice4d, refpts=range(len(lattice4d)))
 
     def beta_at(name: str) -> list[float]:
         idx = [i for i, el in enumerate(lattice4d) if el.FamName == name]
@@ -253,7 +253,7 @@ def _ground_truth(render: Path) -> dict:
         return [float(elemdata.beta[idx[0]][0]), float(elemdata.beta[idx[0]][1])]
 
     return {
-        "tune": (float(ringdata.tune[0]), float(ringdata.tune[1])),
+        "tune": (float(latticedata.tune[0]), float(latticedata.tune[1])),
         "circumference": float(lattice4d.circumference),
         "beta": {"BPM01": beta_at("BPM01"), "BPM03": beta_at("BPM03")},
     }
