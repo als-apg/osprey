@@ -1,9 +1,10 @@
 """The pyAML view: which models get one, what it references and how pyAML loads it.
 
 A served model that names a deck and has a measurement file gets
-``data/pyaml/<model>/configuration.yaml``; a periodic one also gets its deck
-beside it as ``lattice.json``, the design simulator's lattice, and a
-``single_pass`` one has no design simulator. Every other served model is named
+``data/pyaml/<model>/configuration.yaml``; a periodic one also gets the design
+simulator's lattice beside it as ``lattice.json``, the engine's copy of its deck
+with the correctors' kicks as polynomials, and a ``single_pass`` one has no
+design simulator. Every other served model is named
 in a note on stderr.
 """
 
@@ -51,7 +52,11 @@ def test_each_served_measured_model_gets_a_configuration(tmp_path: Path) -> None
     ]
 
 
-def test_a_periodic_model_references_its_deck_beside_the_configuration(tmp_path: Path) -> None:
+def test_a_periodic_model_references_its_lattice_beside_the_configuration(
+    tmp_path: Path,
+) -> None:
+    from osprey.simulation.engines.pyat import polynomial_kicks
+
     directory, _ = write_view(tmp_path, measured_tree())
     (simulator,) = _configuration(directory, "SR")["simulators"]
     assert simulator == {
@@ -60,7 +65,8 @@ def test_a_periodic_model_references_its_deck_beside_the_configuration(tmp_path:
         "lattice": f"${{path:{LATTICE_FILE}}}",
     }
     deck = tmp_path / "data" / "facility" / "decks" / "sr.json"
-    assert (directory / "SR" / LATTICE_FILE).read_bytes() == deck.read_bytes()
+    lattice = (directory / "SR" / LATTICE_FILE).read_text(encoding="utf-8")
+    assert lattice == polynomial_kicks(deck, []).text
 
 
 def test_a_single_pass_model_has_no_design_simulator(tmp_path: Path) -> None:
