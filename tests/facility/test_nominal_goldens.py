@@ -1,8 +1,9 @@
 """The in-process simulator's served nominals against the per-address nominal golden, and its served noise against the seeds.
 
 ``tests/facility/golden/nominal_in_process.json`` holds, for every demo
-address, the nominal the simulator served in process serves with no scenario
-active. It serves the control-assistant build's simulator view through a composite, so these tests
+address but the deck's tune and chromaticity instruments and the transfer
+line's channels, the nominal the simulator served in process serves with no
+scenario active. It serves the control-assistant build's simulator view through a composite, so these tests
 build that composite from the shared build and hold it to the golden to 1e-12
 on every address, except the declared re-baselines:
 
@@ -46,6 +47,9 @@ PHYSICS_MODEL = "SR"
 
 #: The deck machine's instruments the golden's capture predates.
 ADDITIONS = frozenset({"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"})
+
+#: How many transfer line channels the golden's capture predates.
+LINE_CHANNELS = 40
 
 #: An ``SR`` beam position monitor's horizontal position.
 SR_BPM_X = re.compile(r"SR:DIAG:BPM:\d+:POSITION:X")
@@ -115,8 +119,11 @@ def rebaselined() -> set[str]:
     return {address for address in golden() if SR_BPM_X.fullmatch(address)} | set(WIRED_CAVITY)
 
 
-def test_the_golden_holds_every_served_channel_but_the_deck_instruments(served: Served) -> None:
-    assert set(served.channels) - set(golden()) == ADDITIONS
+def test_the_golden_holds_every_served_channel_but_the_added_ones(served: Served) -> None:
+    unheld = set(served.channels) - set(golden())
+    line = {address for address in unheld if address.startswith("LINE:")}
+    assert len(line) == LINE_CHANNELS
+    assert unheld - line == ADDITIONS
     assert set(golden()) <= set(served.channels)
 
 

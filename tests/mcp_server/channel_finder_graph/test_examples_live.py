@@ -79,7 +79,7 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 DEMO = "demo"
 
 #: The row cap this lane installs.  It sits above every example's own ``LIMIT``
-#: (all of which are at most 200) and below the corpus' 2912 channel bindings,
+#: (all of which are at most 200) and below the corpus' 2952 channel bindings,
 #: which is what gives ``truncated`` its meaning here: an example that
 #: reports truncation filled this cap, and the only way to do that is to have
 #: lost the ``LIMIT`` the catalogue says every query carries.  Under the shipped

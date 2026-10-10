@@ -104,7 +104,7 @@ def build_demo_index(index_path: Path | str, built: BuiltProject) -> Path:
     """Build the demo graph view's index at *index_path* and return it.
 
     The oracle behind every "what the demo facility holds" assertion:
-    2912 channels, 396 of them settable.
+    2952 channels, 412 of them settable.
 
     Args:
         index_path: Where the index goes.

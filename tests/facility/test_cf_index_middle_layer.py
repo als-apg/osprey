@@ -819,6 +819,7 @@ def _families(document: dict[str, Any]) -> dict[str, list[str]]:
 DEMO_GROUPS = {
     "BR": ["BPM", "DIAG", "DIPOLE", "MAG", "QD", "QF"],
     "BTS": ["BPM", "DIAG", "HCM", "MAG", "VCM"],
+    "LINE": ["BPM", "HCM", "VCM"],
     "SR": [
         *("BPM", "DIAG", "DIPOLE", "HCM", "MAG", "QD", "QF", "QFA"),
         *("RF", "SD", "SF", "SHD", "SHF", "VAC", "VCM"),
@@ -829,6 +830,7 @@ DEMO_GROUPS = {
 DEMO_DERIVED = {
     "BR": ["BeamCurrentMonitor"],
     "BTS": ["Quadrupole"],
+    "LINE": ["Quadrupole"],
     "SR": [
         *("AcceleratingCavity", "BeamCurrentMonitor", "BeamLossMonitor", "Gauge"),
         *("Modulator", "Pump", "Valve"),
@@ -845,7 +847,7 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
     assert _families(document) == {
         system: sorted([*DEMO_GROUPS[system], *DEMO_DERIVED[system]]) for system in DEMO_GROUPS
     }
-    assert sum(len(families) for families in _families(document).values()) == 35
+    assert sum(len(families) for families in _families(document).values()) == 39
     fields = [
         field
         for system, families in document.items()
@@ -854,7 +856,7 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
         if not key.startswith("_")
         for field in _fields(family)
     ]
-    assert len(fields) == 1530
+    assert len(fields) == 1538
     assert by_address == 1387
     assert left_out == 4
     assert left_out == sum(
@@ -978,7 +980,7 @@ def test_the_demo_database_holds_a_row_per_channel_and_family(
     finally:
         con.close()
 
-    assert counts == (5816, 2908)
+    assert counts == (5856, 2948)
     assert bpm and bpm < diag
     assert quads and quads < magnets
 
