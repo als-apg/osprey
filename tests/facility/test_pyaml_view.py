@@ -30,6 +30,12 @@ from tests.facility._pyaml_trees import measured_tree, view_inputs, write_view
 pytest.importorskip("pyaml")
 
 
+def _measurement(doc: dict[str, Any], model: str) -> dict[str, Any]:
+    (record,) = [record for record in doc["models"] if record["name"] == model]
+    measurement: dict[str, Any] = record["measurement"]
+    return measurement
+
+
 def _configuration(directory: Path, model: str) -> dict[str, Any]:
     return yaml.safe_load((directory / model / CONFIGURATION_FILE).read_text(encoding="utf-8"))
 
@@ -107,20 +113,24 @@ def test_the_view_is_the_same_bytes_every_time(tmp_path: Path) -> None:
         assert (second / relative).read_bytes() == path.read_bytes(), relative
 
 
+@pytest.mark.parametrize("vcor", ["LINE/VCM", "LINE/HCM"], ids=["two-groups", "one-group"])
 def test_every_name_in_the_configuration_resolves_back_through_the_mapping(
-    tmp_path: Path,
+    tmp_path: Path, vcor: str
 ) -> None:
     from pyaml_cs_osprey.catalog import parse_reference
     from pyaml_cs_osprey.names import UnmappedName
 
-    inputs = view_inputs(tmp_path, measured_tree())
-    directory, _ = write_view(tmp_path / "view", measured_tree())
+    tree = measured_tree()
+    tree["measurement/LINE.yaml"]["groups"]["vcor"] = vcor
+    inputs = view_inputs(tmp_path, tree)
+    directory, _ = write_view(tmp_path / "view", tree)
     for model in ("SR", "LINE"):
         names = view_names(inputs.doc, model)
         configuration = _configuration(directory, model)
-        for array in configuration["arrays"]:
-            group = names.array_group(array["name"])
-            assert names.array_name(group) == array["name"]
+        arrays = configuration["arrays"]
+        groups_named = _measurement(inputs.doc, model)["groups"]
+        named = {names.array_name(role, group): group for role, group in groups_named.items()}
+        assert {array["name"]: names.array_group(array["name"]) for array in arrays} == named
         for device in configuration["devices"]:
             name = device["name"]
             if "model" in device:

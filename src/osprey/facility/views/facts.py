@@ -315,9 +315,9 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
         measurement = models[str(model)].get("measurement") or {}
         names = view_names(doc, str(model))
         array_of = {
-            str(role): names.array_name(str(group))
+            str(role): names.array_name(str(role), str(group))
             for role, group in (measurement.get("groups") or {}).items()
-            if names.array_name(str(group)) in arrays
+            if names.array_name(str(role), str(group)) in arrays
         }
         block[str(model)] = {
             "kinds": {

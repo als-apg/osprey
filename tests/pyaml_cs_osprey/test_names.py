@@ -17,7 +17,7 @@ from pyaml_cs_osprey.names import (
 SR_HCOR = "SR:MAG:HCM:01:CURRENT:SP"
 SR_VCOR = "SR:MAG:VCM:01:CURRENT:SP"
 SR_RF = "SR:RF:CAVITY:01:FREQUENCY:SP"
-SR_GROUPS = ("SR/BPM", "SR/HCM", "SR/VCM")
+SR_GROUPS = {"bpm": "SR/BPM", "hcor": "SR/HCM", "vcor": "SR/VCM"}
 
 #: One NSLS-II transfer-line corrector: both planes on one combined-corrector element.
 NSLS2_H = "LTB-MG{Cor:1}I:Sp1-SP"
@@ -62,7 +62,7 @@ def test_sr_model_names_round_trip() -> None:
 
 def test_the_sr_model_group_arrays_map_back_to_their_ids() -> None:
     names = _sr()
-    arrays = {group: names.array_name(group) for group in SR_GROUPS}
+    arrays = {group: names.array_name(role, group) for role, group in SR_GROUPS.items()}
     assert arrays == {"SR/BPM": "SR_BPM", "SR/HCM": "SR_HCM", "SR/VCM": "SR_VCM"}
     for group, array in arrays.items():
         assert "/" not in array
@@ -71,19 +71,40 @@ def test_the_sr_model_group_arrays_map_back_to_their_ids() -> None:
 
 
 def test_a_line_setpoint_round_trips() -> None:
-    names = ViewNames.build(magnets=["LQ:SP"], bpms=["LINE/BPM1"], groups=["LINE/Q"])
+    names = ViewNames.build(magnets=["LQ:SP"], bpms=["LINE/BPM1"], groups={"quad": "LINE/Q"})
     assert names.magnet_address(names.magnet_name("LQ:SP")) == "LQ:SP"
-    assert names.array_group(names.array_name("LINE/Q")) == "LINE/Q"
+    assert names.array_group(names.array_name("quad", "LINE/Q")) == "LINE/Q"
     assert names.rf is None
 
 
 def test_a_combined_corrector_gets_one_magnet_per_plane() -> None:
     """Both planes of one NSLS-II corrector element are two magnets, each by its address."""
-    names = ViewNames.build(magnets=[NSLS2_H, NSLS2_V], groups=["HCM", "VCM"])
+    names = ViewNames.build(magnets=[NSLS2_H, NSLS2_V], groups={"hcor": "HCM", "vcor": "VCM"})
     h, v = names.magnet_name(NSLS2_H), names.magnet_name(NSLS2_V)
     assert h != v
     assert (names.magnet_address(h), names.magnet_address(v)) == (NSLS2_H, NSLS2_V)
     assert all(NAME_RE.fullmatch(name) for name in (h, v))
+
+
+def test_one_group_named_for_both_corrector_planes_is_one_array_per_plane() -> None:
+    names = ViewNames.build(groups={"bpm": "SR/BPM", "hcor": "SR/COR", "vcor": "SR/COR"})
+    horizontal = names.array_name("hcor", "SR/COR")
+    vertical = names.array_name("vcor", "SR/COR")
+    assert (horizontal, vertical) == ("SR_COR_h", "SR_COR_v")
+    assert names.array_group(horizontal) == names.array_group(vertical) == "SR/COR"
+    assert names.array_name("bpm", "SR/BPM") == "SR_BPM"
+
+
+def test_a_plane_array_name_another_group_would_take_is_refused() -> None:
+    with pytest.raises(ValueError, match="SR/COR_h and SR/COR would both be named SR_COR_h"):
+        ViewNames.build(groups={"bpm": "SR/COR_h", "hcor": "SR/COR", "vcor": "SR/COR"})
+
+
+@pytest.mark.parametrize(("role", "group"), [("quad", "SR/QF"), ("vcor", "SR/HCM")])
+def test_an_array_is_looked_up_by_the_role_naming_its_group(role: str, group: str) -> None:
+    with pytest.raises(UnmappedName, match=group) as refused:
+        _sr().array_name(role, group)
+    assert refused.value.key == group
 
 
 @pytest.mark.parametrize(
@@ -91,7 +112,6 @@ def test_a_combined_corrector_gets_one_magnet_per_plane() -> None:
     [
         ("magnet_name", "SR:MAG:QF:01:CURRENT:SP"),
         ("bpm_name", "SR/BPM02"),
-        ("array_name", "SR/QF"),
         ("rf_plant_name", "SR:RF:CAVITY:02:FREQUENCY:SP"),
         ("magnet_address", "SR_QF01"),
         ("bpm_device", "SR_BPM02"),

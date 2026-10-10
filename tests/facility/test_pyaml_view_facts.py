@@ -19,7 +19,7 @@ import pytest
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
-from osprey.facility.views.facts import FACTS_FILE
+from osprey.facility.views.facts import FACTS_FILE, hook_measurement
 from osprey.facility.views.pyaml import measurement_groups
 from tests.facility._pyaml_trees import built_document, measured_tree
 
@@ -116,3 +116,19 @@ def test_a_texture_only_render_records_no_view(tmp_path: Path) -> None:
     ctx = _context(render, config)
     assert ctx["pyaml_view_present"] is False
     assert ctx["measurement"] == {}
+
+
+def test_one_group_named_for_both_planes_gives_the_block_both_plane_arrays(
+    tmp_path: Path,
+) -> None:
+    tree = measured_tree()
+    tree["measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
+    render = _render(tmp_path, tree, {})
+    line = hook_measurement(_facts(render), render)["LINE"]
+    assert line["kinds"] == {"orm": ["LINE_BPM", "LINE_HCM_h", "LINE_HCM_v"]}
+    assert line["groups"] == {
+        "bpm": ["LBPM:X", "LBPM:Y"],
+        "hcor": ["LCOR:H:SP"],
+        "vcor": ["LCOR:V:SP"],
+        "quad": ["LQ:SP"],
+    }

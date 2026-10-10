@@ -52,6 +52,29 @@ def test_one_array_per_named_group(tmp_path: Path) -> None:
     assert len(arrays) == len(LINE_GROUPS)
 
 
+def _shared_corrector_group() -> dict[str, Any]:
+    """LINE with ``LINE/HCM``, whose corrector is steered in both planes, as hcor and vcor."""
+    tree = measured_tree()
+    tree["measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
+    return tree
+
+
+def test_one_group_named_for_both_planes_is_two_plane_arrays(tmp_path: Path) -> None:
+    configuration = _configuration(tmp_path, _shared_corrector_group(), "LINE")
+    arrays = {array["name"]: array for array in configuration["arrays"]}
+    assert list(arrays) == ["LINE_BPM", "LINE_HCM_h", "LINE_HCM_v", "LINE_Q"]
+    horizontal = arrays["LINE_HCM_h"]["elements"]
+    vertical = arrays["LINE_HCM_v"]["elements"]
+    assert horizontal == ["LCOR:H:SP"]
+    assert vertical == ["LCOR:V:SP"]
+    assert not set(horizontal) & set(vertical)
+    assert {arrays[name]["type"] for name in ("LINE_HCM_h", "LINE_HCM_v")} == {
+        "pyaml.arrays.magnet"
+    }
+    orm = _tools(configuration)["DEFAULT_ORBIT_RESPONSE_MATRIX"]
+    assert (orm["hcorr_array_name"], orm["vcorr_array_name"]) == ("LINE_HCM_h", "LINE_HCM_v")
+
+
 def test_array_members_follow_the_devices_s_order(tmp_path: Path) -> None:
     """SR/QF, split over both ends of the deck, sits at 4.25 m; SR/QD at 1.95 m comes first."""
     arrays = {a["name"]: a for a in _configuration(tmp_path, measured_tree(), "SR")["arrays"]}
