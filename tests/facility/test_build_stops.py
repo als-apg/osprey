@@ -396,7 +396,9 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ),
     ("value_invalid__clamp_order", "value-invalid", "`clamp` lo > hi"),
     ("value_invalid__clamp_non_float", "value-invalid", "`clamp` on a non-float"),
-    ("value_invalid__stuck_non_setpoint", "value-invalid", "`stuck` on a non-setpoint"),
+    ("value_invalid__stuck_under_faults", "value-invalid", "`stuck` under a scenario's `faults`"),
+    ("value_invalid__channel_fault_role", "value-invalid", "a channel fault on a role it skips"),
+    ("value_invalid__channel_fault_word", "value-invalid", "a channel fault word not in the table"),
     (
         "value_invalid__archiver_days_ago_negative",
         "value-invalid",
@@ -1553,14 +1555,29 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "and `linear` apply to float channels only; fix: remove `clamp`"
         ),
     ),
-    "value_invalid__stuck_non_setpoint": (
+    "value_invalid__stuck_under_faults": (
         _plain(
             put("models.yaml", [NO_DECK]),
             scenario("warm", {"faults": {"optics": {"BPM1:X": "stuck"}}}),
         ),
         (
-            "facility: value-invalid: scenario warm — `faults.optics.BPM1:X` is `stuck` on a "
-            "readback channel; fix: fault a setpoint with `stuck`, or write a value"
+            "facility: value-invalid: scenario warm — `faults.optics.BPM1:X` is `stuck`; fix: "
+            "move it to `channel_faults: {BPM1:X: stuck}`"
+        ),
+    ),
+    "value_invalid__channel_fault_role": (
+        _plain(scenario("warm", {"channel_faults": {"BPM1:X": "stuck"}})),
+        (
+            "facility: value-invalid: scenario warm — `channel_faults.BPM1:X` is `stuck` on a "
+            "readback channel; fix: `stuck` faults a setpoint, `frozen` a reading, "
+            "`disconnected` any channel"
+        ),
+    ),
+    "value_invalid__channel_fault_word": (
+        _plain(scenario("warm", {"channel_faults": {"BPM1:X": "offline"}})),
+        (
+            "facility: value-invalid: scenario warm — `channel_faults.BPM1:X` is `offline`; "
+            "fix: write one of `stuck`, `frozen`, `disconnected`"
         ),
     ),
     "value_invalid__archiver_days_ago_negative": (

@@ -60,8 +60,8 @@ def test_a_tango_address_fault_round_trips(tmp_path: Path) -> None:
             ],
         }
     ]
-    faults = {"optics": {TANGO: {"offset": 1.0e-4, "roll": 0.01}, "Q1:SP": "stuck"}}
-    tree["scenarios/tango.yaml"] = {"faults": faults}
+    faults = {"optics": {TANGO: {"offset": 1.0e-4, "roll": 0.01}}}
+    tree["scenarios/tango.yaml"] = {"faults": faults, "channel_faults": {"Q1:SP": "stuck"}}
 
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
 

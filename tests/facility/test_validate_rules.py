@@ -442,8 +442,9 @@ class TestReferences:
             ({"couple": {"GONE": [{"driver": "d", "gain": 1.0}]}}, "`couple` names channel GONE"),
             ({"noise": {"GONE": {"absolute": 0.1}}}, "`noise` names channel GONE"),
             ({"still": ["GONE"]}, "`still` names channel GONE"),
+            ({"channel_faults": {"GONE": "frozen"}}, "`channel_faults` names channel GONE"),
         ],
-        ids=["override", "archiver", "fault-model", "couple", "noise", "still"],
+        ids=["override", "archiver", "fault-model", "couple", "noise", "still", "channel-fault"],
     )
     def test_scenario_entries(
         self, tmp_path: Path, scenario: dict[str, Any], fragment: str
@@ -921,13 +922,57 @@ class TestValueRules:
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail.startswith("`faults.optics.Q1:RB` of channel Q1:RB: ")
 
-    def test_stuck_only_on_a_setpoint(self, tmp_path: Path) -> None:
+    def test_stuck_under_faults_is_moved_to_channel_faults(self, tmp_path: Path) -> None:
         models = {"models.yaml": [_wired("Q1:SP")]}
-        ok = _tree(**models, **{"scenarios/s.yaml": {"faults": {"optics": {"Q1:SP": "stuck"}}}})
-        assert _run(tmp_path / "ok", ok).ok
-        bad = _tree(**models, **{"scenarios/s.yaml": {"faults": {"optics": {"Q1:RB": "stuck"}}}})
-        error = _rule(tmp_path / "bad", bad, "value-invalid")
-        assert error.detail == "`faults.optics.Q1:RB` is `stuck` on a readback channel"
+        files = _tree(**models, **{"scenarios/s.yaml": {"faults": {"optics": {"Q1:SP": "stuck"}}}})
+        error = _rule(tmp_path, files, "value-invalid")
+        assert error.format_message() == (
+            "facility: value-invalid: scenario s — `faults.optics.Q1:SP` is `stuck`; "
+            "fix: move it to `channel_faults: {Q1:SP: stuck}`"
+        )
+
+    @pytest.mark.parametrize(
+        ("word", "builds", "refused"),
+        [
+            ("stuck", ["Q1:SP"], ["Q1:RB", "N"]),
+            ("frozen", ["Q1:RB", "N"], ["Q1:SP"]),
+            ("disconnected", ["Q1:SP", "Q1:RB", "N"], []),
+        ],
+    )
+    def test_a_channel_fault_holds_its_roles(
+        self, tmp_path: Path, word: str, builds: list[str], refused: list[str]
+    ) -> None:
+        roles = {"Q1:SP": "setpoint", "Q1:RB": "readback", "N": "none"}
+        for address in builds:
+            files = _with_channels(
+                {"id": "N", "role": "none"},
+                **{"scenarios/s.yaml": {"channel_faults": {address: word}}},
+            )
+            assert _run(tmp_path / f"ok-{address}", files).ok
+        for address in refused:
+            files = _with_channels(
+                {"id": "N", "role": "none"},
+                **{"scenarios/s.yaml": {"channel_faults": {address: word}}},
+            )
+            error = _rule(tmp_path / f"bad-{address}", files, "value-invalid")
+            assert error.detail == (
+                f"`channel_faults.{address}` is `{word}` on a {roles[address]} channel"
+            )
+            assert error.remedy == (
+                "`stuck` faults a setpoint, `frozen` a reading, `disconnected` any channel"
+            )
+
+    def test_a_channel_fault_is_one_of_the_words(self, tmp_path: Path) -> None:
+        files = _tree(**{"scenarios/s.yaml": {"channel_faults": {"Q1:RB": "offline"}}})
+        error = _rule(tmp_path, files, "value-invalid")
+        assert error.detail == "`channel_faults.Q1:RB` is `offline`"
+        assert error.remedy == "write one of `stuck`, `frozen`, `disconnected`"
+
+    @pytest.mark.parametrize("block", [["Q1:RB"], {"Q1:RB": 1}])
+    def test_channel_faults_map_addresses_to_words(self, tmp_path: Path, block: Any) -> None:
+        files = _tree(**{"scenarios/s.yaml": {"channel_faults": block}})
+        error = _rule(tmp_path, files, "value-invalid")
+        assert error.detail == (f"`channel_faults` is {block!r}, not a mapping of address to fault")
 
     def _monitor_map(self, faults: dict[str, Any]) -> dict[str, Any]:
         model = _wired("Q1:SP")

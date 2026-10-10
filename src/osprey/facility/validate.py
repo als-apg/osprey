@@ -137,7 +137,6 @@ _RELATIVE = "relative"
 _RELATIVE_NOMINAL = (
     "a relative `noise` is taken of the seed's `nominal`, which this seed does not state"
 )
-_STUCK = "stuck"
 #: The ``still`` value that stills every reading.
 _STILL_ALL = "all"
 
@@ -849,6 +848,13 @@ class _References:
             listed = still if isinstance(still, list) else ()
             for address in sorted({entry for entry in listed if isinstance(entry, str)}):
                 yield from self._missing("scenario", name, files, "still", "channel", address)
+            channel_faults = scenario.get("channel_faults")
+            for address in sorted(
+                channel_faults if isinstance(channel_faults, dict) else (), key=str
+            ):
+                yield from self._missing(
+                    "scenario", name, files, "channel_faults", "channel", address
+                )
             faults = scenario.get("faults")
             if not isinstance(faults, dict):
                 continue
@@ -1571,6 +1577,7 @@ class _Records:
             ):
                 yield from self._scenario_noise(name, files, str(address), entry)
             yield from self._still(name, files, scenario)
+            yield from self._channel_faults(name, files, scenario.get("channel_faults"))
             faults = scenario.get("faults") or {}
             for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
                 for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):
@@ -1622,6 +1629,52 @@ class _Records:
                         f"`{slot}.{address}` sets the motion of a reading `still` stills",
                         "a scenario either stills a reading or sets its motion",
                     )
+
+    def _channel_faults(
+        self, name: str, files: list[str], block: Any
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's ``channel_faults``: each a fault word on a channel of its roles."""
+        from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS
+
+        if block is None:
+            return
+        if not isinstance(block, dict) or not all(
+            isinstance(address, str) and isinstance(word, str) for address, word in block.items()
+        ):
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`channel_faults` is {block!r}, not a mapping of address to fault",
+                "write `channel_faults: {<address>: stuck | frozen | disconnected}`",
+            )
+            return
+        for address, word in sorted(block.items()):
+            slot = f"channel_faults.{address}"
+            fault = CHANNEL_FAULTS.get(word)
+            if fault is None:
+                yield self._error(
+                    "value-invalid",
+                    "scenario",
+                    name,
+                    files,
+                    f"`{slot}` is `{word}`",
+                    "write one of " + ", ".join(f"`{known}`" for known in CHANNEL_FAULTS),
+                )
+                continue
+            if address not in self.index.channels:
+                continue
+            role = self.index.channels[address].get("role", "readback")
+            if role not in fault.roles:
+                yield self._error(
+                    "value-invalid",
+                    "scenario",
+                    name,
+                    files,
+                    f"`{slot}` is `{word}` on a {role} channel",
+                    "`stuck` faults a setpoint, `frozen` a reading, `disconnected` any channel",
+                )
 
     def _scenario_noise(
         self, name: str, files: list[str], address: str, entry: Any
@@ -1751,18 +1804,18 @@ class _Records:
         value: Any,
         records: Mapping[str, Mapping[str, Any]],
     ) -> Iterator[FacilityBuildError]:
+        from osprey_connectors.simulation.channel_faults import STUCK
+
         slot = f"faults.{model}.{address}"
-        if value == _STUCK:
-            role = self.index.channels[address].get("role", "readback")
-            if role != "setpoint":
-                yield self._error(
-                    "value-invalid",
-                    "scenario",
-                    name,
-                    files,
-                    f"`{slot}` is `stuck` on a {role} channel",
-                    "fault a setpoint with `stuck`, or write a value",
-                )
+        if value == STUCK:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`{slot}` is `{STUCK}`",
+                f"move it to `channel_faults: {{{address}: {STUCK}}}`",
+            )
             return
         if isinstance(value, dict):
             roster = self._roster(model)
