@@ -186,6 +186,7 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/channel_databases/examples/instance_first.json",
     "data/channel_databases/examples/mixed_hierarchy.json",
     "data/channel_databases/examples/optional_levels.json",
+    "data/facility/decks/LINE.json",
     "data/facility/decks/SR.json",
     "data/facility/identity.yaml",
     "data/facility/knowledge/devices/bpm.md",
