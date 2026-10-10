@@ -63,12 +63,14 @@ SELF_EXEMPT: tuple[str, ...] = (
     "tests/facility/golden/nominal_va.json",
     "tests/facility/test_deleted_surfaces.py",
     "tests/facility/test_no_retired_shapes.py",
+    "tests/facility/test_schema_loosenings.py",
     "tests/simulation/test_apply_imports.py",
     "tests/utils/fixtures/legacy_config_all_deleted_keys.yml",
 )
 
 #: Retired token -> the stage that deleted its last producer or reader.
 RETIRED: dict[str, str] = {
+    "/api/state/init": "8",
     "ACTIVE_SCENARIO_FILENAME": "7a0",
     "BUILD_TTL_COMMAND": "5",
     "CohostDriver": "7d",
@@ -113,6 +115,7 @@ RETIRED: dict[str, str] = {
     "facility_vocabulary": "3a",
     "fieldDescription": "7e",
     "google_sheets": "4a",
+    "lattice_init": "8",
     "lattice_json": "7e",
     "load_canonical_ring": "7d2",
     "machine_state_channels.json": "7e",
