@@ -31,7 +31,6 @@ from osprey_connectors.types import (
     LIMITS_CHECKING_LEAF,
     LIMITS_LEAVES,
     LIVE_STANDIN,
-    MOCK,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
@@ -227,7 +226,9 @@ class TestTypeLimitsPosture:
             _block(True, "exclusive"),
             connector={EPICS: {LIMITS_CHECKING_LEAF: _block(True, "optional")}},
         )
-        assert type_limits_posture(section, MOCK) == LimitsPosture(True, "exclusive", None)
+        assert type_limits_posture(section, VIRTUAL_ACCELERATOR) == LimitsPosture(
+            True, "exclusive", None
+        )
 
     # ------------------------------------------------------------------
     # Garbage counts as absent, and nothing raises
@@ -530,12 +531,12 @@ def _standin_deployment() -> dict[str, Any]:
     }
 
 
-def _mock_deployment() -> dict[str, Any]:
-    """A mock deployment: no real machine, so ``live`` does not resolve at all."""
+def _in_process_deployment() -> dict[str, Any]:
+    """The simulator in process: no real machine, so ``live`` does not resolve at all."""
     return {
-        "type": MOCK,
+        "type": VIRTUAL_ACCELERATOR,
         LIMITS_CHECKING_LEAF: _block(True, "exclusive"),
-        "connector": {MOCK: {"channel_count": 12}},
+        "connector": {VIRTUAL_ACCELERATOR: {"serving": "in_process", "channel_count": 12}},
     }
 
 
@@ -618,11 +619,11 @@ class TestTargetLimitsPosture:
         )
 
     # ------------------------------------------------------------------
-    # A mock deployment, where ``live`` names no machine at all
+    # The simulator in process, where ``live`` names no machine at all
     # ------------------------------------------------------------------
 
     @pytest.mark.parametrize("target", [TARGET_LIVE, TARGET_VA, TARGET_STANDIN])
-    def test_a_mock_deployment_answers_the_deployment_wide_block_everywhere(
+    def test_an_in_process_deployment_answers_the_deployment_wide_block_everywhere(
         self, target: str
     ) -> None:
         """``live`` does not resolve here and the other two wrote no block.
@@ -631,17 +632,21 @@ class TestTargetLimitsPosture:
         refusing here would take the posture away from every deployment that
         never had a second target, rather than protecting anything.
         """
-        posture = target_limits_posture(_mock_deployment(), target)
+        posture = target_limits_posture(_in_process_deployment(), target)
         assert posture == LimitsPosture(True, "exclusive", None)
         assert posture.key(ENABLED_LEAF) == "control_system.limits_checking.enabled"
 
-    def test_a_mock_deployment_with_no_block_at_all_states_nothing(self) -> None:
+    def test_an_in_process_deployment_with_no_block_at_all_states_nothing(self) -> None:
         """Silence resolves to silence, on a target that resolves and one that does not."""
-        section = _section(connector={MOCK: {"channel_count": 12}})
+        section = _section(
+            connector={VIRTUAL_ACCELERATOR: {"serving": "in_process", "channel_count": 12}}
+        )
         assert target_limits_posture(section, TARGET_LIVE) == LimitsPosture(None, None, None)
         assert target_limits_posture(section, TARGET_VA) == LimitsPosture(None, None, None)
 
-    def test_a_mock_deployment_reads_a_stray_block_only_where_the_target_resolves(self) -> None:
+    def test_an_in_process_deployment_reads_a_stray_block_only_where_the_target_resolves(
+        self,
+    ) -> None:
         """A single stray ``epics`` block is what ``live`` derives from here.
 
         Deliberately the same derivation
@@ -651,10 +656,10 @@ class TestTargetLimitsPosture:
         stray block is ruled out, because there no session can select it.
         """
         section = {
-            "type": MOCK,
+            "type": VIRTUAL_ACCELERATOR,
             LIMITS_CHECKING_LEAF: _block(True, "exclusive"),
             "connector": {
-                MOCK: {"channel_count": 12},
+                VIRTUAL_ACCELERATOR: {"serving": "in_process", "channel_count": 12},
                 EPICS: {LIMITS_CHECKING_LEAF: _block(True, "optional")},
             },
         }
@@ -829,19 +834,20 @@ class TestMostRestrictive:
     # Deployments that do not render the switch
     # ------------------------------------------------------------------
 
-    def test_a_mock_deployment_ignores_a_stray_live_block(self) -> None:
-        """No switch here, so the built connector's own posture is the whole answer.
+    def test_an_in_process_deployment_beside_a_live_block_answers_the_stricter_target(
+        self,
+    ) -> None:
+        """The simulator in process beside an ``epics`` block renders the switch.
 
-        ``live`` derives to ``epics`` on this section, but no session on a mock
-        deployment ever reaches it — reading its relaxation would publish a
-        posture the runtime does not share. The baseline is read by *type*, so
-        the stray block is not consulted at all.
+        ``live`` derives to ``epics`` and relaxes to ``optional``; ``va`` keeps
+        the deployment-wide ``exclusive``. Both are reachable, so the stricter
+        one is the answer.
         """
         section = {
-            "type": MOCK,
+            "type": VIRTUAL_ACCELERATOR,
             LIMITS_CHECKING_LEAF: _block(True, "exclusive"),
             "connector": {
-                MOCK: {"channel_count": 12},
+                VIRTUAL_ACCELERATOR: {"serving": "in_process", "channel_count": 12},
                 EPICS: {LIMITS_CHECKING_LEAF: _block(True, "optional")},
             },
         }
@@ -849,12 +855,17 @@ class TestMostRestrictive:
         assert posture == LimitsPosture(True, "exclusive", None)
         assert posture.strict is True
 
-    def test_a_mock_deployment_reads_its_own_per_type_block(self) -> None:
+    def test_an_in_process_deployment_reads_its_own_per_type_block(self) -> None:
         """The baseline type's block still answers where the deployment wrote one."""
         section = {
-            "type": MOCK,
+            "type": VIRTUAL_ACCELERATOR,
             LIMITS_CHECKING_LEAF: _block(True, "exclusive"),
-            "connector": {MOCK: {LIMITS_CHECKING_LEAF: _block(True, "optional")}},
+            "connector": {
+                VIRTUAL_ACCELERATOR: {
+                    "serving": "in_process",
+                    LIMITS_CHECKING_LEAF: _block(True, "optional"),
+                }
+            },
         }
         assert most_restrictive_limits_posture(section) == LimitsPosture(True, "optional", None)
 
@@ -969,11 +980,11 @@ class TestAnyArmedTargetChecksLimits:
     def test_a_single_connector_deployment_is_read_by_type(self) -> None:
         """Without the switch, the one connector ``type`` builds is the answer.
 
-        A mock deployment's ``live`` names a machine the config never described,
+        An in-process deployment's ``live`` names a machine the config never described,
         so reading it by target would answer from the deployment-wide block for
         a machine no session here reaches.
         """
-        section = _mock_deployment()
+        section = _in_process_deployment()
         section["writes_enabled"] = True
         assert any_armed_target_checks_limits(section) is True
 
@@ -1045,7 +1056,7 @@ class TestIncompleteBlocks:
         [
             _va_baseline_deployment(),
             _standin_deployment(),
-            _mock_deployment(),
+            _in_process_deployment(),
             _section(_block(True, "exclusive")),
             _section(_block(True, "exclusive"), connector={EPICS: {"gateway_address": "x"}}),
             _section(connector={EPICS: {LIMITS_CHECKING_LEAF: _block(True, "exclusive")}}),
@@ -1258,7 +1269,7 @@ def _every_resolver_reads_this() -> dict[str, Any]:
 
 
 def _resolve_every_type(section: dict[str, Any]) -> None:
-    for connector_type in (EPICS, MOCK, CUSTOM_TYPE, None):
+    for connector_type in (EPICS, VIRTUAL_ACCELERATOR, CUSTOM_TYPE, None):
         type_limits_posture(section, connector_type)
 
 

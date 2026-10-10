@@ -26,8 +26,8 @@ from osprey_connectors.control_system.base import WriteOutcome
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.types import (
     EPICS,
+    IN_PROCESS,
     LIVE_STANDIN,
-    MOCK,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
@@ -187,7 +187,7 @@ def test_an_unresolvable_target_names_the_key_it_inherits_from():
     """`live` on a deployment that never described its real machine, and a target
     that names nothing at all: both read the deployment-wide key, so both name it."""
     # Arrange
-    section = _section(MOCK, writes_enabled=True)
+    section = _section(writes_enabled=True)
 
     # Act / Assert
     assert target_writes_enabled_key(section, TARGET_LIVE) == WRITES_ENABLED_KEY
@@ -320,7 +320,7 @@ def test_a_config_with_no_posture_anywhere_is_unarmed_for_every_type():
     # Act / Assert
     assert type_writes_enabled(section, EPICS) is False
     assert type_writes_enabled(section, VIRTUAL_ACCELERATOR) is False
-    assert type_writes_enabled(section, MOCK) is False
+    assert type_writes_enabled(section, LIVE_STANDIN) is False
     assert target_writes_enabled(section, TARGET_LIVE) is False
     assert target_writes_enabled(section, TARGET_VA) is False
 
@@ -480,10 +480,14 @@ def test_a_live_block_that_says_false_stays_off_while_the_global_key_arms_the_st
 
 
 @pytest.mark.parametrize("global_value", [True, False], ids=["global-true", "global-false"])
-def test_live_on_a_mock_deployment_answers_the_deployment_wide_key(global_value: bool):
-    """Parity: a mock deployment never had a second target, so it keeps the flag."""
+def test_live_on_an_in_process_deployment_answers_the_deployment_wide_key(global_value: bool):
+    """Parity: an in-process deployment with no live block keeps the flag for ``live``."""
     # Arrange
-    section = _section(MOCK, writes_enabled=global_value, connector={"mock": {}})
+    section = _section(
+        VIRTUAL_ACCELERATOR,
+        writes_enabled=global_value,
+        connector={VIRTUAL_ACCELERATOR: {"serving": IN_PROCESS}},
+    )
 
     # Act / Assert
     assert target_writes_enabled(section, TARGET_LIVE) is global_value
@@ -532,8 +536,8 @@ def test_session_posture_names_both_targets_only_where_the_switch_renders():
     )
     assert session_posture(switchable) == {TARGET_LIVE: False, TARGET_VA: True}
     assert session_posture(_section(VIRTUAL_ACCELERATOR)) == {TARGET_VA: False}
-    assert session_posture(_section(MOCK, writes_enabled=True)) == {TARGET_LIVE: True}
-    assert session_posture("not a mapping") == {TARGET_LIVE: False}
+    assert session_posture(_section(writes_enabled=True)) == {TARGET_VA: True}
+    assert session_posture("not a mapping") == {TARGET_VA: False}
 
 
 def test_a_deployment_with_no_standin_block_gets_no_standin_posture():
@@ -631,7 +635,7 @@ def test_a_va_baseline_beside_a_standin_is_switch_capable():
         pytest.param(
             _section(LIVE_STANDIN, connector={LIVE_STANDIN: {"port": 5074}}), id="standin-only"
         ),
-        pytest.param(_section(MOCK), id="bare-mock"),
+        pytest.param(_section(), id="no-type"),
     ],
 )
 def test_a_single_target_render_is_not_switch_capable(section):
@@ -654,27 +658,23 @@ def test_the_live_and_va_pair_is_still_switch_capable():
     assert switch_capable(section) is True
 
 
-def test_a_mock_carrying_other_blocks_is_still_not_switch_capable():
-    """The baseline-consistency guard survives the target count.
+def test_the_in_process_simulator_carrying_a_live_block_is_switch_capable():
+    """The simulator in process baselines on ``va``, and an ``epics`` block is ``live``.
 
-    A ``mock`` deployment that happens to carry an ``epics`` and a
-    ``virtual_accelerator`` block enumerates two targets, but its baseline
-    resolves to a machine its own type never selected — treating it as
-    switchable would point a session at a real machine on the strength of a
-    stray block.
+    Its baseline resolves back to its own type, so two configured targets are
+    a switchable deployment, as the served simulator beside a live block is.
     """
     # Arrange
     section = _section(
-        MOCK,
+        VIRTUAL_ACCELERATOR,
         connector={
-            "mock": {},
             "epics": {"gateways": {"read_only": {"address": "gw"}}},
-            "virtual_accelerator": {"port": 5064},
+            "virtual_accelerator": {"serving": IN_PROCESS},
         },
     )
 
     # Act / Assert
-    assert switch_capable(section) is False
+    assert switch_capable(section) is True
 
 
 def test_a_standin_baseline_posture_names_three_targets_in_vocabulary_order():
@@ -808,8 +808,8 @@ def test_a_live_that_does_not_resolve_is_not_a_configured_target():
 def test_the_baseline_is_configured_even_with_no_block_of_its_own():
     """A deployment is on the connector ``control_system.type`` builds regardless."""
     # Act / Assert
-    assert configured_targets(_section(MOCK)) == [TARGET_LIVE]
-    assert configured_targets(_section(MOCK, connector={})) == [TARGET_LIVE]
+    assert configured_targets(_section()) == [TARGET_VA]
+    assert configured_targets(_section(connector={})) == [TARGET_VA]
     assert configured_targets(_section(VIRTUAL_ACCELERATOR)) == [TARGET_VA]
     assert configured_targets(_section(LIVE_STANDIN)) == [TARGET_STANDIN]
 
@@ -820,7 +820,7 @@ def test_the_baseline_is_configured_even_with_no_block_of_its_own():
 def test_a_section_that_is_not_a_mapping_still_has_its_baseline(section: Any):
     """Never raises and never empty: the one target such a deployment is on."""
     # Act / Assert
-    assert configured_targets(section) == [TARGET_LIVE]
+    assert configured_targets(section) == [TARGET_VA]
 
 
 def test_asking_which_targets_are_configured_does_not_mutate_the_section():
@@ -835,12 +835,19 @@ def test_asking_which_targets_are_configured_does_not_mutate_the_section():
     assert section == before
 
 
-def test_a_non_switchable_baseline_answers_the_built_type_not_the_live_derivation():
-    """A mock deployment with a stray armed epics block builds a mock connector."""
-    section = _section(MOCK, writes_enabled=False, connector={"epics": {"writes_enabled": True}})
+def test_an_in_process_baseline_beside_an_armed_live_block_publishes_both_targets():
+    """The simulator in process beside an armed ``epics`` block is switchable."""
+    section = _section(
+        VIRTUAL_ACCELERATOR,
+        writes_enabled=False,
+        connector={
+            "epics": {"writes_enabled": True},
+            "virtual_accelerator": {"serving": IN_PROCESS},
+        },
+    )
     assert target_writes_enabled(section, TARGET_LIVE) is True
-    assert session_posture(section) == {TARGET_LIVE: False}
-    assert any_target_writes_enabled(section) is False
+    assert session_posture(section) == {TARGET_LIVE: True, TARGET_VA: False}
+    assert any_target_writes_enabled(section) is True
 
 
 def test_the_union_does_not_let_a_phantom_live_inherit_the_global_key():
@@ -860,7 +867,7 @@ def test_the_union_does_not_let_a_phantom_live_inherit_the_global_key():
 @pytest.mark.parametrize("global_value", [True, False])
 def test_the_union_keeps_single_flag_parity_where_nothing_is_said_per_type(global_value: bool):
     """A deployment with only the deployment-wide key answers that key."""
-    assert any_target_writes_enabled(_section(MOCK, writes_enabled=global_value)) is global_value
+    assert any_target_writes_enabled(_section(writes_enabled=global_value)) is global_value
     assert any_target_writes_enabled(_section(EPICS, writes_enabled=global_value)) is global_value
 
 
