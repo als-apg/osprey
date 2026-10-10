@@ -146,7 +146,7 @@ def test_a_texture_only_render_lists_the_deck_model_as_not_served(
 ) -> None:
     facts = json.loads((texture_only_render / "data" / FACTS_FILE).read_text(encoding="utf-8"))
     served = {model["name"]: model["served"] for model in facts["models"]}
-    assert served == {"SR": False, TEXTURE: True}
+    assert served == {"LINE": False, "SR": False, TEXTURE: True}
 
 
 def test_a_texture_only_render_has_no_pyat_specialist(texture_only_render: Path) -> None:
