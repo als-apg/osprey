@@ -573,10 +573,19 @@ async def _build_connector(payload: dict[str, Any]) -> tuple[Any, dict[str, Any]
     connector_type = types.resolve_target(section, target)
     register_builtin_connectors()
 
-    # The section is passed whole with only its type replaced: writes_enabled and
-    # the limits block, per-channel confirm included, travel with it, and the
-    # connector sub-block is already keyed by the resolved type.
-    config = {**section, "type": connector_type}
+    # The section is passed whole: writes_enabled and the limits block,
+    # per-channel confirm included, travel with it, and the connector sub-block
+    # is already keyed by the resolved type. Its type is restated only when the
+    # target's type differs from the section's own resolved type, because the
+    # serving leaf is read under the section's own spelling (no stated type is
+    # the simulator in process; a stated virtual_accelerator without the leaf is
+    # the served one), so restating a type the section already resolves to
+    # would build the other venue.
+    config = (
+        section
+        if types.resolve_control_system_type(section) == connector_type
+        else {**section, "type": connector_type}
+    )
     # The target the parent pointed this child at — already validated by
     # resolve_target above, which refuses anything that is not one of the three
     # literals — is what indexes the per-target narrowing the reference monitor
