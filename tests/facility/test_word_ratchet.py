@@ -65,7 +65,6 @@ CLEAN_PATHS: tuple[str, ...] = (
 )
 
 ALLOWLIST: dict[str, str] = {
-    "src/osprey/mcp_server/phoebus/plt_generator.py": "rename:12",
     "src/osprey/profiles/presets/control-assistant.yml": "rename:12",
     "src/osprey/services/bluesky_bridge/bump_analysis.py": "rename:12",
     "src/osprey/services/bluesky_bridge/orm_analysis.py": "rename:12",
