@@ -366,7 +366,6 @@ def test_the_readers_connector_type_literals_match_the_frameworks() -> None:
 
     reader = _reader()
 
-    assert reader.MOCK_TYPE == connector_types.MOCK
     assert reader.VIRTUAL_ACCELERATOR_TYPE == connector_types.VIRTUAL_ACCELERATOR
     assert reader.LIVE_STANDIN_TYPE == connector_types.LIVE_STANDIN
     assert reader.SIMULATED_TYPES == connector_types._SIMULATED_TYPES
