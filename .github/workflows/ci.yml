@@ -7,9 +7,8 @@ on:
     # Epic phase branches merge into an epic/<name> integration base, not
     # main, and their PRs are where the phase's CI certification happens --
     # the full lane set must run there, not only on the final epic-to-main
-    # PR. An integration/<name> base collects item PRs ahead of one PR into
-    # main, and each item PR is where a red that the item causes must show.
-    branches: [ main, 'epic/**', 'integration/**' ]
+    # PR.
+    branches: [ main, 'epic/**' ]
     # `labeled` on top of the three defaults: the model-spending lanes run on
     # a pull request only under the `full-ci` label (see "Model-spending
     # lanes" below), and applying a label does not start a run unless the
@@ -4047,17 +4046,15 @@ jobs:
     # unexplained slowdown in a neighbouring job.
     # Base-ref clause matches two-shape-boot-e2e below rather than the
     # lifecycle lanes above, and for the same reason: this lane certifies the
-    # auth perimeter, which is built on epic phase branches and item branches
-    # whose PRs target an `epic/*` or `integration/*` base. Scoped to main
-    # alone it would skip on every PR that changes what it covers, and a safety
-    # lane that only runs after the work is already merged is one that can go
-    # red inside a green gate.
+    # auth perimeter, which is built on epic phase branches whose PRs target an
+    # `epic/*` integration base. Scoped to main alone it would skip on every PR
+    # that changes what it covers, and a safety lane that only runs after the
+    # work is already merged is one that can go red inside a green gate.
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
       && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/')
-      || startsWith(github.event.pull_request.base.ref, 'integration/'))
+      || startsWith(github.event.pull_request.base.ref, 'epic/'))
 
     steps:
     - name: Checkout repository
@@ -4162,17 +4159,15 @@ jobs:
     # which is the one posture family this lane does not stand up.
     # Base-ref clause matches two-shape-boot-e2e below rather than the
     # lifecycle lanes above, and for the same reason: this lane certifies the
-    # auth perimeter, which is built on epic phase branches and item branches
-    # whose PRs target an `epic/*` or `integration/*` base. Scoped to main
-    # alone it would skip on every PR that changes what it covers, and a safety
-    # lane that only runs after the work is already merged is one that can go
-    # red inside a green gate.
+    # auth perimeter, which is built on epic phase branches whose PRs target an
+    # `epic/*` integration base. Scoped to main alone it would skip on every PR
+    # that changes what it covers, and a safety lane that only runs after the
+    # work is already merged is one that can go red inside a green gate.
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
       && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/')
-      || startsWith(github.event.pull_request.base.ref, 'integration/'))
+      || startsWith(github.event.pull_request.base.ref, 'epic/'))
 
     steps:
     - name: Checkout repository
@@ -4276,16 +4271,15 @@ jobs:
     # ledger and nowhere else.
     # Base-ref clause matches the two lanes above, and for the same reason:
     # this lane certifies the auth perimeter, which is built on epic phase
-    # branches and item branches whose PRs target an `epic/*` or
-    # `integration/*` base. Scoped to main alone it would skip on every PR
-    # that changes what it covers, and a safety lane that only runs after the
-    # work is already merged is one that can go red inside a green gate.
+    # branches whose PRs target an `epic/*` integration base. Scoped to main
+    # alone it would skip on every PR that changes what it covers, and a safety
+    # lane that only runs after the work is already merged is one that can go
+    # red inside a green gate.
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
       && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/')
-      || startsWith(github.event.pull_request.base.ref, 'integration/'))
+      || startsWith(github.event.pull_request.base.ref, 'epic/'))
 
     steps:
     - name: Checkout repository
@@ -4589,16 +4583,14 @@ jobs:
     # The base-ref clause differs from multi-user-deploy-lifecycle-e2e-podman
     # above ON PURPOSE. This lane certifies the network axis and the
     # podman-compose provider, both of which are built on epic phase branches
-    # and item branches whose PRs target an `epic/*` or `integration/*` base.
-    # Scoped to main alone it would skip on every PR that changes what it
-    # covers and only ever run once the work was already merged into that
-    # base.
+    # whose PRs target an `epic/*` integration base. Scoped to main alone it
+    # would skip on every PR that changes what it covers and only ever run once
+    # the work was already merged into the epic.
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
       && (github.event.pull_request.base.ref == 'main'
-      || startsWith(github.event.pull_request.base.ref, 'epic/')
-      || startsWith(github.event.pull_request.base.ref, 'integration/'))
+      || startsWith(github.event.pull_request.base.ref, 'epic/'))
 
     steps:
     - name: Checkout repository
