@@ -2,27 +2,36 @@
 
 Written to ``<render>/data/``::
 
-    facility_facts.json   {schema: osprey.facility.facility_facts/1, identity,
-                           place_levels, device_classes, models,
+    facility_facts.json   {schema: osprey.facility.facility_facts/2, identity,
+                           place_levels, places, unplaced_devices,
+                           device_classes, vocabulary, models,
                            measurement_models, channel_count, snapshot}
     facility_facts.md     the same facts as one page, rendered once from
                           ``_facility_facts.md.j2``
 
 ``identity`` is ``{code, name, description}``; a facility that authors no name
 takes the project's. ``place_levels`` is the distinct ``level`` words of the
-places, shallowest first. ``device_classes`` has one entry per class a device
-carries and per facility-added class: ``count`` devices, the ``aliases`` the
-vocabulary and ``classes.yaml`` give the class in their authored spelling, and
-``families``, the sorted ids of the groups holding one of its devices: a
-family is a group, the same groups the middle-layer index files as Families.
+places, shallowest first. ``places`` has one entry per place, sorted by id:
+its ``level``, its ``names`` and the ``devices`` at or under it counted by
+class. ``unplaced_devices`` counts by class the devices that sit in no place.
+``device_classes`` has one entry per class a device carries and per
+facility-added class: ``count`` devices, the ``aliases`` the vocabulary and
+``classes.yaml`` give the class in their authored spelling, and ``groups``, the
+sorted ids of the groups holding one of its devices. ``vocabulary`` counts the
+channels by role and by signal, with each signal's vocabulary description, the
+setpoints paired with a readback and the channels that carry no signal.
 ``models`` lists every model with its ``engine``, whether the render serves it
 and its engine's ``solve`` setting. ``measurement_models`` holds one record per
 measurement view the render carries, ``channel_count`` counts the channels, and
 ``snapshot`` is ``null``.
 
 A render with no facts file is read as the zero-source facts: the identity of
-its facility file or project name, no place level, no class, ``texture`` alone
-and no channel.
+its facility file or project name, no place, no class, ``texture`` alone and no
+channel.
+
+The schema's number rises whenever a key is added, removed or renamed or a
+value changes shape; ``read_facts`` reads only the current number and takes
+any other file for the zero-source facts, which every build rewrites.
 """
 
 from __future__ import annotations
@@ -54,7 +63,13 @@ logger = logging.getLogger(__name__)
 
 FACTS_FILE = "facility_facts.json"
 FACTS_PAGE = "facility_facts.md"
-FACTS_SCHEMA = "osprey.facility.facility_facts/1"
+FACTS_SCHEMA = "osprey.facility.facility_facts/2"
+
+#: The class a classless device is counted under.
+NO_CLASS = "-"
+
+#: The role a channel that states none has.
+DEFAULT_ROLE = "readback"
 
 #: The page's template, relative to the packaged templates directory.
 FACTS_TEMPLATE = "claude_code/_facility_facts.md.j2"
@@ -77,6 +92,46 @@ def _place_levels(doc: Mapping[str, Any]) -> list[str]:
     return sorted(depth, key=lambda level: (depth[level], level))
 
 
+def _class_counts(devices: list[Mapping[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for device in devices:
+        name = device.get("class")
+        counts[NO_CLASS if name is None else str(name)] += 1
+    return dict(sorted(counts.items()))
+
+
+def _places(doc: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Each place with its level, its names and the devices at or under it by class."""
+    devices = doc.get("devices", [])
+    places = []
+    for place in sorted(doc.get("places", []), key=lambda place: str(place["id"])):
+        here = str(place["id"])
+        level = place.get("level")
+        places.append(
+            {
+                "id": here,
+                "level": None if level is None else str(level),
+                "names": sorted({str(name) for name in place.get("names") or []}),
+                "devices": _class_counts(
+                    [
+                        device
+                        for device in devices
+                        if device.get("place") is not None
+                        and (
+                            str(device["place"]) == here
+                            or str(device["place"]).startswith(f"{here}/")
+                        )
+                    ]
+                ),
+            }
+        )
+    return places
+
+
+def _unplaced_devices(doc: Mapping[str, Any]) -> dict[str, int]:
+    return _class_counts([d for d in doc.get("devices", []) if d.get("place") is None])
+
+
 def _authored_aliases(
     vocabulary: Mapping[str, Any], added: list[Mapping[str, Any]]
 ) -> dict[str, list[str]]:
@@ -93,11 +148,7 @@ def _authored_aliases(
 
 
 def _device_classes(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """Each device class with its count, authored aliases and families.
-
-    A class's families are the groups holding one of its devices; a family is
-    a group, the same groups the middle-layer index files as Families.
-    """
+    """Each device class with its count, authored aliases and groups."""
     from osprey.facility.validate import vocabulary
 
     added = doc.get("classes") or []
@@ -112,19 +163,52 @@ def _device_classes(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
         class_of[str(device["id"])] = name
         count[name] = count.get(name, 0) + 1
 
-    families: dict[str, set[str]] = defaultdict(set)
+    groups: dict[str, set[str]] = defaultdict(set)
     for group in doc.get("groups", []):
         for member in group.get("members") or []:
             if str(member) in class_of:
-                families[class_of[str(member)]].add(str(group["id"]))
+                groups[class_of[str(member)]].add(str(group["id"]))
 
     return {
         name: {
             "count": count[name],
             "aliases": aliases.get(name, []),
-            "families": sorted(families.get(name, ())),
+            "groups": sorted(groups.get(name, ())),
         }
         for name in sorted(count)
+    }
+
+
+def _vocabulary(doc: Mapping[str, Any]) -> dict[str, Any]:
+    """The roles and signals the channels use, counted."""
+    from osprey.facility.validate import vocabulary
+
+    described = {str(row["name"]): row.get("description") for row in vocabulary()["signal_roles"]}
+    roles: dict[str, int] = defaultdict(int)
+    signals: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    paired = unsigned = 0
+    for channel in doc.get("channels", []):
+        role = str(channel.get("role") or DEFAULT_ROLE)
+        roles[role] += 1
+        if role == "setpoint" and channel.get("pair") not in (None, channel["id"]):
+            paired += 1
+        signal = channel.get("signal")
+        if signal is None:
+            unsigned += 1
+        else:
+            signals[str(signal)][role] += 1
+    return {
+        "roles": dict(sorted(roles.items())),
+        "paired_setpoints": paired,
+        "unsigned_channels": unsigned,
+        "signals": {
+            name: {
+                "count": sum(signals[name].values()),
+                "roles": dict(sorted(signals[name].items())),
+                "description": described.get(name),
+            }
+            for name in sorted(signals)
+        },
     }
 
 
@@ -162,7 +246,10 @@ def facts_document(
         "schema": FACTS_SCHEMA,
         "identity": _identity(doc, project_name),
         "place_levels": _place_levels(doc),
+        "places": _places(doc),
+        "unplaced_devices": _unplaced_devices(doc),
         "device_classes": _device_classes(doc),
+        "vocabulary": _vocabulary(doc),
         "models": _models(doc, served),
         "measurement_models": {},
         "channel_count": len(doc.get("channels", [])),
@@ -177,14 +264,22 @@ def zero_source_facts(identity: Mapping[str, Any]) -> dict[str, Any]:
         identity: The facility's ``{code, name, description}``.
 
     Returns:
-        The facts document: no place level, no class, ``texture`` alone and no
+        The facts document: no place, no class, ``texture`` alone and no
         channel.
     """
     return {
         "schema": FACTS_SCHEMA,
         "identity": dict(identity),
         "place_levels": [],
+        "places": [],
+        "unplaced_devices": {},
         "device_classes": {},
+        "vocabulary": {
+            "roles": {},
+            "paired_setpoints": 0,
+            "unsigned_channels": 0,
+            "signals": {},
+        },
         "models": [{"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": None}],
         "measurement_models": {},
         "channel_count": 0,

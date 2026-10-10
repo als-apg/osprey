@@ -43,7 +43,7 @@ def facility_config(tmp_path):
 
 
 FACTS_PAGE_TEXT = (
-    "schema: osprey.facility.facility_facts/1\n\n# Example Facility\n\n- Code: `example`\n"
+    "schema: osprey.facility.facility_facts/2\n\n# Example Facility\n\n- Code: `example`\n"
 )
 
 

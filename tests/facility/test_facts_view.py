@@ -1,8 +1,9 @@
 """The agent facts view: what every render carries as ``data/facility_facts.*``.
 
 ``render_facility_outputs`` writes ``facility_facts.json`` (the identity, the
-place levels, each device class with its count, aliases and families, each
-model with whether the render serves it, and the channel count) and
+place levels, the places with the devices at or under each, each device class
+with its count, aliases and groups, the roles and signals the channels use,
+each model with whether the render serves it, and the channel count) and
 ``facility_facts.md`` (the same facts as one page) into each render's
 ``data/``. The agent context reads the name and the facts from that file, and
 reads a render without one as a facility with no sources.
@@ -11,6 +12,7 @@ reads a render without one as a facility with no sources.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -82,9 +84,13 @@ def test_every_render_writes_the_facts_and_their_page(
             "measurement_models",
             "models",
             "place_levels",
+            "places",
             "schema",
             "snapshot",
+            "unplaced_devices",
+            "vocabulary",
         ]
+        assert FACTS_SCHEMA == "osprey.facility.facility_facts/2"
         assert facts["schema"] == FACTS_SCHEMA
         page = outputs.files[PAGE].decode("utf-8")
         assert page == render_facts_page(facts)
@@ -112,7 +118,7 @@ def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject)
     ]
 
 
-def test_each_device_class_carries_its_count_aliases_and_families(
+def test_each_device_class_carries_its_count_aliases_and_groups(
     built_control_assistant: BuiltProject,
 ) -> None:
     facility = built_control_assistant.facility
@@ -130,23 +136,134 @@ def test_each_device_class_carries_its_count_aliases_and_families(
         assert entry == {
             "count": len(members),
             "aliases": sorted(authored.get(name, [])),
-            "families": sorted(
+            "groups": sorted(
                 group["id"] for group in facility["groups"] if members & set(group["members"])
             ),
         }
-    assert classes["BeamPositionMonitor"]["families"] == [
-        "BR/BPM",
-        "BR/DIAG",
-        "BTS/BPM",
-        "BTS/DIAG",
-        "LINE/BPM",
-        "SR/BPM",
-        "SR/DIAG",
-    ]
-    assert {"SR/MAG", "SR/QF"} <= set(classes["Quadrupole"]["families"])
+    assert "SR/BPM" in classes["BeamPositionMonitor"]["groups"]
     assert classes["Quadrupole"]["aliases"]
-    assert classes["Quadrupole"]["families"]
+    assert classes["Quadrupole"]["groups"]
     assert {"BPM", "PM"} <= set(classes["BeamPositionMonitor"]["aliases"])
+
+
+def _class_count(devices: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for device in devices:
+        name = device.get("class") or "-"
+        counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def test_the_place_tree_counts_each_class_at_or_under_each_place(
+    built_control_assistant: BuiltProject,
+) -> None:
+    facility = built_control_assistant.facility
+    facts = _built_facts(built_control_assistant)
+    devices = facility["devices"]
+
+    assert [place["id"] for place in facts["places"]] == sorted(
+        place["id"] for place in facility["places"]
+    )
+    for place in facts["places"]:
+        here = place["id"]
+        under = [
+            device
+            for device in devices
+            if device.get("place") in (here,)
+            or str(device.get("place") or "").startswith(f"{here}/")
+        ]
+        assert place["devices"] == _class_count(under)
+        assert place["names"] == sorted(set(place["names"]))
+    top = [place for place in facts["places"] if "/" not in place["id"]]
+    total = sum(n for place in top for n in place["devices"].values())
+    assert total + sum(facts["unplaced_devices"].values()) == len(devices)
+    assert facts["unplaced_devices"] == _class_count(
+        [device for device in devices if device.get("place") is None]
+    )
+
+
+def test_the_vocabulary_counts_every_channel(built_control_assistant: BuiltProject) -> None:
+    facility = built_control_assistant.facility
+    facts = _built_facts(built_control_assistant)
+    used = facts["vocabulary"]
+    channels = facility["channels"]
+
+    assert sum(used["roles"].values()) == facts["channel_count"]
+    assert (
+        sum(entry["count"] for entry in used["signals"].values()) + used["unsigned_channels"]
+        == facts["channel_count"]
+    )
+    for name, entry in used["signals"].items():
+        recount: dict[str, int] = {}
+        for channel in channels:
+            if channel.get("signal") == name:
+                role = channel.get("role") or "readback"
+                recount[role] = recount.get(role, 0) + 1
+        assert entry["roles"] == recount
+    assert used["paired_setpoints"] == sum(
+        1
+        for channel in channels
+        if channel.get("role") == "setpoint" and channel.get("pair") not in (None, channel["id"])
+    )
+    described = {row["name"]: row.get("description") for row in vocabulary()["signal_roles"]}
+    assert used["signals"]
+    for name, entry in used["signals"].items():
+        assert entry["description"] == described.get(name)
+    assert any(entry["description"] for entry in used["signals"].values())
+
+
+def _keys(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        return [str(key) for key in value] + [k for item in value.values() for k in _keys(item)]
+    if isinstance(value, list):
+        return [k for item in value for k in _keys(item)]
+    return []
+
+
+def test_no_key_of_the_facts_is_a_middle_layer_word(
+    built_control_assistant: BuiltProject,
+) -> None:
+    facts = _built_facts(built_control_assistant)
+    pattern = re.compile(r"(?i)famil|field|subfield|devicelist|elementlist")
+
+    assert [key for key in _keys(facts) if pattern.search(key)] == []
+
+
+def test_places_classes_and_roles_read_off_a_hand_built_document() -> None:
+    document = {
+        "identity": {"code": "lab"},
+        "places": [
+            {"id": "A", "level": "area", "names": ["Zed", "Alpha", "Zed"]},
+            {"id": "A/1"},
+        ],
+        "devices": [
+            {"id": "A/1/Q", "class": QUAD, "place": "A/1"},
+            {"id": "A/X", "place": "A"},
+            {"id": "LOOSE", "class": BPM},
+        ],
+        "channels": [
+            {"id": "Q:SP", "role": "setpoint", "signal": "current_setpoint"},
+            {"id": "Q:SELF", "role": "setpoint", "pair": "Q:SELF"},
+            {"id": "Q:RB", "signal": "current_readback"},
+            {"id": "X:STAT", "role": "none"},
+        ],
+    }
+
+    facts = facts_document(document, [TEXTURE], "lab")
+
+    assert facts["places"] == [
+        {"id": "A", "level": "area", "names": ["Alpha", "Zed"], "devices": {"-": 1, QUAD: 1}},
+        {"id": "A/1", "level": None, "names": [], "devices": {QUAD: 1}},
+    ]
+    assert facts["unplaced_devices"] == {BPM: 1}
+    used = facts["vocabulary"]
+    assert used["roles"] == {"none": 1, "readback": 1, "setpoint": 2}
+    assert used["paired_setpoints"] == 0
+    assert used["unsigned_channels"] == 2
+    assert {name: entry["roles"] for name, entry in used["signals"].items()} == {
+        "current_readback": {"readback": 1},
+        "current_setpoint": {"setpoint": 1},
+    }
 
 
 def test_two_renders_differing_in_served_models_write_different_facts(
@@ -194,7 +311,7 @@ def test_a_facility_added_class_reaches_the_facts_with_its_aliases(tmp_path: Pat
     assert list(classes) == sorted([BPM, "SkewQuad", "Spare"])
     assert classes["SkewQuad"]["count"] == 1
     assert classes["SkewQuad"]["aliases"] == ["Skew Quad", "skew"]
-    assert classes["Spare"] == {"count": 0, "aliases": [], "families": []}
+    assert classes["Spare"] == {"count": 0, "aliases": [], "groups": []}
     assert QUAD not in classes
 
 
@@ -208,18 +325,18 @@ def test_both_groups_over_the_same_device_are_listed(tmp_path: Path) -> None:
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
     classes = facts_document(document, [TEXTURE], "p")["device_classes"]
 
-    assert classes[QUAD]["families"] == ["SR/MAG", "SR/QF"]
-    assert classes[BPM]["families"] == []
+    assert classes[QUAD]["groups"] == ["SR/MAG", "SR/QF"]
+    assert classes[BPM]["groups"] == []
 
 
-def test_a_group_without_signals_is_a_family(tmp_path: Path) -> None:
+def test_every_group_holding_a_device_is_listed(tmp_path: Path) -> None:
     tree = plain_tree()
     tree["records/groups.yaml"] = [{"id": "SR/MAG", "members": ["SR/Q1"]}]
 
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
     classes = facts_document(document, [TEXTURE], "p")["device_classes"]
 
-    assert classes[QUAD]["families"] == ["SR/MAG"]
+    assert classes[QUAD]["groups"] == ["SR/MAG"]
 
 
 # --- zero sources --------------------------------------------------------------------
@@ -265,6 +382,17 @@ def test_a_facts_file_missing_a_key_is_read_as_zero_sources(tmp_path: Path) -> N
     partial = zero_source_facts({"code": "other", "name": "Other", "description": None})
     del partial["measurement_models"]
     (tmp_path / "data" / FACTS_FILE).write_text(json.dumps(partial), encoding="utf-8")
+
+    assert read_facts(tmp_path, "lab") == zero_source_facts(
+        {"code": "lab", "name": "lab", "description": None}
+    )
+
+
+def test_a_schema_1_file_is_read_as_zero_sources(tmp_path: Path) -> None:
+    (tmp_path / "data").mkdir()
+    older = zero_source_facts({"code": "other", "name": "Other", "description": None})
+    older["schema"] = "osprey.facility.facility_facts/1"
+    (tmp_path / "data" / FACTS_FILE).write_text(json.dumps(older), encoding="utf-8")
 
     assert read_facts(tmp_path, "lab") == zero_source_facts(
         {"code": "lab", "name": "lab", "description": None}
