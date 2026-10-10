@@ -410,6 +410,7 @@ def annotate_categories(run: BenchmarkRun, dataset_path: Path) -> dict[int, str]
 @pytest.mark.flaky(reruns=2)
 def test_hierarchical_aggregate(hierarchical_run: BenchmarkRun) -> None:
     _assert_honest(hierarchical_run)
+    assert hierarchical_run.channel_count > 0, "the index states no rows"
     assert hierarchical_run.aggregate_f1 >= F1_THRESHOLD, (
         f"aggregate_f1={hierarchical_run.aggregate_f1:.3f} below {F1_THRESHOLD}"
     )
@@ -420,6 +421,7 @@ def test_hierarchical_aggregate(hierarchical_run: BenchmarkRun) -> None:
 @pytest.mark.flaky(reruns=2)
 def test_middle_layer_aggregate(middle_layer_run: BenchmarkRun) -> None:
     _assert_honest(middle_layer_run)
+    assert middle_layer_run.channel_count > 0, "the index states no rows"
     assert middle_layer_run.aggregate_f1 >= F1_THRESHOLD, (
         f"aggregate_f1={middle_layer_run.aggregate_f1:.3f} below {F1_THRESHOLD}"
     )
@@ -430,6 +432,7 @@ def test_middle_layer_aggregate(middle_layer_run: BenchmarkRun) -> None:
 @pytest.mark.flaky(reruns=2)
 def test_in_context_aggregate(in_context_run: BenchmarkRun) -> None:
     _assert_honest(in_context_run)
+    assert in_context_run.channel_count > 0, "the index states no rows"
     assert in_context_run.aggregate_f1 >= F1_THRESHOLD, (
         f"aggregate_f1={in_context_run.aggregate_f1:.3f} below {F1_THRESHOLD}"
     )
@@ -675,11 +678,9 @@ def test_graph_lane_fails_loud_when_the_store_is_gone(
     """With the store stopped the lane raises; it never records ``channel_count`` 0.
 
     This is the counterfactual behind ``test_graph_aggregate``'s
-    ``channel_count`` assertion. The file paradigms treat an unreadable
-    database as a count of zero on purpose — the number labels a run, it does
-    not score one, and a missing file must not take a benchmark down. The graph
-    census cannot afford that: a zero saved beside real scores would claim the
-    agent searched an empty corpus and found things in it.
+    ``channel_count`` assertion. No paradigm records a count it did not read:
+    a zero saved beside real scores would claim the agent searched an empty
+    corpus and found things in it.
 
     Hermetic by construction: a config naming a loopback port with nothing
     listening is the same thing the container fixture's store being stopped
