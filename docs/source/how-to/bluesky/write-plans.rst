@@ -170,8 +170,8 @@ moves needs ``settle_tolerance`` raised, and a slow device needs
 ``settle_timeout_s`` raised. Running out of budget always fails the plan:
 neither key can turn an unsettled move into a successful one.
 
-A deployment pointed at the ``mock`` control system drives no channels, so its
-queue server comes up able to browse and describe plans and to run none of
+A deployment serving the simulator in process drives no channels over Channel
+Access, so its queue server comes up able to browse and describe plans and to run none of
 them. That is a plain statement about the deployment, not a fault, and the
 build says so in its output.
 
