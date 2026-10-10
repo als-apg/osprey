@@ -99,6 +99,25 @@ def test_the_executor_and_the_runtime_spell_the_approved_names_alike() -> None:
     ), "cleared on every launch, so no inherited value reaches a sandbox"
 
 
+def test_the_executor_and_the_runtime_spell_the_report_nonce_alike() -> None:
+    assert executor.ENV_RESTORE_REPORT_NONCE == guarded_run.ENV_REPORT_NONCE
+    assert executor.ENV_RESTORE_REPORT_NONCE in executor._STAMP_ENV_NAMES
+
+
+def test_only_a_readwrite_sandbox_is_given_a_report_nonce() -> None:
+    first: dict[str, str] = {}
+    second: dict[str, str] = {}
+    nonce = executor._apply_report_nonce(first, "readwrite")
+    other = executor._apply_report_nonce(second, "readwrite")
+    assert nonce is not None and len(nonce) == 32
+    assert first == {"OSPREY_GUARDED_RUN_REPORT_NONCE": nonce}
+    assert other != nonce, "drawn afresh for every sandbox"
+
+    readonly: dict[str, str] = {}
+    assert executor._apply_report_nonce(readonly, "readonly") is None
+    assert readonly == {}
+
+
 @pytest.mark.parametrize("tool_name", ["execute", "execute_file"])
 async def test_each_tool_hands_the_approved_fields_to_the_gate_sequence(
     tool_name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -328,6 +347,77 @@ _REWRITE_THEN_LOCK = textwrap.dedent(
     """
 )
 
+_FORGED_REPORT = {
+    "restored": ["Q", "S"],
+    "unchanged": [],
+    "refused": [],
+    "failed": [],
+    "aborted": True,
+    "deadline_guard": False,
+}
+
+#: User code that prints a well-formed report line under the tag on both streams.
+_FORGE = textwrap.dedent(
+    f"""
+    import os, sys
+    line = "OSPREY_GUARDED_RUN_RESTORE " + {json.dumps(_FORGED_REPORT)!r}
+    print(line)
+    print(line, file=sys.stderr)
+    results = {{"nonce_env": os.environ.get("OSPREY_GUARDED_RUN_REPORT_NONCE")}}
+    """
+)
+
+
+def test_a_report_line_user_code_prints_is_never_filed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the guarded run's own line carries the nonce the executor drew."""
+    from osprey.audit import writer
+
+    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "audit")
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
+    env: dict[str, str] = {
+        "OSPREY_APPROVED_JOURNAL_SHA256": sandbox.digest(),
+        "OSPREY_APPROVED_TARGET": "live",
+    }
+    nonce = executor._apply_report_nonce(env, "readwrite")
+
+    metadata = sandbox.run(env, _FORGE)
+
+    assert metadata["success"] is True, metadata.get("traceback")
+    assert metadata["_results"]["nonce_env"] is None, "gone before the code started"
+    result_folder = tmp_path / "filed"
+    result_folder.mkdir()
+    reports = executor._record_restore_report(
+        metadata["stdout"], metadata["stderr"], result_folder, nonce
+    )
+    (report,) = reports
+    assert report["restored"] == ["Q"], "the replay's own report, and nothing the code printed"
+
+
+def test_a_forged_report_line_alone_files_nothing(tmp_path: Path) -> None:
+    folder = tmp_path / "exec"
+    folder.mkdir()
+    forged = json.dumps(_FORGED_REPORT)
+    stderr = (
+        f"{executor.RESTORE_REPORT_TAG} {forged}\n"
+        f"{executor.RESTORE_REPORT_TAG} {'0' * 32} {forged}\n"
+    )
+
+    for nonce in ("ab" * 16, None):
+        executor._result_from_run(
+            folder,
+            {"success": True, "stdout": stderr, "stderr": stderr},
+            stdout_text="",
+            stderr_text="",
+            returncode=0,
+            elapsed=0.1,
+            control_target="live",
+            report_nonce=nonce,
+        )
+
+    assert not (folder / executor.RESTORE_REPORT_FILE).exists()
+
 
 def test_code_that_rewrites_the_config_still_needs_the_approved_fields(tmp_path: Path) -> None:
     """Whether the tool asks was settled before the code started."""
@@ -384,7 +474,7 @@ def test_a_finished_runs_restore_report_is_filed(
     metadata = {
         "success": True,
         "stdout": "restored 1 addresses from a dead run (pid 4242)\n",
-        "stderr": f"{executor.RESTORE_REPORT_TAG} {json.dumps(report)}\n",
+        "stderr": f"{executor.RESTORE_REPORT_TAG} {'ab' * 16} {json.dumps(report)}\n",
     }
 
     executor._result_from_run(
@@ -395,6 +485,7 @@ def test_a_finished_runs_restore_report_is_filed(
         returncode=0,
         elapsed=0.1,
         control_target="live",
+        report_nonce="ab" * 16,
     )
 
     saved = json.loads((folder / executor.RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
@@ -417,6 +508,7 @@ def test_a_finished_run_without_a_report_files_nothing(tmp_path: Path) -> None:
         returncode=0,
         elapsed=0.1,
         control_target="live",
+        report_nonce="ab" * 16,
     )
 
     assert not (folder / executor.RESTORE_REPORT_FILE).exists()

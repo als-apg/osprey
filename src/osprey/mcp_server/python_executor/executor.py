@@ -24,6 +24,7 @@ import json
 import logging
 import math
 import os
+import secrets
 import signal
 import sys
 import time
@@ -134,6 +135,15 @@ ENV_EXECUTION_DEADLINE = "OSPREY_EXECUTION_DEADLINE"
 ENV_APPROVED_JOURNAL_SHA256 = "OSPREY_APPROVED_JOURNAL_SHA256"
 ENV_APPROVED_TARGET = "OSPREY_APPROVED_TARGET"
 
+#: The secret drawn for one readwrite sandbox and expected on every restore
+#: report line filed from it. The sandbox wrapper takes it out of the
+#: environment before user code runs, so a line user code prints under the tag
+#: alone is no report. Spelled again in :mod:`osprey.runtime.guarded_run` for
+#: the reason the stamp names are;
+#: ``tests/mcp_server/python_executor/test_approved_call_forwarding.py`` pins
+#: the spellings equal.
+ENV_RESTORE_REPORT_NONCE = "OSPREY_GUARDED_RUN_REPORT_NONCE"
+
 #: Every name the stamp occupies. Cleared together on every launch, stamped or
 #: not, so no inherited name survives into a sandbox that did not earn it.
 #: :data:`ENV_LAUNCH_POSTURE` is deliberately NOT a member: it is stamped on
@@ -143,6 +153,7 @@ _STAMP_ENV_NAMES = (
     ENV_CONTROL_TARGET_GENERATION,
     ENV_APPROVED_JOURNAL_SHA256,
     ENV_APPROVED_TARGET,
+    ENV_RESTORE_REPORT_NONCE,
 )
 
 #: The per-target write posture the run was LAUNCHED under, stamped into the
@@ -192,8 +203,10 @@ FAILURE_KIND_TIMEOUT = "timeout"
 FAILURE_KIND_SWITCH_IN_PROGRESS = "switch_in_progress"
 
 #: Prefix of the line a guarded run prints with its restore report: the tag,
-#: one space, then the report as a single JSON object. The executor reads only
-#: lines that carry it and skips any whose payload is not JSON. The tag is
+#: one space, the sandbox's report nonce, one space, then the report as a
+#: single JSON object. The executor reads only lines that carry the tag and
+#: the nonce it drew for that sandbox, and skips any whose payload is not
+#: JSON. The tag is
 #: :data:`osprey.runtime.guarded_run.RESTORE_REPORT_TAG`, spelled again here
 #: because this process does not import :mod:`osprey.runtime`;
 #: ``tests/mcp_server/python_executor/test_wrapper_interrupt.py`` pins the two
@@ -743,6 +756,20 @@ def _apply_approved_call(
         sandbox_env[ENV_APPROVED_TARGET] = approved_target
 
 
+def _apply_report_nonce(sandbox_env: dict[str, str], execution_mode: str) -> str | None:
+    """Draw a readwrite sandbox's restore-report nonce; return it, ``None`` when readonly.
+
+    Called after :func:`_apply_target_stamp`, which removed the name. A readonly
+    run never enters the guarded run, so it restores nothing, carries no nonce
+    and has no report line filed.
+    """
+    if execution_mode != "readwrite":
+        return None
+    nonce = secrets.token_hex(16)
+    sandbox_env[ENV_RESTORE_REPORT_NONCE] = nonce
+    return nonce
+
+
 @contextlib.contextmanager
 def _in_flight_marker(control_target: str, launch_posture: str | None = None):
     """Record that an execution is running, for as long as it runs.
@@ -955,6 +982,7 @@ async def _execute_via_local(
     _apply_approved_call(
         sandbox_env, execution_mode, osprey_config, tool, approved_journal_sha256, approved_target
     )
+    report_nonce = _apply_report_nonce(sandbox_env, execution_mode)
     limits_validator = _load_limits_validator(target=control_target)
 
     wrapper = ExecutionWrapper(
@@ -1020,7 +1048,9 @@ async def _execute_via_local(
             # down. One that lands after it is answered before it propagates,
             # inside the marker, so the marker outlives the child.
             if proc is not None:
-                await _interrupt_and_drain(proc, start_time, timeout, execution_folder)
+                await _interrupt_and_drain(
+                    proc, start_time, timeout, execution_folder, report_nonce
+                )
             raise
         except TimeoutError:
             assert proc is not None  # the wait that timed out is the child's
@@ -1052,6 +1082,7 @@ async def _execute_via_local(
                     returncode=proc.returncode,
                     elapsed=elapsed,
                     control_target=control_target,
+                    report_nonce=report_nonce,
                     stderr_notice=notice,
                 )
             return ExecutionResult(
@@ -1074,6 +1105,7 @@ async def _execute_via_local(
         returncode=proc.returncode,
         elapsed=time.time() - start_time,
         control_target=control_target,
+        report_nonce=report_nonce,
     )
 
 
@@ -1082,6 +1114,7 @@ async def _interrupt_and_drain(
     start_time: float,
     timeout: Any,
     execution_folder: Path,
+    report_nonce: str | None,
 ) -> None:
     """Wind down a cancelled run's child: SIGINT, drain, kill only at the bound.
 
@@ -1100,7 +1133,8 @@ async def _interrupt_and_drain(
     :data:`CANCEL_DRAIN_CAP_S` when the run has no finite deadline. A child
     still alive at the bound is killed and reaped. Once it has exited the pipes
     get :data:`_CANCEL_PIPE_GRACE_S` to deliver what is left, and whatever was
-    read is handed to :func:`_record_restore_report`.
+    read is handed to :func:`_record_restore_report` with *report_nonce*, the
+    nonce drawn for this sandbox.
 
     The report is filed, and a still-running child killed, even when a native
     asyncio cancellation breaks through the shield; that cancellation then
@@ -1150,7 +1184,7 @@ async def _interrupt_and_drain(
         if proc.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
-        _record_restore_report(bytes(out), bytes(err), execution_folder)
+        _record_restore_report(bytes(out), bytes(err), execution_folder, report_nonce)
 
 
 def _start_pump(tg: Any, stream: asyncio.StreamReader | None, sink: bytearray) -> Any:
@@ -1185,6 +1219,7 @@ def _result_from_run(
     returncode: int | None,
     elapsed: float,
     control_target: str,
+    report_nonce: str | None,
     stderr_notice: str | None = None,
 ) -> ExecutionResult:
     """Build the result of a run that ran its script, from its record.
@@ -1198,8 +1233,9 @@ def _result_from_run(
 
     A guarded run that restored setpoints in the run — a pending journal
     replayed before user code, or a journaled span an exception escaped —
-    printed one restore report line; the reports in that same output are
-    filed as an interrupted run's are (:func:`_record_restore_report`).
+    printed one restore report line; the reports in that same output that
+    carry *report_nonce* are filed as an interrupted run's are
+    (:func:`_record_restore_report`).
     """
     figures = _collect_figures(execution_folder)
     artifacts = collect_artifacts(execution_folder)
@@ -1215,7 +1251,7 @@ def _result_from_run(
         success = returncode == 0
         error_msg = stderr_text if not success else None
 
-    _record_restore_report(final_stdout or "", final_stderr or "", execution_folder)
+    _record_restore_report(final_stdout or "", final_stderr or "", execution_folder, report_nonce)
 
     if stderr_notice:
         final_stderr = f"{final_stderr.rstrip()}\n{stderr_notice}".lstrip()
@@ -1275,14 +1311,18 @@ def _read_execution_metadata(execution_folder: Path) -> dict | None:
     return None
 
 
-def _parse_restore_reports(*streams: bytes | str) -> list[dict]:
+def _parse_restore_reports(nonce: str | None, *streams: bytes | str) -> list[dict]:
     """Every ``OSPREY_GUARDED_RUN_RESTORE`` report in *streams*, in stream then line order.
 
-    A tagged line whose payload is not a JSON object is skipped: the tag is
-    plain text any script could print, and a malformed line is no report.
+    Only a line that carries *nonce* after the tag is a report: the tag is plain
+    text any script could print, and the nonce left the sandbox's environment
+    before the script started. A sandbox that was given none (``None``) files
+    no report. A line whose payload is not a JSON object is skipped.
     """
-    prefix = RESTORE_REPORT_TAG + " "
     reports: list[dict] = []
+    if not nonce:
+        return reports
+    prefix = f"{RESTORE_REPORT_TAG} {nonce} "
     for stream in streams:
         text = stream.decode("utf-8", errors="replace") if isinstance(stream, bytes) else stream
         for line in (text or "").splitlines():
@@ -1348,6 +1388,7 @@ def _record_restore_report(
     stdout: bytes | str,
     stderr: bytes | str,
     execution_dir: Path,
+    nonce: str | None,
     ledger: Path | None = None,
 ) -> list[dict]:
     """File the restore reports an interrupted run printed; return them.
@@ -1364,6 +1405,8 @@ def _record_restore_report(
         stdout: The child's drained stdout, bytes or text.
         stderr: The child's drained stderr, bytes or text.
         execution_dir: The run's execution folder.
+        nonce: The report nonce drawn for the sandbox; only lines carrying it
+            are reports, and ``None`` means the sandbox had none.
         ledger: The ledger file to append to; ``None`` routes the records the
             way every executor record is routed (``var/audit/<identity>/``).
 
@@ -1372,7 +1415,7 @@ def _record_restore_report(
         when there are none. Never raises: a record that cannot be stored costs
         the audit trail that record and is logged, not the cancellation.
     """
-    reports = _parse_restore_reports(stdout, stderr)
+    reports = _parse_restore_reports(nonce, stdout, stderr)
     if not reports:
         return reports
 

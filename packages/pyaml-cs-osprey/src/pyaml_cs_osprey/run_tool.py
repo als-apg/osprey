@@ -58,7 +58,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, TextIO
+from typing import Any
 
 from pyaml.tuning_tools.measurement_tool import MeasurementTool
 
@@ -68,6 +68,7 @@ from osprey.runtime.guarded_run import (
     RestoreReport,
     _max_step,
     _n_steps,
+    _print_report,
     _restore,
     journaled_run,
 )
@@ -185,11 +186,6 @@ def _interrupt_scope() -> Iterator[_Interrupt]:
         if installed:
             signal.signal(signal.SIGINT, previous)
         _INTERRUPT.reset(token)
-
-
-def _emit(report: RestoreReport, stream: TextIO) -> None:
-    """Print the tagged report line to ``stream``."""
-    print(f"{REPORT_TAG} {report.to_json()}", file=stream, flush=True)
 
 
 def _clear_owner_callback(tool_method: Callable[..., Any]) -> None:
@@ -510,5 +506,5 @@ def _run_guarded(
     else:
         report = RestoreReport(aborted=False)
     report.deadline_guard = guarded
-    _emit(report, sys.stdout)
+    _print_report(report, sys.stdout)
     return report

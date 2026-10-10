@@ -1265,8 +1265,10 @@ if not _execution_dir.exists():
         approved journal digest and target out of the environment and keeps
         them, with :attr:`tool`, for every guarded run the code takes; when the
         call carries a digest it restores the approved journal now, whether or
-        not the code takes a guarded run. An interpreter that cannot import
-        ``osprey.runtime`` cannot take a guarded run either, and binds nothing.
+        not the code takes a guarded run. The executor's restore-report nonce
+        leaves the environment in the same step. An interpreter that cannot
+        import ``osprey.runtime`` cannot take a guarded run either: it binds
+        nothing and only drops the nonce.
         """
         if self.execution_mode != "readwrite":
             return ""
@@ -1278,6 +1280,7 @@ if not _execution_dir.exists():
                     from osprey.runtime.guarded_run import _open_approved_call as _osprey_bind
                 except ImportError:
                     _osprey_bind = None
+                    os.environ.pop("OSPREY_GUARDED_RUN_REPORT_NONCE", None)
                 if _osprey_bind is not None:
                     _osprey_bind({self.tool!r})
                 del _osprey_bind
