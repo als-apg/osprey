@@ -25,7 +25,7 @@ descriptions in the database and verify with a lookup rather than guessing.
 {%- endfor %}
 | "readback" / "monitor" | Navigate to system/family first, then select `Monitor` field |
 | "setpoint" / "control" | Navigate to system/family first, then select `Setpoint` field |
-| "storage ring" / "booster" / "transport line" | System: this facility's own abbreviation for that machine — read the descriptions `list_systems()` returns |
+| "main machine" / "booster" / "transport line" | System: this facility's own abbreviation for that machine — read the descriptions `list_systems()` returns |
 | "device number N" / "the fifth one" | Use the `devices` parameter to filter specific device instances |
 | "common name" | Call `get_common_names(system, family)` for human-friendly device names |
 

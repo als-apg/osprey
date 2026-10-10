@@ -312,7 +312,7 @@ class TestPyatSpecialistAgentTemplate:
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
         assert "disable_6d" in rendered
-        assert "ring4d.disable_6d()" in rendered
+        assert "lattice4d.disable_6d()" in rendered
 
     def test_body_edge_case_silent_nan(self, template_manager):
         """Edge case: pyAT returns NaN without raising — must guard results."""

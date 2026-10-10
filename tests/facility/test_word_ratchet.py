@@ -64,15 +64,7 @@ CLEAN_PATHS: tuple[str, ...] = (
     "scripts/facility_schema/",
 )
 
-ALLOWLIST: dict[str, str] = {
-    "src/osprey/templates/claude_code/CLAUDE.channel-finder.md.j2": "rename:12",
-    "src/osprey/templates/claude_code/claude/agents/_terminology/graph.md.j2": "rename:12",
-    "src/osprey/templates/claude_code/claude/agents/_terminology/middle_layer.md.j2": "rename:12",
-    "src/osprey/templates/claude_code/claude/agents/channel-finder.md.j2": "rename:12",
-    "src/osprey/templates/claude_code/claude/agents/facility-knowledge-graph.md.j2": "rename:12",
-    "src/osprey/templates/claude_code/claude/agents/pyat-specialist.md.j2": "rename:12",
-    "src/osprey/templates/claude_code/claude/output-styles/control-operator.md.j2": "rename:12",
-}
+ALLOWLIST: dict[str, str] = {}
 
 _TAG = re.compile(r"(delete|rename):(?P<stage>[0-9a-z]+)")
 
