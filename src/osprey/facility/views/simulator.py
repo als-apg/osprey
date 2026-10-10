@@ -36,7 +36,9 @@ is not writable.
 ``seeds.json`` maps each channel carrying a seed record to that record.
 ``scenarios.json`` lists every scenario, sorted by name, with each block it
 states carried verbatim; ``faults`` maps each faulted model to ``{writes}``,
-plus ``inactive: model not served`` when the render does not serve it. Each
+plus ``inactive: model not served`` when the render does not serve it; a
+scenario named ``still`` that stills every reading is listed when no file
+defines one. Each
 file a logbook entry's ``attachments`` names, relative to the facility's
 ``scenarios/<name>/``, is copied to the same path under the view's
 ``scenarios/<name>/``, so the entries read back against the view's copy.
@@ -60,6 +62,7 @@ from osprey.facility.build import FacilityDocument
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
+from osprey_connectors.simulation import STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
@@ -111,7 +114,15 @@ _SCENARIO_BLOCKS = (
     "drivers",
     "couple",
     "noise",
+    "still",
 )
+
+#: The scenario ``scenarios.json`` lists when no file defines ``still``.
+_BUILT_IN_STILL = {
+    "name": STILL_SCENARIO,
+    "description": "Every reading serves without drift, couplings or noise.",
+    "still": "all",
+}
 
 #: The keys a wiring entry may carry, in emission order: the wiring record's
 #: own keys, then the engine's description of it.
@@ -387,6 +398,9 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
                     fault["inactive"] = INACTIVE_UNSERVED
                 entry["faults"][model] = fault
         scenarios.append(entry)
+    if all(str(entry["name"]) != STILL_SCENARIO for entry in scenarios):
+        scenarios.append(copy.deepcopy(_BUILT_IN_STILL))
+        scenarios.sort(key=lambda entry: str(entry["name"]))
     return {"schema": SCENARIOS_SCHEMA, "scenarios": scenarios}
 
 

@@ -239,7 +239,12 @@ CHANNEL_KEYS = {
     "on",
 }
 CHANNEL_OPTIONAL = {"options", "shape", "precision"}
-SCENARIO_SLOTS = ("description", "drivers", "couple", "noise")
+SCENARIO_SLOTS = ("description", "drivers", "couple", "noise", "still")
+BUILT_IN_STILL = {
+    "name": "still",
+    "description": "Every reading serves without drift, couplings or noise.",
+    "still": "all",
+}
 UNLISTED_SETPOINT = "SR:MAG:HCM:02:CURRENT:SP"
 
 
@@ -518,12 +523,15 @@ def test_scenarios_carry_every_scenario_and_its_blocks(
 ) -> None:
     scenarios = _view(built_control_assistant.build_dir, SCENARIOS)
     source = built_control_assistant.facility_dir / "scenarios"
-    names = sorted(path.stem for path in source.glob("*.yaml"))
+    names = sorted([*(path.stem for path in source.glob("*.yaml")), "still"])
 
     assert set(scenarios) == {"schema", "scenarios"}
     assert scenarios["schema"] == SCENARIOS_SCHEMA
     assert [entry["name"] for entry in scenarios["scenarios"]] == names
     for entry in scenarios["scenarios"]:
+        if entry["name"] == "still":
+            assert entry == BUILT_IN_STILL
+            continue
         authored = yaml.safe_load((source / f"{entry['name']}.yaml").read_text())
         assert entry["description"] == authored["description"], entry["name"]
         for block in ("overrides", "archiver", "logbook", "drivers", "couple", "noise"):
@@ -657,9 +665,38 @@ def test_a_scenario_stating_none_of_the_optional_slots_carries_none_of_them(
     render_dir.mkdir()
     render_facility_outputs(render_dir, facility, {}, built_control_assistant.facility_dir)
 
-    (entry,) = _view(render_dir, SCENARIOS)["scenarios"]
+    (entry,) = [e for e in _view(render_dir, SCENARIOS)["scenarios"] if e["name"] == "bare"]
     assert entry == {"name": "bare", "overrides": {UNLISTED_SETPOINT: 1.0}}
     assert not set(SCENARIO_SLOTS) & set(entry)
+
+
+def _rendered_scenarios(
+    tmp_path: Path, built: BuiltProject, scenarios: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    facility = copy.deepcopy(built.facility)
+    facility["scenarios"] = scenarios
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+    render_facility_outputs(render_dir, facility, {}, built.facility_dir)
+    return _view(render_dir, SCENARIOS)["scenarios"]
+
+
+def test_the_built_in_still_is_listed_when_no_file_defines_one(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    scenarios = _rendered_scenarios(
+        tmp_path, built_control_assistant, [{"name": "zeta"}, {"name": "alpha"}]
+    )
+
+    assert scenarios == [{"name": "alpha"}, BUILT_IN_STILL, {"name": "zeta"}]
+
+
+def test_a_files_still_replaces_the_built_in(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    own = {"name": "still", "description": "Monitors only.", "still": ["SR:DIAG:BPM:01:POSITION"]}
+
+    assert _rendered_scenarios(tmp_path, built_control_assistant, [own]) == [own]
 
 
 def _render_channels(
