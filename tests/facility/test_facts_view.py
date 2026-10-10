@@ -34,6 +34,7 @@ from osprey.facility.views.facts import (
     render_facts_page,
     zero_source_facts,
 )
+from tests.facility._pyaml_trees import measured_tree
 from tests.facility._synthetic_trees import BPM, QUAD, plain_tree, write_tree
 
 if TYPE_CHECKING:
@@ -103,7 +104,8 @@ def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject)
     }
     assert facts["place_levels"] == ["machine", "sector"]
     assert facts["channel_count"] == len(facility["channels"])
-    assert facts["measurement_models"] == {}
+    assert list(facts["measurement_models"]) == ["SR"]
+    assert facts["measurement_models"]["SR"]["path"] == "data/pyaml/SR/configuration.yaml"
     assert facts["snapshot"] is None
     assert facts["models"] == [
         {"name": "SR", "engine": "pyat", "served": True, "solve": "periodic"},
@@ -290,8 +292,11 @@ def test_the_built_context_reads_the_written_facts(built_control_assistant: Buil
 
     assert ctx["facility_facts"] == facts
     assert ctx["facility_name"] == facts["identity"]["name"]
-    assert ctx["pyaml_view_present"] is False
-    assert ctx["measurement"] == {}
+    assert ctx["pyaml_view_present"] is True
+    (record,) = facts["measurement_models"].values()
+    assert ctx["measurement"] == hook_measurement(facts, built_control_assistant.build_dir)
+    assert list(ctx["measurement"]) == ["SR"]
+    assert ctx["measurement"]["SR"]["view_sha256"] == record["sha256"]
 
 
 def test_the_context_renders_the_builds_page_byte_for_byte(
@@ -325,10 +330,33 @@ def test_a_dry_run_regeneration_after_the_build_changes_no_file(
     assert drift["changed"] == []
 
 
-def test_the_measurement_block_names_each_measurement_view() -> None:
-    facts = zero_source_facts({"code": "lab", "name": "lab", "description": None})
-    facts["measurement_models"] = {
-        "SR": {"path": "data/pyaml/SR", "sha256": "ab", "files": {"SR.yaml": "cd"}}
+def test_the_measurement_block_reads_each_view_the_facts_record(tmp_path: Path) -> None:
+    from osprey.facility.views.pyaml import measurement_groups
+    from tests.facility._pyaml_trees import built_document
+
+    document, facility = built_document(tmp_path / "tree", measured_tree())
+    render = tmp_path / "render"
+    render.mkdir()
+    render_facility_outputs(render, document, {}, facility)
+    facts = json.loads((render / "data" / FACTS_FILE).read_text(encoding="utf-8"))
+
+    block = hook_measurement(facts, render)
+
+    assert block == {
+        "LINE": {
+            "kinds": {"orm": ["LINE_BPM", "LINE_HCM", "LINE_VCM"]},
+            "groups": measurement_groups(document, "LINE"),
+            "view_sha256": facts["measurement_models"]["LINE"]["sha256"],
+        },
+        "SR": {
+            "kinds": {"trm": ["SR_Q"]},
+            "groups": measurement_groups(document, "SR"),
+            "view_sha256": facts["measurement_models"]["SR"]["sha256"],
+        },
     }
 
-    assert hook_measurement(facts) == {"SR": {"view_sha256": "ab"}}
+
+def test_no_measurement_view_is_an_empty_block_that_reads_no_file(tmp_path: Path) -> None:
+    facts = zero_source_facts({"code": "lab", "name": "lab", "description": None})
+
+    assert hook_measurement(facts, tmp_path / "absent") == {}

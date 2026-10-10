@@ -23,3 +23,9 @@ model, stops the build (`reference-missing`); a step or settle key the kind's
 tool takes, missing, stops it (`value-invalid`). Group `hcor` stands for the
 setpoints its model steers horizontally and `vcor` for those it steers
 vertically, so a corrector steered in both planes is split between them.
+
+`data/facility_facts.json` records each pyAML view the render wrote under
+`measurement_models` (the configuration's path and digest, and the digest of
+each file beside it), and the rendered `.claude/hooks/hook_config.json` gains
+`measurement`: per model, the kinds the measurement file allows with the arrays
+each steps or reads, the addresses each group stands for, and the view's digest.
