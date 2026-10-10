@@ -1,6 +1,6 @@
-====================
-Install and Set Up
-====================
+=====================
+Guided Facility Setup
+=====================
 
 The ``/osprey:install`` skill is OSPREY's installer, run as a conversation with a
 coding agent you bring — Claude Code in the commands below. That agent is not the

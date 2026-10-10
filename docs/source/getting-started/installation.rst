@@ -1,5 +1,5 @@
-Installation & Setup
-====================
+Installation
+============
 
 Get OSPREY running in six steps; the last one, a container runtime, is optional. The
 whole process takes about 10 minutes.
@@ -320,7 +320,7 @@ OSPREY is installed and ready to use. Here's what to do next:
       Build your first agent with a mock control system. One MCP server, zero
       complexity. Takes about five minutes.
 
-   .. grid-item-card:: **Install and Set Up**
+   .. grid-item-card:: **Guided Facility Setup**
       :link: osprey-install
       :link-type: doc
 

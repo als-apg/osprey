@@ -73,7 +73,7 @@ By following this comprehensive learning path, you'll have:
       **Outcome:**
       Your first working agent
 
-   .. grid-item-card:: 🎯 3. Install and Set Up — ⭐ recommended
+   .. grid-item-card:: 🎯 3. Guided Facility Setup — ⭐ recommended
       :link: osprey-install
       :link-type: doc
       :class-header: bg-success text-white
