@@ -667,13 +667,13 @@ def test_every_client_package_is_also_denied_at_import():
     readonly script can still reach. Deriving both from one table is what makes
     that impossible; this pins the derivation.
     """
-    from osprey.services.python_executor.analysis.safety_checks import (
-        _READONLY_DENIED_IMPORTS,
+    from osprey.services.python_executor.write_surface import (
+        _CLIENT_WRITE_TARGETS,
+        CLIENT_PACKAGES,
     )
-    from osprey.services.python_executor.write_surface import _CLIENT_WRITE_TARGETS
 
     packages = {dotted.split(".")[0] for dotted, _attrs in _CLIENT_WRITE_TARGETS}
-    assert packages <= set(_READONLY_DENIED_IMPORTS)
+    assert packages <= set(CLIENT_PACKAGES)
     assert {"doocs4py", "aioca"} <= packages
 
 
@@ -685,14 +685,14 @@ def test_framework_write_targets_stay_importable():
     that only reads a catalog. Their write entry points are in the runtime
     guard instead.
     """
-    from osprey.services.python_executor.analysis.safety_checks import (
-        _READONLY_DENIED_IMPORTS,
+    from osprey.services.python_executor.write_surface import (
+        _FRAMEWORK_WRITE_TARGETS,
+        CLIENT_PACKAGES,
     )
-    from osprey.services.python_executor.write_surface import _FRAMEWORK_WRITE_TARGETS
 
     packages = {dotted.split(".")[0] for dotted, _attrs in _FRAMEWORK_WRITE_TARGETS}
     assert packages == {"ophyd_async", "bluesky"}
-    assert not packages & set(_READONLY_DENIED_IMPORTS)
+    assert not packages & set(CLIENT_PACKAGES)
 
 
 # ---------------------------------------------------------------------------
