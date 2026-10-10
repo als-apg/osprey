@@ -48,6 +48,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 from osprey.services.bluesky_bridge.session_upload import SessionPlanNotReadyError
+from tests._control_system import IN_PROCESS, section_for
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
@@ -155,9 +156,14 @@ def connector(monkeypatch: pytest.MonkeyPatch):
     """Set (or break) the ``control_system.type`` the capability check resolves."""
 
     def _set(value: str | Exception) -> None:
-        def fake_get_config_value(_key: str, _default: Any = None) -> Any:
+        def fake_get_config_value(key: str, _default: Any = None) -> Any:
             if isinstance(value, Exception):
                 raise value
+            section = section_for(value)
+            if key == "control_system.type":
+                return section["type"]
+            if key == "control_system":
+                return section
             return value
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
@@ -557,7 +563,7 @@ def test_recheck_failure_reports_a_stranded_item_when_withdrawal_also_fails(
 
 
 def test_enqueue_is_refused_on_a_browse_only_deployment(client: TestClient, connector) -> None:
-    connector("mock")
+    connector(IN_PROCESS)
     manager = FakeManager(status=status_doc())
     _install(manager)
     revision = _make_draft(client)
@@ -1348,7 +1354,7 @@ def test_start_on_a_browse_only_deployment_carries_the_capability(
     client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
-    connector("mock")
+    connector(IN_PROCESS)
     manager = FakeManager(status=status_doc())
     _install(manager)
 
@@ -1777,7 +1783,7 @@ def test_abort_is_not_capability_gated(client: TestClient, connector) -> None:
     """A deployment that somehow has a plan running must be able to stop it,
     whatever its capability record says. `queue_add` refuses on a mock
     connector; the abort deliberately does not."""
-    connector("mock")
+    connector(IN_PROCESS)
     manager = FakeManager(
         status=[status_doc(manager_state="paused"), status_doc(manager_state="idle")]
     )

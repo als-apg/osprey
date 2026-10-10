@@ -36,6 +36,7 @@ from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.services.bluesky_bridge import app as bridge_app_module
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.queue_backend import Capability, QueueBackend
+from tests._control_system import IN_PROCESS, section_for
 
 # The wire keys the capability object carries. Pinned as a set because every
 # consumer branches on these names: the JS panel client, the MCP queue tools,
@@ -82,13 +83,13 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
             monkeypatch.setenv(qb.LANE_ENV, lane)
 
         declared = {f"services.{key}.target": value for key, value in (targets or {}).items()}
-        control_system: dict[str, Any] = {"type": control_system_type}
+        control_system: dict[str, Any] = section_for(control_system_type)
         if connector is not None:
-            control_system["connector"] = connector
+            control_system["connector"] = {**control_system.get("connector", {}), **connector}
 
         def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
             if key == "control_system.type":
-                return control_system_type
+                return control_system["type"]
             if key == "control_system":
                 return control_system
             return declared.get(key, default)
@@ -166,7 +167,7 @@ async def test_an_unset_lane_env_is_the_historical_service_key(deployment) -> No
         ("virtual_accelerator", "va"),
         ("live_standin", "standin"),
         ("epics", "live"),
-        ("mock", "live"),
+        (IN_PROCESS, "va"),
     ],
 )
 async def test_a_legacy_lane_derives_the_deployment_baseline(
@@ -174,9 +175,9 @@ async def test_a_legacy_lane_derives_the_deployment_baseline(
 ) -> None:
     """No `target:` key means a single-lane deploy, which serves the baseline.
 
-    `mock` resolving to `live` is not an oversight: a mock deployment has no
-    virtual accelerator to serve, and the host side answers the same way, which
-    the next test pins rather than restates.
+    The simulator in process resolving to `va` is its baseline in either venue,
+    and the host side answers the same way, which the next test pins rather
+    than restates.
     """
     deployment(control_system_type=control_system_type, targets=None)
 
@@ -184,7 +185,7 @@ async def test_a_legacy_lane_derives_the_deployment_baseline(
 
 
 @pytest.mark.parametrize(
-    "control_system_type", ["virtual_accelerator", "live_standin", "epics", "mock", "doocs"]
+    "control_system_type", ["virtual_accelerator", "live_standin", "epics", IN_PROCESS, "doocs"]
 )
 async def test_the_legacy_fallback_agrees_with_the_host_side_baseline(
     deployment, control_system_type
@@ -247,7 +248,7 @@ def test_to_dict_round_trips_the_lane_fields() -> None:
 @pytest.mark.parametrize(
     ("control_system_type", "reason"),
     [
-        ("mock", qb.REASON_BROWSE_ONLY_CONNECTOR),
+        (IN_PROCESS, qb.REASON_BROWSE_ONLY_CONNECTOR),
         ("doocs", qb.REASON_UNSUPPORTED_CONNECTOR),
         ("epics", qb.REASON_MANAGER_NOT_CONFIGURED),
     ],

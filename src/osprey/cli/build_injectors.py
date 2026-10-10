@@ -853,13 +853,16 @@ def _inject_dispatch(
 #: The control-system targets a bluesky plan lane can serve, keyed by the
 #: ``control_system.type`` each is spelled with in a rendered config.yml.
 #:
-#: Derived rather than written out: the keys are the types the queue worker can
-#: build devices over (:data:`~osprey_connectors.types.CHANNEL_ACCESS_TYPES`)
-#: and each value is the target that type is the baseline of
+#: Derived rather than written out: the keys are the types whose transport is
+#: Channel Access, the one the queue worker can build devices over
+#: (:func:`~osprey_connectors.types.speaks_channel_access`), and each value is
+#: the target that type is the baseline of
 #: (:func:`~osprey_connectors.types.baseline_target`), so a type added to either
-#: upstream reaches the lane renderer without a second edit here. ``MOCK`` and
-#: ``DOOCS`` fall out for the reason they were left out by hand: a lane the
-#: worker cannot execute over is not a lane to render.
+#: upstream reaches the lane renderer without a second edit here. ``DOOCS``
+#: falls out for the reason it was left out by hand: a lane the worker cannot
+#: execute over is not a lane to render. The simulator served in process keeps
+#: its row, because its type is the served one's; the baseline check refuses it
+#: by its transport.
 #:
 #: ``LIVE_STANDIN`` is in because the stand-in is a control target in its own
 #: right — a soft IOC this deployment runs for itself, with its own connector
@@ -868,7 +871,8 @@ def _inject_dispatch(
 #: facility's own machine on the very deployments that run both.
 _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE = {
     cs_type: connector_types.baseline_target({"type": cs_type})
-    for cs_type in connector_types.CHANNEL_ACCESS_TYPES
+    for cs_type in connector_types.SET_CONTROL_SYSTEM_TYPES
+    if connector_types.speaks_channel_access({"type": cs_type})
 }
 
 #: Lane 1 always keeps the historical service key. Lane 2 is named for the
@@ -972,17 +976,23 @@ def _standin_lane_ca_name_servers(virtual_accelerator: VAConfig | None) -> str:
 
 
 def _rendered_control_system_type(config: Any) -> str:
-    """The ``control_system.type`` the rendered config carries, ``mock`` if none.
+    """The ``control_system.type`` the rendered config selects.
 
     Read from the rendered ``config.yml`` rather than from the profile, because
     that is the value every other holder resolves the deployment baseline from
     — injectors run after ``_apply_config_overrides``, so the key is already
-    final by the time this is called.
+    final by the time this is called. Resolved by the factory's own resolver, so
+    a section that states no type names the simulator it falls back to.
     """
-    control_system = config.get("control_system") or {}
-    if not hasattr(control_system, "get"):
-        return "mock"
-    return str(control_system.get("type") or "mock")
+    return connector_types.resolve_control_system_type(config.get("control_system"))
+
+
+def _speaks_channel_access(config: Any) -> bool:
+    """Whether the rendered deployment's own connector speaks Channel Access."""
+    try:
+        return connector_types.speaks_channel_access(config.get("control_system"))
+    except ValueError:
+        return False
 
 
 def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> str:
@@ -1012,7 +1022,7 @@ def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> 
     """
     cs_type = _rendered_control_system_type(config)
     target = _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE.get(cs_type)
-    if target is None:
+    if target is None or not _speaks_channel_access(config):
         raise BuildProfileError(
             f"bluesky.second_lane needs a switchable deployment baseline: the lane "
             f"pair is {'/'.join(sorted(_SECOND_LANE_SERVICE_KEY))}, and "

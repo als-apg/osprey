@@ -420,7 +420,7 @@ def test_a_readables_only_device_file_builds_that_half_alone(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_control_system_type_falls_back_to_mock_when_config_is_unreadable(
+def test_control_system_type_falls_back_to_the_simulator_when_config_is_unreadable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import osprey.utils.config as config_module
@@ -430,12 +430,12 @@ def test_control_system_type_falls_back_to_mock_when_config_is_unreadable(
 
     monkeypatch.setattr(config_module, "get_config_value", _raise)
 
-    assert qserver_startup.resolve_control_system_type() == "mock"
+    assert qserver_startup.resolve_control_system_type() == "virtual_accelerator"
 
 
 @pytest.mark.parametrize("control_system_type", ["virtual_accelerator", "epics", "live_standin"])
 def test_epics_like_types_get_a_gateway_less_type_config(control_system_type: str) -> None:
-    config = qserver_startup.build_connector_config(control_system_type)
+    config = qserver_startup.build_connector_config(control_system_type, {"type": "epics"})
 
     assert config["type"] == control_system_type
     assert config["connector"][control_system_type] == {"timeout_s": 5.0}
@@ -443,9 +443,21 @@ def test_epics_like_types_get_a_gateway_less_type_config(control_system_type: st
 
 
 def test_other_types_are_forwarded_through_untouched() -> None:
-    assert qserver_startup.build_connector_config("mock") == {
-        "type": "mock",
-        "connector": {"mock": {}},
+    assert qserver_startup.build_connector_config("doocs", {"type": "doocs"}) == {
+        "type": "doocs",
+        "connector": {"doocs": {}},
+    }
+
+
+def test_the_simulator_in_process_keeps_its_venue_and_gets_no_timeout() -> None:
+    """No Channel Access, so no CA timeout block; the venue travels with the type."""
+    section = {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": {"serving": "in_process"}},
+    }
+    assert qserver_startup.build_connector_config("virtual_accelerator", section) == {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": {"serving": "in_process"}},
     }
 
 
@@ -456,12 +468,12 @@ def test_other_types_are_forwarded_through_untouched() -> None:
 _DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
 """The deployment-wide limits key a degraded lane must be answered by."""
 
-_PER_TYPE_MODE_KEY = "control_system.connector.mock.limits_checking.mode"
+_PER_TYPE_MODE_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 """The per-type key a lane that resolved its own target is answered by."""
 
 
 def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Config whose ``mock`` block relaxes what the deployment-wide keys refuse.
+    """Config whose in-process simulator block relaxes what the deployment-wide keys refuse.
 
     The two postures disagree on purpose: the connector block arms writes and
     allows unlisted channels, the deployment-wide keys do neither. Which pair a
@@ -477,7 +489,7 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         encoding="utf-8",
     )
     section: dict[str, Any] = {
-        "type": "mock",
+        "type": "virtual_accelerator",
         "writes_enabled": False,
         "limits_checking": {
             "enabled": True,
@@ -485,7 +497,8 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
             "database_path": str(database),
         },
         "connector": {
-            "mock": {
+            "virtual_accelerator": {
+                "serving": "in_process",
                 "writes_enabled": True,
                 "limits_checking": {"enabled": True, "mode": "optional"},
             }
@@ -511,11 +524,11 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 def _pin_lane(monkeypatch: pytest.MonkeyPatch, lane_degraded: str | None) -> None:
-    """Pin the lane resolver to a ``mock`` worker, degraded or not."""
+    """Pin the lane resolver to an in-process simulator worker, degraded or not."""
     from osprey.services.bluesky_bridge import queue_backend
 
     monkeypatch.setattr(
-        queue_backend, "resolve_lane_connector_type", lambda: ("mock", lane_degraded)
+        queue_backend, "resolve_lane_connector_type", lambda: ("virtual_accelerator", lane_degraded)
     )
 
 
@@ -554,7 +567,7 @@ def test_a_resolved_lane_keeps_its_own_types_posture(
 
     connector = asyncio.run(qserver_startup.create_connector())
 
-    assert connector._connector_type == "mock"
+    assert connector._connector_type == "virtual_accelerator"
     assert connector._limits_validator.policy["mode_key"] == _PER_TYPE_MODE_KEY
     assert connector._limits_validator.policy["mode"] == "optional"
     assert connector._writes_enabled is True
