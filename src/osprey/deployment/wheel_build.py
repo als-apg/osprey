@@ -19,7 +19,6 @@ import and monkeypatch call sites keep resolving against it.
 
 import atexit
 import os
-import re
 import shutil
 from pathlib import Path
 
@@ -138,19 +137,20 @@ def _wheel_base_requirements(wheel_path: str | Path) -> list[str]:
     return sorted(requirements)
 
 
-#: Requirement lines naming a workspace-local distribution. These are excluded
-#: from the manifest: the distribution is staged as a wheel in the same build
-#: context and installed by the Dockerfiles' wheel layer, so a PyPI requirement
-#: for it would fail until (and unless) a satisfying release exists there.
-_WORKSPACE_DIST_RE = re.compile(
-    "^(?:"
-    + "|".join(
-        "[-_.]".join(re.escape(part) for part in re.split(r"[-_.]+", member))
-        for member in WORKSPACE_MEMBERS
-    )
-    + r")(?![A-Za-z0-9_.-])",
-    re.IGNORECASE,
-)
+def _is_workspace_requirement(line: str) -> bool:
+    """Whether requirement *line* names a workspace-local distribution.
+
+    Such requirements are excluded from the manifest: the distribution is
+    staged as a wheel in the same build context and installed by the
+    Dockerfiles' wheel layer, so a PyPI requirement for it would fail until
+    (and unless) a satisfying release exists there. Names compare in their
+    PEP 503 canonical form, as the resolver compares them.
+    """
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
+    members = {canonicalize_name(member) for member in WORKSPACE_MEMBERS}
+    return canonicalize_name(Requirement(line).name) in members
 
 
 def _write_local_requirements_manifest(cached_wheels: list[Path], out_dir: str) -> None:
@@ -160,7 +160,7 @@ def _write_local_requirements_manifest(cached_wheels: list[Path], out_dir: str) 
     and pip-install it in their toolchain-equipped deps layer): one requirement
     per line, sorted, trailing newline — byte-identical for identical wheels.
     The union of every staged wheel's base requirements, minus requirements on
-    workspace-local distributions (see :data:`_WORKSPACE_DIST_RE`), which the
+    workspace-local distributions (see :func:`_is_workspace_requirement`), which the
     wheel layer satisfies from the wheels staged beside this manifest.
 
     :param cached_wheels: The cached local wheels the manifest derives from
@@ -172,7 +172,7 @@ def _write_local_requirements_manifest(cached_wheels: list[Path], out_dir: str) 
     requirements: set[str] = set()
     for wheel in cached_wheels:
         requirements.update(_wheel_base_requirements(wheel))
-    lines = sorted(line for line in requirements if not _WORKSPACE_DIST_RE.match(line))
+    lines = sorted(line for line in requirements if not _is_workspace_requirement(line))
     content = "".join(f"{line}\n" for line in lines)
     with open(manifest_path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(content)
