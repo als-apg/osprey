@@ -652,7 +652,15 @@ classes:
         range: Any
         description: >-
           `{<model>: {<address or engine variable>: <value>}}`, where a value is a
-          scalar, the word `stuck`, or a map `{<fault field>: <value>}`.
+          scalar or a map `{<fault field>: <value>}`.
+      channel_faults:
+        range: Any
+        description: >-
+          `{<address>: stuck | frozen | disconnected}`: faults of the channel
+          itself while the scenario is active. `stuck` holds a setpoint's
+          writes; `frozen` holds a reading at the value it served when the
+          scenario became active; `disconnected` reads not-a-number with an
+          undefined alarm and holds writes.
       archiver:
         range: Any
         multivalued: true
