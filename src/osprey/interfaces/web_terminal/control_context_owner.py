@@ -62,6 +62,7 @@ from osprey_connectors.control_context import (
     ControlContext,
     Owner,
     applied_detail,
+    claimed,
     converged,
     file_signature,
     live_owner,
@@ -484,10 +485,13 @@ class ControlContextOwnerTask:
 
         A claim is a **merge**: the target, generation and posture belong to
         the deployment and outlive every process that reads them, so taking
-        the file over changes who may write it and nothing else. Only a record
-        that is absent — which is also what an unparseable one reads as —
-        starts a fresh one, at the deployment's baseline, generation 0,
-        narrowing nothing.
+        the file over changes who may write it, and nothing else of a record
+        somebody has switched. A record nobody has switched follows the
+        deployment's baseline; every applied switch mints ``generation + 1``,
+        so generation 0 is a claim and never a switch. A record that is
+        absent — which is also what an unparseable one reads as — starts a
+        fresh one, at the deployment's baseline, generation 0, narrowing
+        nothing.
         """
         owner = live_owner(record)
         if owner is not None and owner.pid == self._identity.pid:
@@ -500,7 +504,7 @@ class ControlContextOwnerTask:
             return Mutation(
                 record=ControlContext(target=self._baseline(), generation=0), result=None
             )
-        return Mutation(record=record, result=None)
+        return Mutation(record=claimed(record, self._baseline()), result=None)
 
     def _publish(self, follows: Owner | None) -> None:
         """Say on ``app.state`` what this terminal may do with the record.

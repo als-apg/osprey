@@ -121,9 +121,12 @@ def claim_control_context(
 
     **A claim is a merge.** The target, generation and posture in the record are
     what this deployment is pointed at, and they outlive every process that
-    reads them; taking the file over changes who may write it, not what it
-    says. Only a record that is absent or too degraded to read at all starts
-    one, at *baseline*, generation 0, narrowing nothing.
+    reads them; taking the file over changes who may write it, and nothing else
+    of a record somebody has switched. A record nobody has switched follows the
+    deployment's baseline; every applied switch mints ``generation + 1``, so
+    generation 0 is a claim and never a switch (:func:`control_context.claimed`).
+    A record that is absent or too degraded to read at all starts one, at
+    *baseline*, generation 0, narrowing nothing.
 
     The write is read-verified: two servers starting together can both find the
     record ownerless, and the one that lost the race has to find that out
@@ -134,8 +137,8 @@ def claim_control_context(
     tool instead.
 
     Args:
-        baseline: The deployment's own configured target, used only when there
-            is no readable record to merge into.
+        baseline: The deployment's own configured target. It starts an absent
+            record, and it is what an unswitched (generation 0) record follows.
         server_pid: The PID to claim as. Defaults to this process, which is the
             only value production uses.
 
@@ -164,7 +167,7 @@ def claim_control_context(
         claimed = (
             control_context.ControlContext(target=baseline, generation=0, owner=owner)
             if record is None
-            else replace(record, owner=owner)
+            else replace(control_context.claimed(record, baseline), owner=owner)
         )
         control_context.write_record(claimed)
 

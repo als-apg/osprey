@@ -27,6 +27,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -206,6 +207,34 @@ async def test_a_claim_may_create_the_record_from_nothing():
     stored = read(path)
     assert stored is not None
     assert stored.owner == TERMINAL
+
+
+@pytest.mark.parametrize(
+    ("generation", "expected"),
+    [(0, "va"), (3, "live")],
+    ids=["unswitched-follows", "switched-kept"],
+)
+async def test_web_terminal_claim_follows_baseline_at_generation_zero(
+    record_file, generation, expected
+):
+    """The terminal's claim applies the same rule as the controls server's."""
+    control_context.write_record(
+        ControlContext(
+            target="live", generation=generation, owner=None, posture={"live": "sandbox"}
+        ),
+        path=record_file,
+    )
+    task = owner_module.ControlContextOwnerTask(SimpleNamespace(state=SimpleNamespace()))
+    task._baseline = lambda: "va"  # type: ignore[method-assign]
+
+    follows = await task.owner.mutate_record(task._claim_or_follow, verify_owner=False)
+
+    assert follows is None
+    stored = read(record_file)
+    assert stored is not None
+    assert stored.owner == task.identity
+    assert (stored.target, stored.generation) == (expected, generation)
+    assert stored.posture == {"live": "sandbox"}
 
 
 # -- when there is nowhere to write -----------------------------------------

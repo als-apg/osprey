@@ -673,6 +673,32 @@ class TestServerStartClaimsTheRecord:
         assert claimed is not None
         assert claimed.posture == {"va": "sandbox"}
 
+    def test_claim_moves_generation_zero_live_record_to_va(
+        self, control_context_root, write_control_context
+    ):
+        """An unswitched record follows a deployment baselined on the simulator in process."""
+        from osprey_connectors.types import baseline_target
+
+        section = {"connector": {"epics": {"gateways": {"read_only": {"address": "gw"}}}}}
+        write_control_context(control_context_root, target="live", generation=0, owned_by=None)
+
+        claimed = server_context.claim_control_context(baseline=baseline_target(section))
+
+        assert claimed is not None
+        assert (claimed.target, claimed.generation) == ("va", 0)
+        assert claimed.owner is not None
+        assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
+        assert control_context.read_record().target == "va"
+
+    def test_claim_keeps_a_switched_live_record(self, control_context_root, write_control_context):
+        """A record somebody switched keeps the target they chose."""
+        write_control_context(control_context_root, target="live", generation=3, owned_by=None)
+
+        claimed = server_context.claim_control_context(baseline="va")
+
+        assert claimed is not None
+        assert (claimed.target, claimed.generation) == ("live", 3)
+
     def test_server_start_claims_over_a_dead_owner(
         self, control_context_root, write_control_context
     ):
