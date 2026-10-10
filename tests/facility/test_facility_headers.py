@@ -8,7 +8,8 @@ of a control-assistant build: the facility file, and every view it writes.
 
 Exempt, each for a stated reason: the files whose format is fixed outside
 OSPREY (the limits view keeps its ``_version`` key, the graph view's TTL keeps a
-comment header), the deck copies (pyAT's own lattice format), the copies of the
+comment header), the deck copies (pyAT's own lattice format), the pyAML view
+(pyAML's own configuration, lattice and matrix formats), the copies of the
 files a scenario's logbook entries attach (a plot spec or a picture, in the
 format the seeder reads) and the binary files on ``BINARY_EXEMPTIONS``.
 """
@@ -38,6 +39,7 @@ FORMAT_EXEMPTIONS: dict[str, str] = {
     "*.ttl": "the graph view's TTL keeps a comment header",
     "*decks/*.json": "a deck copy is pyAT's own lattice format",
     "data/simulator/scenarios/*": "an attached file is a byte copy of the scenario's own",
+    "data/pyaml/*": "the pyAML view is in pyAML's own formats",
 }
 
 #: Binary files a view writes, relative to the render root; each is written by

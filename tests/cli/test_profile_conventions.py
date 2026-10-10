@@ -336,6 +336,7 @@ def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
         "facility.json",
         "data/facility/**",
         "data/simulator/**",
+        "data/pyaml/**",
         "data/facility_facts.json",
         "data/facility_facts.md",
         "data/channel_finder/**",

@@ -503,6 +503,12 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
         mirror=True,
     ),
     ReservedPattern(
+        "data/pyaml/**",
+        "the build, from the profile's `data/facility/` tree — the pyAML view is derived "
+        "from the facility file, and a hand copy would be measured with in its place",
+        mirror=True,
+    ),
+    ReservedPattern(
         "data/facility_facts.json",
         "the build, from the profile's `data/facility/` tree — the facts view is derived "
         "from the facility file, and a hand copy would be read in its place",
@@ -542,7 +548,7 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
 #: (:func:`facility_mirror_violation`) ahead of profile validation, so
 #: :func:`_mirror_violations` leaves them out and the gathered profile errors
 #: never repeat that stop. The simulator view under ``data/simulator/``, the
-#: facts view at ``data/facility_facts.json`` and ``data/facility_facts.md``, the
+#: pyAML view under ``data/pyaml/``, the facts view at ``data/facility_facts.json`` and ``data/facility_facts.md``, the
 #: channel-finder index views under ``data/channel_finder/``, the graph view
 #: under ``data/graph/`` and the graph index at
 #: ``data/channel_databases/graph.duckdb`` are written by the build from the
