@@ -59,7 +59,7 @@ _DEFAULT_VOCABULARY: tuple[dict[str, Any], ...] = (
 
 #: One device with a binding, as the specimen query returns it.
 _DEFAULT_SPECIMEN: dict[str, Any] = {
-    "name": "SR01U-VGC1",
+    "device": "SR01U-VGC1",
     "section": "SR01",
     "system": "vacuum",
     "pv": "SR01U:VGC1:PRESSURE",
@@ -208,7 +208,7 @@ class TestResolveExampleValues:
         specimen = dict(_DEFAULT_SPECIMEN, system=None)
         values = mod.resolve_example_values(_FakeStore(specimen=specimen).run)
         assert "system" not in values
-        assert values["name"] == _DEFAULT_SPECIMEN["name"]
+        assert values["device"] == _DEFAULT_SPECIMEN["device"]
 
     def test_a_store_without_a_bound_device_resolves_nothing(self):
         assert mod.resolve_example_values(_FakeStore(specimen=None).run) == {}
@@ -314,10 +314,10 @@ class TestParameterLabelling:
     """No parameter set is unlabelled: the agent must be able to tell them apart."""
 
     def test_a_fully_resolved_example_is_labelled_captured(self):
-        example = _Example(parameters={"name": "SHIPPED", "section": "SHIPPED"})
+        example = _Example(parameters={"device": "SHIPPED", "section": "SHIPPED"})
         block = _block(examples=[example], values=_DEFAULT_SPECIMEN)
 
-        assert '"name": "SR01U-VGC1"' in block
+        assert '"device": "SR01U-VGC1"' in block
         assert '"section": "SR01"' in block
         assert f"— {mod.CAPTURED_PARAMETERS_NOTE}" in block
         assert "SHIPPED" not in block
@@ -332,10 +332,10 @@ class TestParameterLabelling:
 
     def test_a_partly_resolved_example_is_labelled_a_default(self):
         """One shipped literal left in the set means the whole set needs swapping."""
-        example = _Example(parameters={"name": "SHIPPED", "phrase": "vacuum gauge"})
+        example = _Example(parameters={"device": "SHIPPED", "phrase": "vacuum gauge"})
         block = _block(examples=[example], values=_DEFAULT_SPECIMEN)
 
-        assert '"name": "SR01U-VGC1"' in block
+        assert '"device": "SR01U-VGC1"' in block
         assert f"— {mod.DEFAULT_PARAMETERS_NOTE}" in block
         assert mod.CAPTURED_PARAMETERS_NOTE not in block
 

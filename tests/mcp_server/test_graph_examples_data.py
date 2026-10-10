@@ -132,8 +132,8 @@ def test_parameter_values_exist_in_the_demo_corpus(query: ExampleQuery, view_gra
     for name, value in query.parameters.items():
         if name == "section":
             assert _literal(view_graph, "sectionCode", value), (query.key, name, value)
-        elif name == "name":
-            assert _literal(view_graph, "sourceName", value), (query.key, name, value)
+        elif name == "device":
+            assert _literal(view_graph, "deviceId", value), (query.key, name, value)
         elif name == "pv":
             assert _literal(view_graph, "fullPv", value), (query.key, name, value)
         elif name in {"class_uri", "root_uri"}:
@@ -156,11 +156,7 @@ def test_the_q3_device_owns_the_q6_address(view_graph: Graph) -> None:
     def p(name: str) -> URIRef:
         return URIRef(_NARAD_P + name)
 
-    devices = {
-        device
-        for device in view_graph.subjects(p("sourceName"), Literal(q3["name"]))
-        if (device, p("sectionCode"), Literal(q3["section"])) in view_graph
-    }
+    devices = set(view_graph.subjects(p("deviceId"), Literal(q3["device"])))
     assert len(devices) == 1, devices
     (device,) = devices
     bindings = set(view_graph.subjects(p("fullPv"), Literal(q6["pv"])))

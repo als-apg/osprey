@@ -77,6 +77,7 @@ CORPUS_PREDICATES: dict[str, str] = {
     # Structural properties.
     "fullPv": "narad_p:fullPv",
     "rawType": "narad_p:rawType",
+    "deviceId": "narad_p:deviceId",
     "sourceName": "narad_p:sourceName",
     "sectionCode": "narad_p:sectionCode",
     "system": "narad_p:system",
@@ -343,3 +344,21 @@ def test_no_description_claims_where_direction_came_from() -> None:
             "source; direction may come from the PV-grammar fallback or from a "
             "deployment-supplied mapping instead"
         )
+
+
+_MIDDLE_LAYER_WORD = re.compile(r"(?i)\b(famil(y|ies)|field|subfield)\b")
+
+
+@pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
+def test_no_example_names_a_middle_layer_word(query: ExampleQuery) -> None:
+    """An example speaks of classes, groups, quantities and signals."""
+    for text in (query.title, query.description, *query.parameters):
+        hit = _MIDDLE_LAYER_WORD.search(text)
+        assert hit is None, f"{query.key} names {hit.group(0)!r}"
+    assert not [name for name in query.parameters if name.endswith("_meaning")]
+
+
+@pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
+def test_a_device_is_named_by_its_id(query: ExampleQuery) -> None:
+    """A node pattern finds a device by ``deviceId``, never by its source name."""
+    assert "sourceName:" not in query.cypher

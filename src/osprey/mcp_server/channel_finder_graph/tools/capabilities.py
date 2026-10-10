@@ -102,16 +102,10 @@ _WORKFLOW: tuple[str, ...] = (
 _ADDRESSES: dict[str, object] = {
     "property": "fullPv",
     "node_label": "ChannelBinding",
-    "form": "colon-separated tokens, ending in the field the address reads or writes",
-    "generated_grammar": {
-        "tokens": ["ring", "system", "family", "device", "field", "subfield"],
-        "example": "SR:MAG:DIPOLE:01:CURRENT:SP",
-    },
+    "form": "the facility's own spelling of the address, whole",
     "notes": [
-        "The six-token grammar is the generated demo corpus'. A corpus built from a "
-        "real facility records whatever that facility calls its channels — "
-        "often fewer tokens, in that facility's own order — so read the shape "
-        "off the rows rather than assuming it.",
+        "Corpora differ in how many parts an address has and in their order, so "
+        "read the shape off the rows rather than assuming one.",
         "An address is a value in the graph, not a string you can derive. Take "
         "fullPv verbatim from a row; a token pattern that looks right for one "
         "corpus is a fabricated address in another.",
@@ -145,9 +139,10 @@ _DESCRIPTION_PREDICATES: dict[str, dict[str, object]] = {
         "match": "(:ChannelBinding)-[:READSSIGNAL|WRITESSIGNAL]->(s)",
         "properties": [],
         "presence": (
-            "Never: a signal is keyed (FAMILY, FIELD, SUBFIELD) without a ring "
-            "while the prose is ring-qualified, so it lives on the binding "
-            "instead. Match a phrase on the binding and walk to the signal."
+            "Never: a signal is a vocabulary name such as `position_x_readback`, "
+            "shared by every channel that carries it, so the prose that says what "
+            "one channel means lives on its binding. Match a phrase on the binding "
+            "and walk to the signal."
         ),
     },
 }
