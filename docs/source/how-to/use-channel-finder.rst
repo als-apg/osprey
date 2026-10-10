@@ -97,16 +97,13 @@ Validate and preview:
 Hierarchical Pipeline
 =====================
 
-Navigates a nested hierarchy (system, family, device, field, subfield) using
-recursive LLM-guided selection at each level.
+Navigates a tree level by level, with LLM-guided selection at each level. The
+tree the build generates has the facility's place levels, then ``class``,
+``device``, and a leaf per channel keyed by its signal; the leaf holds the
+address.
 
-The database declares the levels the pipeline navigates and the naming pattern
-the addresses follow --- see :doc:`/reference/contracts/channel-finder` for the
-schema.
-
-Advanced features: navigation-only levels, friendly names via
-``_channel_part``, optional levels with ``_is_leaf``, and custom separators
-via ``_separator``.
+The database declares the levels the pipeline navigates --- see
+:doc:`/reference/contracts/channel-finder` for the schema.
 
 Validate and preview:
 
@@ -201,10 +198,10 @@ holds.
 
 **What the subagent can search** depends on the corpus. On the build's graph
 view a phrase can be matched against the description written for a single
-channel, against the prose for a device family or a system, and against the
-synonyms an operator would say out loud. A corpus the profile names in place of
-the view (``services.graphdb.ttl_path``) may carry less prose: there the way in
-is a name, an alternate name, a section or a device class.
+channel, against the prose for a group of devices or a top place, and against
+the synonyms an operator would say out loud. A corpus the profile names in
+place of the view (``services.graphdb.ttl_path``) may carry less prose: there
+the way in is a name, an alternate name, a section or a device class.
 
 ``validate`` and ``preview`` have no channel database to open on this pipeline,
 so both report what the store is and which commands act on it. Health reports
