@@ -647,7 +647,8 @@ def test_a_scenario_change_rebuilds_the_children_at_its_writes(tmp_path: Path) -
         {
             "name": "flip",
             "overrides": {"M:SP": 6.0, "T:SP": 9.0},
-            "faults": {"M": {"writes": {"M:BPM:Y": {"polarity": -1}, "M:STUCK:SP": "stuck"}}},
+            "faults": {"M": {"writes": {"M:BPM:Y": {"polarity": -1}}}},
+            "channel_faults": {"M:STUCK:SP": "stuck"},
         }
     ]
     composite = _composite(tmp_path, scenarios=scenarios)
@@ -670,7 +671,7 @@ def test_a_scenario_change_rebuilds_the_children_at_its_writes(tmp_path: Path) -
 
 
 def test_a_refused_batch_puts_the_stuck_demand_back(tmp_path: Path) -> None:
-    scenarios = [{"name": "stuck", "faults": {"M": {"writes": {"M:STUCK:SP": "stuck"}}}}]
+    scenarios = [{"name": "stuck", "channel_faults": {"M:STUCK:SP": "stuck"}}]
     composite = _composite(tmp_path, scenarios=scenarios)
     _activate(tmp_path / "state", "stuck")
 
@@ -858,6 +859,129 @@ def test_a_nominal_scenario_stating_still_applies_with_no_state_file(tmp_path: P
 
     assert reads == [{"T:NOISY": 10.0, "M:RB": 4.0}] * len(reads)
     assert composite.moving() == frozenset()
+
+
+# -- channel faults ------------------------------------------------------------
+
+
+def _faulted(tmp_path: Path, channel_faults: dict[str, str]) -> tuple[Composite, list[float]]:
+    clock = [T0]
+    view = _view(tmp_path, scenarios=[{"name": "cut", "channel_faults": channel_faults}])
+    composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: clock[0])
+    _activate(tmp_path / "state", "cut")
+    return composite, clock
+
+
+def test_a_stuck_texture_setpoint_reads_the_demand_and_its_readback_does_not_follow(
+    tmp_path: Path,
+) -> None:
+    composite, _ = _faulted(tmp_path, {"T:SP": "stuck"})
+
+    assert composite.get(["T:SP", "T:RB"]) == {"T:SP": 5.0, "T:RB": 5.0}
+    composite.set({"T:SP": 7.0})
+
+    assert composite.get(["T:SP", "T:RB"]) == {"T:SP": 7.0, "T:RB": 5.0}
+    assert composite.held(["T:SP", "T:RB"]) == {"T:SP": 7.0, "T:RB": 5.0}
+    assert composite.output_severity(["T:SP", "T:RB"]) == {}
+
+
+def test_a_frozen_physics_readback_holds_its_activation_value(tmp_path: Path) -> None:
+    composite, clock = _faulted(tmp_path, {"M:BPM:Y": "frozen"})
+    frozen = composite.get("M:BPM:Y")
+    moving = composite.get("M:BPM:X")
+
+    clock[0] = T0 + 120.0
+    composite.model_set({"M/M:BPM:Y/polarity": -1.0})
+
+    assert composite.get("M:BPM:Y") == frozen
+    assert composite.get("M:BPM:X") != moving
+
+
+def test_a_frozen_texture_reading_has_no_motion(tmp_path: Path) -> None:
+    composite, clock = _faulted(tmp_path, {"T:NOISY": "frozen"})
+
+    reads = _over_time(composite, clock, ["T:NOISY"])
+
+    assert len({read["T:NOISY"] for read in reads}) == 1
+    assert reads[0]["T:NOISY"] != 10.0
+
+
+def test_a_disconnected_float_reading_reads_nan_with_udf(tmp_path: Path) -> None:
+    composite, _ = _faulted(tmp_path, {"M:RB": "disconnected", "T:NOISY": "disconnected"})
+
+    reads = composite.get(["M:RB", "T:NOISY", "T:RB"])
+
+    assert math.isnan(reads["M:RB"]) and math.isnan(reads["T:NOISY"])
+    assert reads["T:RB"] == 5.0
+    assert composite.output_severity(["M:RB", "T:NOISY", "T:RB"]) == {
+        "M:RB": {"condition": "udf"},
+        "T:NOISY": {"condition": "udf"},
+    }
+
+
+def test_a_disconnected_string_reading_reads_its_activation_value(tmp_path: Path) -> None:
+    composite, clock = _faulted(tmp_path, {"M:STATE": "disconnected"})
+
+    clock[0] = T0 + 60.0
+
+    assert composite.get("M:STATE") == "OFF"
+    assert composite.output_severity(["M:STATE"]) == {"M:STATE": {"condition": "udf"}}
+
+
+def test_a_disconnected_setpoint_holds_the_write_and_its_readback_reads_nan_with_udf(
+    tmp_path: Path,
+) -> None:
+    composite, _ = _faulted(tmp_path, {"T:SP": "disconnected", "M:STUCK:SP": "disconnected"})
+
+    composite.set({"T:SP": 7.0, "M:STUCK:SP": 3.0})
+
+    reads = composite.get(["T:SP", "T:RB", "M:STUCK:SP"])
+    assert (reads["T:SP"], reads["M:STUCK:SP"]) == (7.0, 3.0)
+    assert math.isnan(reads["T:RB"])
+    assert composite.output_severity(["T:SP", "T:RB", "M:STUCK:SP"]) == {
+        "T:RB": {"condition": "udf"},
+        "M:STUCK:SP": {"condition": "udf"},
+    }
+    assert composite._children["M"].model.inputs["M:STUCK:SP"] == 1.0
+
+
+def test_held_shows_the_unfaulted_value_of_a_frozen_reading(tmp_path: Path) -> None:
+    composite, _ = _faulted(tmp_path, {"M:RB": "frozen"})
+
+    assert composite.get("M:RB") != 4.0
+    assert composite.held(["M:RB"]) == {"M:RB": 4.0}
+
+
+def test_a_reset_drops_the_texture_demand_and_keeps_the_snapshot(tmp_path: Path) -> None:
+    composite, clock = _faulted(tmp_path, {"T:SP": "stuck", "T:NOISY": "frozen"})
+    frozen = composite.get("T:NOISY")
+    composite.set({"T:SP": 7.0})
+
+    clock[0] = T0 + 30.0
+    composite.reset()
+
+    assert composite.get(["T:SP", "T:NOISY"]) == {"T:SP": 5.0, "T:NOISY": frozen}
+
+
+def test_clearing_the_scenario_clears_every_channel_fault(tmp_path: Path) -> None:
+    composite, clock = _faulted(
+        tmp_path, {"T:SP": "disconnected", "T:NOISY": "frozen", "M:RB": "disconnected"}
+    )
+    composite.set({"T:SP": 7.0})
+
+    _activate(tmp_path / "state")
+    composite.set({"T:SP": 8.0})
+
+    assert composite.get(["T:SP", "T:RB"]) == {"T:SP": 8.0, "T:RB": 8.0}
+    assert not math.isnan(composite.get("M:RB"))
+    assert composite.output_severity(["T:RB", "M:RB", "T:NOISY"]) == {}
+    assert len({read["T:NOISY"] for read in _over_time(composite, clock, ["T:NOISY"])}) > 1
+
+
+def test_moving_excludes_frozen_and_disconnected_readings(tmp_path: Path) -> None:
+    composite, _ = _faulted(tmp_path, {"T:NOISY": "frozen", "M:RB": "disconnected"})
+
+    assert composite.moving() == frozenset({"M:BPM:X", "M:BPM:Y"})
 
 
 # -- the demo's simulator view -------------------------------------------------

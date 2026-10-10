@@ -1,9 +1,9 @@
 """The stuck-setpoint scenario fault, as the composite holds it and as a client sees it.
 
-A scenario's ``faults`` block marks a setpoint ``stuck`` with the literal
-string as the fault value. While that scenario is active the composite accepts
-a write to the setpoint and does not forward it, so the device behind it never
-moves: its paired readback holds whatever the device last delivered. The point
+A scenario's ``channel_faults`` block marks the setpoint ``stuck``. While that
+scenario is active the composite accepts a write to the setpoint and does not
+forward it, so the device behind it never moves: its paired readback holds
+whatever the device last delivered. The point
 of the fault is that it is a property of the served machine rather than of one
 client's view -- every client reading the device sees the same frozen
 readback.
@@ -234,7 +234,7 @@ def _write_view(data_dir: Path) -> Path:
         "scenarios.json": {
             "scenarios": [
                 {"name": "nominal"},
-                {"name": STUCK_SCENARIO, "faults": {MODEL: {"writes": {STUCK_SP: "stuck"}}}},
+                {"name": STUCK_SCENARIO, "channel_faults": {STUCK_SP: "stuck"}},
             ]
         },
     }
