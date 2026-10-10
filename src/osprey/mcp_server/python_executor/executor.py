@@ -191,14 +191,18 @@ FAILURE_KIND_TIMEOUT = "timeout"
 #: service is healthy) nor a script error (the code is fine).
 FAILURE_KIND_SWITCH_IN_PROGRESS = "switch_in_progress"
 
-#: Prefix of the line an interrupted run prints with its restore report: the
-#: tag, one space, then the report as a single JSON object. The executor reads
-#: only lines that carry it and skips any whose payload is not JSON.
-RESTORE_REPORT_TAG = "OSPREY_PYAML_RESTORE"
+#: Prefix of the line a guarded run prints with its restore report: the tag,
+#: one space, then the report as a single JSON object. The executor reads only
+#: lines that carry it and skips any whose payload is not JSON. The tag is
+#: :data:`osprey.runtime.guarded_run.RESTORE_REPORT_TAG`, spelled again here
+#: because this process does not import :mod:`osprey.runtime`;
+#: ``tests/mcp_server/python_executor/test_wrapper_interrupt.py`` pins the two
+#: to one object.
+RESTORE_REPORT_TAG = "OSPREY_GUARDED_RUN_RESTORE"
 
 #: The file in the execution folder that holds the restore reports parsed from
 #: an interrupted run's pipes, as a JSON list in the order they were read.
-RESTORE_REPORT_FILE = "pyaml_restore_reports.json"
+RESTORE_REPORT_FILE = "guarded_run_restore_reports.json"
 
 #: Upper bound, in seconds, on winding down a cancelled run that has no finite
 #: deadline: how long its child gets to exit after ``SIGINT`` before it is
@@ -220,9 +224,9 @@ _CANCEL_EXIT_POLL_S = 0.02
 _CANCEL_READ_CHUNK = 65536
 
 #: Audit ``reason`` for a restore that wrote every journaled address back.
-REASON_RESTORE_COMPLETE = "pyaml_restore_complete"
+REASON_RESTORE_COMPLETE = "guarded_run_restore_complete"
 #: Audit ``reason`` for a restore that left an address refused or unconfirmed.
-REASON_RESTORE_INCOMPLETE = "pyaml_restore_incomplete"
+REASON_RESTORE_INCOMPLETE = "guarded_run_restore_incomplete"
 
 
 @dataclass
@@ -1069,8 +1073,9 @@ async def _interrupt_and_drain(
 
     MCP cancels a tool call through an anyio cancel scope that re-cancels on
     every await, so the whole sequence runs shielded. ``SIGINT`` lets the
-    wrapped script end the way an interrupted one does — a guarded pyAML run
-    restores what it moved and prints its report. Both pipes are read into
+    wrapped script end the way an interrupted one does — a guarded run
+    interrupted inside its journaled span restores the setpoints it moved and
+    prints one ``OSPREY_GUARDED_RUN_RESTORE`` report line. Both pipes are read into
     buffers for the whole wind-down, so an echo larger than a pipe buffer
     cannot wedge the child and nothing read is lost when a wait is cut short.
 
@@ -1250,7 +1255,7 @@ def _read_execution_metadata(execution_folder: Path) -> dict | None:
 
 
 def _parse_restore_reports(*streams: bytes | str) -> list[dict]:
-    """Every ``OSPREY_PYAML_RESTORE`` report in *streams*, in stream then line order.
+    """Every ``OSPREY_GUARDED_RUN_RESTORE`` report in *streams*, in stream then line order.
 
     A tagged line whose payload is not a JSON object is skipped: the tag is
     plain text any script could print, and a malformed line is no report.
@@ -1326,10 +1331,10 @@ def _record_restore_report(
 ) -> list[dict]:
     """File the restore reports an interrupted run printed; return them.
 
-    A guarded pyAML run that is interrupted restores the setpoints it moved and
-    prints its report as an ``OSPREY_PYAML_RESTORE`` line (on stderr, inside the
-    sandbox's captured output, which the wrapper echoes to the pipes on its way
-    out). The parent reads both drained pipes and keeps what it finds twice:
+    A guarded run interrupted inside its journaled span restores the setpoints
+    it moved and prints one ``OSPREY_GUARDED_RUN_RESTORE`` report line (on
+    stderr, inside the sandbox's captured output, which the wrapper echoes to
+    the pipes on its way out). The parent reads both drained pipes and keeps what it finds twice:
     the full reports in the execution folder (:data:`RESTORE_REPORT_FILE`), and
     one executor-surface audit record per report — addresses and flags, never
     values — in the audit ledger.

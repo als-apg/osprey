@@ -1346,10 +1346,10 @@ if not _execution_dir.exists():
         An interrupted run takes the same way out. The executor cancels a run
         with ``SIGINT``; the prologue in :meth:`_get_imports` restores the
         default handler, the ``KeyboardInterrupt`` is recorded (error_type
-        ``'KeyboardInterrupt'``, plus the ``restore_report`` a guarded pyAML
-        run raises with), and every handler here first ignores further
-        ``SIGINT``, so no second interrupt can carry an exception past the
-        persistence and ``os._exit``.
+        ``'KeyboardInterrupt'``, plus the ``restore_report`` a guarded run
+        interrupted inside its journaled span raises with), and every handler
+        here first ignores further ``SIGINT``, so no second interrupt can carry
+        an exception past the persistence and ``os._exit``.
         """
 
         # Output captured content so the host process can see it
@@ -1387,8 +1387,10 @@ if not _execution_dir.exists():
                 execution_metadata["error_type"] = "KeyboardInterrupt"
                 execution_metadata["error"] = "Interrupted (SIGINT) before the script finished"
                 execution_metadata["traceback"] = traceback.format_exc()
-                # A guarded pyAML run interrupted mid-run_tool raises carrying
-                # its restore report; keep it in the record as well.
+                # A guarded run interrupted inside its journaled span restores
+                # the setpoints it moved, prints one OSPREY_GUARDED_RUN_RESTORE
+                # report line and raises carrying the report; keep it in the
+                # record as well.
                 _osprey_restore_report = getattr(e, "restore_report", None)
                 if _osprey_restore_report is not None:
                     try:
