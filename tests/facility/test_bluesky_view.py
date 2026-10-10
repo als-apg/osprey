@@ -89,7 +89,10 @@ def test_no_channel_is_an_empty_document() -> None:
 def test_a_seeded_readback_settles_its_settable_within_its_motion() -> None:
     readback = {
         **_channel("A:RB", "readback"),
-        "simulation": {"noise": 0.001, "drift": {"amplitude": 0.005, "period_s": 600.0}},
+        "simulation": {
+            "noise": {"absolute": 0.001},
+            "drift": {"amplitude": 0.005, "period_s": 600.0},
+        },
     }
     document = bluesky_document(
         {

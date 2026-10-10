@@ -112,11 +112,11 @@ DISCRETE = (CAVITY_VALID, READY)
 
 #: The simulator view's channels: moving floats and two flags.
 CHANNELS: dict[str, dict[str, Any]] = {
-    CAVITY_TEMP: {"nominal": 23.0, "noise": 0.01},
-    CAVITY_POWER: {"nominal": 12.0, "noise": 0.02},
+    CAVITY_TEMP: {"nominal": 23.0, "noise": {"absolute": 0.01}},
+    CAVITY_POWER: {"nominal": 12.0, "noise": {"absolute": 0.02}},
     CAVITY_VALID: {"value_type": "bool", "nominal": "TRUE"},
-    BPM_X: {"nominal": 0.0, "noise": 0.001},
-    VAC_PRESSURE: {"nominal": 1e-9, "noise": 1e-11},
+    BPM_X: {"nominal": 0.0, "noise": {"absolute": 0.001}},
+    VAC_PRESSURE: {"nominal": 1e-9, "noise": {"absolute": 1e-11}},
     READY: {"value_type": "bool", "nominal": "TRUE"},
 }
 ADDRESSES = sorted(CHANNELS)

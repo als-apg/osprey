@@ -80,7 +80,7 @@ STAGES: tuple[str, ...] = (
 )
 
 #: The header of the combined facility file.
-FACILITY_HEADER = "osprey.facility.facility/1"
+FACILITY_HEADER = "osprey.facility.facility/2"
 
 #: The multivalued slots that are sets: compared and written sorted by string form.
 SET_VALUED_SLOTS: frozenset[tuple[str, str]] = frozenset(
@@ -129,6 +129,12 @@ _MAX_PRECISION = 17
 _NUMERIC_TYPES = ("float", "int")
 _LIMIT_BOUNDS = ("min_value", "max_value", "max_step")
 _MOTION = ("noise", "drift")
+#: The two terms a ``noise`` record states exactly one of.
+_NOISE_TERMS = ("absolute", "relative")
+_RELATIVE = "relative"
+_RELATIVE_NOMINAL = (
+    "a relative `noise` is taken of the seed's `nominal`, which this seed does not state"
+)
 _STUCK = "stuck"
 
 
@@ -1101,6 +1107,8 @@ class _Records:
                     )
             if "linear" in seed:
                 yield from self._linear(address, seed, files)
+            if isinstance(seed.get("noise"), dict):
+                yield from self._noise_record(address, seed, files)
             motion = [key for key in _MOTION if key in seed]
             if role == "setpoint" and motion:
                 yield self._error(
@@ -1113,6 +1121,31 @@ class _Records:
                 )
         if "nominal" in seed and "linear" not in seed:
             yield from self._nominal(address, seed["nominal"], files)
+
+    def _noise_record(
+        self, address: str, seed: Mapping[str, Any], files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """A seed's ``noise`` states one term; a relative one needs the seed's ``nominal``."""
+        stated = [term for term in _NOISE_TERMS if term in seed["noise"]]
+        if len(stated) != 1:
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                f"`noise` states {_terms_stated(list(seed['noise']))}",
+                "write `noise: {absolute: <sigma>}` or `noise: {relative: <fraction>}`",
+            )
+            return
+        if stated == [_RELATIVE] and not _numeric(seed.get("nominal")):
+            yield self._error(
+                "seed-invalid",
+                "channel",
+                address,
+                files,
+                _RELATIVE_NOMINAL,
+                "state `absolute`, or give the seed a `nominal`",
+            )
 
     def _nominal(
         self, address: str, nominal: Any, files: list[str]
@@ -1449,12 +1482,63 @@ class _Records:
             overrides = scenario.get("overrides") or {}
             for address, value in sorted(overrides.items(), key=lambda kv: str(kv[0])):
                 yield from self._override(name, files, str(address), value, records)
+            noise = scenario.get("noise")
+            for address, entry in sorted(
+                noise.items() if isinstance(noise, dict) else (), key=lambda kv: str(kv[0])
+            ):
+                yield from self._scenario_noise(name, files, str(address), entry)
             faults = scenario.get("faults") or {}
             for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
                 for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):
                     if str(address) not in self.index.channels:
                         continue
                     yield from self._fault(name, files, str(model), str(address), value, records)
+
+    def _scenario_noise(
+        self, name: str, files: list[str], address: str, entry: Any
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's noise record for one channel, in the seed's grammar."""
+        slot = f"noise.{address}"
+        legacy = [key for key in ("noise", "noise_abs") if isinstance(entry, dict) and key in entry]
+        if not isinstance(entry, dict) or legacy:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`{slot}` states {quoted_slots(legacy)}"
+                if legacy
+                else f"`{slot}` is {entry!r}, not a noise record",
+                f"write `{address}: {{absolute: <sigma>}}`",
+            )
+            return
+        stated = [term for term in _NOISE_TERMS if term in entry]
+        problem = None
+        if len(stated) != 1 or len(entry) != 1:
+            problem = f"`{slot}` states {_terms_stated(list(entry))}"
+        elif not _finite(entry[stated[0]]) or entry[stated[0]] < 0:
+            problem = f"`{slot}.{stated[0]}` is {entry[stated[0]]!r}, not a finite number >= 0"
+        if problem is not None:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                problem,
+                f"write `{address}: {{absolute: <sigma>}}` or `{address}: {{relative: <fraction>}}`",
+            )
+            return
+        seed = self.index.channels[address].get("simulation")
+        nominal = seed.get("nominal") if isinstance(seed, dict) else None
+        if stated == [_RELATIVE] and not _numeric(nominal):
+            yield self._error(
+                "seed-invalid",
+                "scenario",
+                name,
+                files,
+                f"`{slot}`: {_RELATIVE_NOMINAL}",
+                "state `absolute`, or give the seed a `nominal`",
+            )
 
     def _override(
         self,
@@ -1645,6 +1729,21 @@ def _clamp_problem(clamp: Any) -> str | None:
     if low is not None and high is not None and low > high:
         return f"`clamp` low {low} is above high {high}"
     return None
+
+
+def _terms_stated(keys: Sequence[str]) -> str:
+    """What a noise record states other than exactly one term, for its error line."""
+    unknown = [str(key) for key in keys if key not in _NOISE_TERMS]
+    if unknown:
+        return f"{quoted_slots(unknown)}, not `absolute` or `relative`"
+    if not keys:
+        return "neither `absolute` nor `relative`"
+    return "both `absolute` and `relative`"
+
+
+def _numeric(value: Any) -> bool:
+    """A real number other than a bool."""
+    return isinstance(value, numbers.Real) and not isinstance(value, bool)
 
 
 def _finite(value: Any) -> bool:

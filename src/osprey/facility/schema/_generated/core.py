@@ -1285,10 +1285,20 @@ class Seed(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     nominal: Optional[Any] = Field(default=None, description="""The value at start, of the channel's value_type.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
-    noise: Optional[float] = Field(default=None, description="""Additive Gaussian sigma in the channel's unit.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Scenario']} })
+    noise: Optional[Noise] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Scenario']} })
     drift: Optional[Drift] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     clamp: Optional[list[Any]] = Field(default=None, description="""[low, high]; either side may be null.""", min_length=2, max_length=2, json_schema_extra = { "linkml_meta": {'domain_of': ['Seed'], 'list_elements_ordered': True} })
     linear: Optional[dict[str, Union[float, LinearTerm]]] = Field(default=None, description="""The value as a weighted sum of other channels, `{<address>: <coefficient>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Curve'], 'list_elements_ordered': True} })
+
+
+class Noise(ConfiguredBaseModel):
+    """
+    Additive Gaussian noise, stating exactly one of `absolute`, `relative`.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    absolute: Optional[float] = Field(default=None, description="""Gaussian sigma in the channel's unit.""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Noise']} })
+    relative: Optional[float] = Field(default=None, description="""Gaussian sigma as a fraction of the reading.""", ge=0, json_schema_extra = { "linkml_meta": {'domain_of': ['Noise']} })
 
 
 class Drift(ConfiguredBaseModel):
@@ -1506,7 +1516,7 @@ class Scenario(ConfiguredBaseModel):
     logbook: Optional[list[Any]] = Field(default=None, description="""`[{entry_id, when, author, title, text, tags?, categories?, loto_tag?, extra?, attachments?}]`, the entries the scenario narrates. `attachments` lists the entry's pictures, each `{path: <picture file>}` or `{plot: <plot spec .json>}`, relative to the scenario's own directory `scenarios/<name>/`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario'], 'list_elements_ordered': True} })
     drivers: Optional[Any] = Field(default=None, description="""`{<driver>: {kind, amplitude, period_s}}`, slow signals shared by the channels `couple` names, so those channels move together.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     couple: Optional[Any] = Field(default=None, description="""`{<address>: [{driver, gain, gain_wander?}]}`: the channel adds `gain` times each named driver to its value; `gain_wander` `{amplitude, period_s}` lets that gain wax and wane.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
-    noise: Optional[Any] = Field(default=None, description="""`{<address>: {noise, noise_abs}}`, the channel's noise while the scenario is active, in place of its seed's.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Scenario']} })
+    noise: Optional[Any] = Field(default=None, description="""`{<address>: {absolute: <sigma>} | {relative: <fraction>}}`, the channel's noise while the scenario is active, in place of its seed's.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Scenario']} })
 
 
 # Model rebuild
@@ -1563,6 +1573,7 @@ Device.model_rebuild()
 OnTarget.model_rebuild()
 Channel.model_rebuild()
 Seed.model_rebuild()
+Noise.model_rebuild()
 Drift.model_rebuild()
 LinearTerm.model_rebuild()
 Group.model_rebuild()

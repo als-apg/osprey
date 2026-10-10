@@ -282,7 +282,7 @@ class TestVAInProcessConnector:
             tmp_path,
             readings=["BEAM:NOISY", "BEAM:QUIET"],
             channels={
-                "BEAM:NOISY": {"simulation": {"nominal": 1.0, "noise": 0.1}},
+                "BEAM:NOISY": {"simulation": {"nominal": 1.0, "noise": {"absolute": 0.1}}},
                 "BEAM:QUIET": {"simulation": {"nominal": 2.0}},
             },
         )
@@ -488,7 +488,7 @@ class TestVAInProcessConnector:
 
 
 #: Readbacks whose seeds move, so a window of their history varies.
-_MOVING = {"simulation": {"nominal": 500.0, "noise": 1.0}}
+_MOVING = {"simulation": {"nominal": 500.0, "noise": {"absolute": 1.0}}}
 
 
 def _archived_tree(tmp_path, *readings):
@@ -858,7 +858,9 @@ class TestInProcessWriteConfirmationContract:
         on every attempt.
         """
         connector = await self._connected_in_process(
-            monkeypatch, tmp_path, channels={"MAGNET:CURRENT:RB": {"simulation": {"noise": 0.5}}}
+            monkeypatch,
+            tmp_path,
+            channels={"MAGNET:CURRENT:RB": {"simulation": {"noise": {"absolute": 0.5}}}},
         )
 
         for _ in range(5):

@@ -149,7 +149,7 @@
 
 - class: AcceleratingCavity
   signal: rf_forward_power_readback
-  noise: {value: 4.949999999999999, unit: W}
+  noise: {value: 4.95, unit: W}
   source: RF power meter, ~1 % of range
 
 - class: AcceleratingCavity
@@ -191,12 +191,12 @@
 
 - class: Gauge
   signal: vacuum_readback
-  noise: {value: 1.4999999999999998e-09, unit: Pa}
+  noise: {value: 1.5e-09, unit: Pa}
   source: gauge reading scatter, 3 % of nominal
 
 - class: Pump
   signal: vacuum_readback
-  noise: {value: 1.0000000000000001e-11, unit: Pa}
+  noise: {value: 1e-11, unit: Pa}
   source: gauge reading scatter, 1 % of nominal
 
 - class: Pump

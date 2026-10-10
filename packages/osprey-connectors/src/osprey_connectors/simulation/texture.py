@@ -16,12 +16,14 @@ of the address and the epoch millisecond, so a live read and an archived
 sample at the same instant agree. Writing a setpoint holds the
 value and echoes it into the readback its ``pair`` names.
 
-The active scenarios add motion through :meth:`TextureModel.set_motion`: a
-coupled channel adds ``gain * (1 + gain_wander(t)) * driver(t)`` per coupling,
-where every channel coupled to one driver sees the same ``driver(t)``, and a
-noise replacement stands in for the seed's noise while it is held: its
-relative ``noise`` scales ``held + drift + couplings``, then its ``noise_abs``
-is added.
+A ``noise`` record states one term: ``{absolute: sigma}`` adds ``sigma``
+times a keyed normal draw, and ``{relative: f}`` adds ``f`` times
+``held + drift + couplings`` times one. The active scenarios add motion
+through :meth:`TextureModel.set_motion`: a coupled channel adds
+``gain * (1 + gain_wander(t)) * driver(t)`` per coupling, where every channel
+coupled to one driver sees the same ``driver(t)``, and a scenario's noise
+record stands in for the seed's while it is held, drawing from its own
+stream.
 """
 
 from __future__ import annotations
@@ -43,6 +45,7 @@ from lume.variables import (
 )
 
 from osprey_connectors.simulation import series, values
+from osprey_connectors.simulation.envelope import declares_motion
 
 __all__ = [
     "TEXTURE_OWNER",
@@ -58,8 +61,10 @@ TEXTURE_OWNER = "texture"
 _SETPOINT = "setpoint"
 _MS_PER_S = 1000.0
 _GAIN_WANDER_SUBKEY = b":gain_wander:"
-_RELATIVE_NOISE_SUBKEY = b":noise"
-_ABSOLUTE_NOISE_SUBKEY = b":noise_abs"
+_ABSOLUTE = "absolute"
+_RELATIVE = "relative"
+_SCENARIO_RELATIVE_SUBKEY = b":noise"
+_SCENARIO_ABSOLUTE_SUBKEY = b":noise_abs"
 _INT_UNBOUNDED = 2**63 - 1
 
 
@@ -304,8 +309,9 @@ class TextureModel(LUMEModel):
                 drive}``: ``drive`` is the driver's ``{kind, amplitude,
                 period_s}`` and ``gain_wander`` an optional ``{amplitude,
                 period_s}``. Empty for no coupling.
-            noise: Noise replacements by address, each ``{noise, noise_abs}``;
-                a key it lacks is zero. Empty for the seeds' noise.
+            noise: Noise records by address, each ``{absolute: <sigma>}`` or
+                ``{relative: <fraction>}``, standing in for the seed's.
+                Empty for the seeds' noise.
         """
         self._couple = {str(address): list(terms) for address, terms in couple.items()}
         self._noise = {str(address): dict(entry) for address, entry in noise.items()}
@@ -313,10 +319,11 @@ class TextureModel(LUMEModel):
     def motion(self, address: str, t_s: Any, base: Any = 0.0) -> np.ndarray:
         """The motion of a channel at absolute epoch seconds.
 
-        Drift, then the held couplings, then noise: the seed's keyed noise, or
-        the held replacement's relative term on ``base`` plus drift plus
-        couplings and its absolute term. Every term is a pure function of the
-        address and the epoch time.
+        Drift, then the held couplings, then noise: the held scenario's noise
+        record, else the seed's. An absolute term is its sigma times a keyed
+        normal draw; a relative term scales ``base`` plus drift plus
+        couplings. Every term is a pure function of the address and the
+        epoch time.
 
         Args:
             address: Any address the view declares.
@@ -343,19 +350,14 @@ class TextureModel(LUMEModel):
             )
         for coupling in self._couple.get(address, ()):
             total = total + self._coupling(address, coupling, flat)
-        counters_ms = np.rint(flat * _MS_PER_S).astype(np.int64)
-        sigma, relative, absolute = self._noise_terms(address)
-        if sigma:
-            total = total + sigma * series.keyed_normals(key, counters_ms)
-        if relative:
-            scaled = np.asarray(base, dtype=np.float64).reshape(-1) + total
-            total = total + scaled * relative * series.keyed_normals(
-                key + _RELATIVE_NOISE_SUBKEY, counters_ms
-            )
-        if absolute:
-            total = total + absolute * series.keyed_normals(
-                key + _ABSOLUTE_NOISE_SUBKEY, counters_ms
-            )
+        term, value, subkey = self._noise_term(address)
+        if value:
+            normals = series.keyed_normals(key + subkey, np.rint(flat * _MS_PER_S).astype(np.int64))
+            if term == _RELATIVE:
+                scaled = np.asarray(base, dtype=np.float64).reshape(-1) + total
+                total = total + scaled * value * normals
+            else:
+                total = total + value * normals
         return total.reshape(times.shape)
 
     def has_motion(self, address: str) -> bool:
@@ -367,26 +369,29 @@ class TextureModel(LUMEModel):
         channel = self._channels.get(address)
         if channel is None or not is_float_channel(channel):
             return False
+        if self._couple.get(address):
+            return True
         seed = self._seeds.get(address) or {}
-        return bool(
-            seed.get("drift") or self._couple.get(address) or any(self._noise_terms(address))
-        )
+        if address not in self._noise:
+            return declares_motion(seed)
+        return bool(seed.get("drift") or self._noise_term(address)[1])
 
-    def _noise_terms(self, address: str) -> tuple[float, float, float]:
-        """The noise acting on *address*: ``(seed sigma, relative, absolute)``.
+    def _noise_term(self, address: str) -> tuple[str, float, bytes]:
+        """The noise record acting on *address*: ``(term, value, stream subkey)``.
 
-        The held replacement, when there is one, stands in for the seed's
-        noise entirely; a key it lacks is zero.
+        The held scenario's record, when there is one, stands in for the
+        seed's entirely and draws from its own stream; the seed's draws from
+        the channel's key. No record is an absolute term of 0.0.
         """
         replacement = self._noise.get(address)
         if replacement is None:
-            seed = self._seeds.get(address) or {}
-            return float(seed.get("noise") or 0.0), 0.0, 0.0
-        return (
-            0.0,
-            float(replacement.get("noise") or 0.0),
-            float(replacement.get("noise_abs") or 0.0),
-        )
+            record = (self._seeds.get(address) or {}).get("noise") or {}
+            subkeys = {_ABSOLUTE: b"", _RELATIVE: b""}
+        else:
+            record = replacement
+            subkeys = {_ABSOLUTE: _SCENARIO_ABSOLUTE_SUBKEY, _RELATIVE: _SCENARIO_RELATIVE_SUBKEY}
+        term = _RELATIVE if _RELATIVE in record else _ABSOLUTE
+        return term, float(record.get(term) or 0.0), subkeys[term]
 
     @staticmethod
     def _coupling(address: str, coupling: Mapping[str, Any], times: np.ndarray) -> np.ndarray:

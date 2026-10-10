@@ -147,8 +147,8 @@ def _view(
         "seeds.json": {
             "seeds": {
                 "T:SP": {"nominal": 5.0},
-                "T:NOISY": {"nominal": 10.0, "noise": 0.5},
-                "M:RB": {"noise": 0.1, "drift": {"amplitude": 0.2, "period_s": 600}},
+                "T:NOISY": {"nominal": 10.0, "noise": {"absolute": 0.5}},
+                "M:RB": {"noise": {"absolute": 0.1}, "drift": {"amplitude": 0.2, "period_s": 600}},
                 "T:MODE": {"nominal": "ON"},
                 "T:FLAG": {"nominal": "TRUE"},
                 **(seeds or {}),
@@ -261,7 +261,7 @@ def test_a_relative_noise_replacement_scales_with_the_held_value(
     tmp_path: Path, engine: SimpleNamespace
 ) -> None:
     del engine
-    noisy = [{"name": "noisy", "noise": {"T:NOISY": {"noise": 0.01}}}]
+    noisy = [{"name": "noisy", "noise": {"T:NOISY": {"relative": 0.01}}}]
     times = HOUR[:200]
     spreads = {}
     for nominal in (10.0, 40.0):
@@ -279,7 +279,7 @@ def test_a_relative_noise_replacement_matches_the_texture_sample_for_sample(
     tmp_path: Path, engine: SimpleNamespace
 ) -> None:
     del engine
-    view = _view(tmp_path, scenarios=[{"name": "noisy", "noise": {"T:NOISY": {"noise": 0.01}}}])
+    view = _view(tmp_path, scenarios=[{"name": "noisy", "noise": {"T:NOISY": {"relative": 0.01}}}])
     state = tmp_path / "state"
     state.mkdir()
     (state / "active_scenarios").write_text("nominal\nnoisy\n", encoding="utf-8")
@@ -446,7 +446,8 @@ def test_a_physics_setpoint_archives_its_held_value_without_motion(
 ) -> None:
     del engine
     view = _view(
-        tmp_path, seeds={"M:SP": {"noise": 0.1, "drift": {"amplitude": 1.0, "period_s": 60}}}
+        tmp_path,
+        seeds={"M:SP": {"noise": {"absolute": 0.1}, "drift": {"amplitude": 1.0, "period_s": 60}}},
     )
     times = HOUR[:20]
 
@@ -527,7 +528,7 @@ def test_an_hour_of_a_quiet_monitor_stays_on_its_held_value_inside_its_clamp(
     seeds_path = demo_view / "seeds.json"
     seeds = json.loads(seeds_path.read_text(encoding="utf-8"))
     record = seeds["seeds"][BPM_X]
-    sigma = float(record["noise"])
+    sigma = float(record["noise"]["absolute"])
     drift = series.wander(
         series.channel_key_bytes(BPM_X),
         HOUR,

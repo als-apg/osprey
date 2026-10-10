@@ -3,7 +3,7 @@
 A served reading is the value it holds plus the motion its seed declares; this
 reads those seeds from the simulator view the build rendered -- the bytes the
 container serves -- and maps each address through the product's own rule,
-:func:`osprey.facility.motion.settle_band`. A reading whose seed declares no
+:func:`osprey_connectors.simulation.envelope.motion_envelope`. A reading whose seed declares no
 motion gets 0.0.
 
 Imports nothing that serves Channel Access, so any deploy-backed suite may call
@@ -26,8 +26,8 @@ def served_settle_bands(repo: Path, addresses: Iterable[str]) -> dict[str, float
     Returns:
         ``{address: band}``, 0.0 for an address whose seed declares no motion.
     """
-    from osprey.facility.motion import settle_band
+    from osprey_connectors.simulation.envelope import motion_envelope
     from osprey_connectors.simulation.view import SimulatorView
 
     view = SimulatorView.of_project(repo)
-    return {address: settle_band(view.seed(address)) for address in addresses}
+    return {address: motion_envelope(view.seed(address)) for address in addresses}

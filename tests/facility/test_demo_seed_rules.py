@@ -118,8 +118,8 @@ def test_a_micrometre_rule_lands_in_each_channels_unit() -> None:
     assert module.convert(micrometre, "mm") == 0.005
     with pytest.raises(module.ReseedError):
         module.convert(micrometre, "A")
-    assert generated()["SR:DIAG:BPM:01:POSITION:X"]["noise"] == 1e-6
-    assert generated()["BR:DIAG:BPM:01:POSITION:X"]["noise"] == 0.005
+    assert generated()["SR:DIAG:BPM:01:POSITION:X"]["noise"] == {"absolute": 1e-6}
+    assert generated()["BR:DIAG:BPM:01:POSITION:X"]["noise"] == {"absolute": 0.005}
 
 
 def test_a_stored_reference_carries_no_motion() -> None:

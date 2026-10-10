@@ -156,7 +156,8 @@ def test_a_read_adds_the_seed_noise_times_the_channel_s_keyed_draw(served: Serve
     checked = 0
     for address in sorted(golden()):
         seed = served.seeds.get(address, {})
-        if not served.is_float_readback(address) or not seed.get("noise"):
+        sigma = (seed.get("noise") or {}).get("absolute")
+        if not served.is_float_readback(address) or not sigma:
             continue
         if "clamp" in seed or "linear" in seed:
             continue
@@ -169,7 +170,7 @@ def test_a_read_adds_the_seed_noise_times_the_channel_s_keyed_draw(served: Serve
             reading = reading - series.wander(
                 key, INSTANTS, float(drift["amplitude"]), float(drift["period_s"])
             )
-        expected = seed["noise"] * series.keyed_normals(key, counters_ms)
+        expected = sigma * series.keyed_normals(key, counters_ms)
         np.testing.assert_allclose(reading, expected, rtol=1e-9, atol=TOLERANCE, err_msg=address)
         checked += 1
     assert checked == 225
