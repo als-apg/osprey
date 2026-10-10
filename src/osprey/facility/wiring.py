@@ -1,8 +1,9 @@
 """The computed slots of every wiring record.
 
-A wiring record of a deck-bearing model carries four slots the build fills and
-no author states: ``direction``, ``unit``, ``default`` and ``value_range``. This
-module is their one writer. It runs after S5, so every id a record names
+A wiring record carries four slots the build fills and no author states:
+``direction``, ``unit``, ``default`` and ``value_range``. ``default`` waits for
+a deck; the other three are filled for every model. This module is their one
+writer. It runs after S5, so every id a record names
 resolves and the record rules hold, and before S6, whose checks compare against
 the ``default`` it writes.
 
@@ -32,7 +33,7 @@ _MODELS_FILE = "models.yaml"
 
 
 def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
-    """Fill the computed slots of each deck-bearing model's wiring records.
+    """Fill the computed slots of each model's wiring records.
 
     The slots are written in place on ``validated.document``:
 
@@ -43,8 +44,9 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
     * ``value_range``: ``[min_value, max_value]`` of the channel's limits
       record, when that record states both bounds.
 
-    Each filled slot is recorded in the record's ``provenance.defaults``. A
-    model without a deck is left untouched. The engine is reached through the
+    ``default`` waits for a deck; the other three are filled for every
+    model. Each filled slot is recorded in the record's ``provenance.defaults``. A
+    model without a deck loads no engine. The engine is reached through the
     ``osprey.simulation.engines`` entry-point group. A record the engine has
     no start value for is left unfilled and stops; the model's other records
     are still filled.
@@ -74,6 +76,10 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
     errors: list[FacilityBuildError] = []
     for model in document.get("models", []):
         if "deck" not in model:
+            for record in model.get("wiring", []):
+                if record["address"] in channels:
+                    address = record["address"]
+                    _fill_record(record, channels[address], limits.get(address))
             continue
         errors.extend(
             _fill_model(model, validated.facility_dir, engines, channels, limits, setpoint_of)
@@ -158,7 +164,7 @@ def _fill_model(
                 )
             )
             continue
-        _fill_record(record, values[address], channels[address], limits.get(address))
+        _fill_record(record, channels[address], limits.get(address), values[address])
     return errors
 
 
@@ -192,14 +198,14 @@ def element_stop(
 
 def _fill_record(
     record: dict[str, Any],
-    default: float | list[float],
     channel: Mapping[str, Any],
     limit: Mapping[str, Any] | None,
+    default: float | list[float] | None = None,
 ) -> None:
-    slots: dict[str, Any] = {
-        "direction": "write" if _role(channel) == "setpoint" else "read",
-        "default": default,
-    }
+    """Write a record's computed slots; ``default`` only when a deck gave one."""
+    slots: dict[str, Any] = {"direction": "write" if _role(channel) == "setpoint" else "read"}
+    if default is not None:
+        slots["default"] = default
     if "unit" in channel:
         slots["unit"] = channel["unit"]
     if limit is not None and "min_value" in limit and "max_value" in limit:

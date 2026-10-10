@@ -78,11 +78,11 @@ def _files(*extra_wiring: dict[str, Any], models: list[dict[str, Any]] | None = 
             *extra_wiring,
         ],
     }
-    texture = {"name": "texture", "engine": "texture", "wiring": [{"address": "T:X"}]}
+    plug = {"name": "plug", "engine": "pyat", "wiring": [{"address": "T:X"}]}
     return {
         "records/devices.yaml": [{"id": "SR/Q1", "class": "Quadrupole"}],
         "records/channels.yaml": channels,
-        "models.yaml": [sr, texture, *(models or [])],
+        "models.yaml": [sr, plug, *(models or [])],
         "limits.yaml": {"records": [{"address": "Q1:SP", "min_value": -3, "max_value": 4.5}]},
     }
 
@@ -177,10 +177,12 @@ class TestProvenance:
     def test_the_setpoint_records_all_four(self, filled):
         assert _filled_defaults(filled["SR/Q1:SP"]) == sorted(SLOTS)
 
-    def test_a_deck_less_model_is_untouched(self, filled):
-        record = filled["texture/T:X"]
-        assert not set(SLOTS) & set(record)
-        assert _filled_defaults(record) == []
+    def test_a_deck_less_model_gets_direction_unit_and_range(self, filled):
+        record = filled["plug/T:X"]
+        assert (record["direction"], record["unit"]) == ("read", "mm")
+        assert "default" not in record
+        assert "value_range" not in record
+        assert record["provenance"]["defaults"] == ["direction", "unit"]
 
 
 class TestStops:
@@ -286,4 +288,4 @@ def test_an_authored_computed_slot_is_never_overwritten() -> None:
     with pytest.raises(
         RuntimeError, match=r"wiring w1 already carries computed slots \['default'\]"
     ):
-        wiring_module._fill_record(record, 0.0, {"role": "setpoint"}, None)
+        wiring_module._fill_record(record, {"role": "setpoint"}, None, 0.0)
