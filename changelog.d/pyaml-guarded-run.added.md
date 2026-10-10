@@ -6,8 +6,8 @@ anything is read or written.
 `journaled_run` on the process's control target: a second run on the target is
 refused busy before the tool starts, each setpoint is journaled before its first
 write, a tool that stops part-way is written back before the call returns and
-reported on one `OSPREY_PYAML_RESTORE` line, and a killed run is written back by
-the next guarded run. Under `OSPREY_EXECUTION_DEADLINE` a tool that takes a
+reported on the guarded run's one `OSPREY_GUARDED_RUN_RESTORE` line, and a killed
+run is written back by the next guarded run. Under `OSPREY_EXECUTION_DEADLINE` a tool that takes a
 callback is stopped while the write-back still fits before the sandbox is killed.
 
 `pyaml_cs_osprey.measure.StepMeasurement` measures what pyAML's own tools step

@@ -38,6 +38,7 @@ from osprey.runtime.guarded_run import (
     OspreyRunBusy,
     lock,
 )
+from osprey.runtime.guarded_run import RESTORE_REPORT_TAG as RUNTIME_REPORT_TAG
 from osprey.runtime.journal import active_journals, read_pending_journal
 from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
 from pyaml_cs_osprey.catalog import parse_reference
@@ -60,7 +61,8 @@ def machine(
 
 
 def test_the_report_tag_is_the_one_the_executor_files() -> None:
-    """The executor files exactly the lines this tag starts."""
+    """The tag is the runtime's own, and the executor files exactly the lines it starts."""
+    assert REPORT_TAG is RUNTIME_REPORT_TAG
     assert REPORT_TAG == RESTORE_REPORT_TAG
 
 
@@ -177,6 +179,21 @@ class TestOutcomes:
         assert report.aborted is True
         assert report.restored == ["B"]
         assert machine.values["B"] == 2.0
+
+    def test_a_callback_stop_prints_one_report_line(
+        self, machine: _Machine, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The guarded run restores the stopped tool once and prints its one tagged line."""
+
+        def tool(callback: Callable[..., Any]) -> None:
+            machine.set("B", 7.0)
+            if not callback(Action.APPLY, {}):
+                raise KeyboardInterrupt
+
+        report = run_tool(tool, callback=lambda _action, _data: False)
+        out, err = capsys.readouterr()
+        assert _tagged(out) + _tagged(err) == [json.loads(report.to_json())]
+        assert [w for w in machine.writes if w[0] == "B"] == [("B", 7.0, {}), ("B", 2.0, {})]
 
     def test_a_real_keyboard_interrupt_restores_and_propagates_with_the_report(
         self, machine: _Machine, capsys: pytest.CaptureFixture[str]
@@ -416,10 +433,33 @@ class TestRestore:
         assert report.restored == ["A"]
         assert machine.values["A"] == 1.0
 
+    def test_a_callback_stop_in_a_nested_run_ends_the_outer_run_with_one_report(
+        self, machine: _Machine, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The outermost run restores what every level moved and prints the one line."""
+
+        def inner(callback: Callable[..., Any]) -> None:
+            machine.set("B", 6.0)
+            if not callback(Action.APPLY, {}):
+                raise KeyboardInterrupt
+
+        def outer() -> bool:
+            machine.set("A", 5.0)
+            run_tool(inner, callback=lambda _action, _data: False)
+            machine.set("C", 9.0)
+            return True
+
+        report = run_tool(outer)
+        assert report.aborted is True
+        assert report.restored == ["A", "B"]
+        assert machine.values == {"A": 1.0, "B": 2.0, "C": 3.0}
+        out, err = capsys.readouterr()
+        assert _tagged(out) + _tagged(err) == [json.loads(report.to_json())]
+
     def test_the_tagged_line_is_printed_once_per_return(
         self, machine: _Machine, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Each return prints exactly one ``OSPREY_PYAML_RESTORE`` line with the report."""
+        """Each return prints exactly one guarded-run report line with the report."""
 
         def tool() -> bool:
             machine.set("B", 6.0)
@@ -819,19 +859,16 @@ class TestSigintAbort:
     def test_sigint_in_nested_run_aborts_outer(
         self, sigint_child: Callable[[str], _SigintChild]
     ) -> None:
-        """A SIGINT inside a nested run aborts it and every enclosing run; nothing later runs."""
+        """A SIGINT inside a nested run aborts every enclosing run; the outermost reports once."""
         child = sigint_child("nested")
         child.interrupt_at("span")
         code, out, err, values = child.finish()
         assert code != 0
         report = _line(out, "INTERRUPTED")
-        assert report["restored"] == ["A"]
-        assert report["unchanged"] == ["B"]
+        assert report["aborted"] is True
+        assert report["restored"] == ["A", "B"]
         assert values == HOME
-        tagged = _tagged(err)
-        assert len(tagged) == 2
-        assert tagged[0]["restored"] == ["B"]
-        assert tagged[1] == report
+        assert _tagged(out) + _tagged(err) == [report]
 
     def test_run_tool_off_main_thread_no_handler(self, machine: _Machine) -> None:
         """Off the main thread no handler is installed; on it, the previous one comes back."""
