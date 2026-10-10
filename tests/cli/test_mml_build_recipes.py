@@ -292,15 +292,16 @@ def apply_seed_invalid_remedies(
     so its stderr is where the stops are read. Each line names one address, and
     exactly that record of the deployment's ``data/facility/limits.yaml`` is
     widened to hold the nominal the line states. The verb then runs once more,
-    render included, and must print the tree's response-check lines and
-    nothing else; a note a written view prints about its own index is that
+    render included, and must print the tree's build warnings and response-check
+    lines and nothing else; a note a written view prints about its own index is that
     view's fact, asserted by its own tests, and is not read here.
 
     Args:
         runner: The CLI runner.
         repo: The deployment repo.
-        responses: The response-check lines the clean run prints, in order; when
-            omitted, every line it prints must be a response-check line.
+        responses: The lines the clean run prints, in order (build warnings, then
+            response-check lines); when omitted, every line it prints must be a
+            response-check line.
 
     Returns:
         The widened addresses, in the order the stops were printed.
@@ -339,16 +340,17 @@ def expected_seed_stops(tree: str) -> frozenset[str]:
 
 
 def expected_response_lines(tree: str) -> tuple[str, ...]:
-    """The response-check lines a fixture tree's clean ``facility validate`` prints."""
+    """The lines a fixture tree's clean ``facility validate`` prints: its build warnings, then its response-check lines."""
     from tests.facility.test_response_check import (
         NSLS2_LINES,
         SPEAR3_LINE,
+        SPEAR3_WRAPPED_LINES,
         SYNTHETIC_LINE,
     )
 
     return {
         "nsls2": (NSLS2_LINES[0], NSLS2_LINES[1]),
-        "spear3": (SPEAR3_LINE,),
+        "spear3": (*SPEAR3_WRAPPED_LINES, SPEAR3_LINE),
         "synthetic": (SYNTHETIC_LINE,),
     }[tree]
 

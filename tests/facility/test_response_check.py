@@ -54,6 +54,17 @@ TREES: dict[str, tuple[str, ...]] = {
 SPEAR3_LINE = (
     "response check StorageRing: measured BPMx/HCM median ratio 0.922 (pass at 0.8 to 1.25)"
 )
+#: The spear3 export states two positions 14 µm past its periodic deck's end; a
+#: clean validate places them modulo the deck and prints one line per device
+#: before its response-check line.
+SPEAR3_WRAPPED_LINES = (
+    "facility: place-wrapped: device StorageRing/VG55_AM1 — layer mml states s 234.144"
+    " in periodic model StorageRing, outside its deck of length 234.143986; the device"
+    " is placed at s 1.35099997e-05; fix: state s 1.35099997e-05, or drop it",
+    "facility: place-wrapped: device StorageRing/VP28_AM1 — layer mml states s 234.144"
+    " in periodic model StorageRing, outside its deck of length 234.143986; the device"
+    " is placed at s 1.35099997e-05; fix: state s 1.35099997e-05, or drop it",
+)
 NSLS2_LINES = [
     "response check LTB: model BPMx/HCM inside band 1.000 (pass at 0.99)",
     "response check StorageRing: model BPMx/HCM inside band 1.000 (pass at 0.99)",
@@ -130,7 +141,7 @@ def spear3_blocks(spear3: Path) -> tuple[Block, ...]:
 # --- the verb -----------------------------------------------------------------------
 
 
-def test_a_measured_export_prints_one_line_and_exits_0(
+def test_a_measured_export_prints_its_wrapped_positions_then_one_line_and_exits_0(
     spear3: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     before = _snapshot(spear3)
@@ -138,7 +149,10 @@ def test_a_measured_export_prints_one_line_and_exits_0(
     result = _validate(spear3, monkeypatch)
 
     assert result.exit_code == 0, result.output
-    assert (result.stdout, result.stderr) == ("", SPEAR3_LINE + "\n")
+    assert (result.stdout, result.stderr) == (
+        "",
+        "\n".join((*SPEAR3_WRAPPED_LINES, SPEAR3_LINE)) + "\n",
+    )
     assert _snapshot(spear3) == before
 
 
