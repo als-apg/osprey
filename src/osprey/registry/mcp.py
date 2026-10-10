@@ -966,7 +966,7 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
     "pyat-specialist": AgentDefinition(
         name="pyat-specialist",
         # Loads each served model's deck; a render serving none has no agent.
-        condition="served_deck_models",
+        condition="served_decks",
         condition_need="a served model with a deck",
         server_dependency="python",
         description=(

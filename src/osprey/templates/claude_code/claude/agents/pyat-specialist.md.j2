@@ -37,7 +37,7 @@ avoids spurious write-approval prompts. Never use `execution_mode="readwrite"`.
 The models this deployment serves with a deck, each deck a pyAT lattice file under
 `data/simulator/decks/`:
 
-{% for model in served_deck_models %}- `{{ model }}`: `data/simulator/decks/{{ model }}.json`
+{% for deck in served_decks %}- `{{ deck.model }}`: `{{ deck.path }}`
 {% endfor %}
 Load a deck with `lattice = at.load_lattice(path)`, where `path` is one of the deck paths
 listed above; it returns an `at.Lattice`. These are the only models you compute on. A question about a
@@ -79,7 +79,7 @@ copy — never mutate the loaded lattice in place across the whole map:
 ```python
 import copy, at, numpy as np
 
-lattice = at.load_lattice("data/simulator/decks/{{ served_deck_models[0] }}.json")
+lattice = at.load_lattice("{{ served_decks[0].path }}")
 ring4d = copy.deepcopy(lattice)
 ring4d.disable_6d()          # in-place on the COPY, before any linear-optics call
 ```

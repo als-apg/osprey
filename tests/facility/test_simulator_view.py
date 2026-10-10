@@ -3,8 +3,8 @@
 ``render_facility_outputs`` writes ``served_models.json`` (the models the
 render's ``simulation.models`` serves, texture last), ``addresses.json`` (every
 channel address of the facility file and one status address per served physics
-model), ``decks/<model>.json`` (a byte copy of each deck-bearing model's deck,
-served or not), ``variables.json`` (every model with its wiring and every
+model), ``decks/<model><suffix>`` (a byte copy of each deck-bearing model's
+deck under its own suffix, served or not), ``variables.json`` (every model with its wiring and every
 channel with its write facts), ``seeds.json`` (each channel's seed record) and
 ``scenarios.json`` (every scenario's writes, with a byte copy of each file
 its logbook entries attach under ``scenarios/<name>/``) into each render's
@@ -401,6 +401,25 @@ def test_an_unserved_model_is_listed_as_not_served(
     assert models["SR"]["served"] is False
     assert models["SR"]["deck"] == "decks/SR.json"
     assert models[TEXTURE]["served"] is True
+
+
+def test_a_deck_keeps_its_suffix(tmp_path: Path, built_control_assistant: BuiltProject) -> None:
+    facility_dir = tmp_path / "facility"
+    shutil.copytree(built_control_assistant.facility_dir, facility_dir)
+    source = facility_dir / "decks" / "SR.mat"
+    source.write_bytes((facility_dir / "decks" / "SR.json").read_bytes())
+    facility = copy.deepcopy(built_control_assistant.facility)
+    (sr,) = [model for model in facility["models"] if model["name"] == "SR"]
+    sr["deck"] = "decks/SR.mat"
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+    render_facility_outputs(render_dir, facility, {}, facility_dir)
+
+    served = render_dir / "data" / "simulator" / "decks"
+    assert sorted(path.name for path in served.iterdir()) == ["LINE.json", "SR.mat"]
+    assert (served / "SR.mat").read_bytes() == source.read_bytes()
+    models = {m["name"]: m for m in _view(render_dir, VARIABLES)["models"]}
+    assert models["SR"]["deck"] == "decks/SR.mat"
 
 
 def test_channel_owner_is_the_wiring_model_else_texture(

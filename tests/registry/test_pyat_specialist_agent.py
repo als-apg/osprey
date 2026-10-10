@@ -47,7 +47,7 @@ def _base_ctx(**overrides):
     ctx = {
         "project_root": "/tmp/test-project",
         "current_python_env": "/usr/bin/python3",
-        "served_deck_models": ["SR"],
+        "served_decks": [{"model": "SR", "path": "data/simulator/decks/SR.json"}],
     }
     ctx.update(overrides)
     return ctx
@@ -152,7 +152,7 @@ class TestPyatSpecialistAgentResolved:
 
     def test_disabled_when_no_served_model_has_a_deck(self):
         """A render serving no deck-bearing model has nothing for the agent to load."""
-        ctx = _base_ctx(served_deck_models=[])
+        ctx = _base_ctx(served_decks=[])
         servers = resolve_servers({}, ctx)
         agents = resolve_agents({}, ctx, resolved_servers=servers)
         agent = _get_agent(agents)
@@ -161,7 +161,7 @@ class TestPyatSpecialistAgentResolved:
     def test_a_hand_enable_without_a_served_deck_leaves_it_out(self, caplog):
         """Switched on by hand with no deck to load, the agent stays out and the
         build says why in one line."""
-        ctx = _base_ctx(served_deck_models=[])
+        ctx = _base_ctx(served_decks=[])
         servers = resolve_servers({}, ctx)
         with caplog.at_level("WARNING", logger="osprey.registry.mcp"):
             agents = resolve_agents(

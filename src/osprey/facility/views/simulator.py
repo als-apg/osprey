@@ -4,7 +4,7 @@ Written into ``<render>/data/simulator/``::
 
     served_models.json   {schema: osprey.facility.served_models/1, models: [...]}
     addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...]}
-    decks/<model>.json   a byte copy of each deck-bearing model's deck
+    decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
     variables.json       {schema: osprey.facility.simulator/2, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
     scenarios.json       {schema: osprey.facility.scenarios/2, scenarios: [...]}
@@ -93,6 +93,7 @@ __all__ = [
     "SERVED_MODELS_SCHEMA",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
+    "served_deck_path",
     "simulator_wiring",
     "status_address",
     "write_simulator_view",
@@ -239,6 +240,22 @@ def _describer(model: Mapping[str, Any]) -> Callable[[Any], Mapping[str, Any]]:
     return described
 
 
+def served_deck_path(model: Mapping[str, Any]) -> str | None:
+    """The file the view serves a model's deck as, relative to the view.
+
+    Args:
+        model: A facility-file model record.
+
+    Returns:
+        ``decks/<model><suffix>``, the suffix of the deck the model names;
+        ``None`` for a model with no deck.
+    """
+    deck = model.get("deck")
+    if not deck:
+        return None
+    return f"{DECKS_DIR}/{model['name']}{Path(deck).suffix}"
+
+
 def _setpoint_pairs(channels: Iterable[Mapping[str, Any]]) -> frozenset[str]:
     """The readbacks the facility file pairs with a setpoint."""
     return frozenset(
@@ -365,7 +382,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
                 "engine": model.get("engine"),
                 "served": model["name"] in inputs.served,
                 "settings": copy.deepcopy(model.get("settings") or {}),
-                "deck": f"{DECKS_DIR}/{model['name']}.json" if model.get("deck") else None,
+                "deck": served_deck_path(model),
                 "wiring": simulator_wiring(doc, str(model["name"])),
             }
             for model in models
@@ -463,13 +480,12 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
 
     written.extend(_copy_scenario_files(root, inputs))
 
-    decks = root / DECKS_DIR
     for model in doc.get("models", []):
-        deck = model.get("deck")
-        if deck is None:
+        served = served_deck_path(model)
+        if served is None:
             continue
-        decks.mkdir(exist_ok=True)
-        target = decks / f"{model['name']}.json"
-        target.write_bytes((inputs.facility_dir / deck).read_bytes())
+        (root / DECKS_DIR).mkdir(exist_ok=True)
+        target = root / served
+        target.write_bytes((inputs.facility_dir / model["deck"]).read_bytes())
         written.append(target)
     return sorted(written)
