@@ -17,10 +17,6 @@ channel, restricted to the channels the repo's simulator view wires as a
 corrector or as a monitor, since the ORM plan sweeps correctors and reads monitors
 rather than arbitrary writable setpoints.
 
-The builders take a ``pre_build`` hook for a lane that edits the repo's source
-zone -- its facility tree -- after ``osprey init`` has created
-that zone and before ``osprey build`` renders it.
-
 Not a test module itself (no ``test_`` functions) -- the single source of
 this config for:
   * ``tests/deployment/test_compose_generator.py``'s ``orm_stack`` render
@@ -476,7 +472,6 @@ def build_via_cli_runner(
     bridge_port: int = BRIDGE_PORT,
     va_port: int = VA_CA_PORT,
     va_pva_port: int = VA_PVA_PORT,
-    pre_build: Callable[[Path], None] | None = None,
 ) -> Path:
     """In-process ``osprey init`` + ``osprey build`` (``CliRunner``, no
     subprocess/Docker) for fast render-only gates -- see
@@ -487,13 +482,6 @@ def build_via_cli_runner(
     Returns the RENDER -- ``<repo>/build`` -- because that is the directory
     holding config.yml and the compose files a caller goes on to read. The repo
     root above it is ``result.parent``.
-
-    ``pre_build``, when given, is called with the deployment REPO after
-    ``osprey init`` has written it and before ``osprey build`` renders it --
-    the only window in which a caller can edit the repo's source zone and
-    still have the build render the edit. It must not run BEFORE ``init``:
-    init copies the preset's ``data/`` into place without ``dirs_exist_ok``,
-    so a pre-created ``data/`` makes the copy fail outright.
     """
     from osprey.cli.build_cmd import build
     from osprey.cli.init_cmd import init
@@ -511,9 +499,6 @@ def build_via_cli_runner(
     )
     if result.exit_code != 0:
         raise AssertionError(f"osprey init failed (exit={result.exit_code}):\n{result.output}")
-
-    if pre_build is not None:
-        pre_build(repo)
 
     result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     if result.exit_code != 0:
@@ -550,7 +535,6 @@ def build_project_subprocess(
     provider: str | None = None,
     model: str | None = None,
     extra_config: dict[str, Any] | None = None,
-    pre_build: Callable[[Path], None] | None = None,
 ) -> Path:
     """Real ``osprey init`` + ``osprey build`` subprocesses for a deployment a
     caller will later ``osprey up`` (that step needs Docker; these don't -- they
@@ -566,9 +550,6 @@ def build_project_subprocess(
     ``init_args`` (see its docstring). All ``None`` by default, which preserves
     the exact default deploy shape (an empty ``extra_config`` is likewise a
     no-op).
-
-    ``pre_build`` is the same hook, with the same window and the same ordering
-    rule, as :func:`build_via_cli_runner` describes.
     """
     osprey_bin = find_osprey_console_script()
 
@@ -605,10 +586,6 @@ def build_project_subprocess(
             )
 
     run_step("osprey init", cmd)
-
-    # STRICTLY between the two verbs -- see the ``pre_build`` paragraph above.
-    if pre_build is not None:
-        pre_build(repo)
 
     run_step(
         "osprey build",
