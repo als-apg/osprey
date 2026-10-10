@@ -171,6 +171,7 @@ RETIRED: dict[str, str] = {
         "7d2"
     ),
     "src/osprey/templates/apps/control_assistant/data/lattice/als_u_ar.mat": "7d2",
+    "src/osprey/templates/apps/control_assistant/data/mml": "9",
     "src/osprey/templates/apps/control_assistant/data/simulation/lattice.json": "7d2",
     "src/osprey/templates/apps/control_assistant/data/simulation/machine.json": "7d2",
     "src/osprey/templates/apps/control_assistant/data/simulation/va_bindings.json": "7d2",
