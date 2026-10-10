@@ -17,6 +17,7 @@ import yaml
 
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.facility.validate import FACILITY_HEADER
 from osprey.services.auth_sidecar.app import ENV_WEB_APP_NAME
 
 
@@ -51,7 +52,7 @@ def _sidecar_env(artifacts: dict[str, str]) -> dict[str, str]:
 
 def _write_identity(render_root: Path, identity: dict) -> None:
     render_root.mkdir(parents=True, exist_ok=True)
-    document = {"schema": "osprey.facility.facility/1", "identity": identity}
+    document = {"schema": FACILITY_HEADER, "identity": identity}
     (render_root / "facility.json").write_text(json.dumps(document), encoding="utf-8")
 
 

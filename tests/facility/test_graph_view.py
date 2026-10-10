@@ -16,6 +16,7 @@ import pytest
 from rdflib import RDF, Graph, Literal, Namespace, URIRef
 
 from osprey.facility.render import facility_bytes
+from osprey.facility.validate import FACILITY_HEADER
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.facility.views.graph import GRAPH_FILE, HEADER_PREFIX, graph_text, write_graph_view
 from osprey.facility.views.graph_iri import iri
@@ -53,7 +54,7 @@ PREDICATES = {
 
 def _doc() -> dict[str, Any]:
     return {
-        "schema": "osprey.facility.facility/1",
+        "schema": FACILITY_HEADER,
         "identity": {"code": "fx"},
         "places": [
             {"id": "M", "level": "machine", "description": "The machine."},

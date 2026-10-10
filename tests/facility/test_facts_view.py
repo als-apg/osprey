@@ -22,7 +22,7 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
 from osprey.facility.render import render_facility_outputs
-from osprey.facility.validate import vocabulary
+from osprey.facility.validate import FACILITY_HEADER, vocabulary
 from osprey.facility.views.facts import (
     FACTS_FILE,
     FACTS_PAGE,
@@ -244,7 +244,7 @@ def test_a_render_with_no_facts_file_is_read_as_zero_sources(tmp_path: Path) -> 
 def test_a_render_with_only_a_facility_file_takes_its_identity(tmp_path: Path) -> None:
     identity = {"code": "demo", "name": "Demo Lab", "description": "A demonstration."}
     (tmp_path / "facility.json").write_text(
-        json.dumps({"schema": "osprey.facility.facility/1", "identity": identity}),
+        json.dumps({"schema": FACILITY_HEADER, "identity": identity}),
         encoding="utf-8",
     )
 

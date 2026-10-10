@@ -23,12 +23,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from osprey.facility.validate import FACILITY_HEADER
+
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
 pytestmark = [pytest.mark.slow]
 
-#: A header value: the document's name and its positive version.
+#: A header value: the document's name and its version.
 HEADER = re.compile(r"osprey\.facility\.[a-z_]+/[1-9][0-9]*")
 
 #: Files, by pattern relative to the render root, whose format is fixed outside
@@ -94,7 +96,7 @@ def test_the_facility_file_is_written_in_every_render_with_its_header(
     from osprey.facility.render import FACILITY_FILE
 
     for render in built_control_assistant.outputs:
-        assert json.loads(render.files[FACILITY_FILE])["schema"] == "osprey.facility.facility/1"
+        assert json.loads(render.files[FACILITY_FILE])["schema"] == FACILITY_HEADER
 
 
 def test_the_bluesky_devices_view_is_checked(built_control_assistant: BuiltProject) -> None:
@@ -183,7 +185,7 @@ def test_every_binary_exemption_is_written(
 @pytest.mark.parametrize(
     ("relative", "content", "problem"),
     [
-        ("facility.json", b'{"schema": "osprey.facility.facility/1"}', None),
+        ("facility.json", json.dumps({"schema": FACILITY_HEADER}).encode(), None),
         ("data/x/view.json", b'{"channels": []}', "top-level `schema` is None"),
         (
             "data/x/view.json",

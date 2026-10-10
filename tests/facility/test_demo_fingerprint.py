@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility.validate import FACILITY_HEADER
 from tests.facility.test_cf_view_parity import (
     FINGERPRINT_ROW_KEYS,
     FINGERPRINT_SHA256,
@@ -73,7 +74,7 @@ def test_the_facility_file_validates_as_the_model(built_control_assistant: Built
     from osprey.facility.schema import Facility
 
     Facility.model_validate(built_control_assistant.facility)
-    assert built_control_assistant.facility["schema"] == "osprey.facility.facility/1"
+    assert built_control_assistant.facility["schema"] == FACILITY_HEADER
 
 
 def test_the_sources_validate_clean(built_control_assistant: BuiltProject) -> None:
