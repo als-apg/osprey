@@ -25,20 +25,20 @@ from typing import Any
 import pytest
 
 from osprey_connectors import factory as factory_module
-from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
-#: The mock connector by dotted path, which ``resolve_target`` returns verbatim
+#: The in-process simulator by dotted path, which ``resolve_target`` returns verbatim
 #: for ``live`` — the whole real factory path with no Channel Access anywhere.
-MOCK_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+IN_PROCESS_TYPE = "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
 
 
 @pytest.fixture
-def registered_mock():
-    """Only the mock, so nothing in this file can dial a real control system."""
+def registered_in_process():
+    """No registered connector: the factory builds the simulator in process on its
+    own, so nothing in this file can dial a real control system."""
     with isolated_connector_registries(clear=True):
-        ConnectorFactory.register_control_system("mock", MockConnector)
         yield
 
 
@@ -110,25 +110,31 @@ def recording_factory(monkeypatch: pytest.MonkeyPatch) -> _RecordingFactory:
 
 class TestFactoryStamp:
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("registered_mock")
+    @pytest.mark.usefixtures("registered_in_process")
     async def test_named_target_reaches_the_instance(self, tmp_path):
         connector = await ConnectorFactory.create_control_system_connector(
-            {"type": "mock", "connector": {"mock": mock_config(served_tree(tmp_path))}},
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": in_process_config(served_tree(tmp_path))},
+            },
             control_target="standin",
         )
         try:
             assert connector._control_target == "standin"
             # The type stamp is untouched: the two are independent.
-            assert connector._connector_type == "mock"
+            assert connector._connector_type == "virtual_accelerator"
         finally:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("registered_mock")
+    @pytest.mark.usefixtures("registered_in_process")
     async def test_target_defaults_to_none(self, tmp_path):
         """Every pre-existing caller keeps working, naming no target."""
         connector = await ConnectorFactory.create_control_system_connector(
-            {"type": "mock", "connector": {"mock": mock_config(served_tree(tmp_path))}}
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": in_process_config(served_tree(tmp_path))},
+            }
         )
         try:
             assert connector._control_target is None
@@ -137,7 +143,7 @@ class TestFactoryStamp:
 
     def test_unbuilt_connector_names_no_target(self):
         """An instance nobody built through the factory has the same default."""
-        assert MockConnector()._control_target is None
+        assert VAInProcessConnector()._control_target is None
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +153,7 @@ class TestFactoryStamp:
 
 class TestConnectorHostChild:
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("registered_mock")
+    @pytest.mark.usefixtures("registered_in_process")
     async def test_child_stamps_the_payload_target(self, tmp_path, monkeypatch):
         """The init payload's target, through the real ``_build_connector``."""
         from osprey_connectors.ipc import host
@@ -158,8 +164,8 @@ class TestConnectorHostChild:
         connector, report = await host._build_connector(
             {
                 "control_system": {
-                    "type": MOCK_TYPE,
-                    "connector": {MOCK_TYPE: mock_config(view, response_delay_ms=0)},
+                    "type": IN_PROCESS_TYPE,
+                    "connector": {IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=0)},
                 },
                 "target": "live",
             }
@@ -171,7 +177,7 @@ class TestConnectorHostChild:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    @pytest.mark.usefixtures("registered_mock")
+    @pytest.mark.usefixtures("registered_in_process")
     async def test_child_stamps_a_target_that_is_not_the_baseline(self, tmp_path, monkeypatch):
         """A child on ``va`` says ``va`` even though the section's own type is live."""
         from osprey_connectors.ipc import host
@@ -181,7 +187,7 @@ class TestConnectorHostChild:
         connector, _ = await host._build_connector(
             {
                 "control_system": {
-                    "type": MOCK_TYPE,
+                    "type": IN_PROCESS_TYPE,
                     "connector": {"virtual_accelerator": {"channel_prefix": "VA:"}},
                 },
                 "target": "va",
@@ -215,7 +221,14 @@ class TestRuntimeSandbox:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv(runtime.ENV_CONTROL_TARGET, "va")
         # The config half is not what is under test here; keep it out of reach.
-        monkeypatch.setattr(runtime, "_target_connector_config", lambda: {"type": "mock"})
+        monkeypatch.setattr(
+            runtime,
+            "_target_connector_config",
+            lambda: {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            },
+        )
 
         await runtime._get_connector()
 
@@ -377,7 +390,7 @@ class TestBlueskyWorker:
 
         self._patch_lane(
             monkeypatch,
-            connector_type="mock",
+            connector_type="virtual_accelerator",
             lane_target="live",
             degraded="Lane 'bluesky' declares the 'live' target, which this deployment cannot "
             "resolve to a control system",

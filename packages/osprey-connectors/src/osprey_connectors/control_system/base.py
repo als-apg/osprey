@@ -888,6 +888,16 @@ class ControlSystemConnector(ABC):
     # bridge lane's own target. Stays None on an instance nobody built through
     # the factory, and on a caller that has no target to name.
     _control_target: str | None = None
+    # The wire this instance speaks, stamped by the same factory seam from the
+    # type and the serving leaf. Stays None on an instance nobody built through
+    # the factory.
+    _transport: str | None = None
+
+    @property
+    def transport(self) -> str | None:
+        """The factory-stamped wire this instance speaks (``None`` off the factory)."""
+        return self._transport
+
     # What the last :attr:`_writes_enabled` evaluation saw in the posture store,
     # so the refusal it leads to can name the right cause without reading the
     # store a second time — a narrowing lifted between the two reads would

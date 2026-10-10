@@ -6,7 +6,7 @@ import pytest
 
 from osprey.connectors import types
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 
 
@@ -52,7 +52,7 @@ class TestDynamicConnectorImport:
             ),
             pytest.param(
                 "moat",
-                "Unknown control system type: 'moat'. Available types: ['mock']. "
+                "Unknown control system type: 'moat'. Available types: ['virtual_accelerator']. "
                 "Use a dotted module path for custom connectors.",
                 id="unknown-name-lists-available",
             ),
@@ -61,7 +61,7 @@ class TestDynamicConnectorImport:
     @pytest.mark.asyncio
     async def test_an_unusable_control_system_type_is_refused(self, connector_type, message):
         """Mirrors ``TestArchiverTypeResolution`` for the control-system side."""
-        ConnectorFactory.register_control_system(types.MOCK, MockConnector)
+        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, VAInProcessConnector)
 
         with pytest.raises(ValueError) as caught:
             await ConnectorFactory.create_control_system_connector(
