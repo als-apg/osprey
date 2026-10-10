@@ -12,8 +12,10 @@ a deck sits a physics model built through the `LUME
 pyAT lattice as a ``LUMEModel`` via ``lume-pyat``, so that writing a corrector
 moves the orbit that the BPMs report. The texture model serves every channel no
 model wires, so a client sees one machine rather than a physics island
-surrounded by dead addresses. The ``mock`` connector serves the same view
-in-process.
+surrounded by dead addresses. Served in process
+(``control_system.connector.virtual_accelerator.serving: in_process``), the
+same simulator reads the same view through the same composite, with no
+container and no network.
 
 This page is about how those pieces fit. Running one, and the
 ``control_system.type`` switch that selects it, are in

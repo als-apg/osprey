@@ -54,8 +54,9 @@ deployment has the ones its config describes, which is often two:
        machine on every deployment.
    * - ``va``
      - The virtual accelerator: a simulator this deployment stands up, serving
-       the same channel names over real Channel Access. A write here moves
-       nothing real.
+       the same channel names from its container over real Channel Access, or
+       in this process (see :ref:`va-two-venues`). A write here moves nothing
+       real.
    * - ``standin``
      - The **live stand-in**: a second soft IOC the deployment runs for itself,
        configured from its own ``control_system.connector.live_standin`` block.
@@ -319,6 +320,10 @@ nobody deployed is unavailable.
        build profile asks for a stand-in. See `Rehearse on a stand-in live
        machine`_.
 
+A deployment serving the simulator in process is switchable like any simulator
+deployment: with a ``live`` or ``standin`` block in its config, it moves between
+the in-process ``va`` and those targets the same way.
+
 One key is not filled in for you. Each target names a ``probe_channel`` — the
 channel the switch reads to prove that target is reachable:
 
@@ -496,11 +501,12 @@ not usable right now".
        its own right, and it must not sit behind a soft label. Use ``live`` for
        the machine your facility runs.
    * - **A simulated present with an invented past**
-     - Switching to a machine this deployment stands up for itself — the virtual
-       accelerator or the stand-in — is refused while the deployment's archiver
-       is the mock one, which makes history up at read time. The pairing would
-       put a made-up past next to a modelled present with nothing linking them.
-       See "The honesty rule" in :doc:`use-virtual-accelerator`.
+     - Switching to a machine this deployment stands up for itself and serves
+       over the network — the virtual accelerator from its container, or the
+       stand-in — is refused while the deployment's archiver is the mock one,
+       which makes history up at read time. The pairing would put a made-up past
+       next to a modelled present with nothing linking them. See "The honesty
+       rule" in :doc:`use-virtual-accelerator`.
    * - **The live machine's gates**
      - The operator acknowledgment, or the archive that belongs to the stand-in.
        Both are the live machine's alone. See `Go live`_.

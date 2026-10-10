@@ -4,8 +4,9 @@ Control Systems
 
 A connector is OSPREY's single interface to a control system. The agent, the
 plans and the safety layers are all written against that one interface, which
-is what makes the machine underneath it interchangeable: a mock for
-development, a simulator for rehearsal, the real hardware for production.
+is what makes the machine underneath it interchangeable: the simulator in
+process for development, the simulator served from its container for
+rehearsal, the real hardware for production.
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -16,8 +17,8 @@ development, a simulator for rehearsal, the real hardware for production.
       :shadow: md
 
       The two-layer connector abstraction, the connectors that ship in-tree,
-      and where to register your own -- and mock to production is a change of
-      ``control_system.type``, not of code.
+      and where to register your own -- and simulator to production is a
+      change of ``control_system.type``, not of code.
 
    .. grid-item-card:: Use the Virtual Accelerator
       :link: use-virtual-accelerator
