@@ -53,23 +53,8 @@ from osprey_connectors.workspace import reset_config_cache
 #: The generation this process is stamped with.
 GENERATION = 4
 
-#: A ``PreToolUse`` rule that runs the approval hook, as a render writes it.
-_APPROVAL_RULE = {
-    "matcher": "mcp__python__execute",
-    "hooks": [
-        {
-            "type": "command",
-            "command": '"/venv/bin/python" .claude/hooks/osprey_approval.py',
-            "timeout": 60,
-        }
-    ],
-}
-
-#: A ``PreToolUse`` rule that runs some other hook.
-_OTHER_RULE = {
-    "matcher": "mcp__python__execute",
-    "hooks": [{"type": "command", "command": "python3 .claude/hooks/osprey_writes_check.py"}],
-}
+#: An ``approval`` block whose hook is wired and puts every tool's call to a human.
+_ASKING = {"enabled": True, "default_policy": "always", "hook_wired": True}
 
 
 class _Channels:
@@ -103,25 +88,17 @@ def _write_config(root: Path, approval: dict[str, Any] | None = None) -> None:
     reset_config_cache()
 
 
-def _write_settings(root: Path, *rules: dict[str, Any]) -> None:
-    claude = root / "build" / ".claude"
-    claude.mkdir(parents=True, exist_ok=True)
-    settings = {"hooks": {"PreToolUse": list(rules)}}
-    (claude / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
-
-
 @pytest.fixture(autouse=True)
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A host deployment repo on a live baseline, entered and stamped ``live``.
 
     The approval hook is wired and every tool's call is put to a human; a test
-    that wants otherwise rewrites the config or the settings.
+    that wants otherwise rewrites the config.
     """
     root = tmp_path / "repo"
     (root / "build").mkdir(parents=True)
     (root / "profile.yml").write_text("name: probe\n", encoding="utf-8")
-    _write_config(root, {"enabled": True, "default_policy": "always"})
-    _write_settings(root, _OTHER_RULE, _APPROVAL_RULE)
+    _write_config(root, _ASKING)
     monkeypatch.chdir(root)
     monkeypatch.setenv(ENV_CONTROL_TARGET, "live")
     monkeypatch.setenv(ENV_CONTROL_TARGET_GENERATION, str(GENERATION))
@@ -292,11 +269,12 @@ def test_a_call_carrying_only_the_digest_refuses_when_its_tool_asks(
 
 
 @pytest.mark.parametrize(
-    ("approval", "rules"),
+    "approval",
     [
-        pytest.param({"enabled": True, "tools": {"execute": "skip"}}, [_APPROVAL_RULE], id="skip"),
-        pytest.param({"enabled": False}, [_APPROVAL_RULE], id="approval-disabled"),
-        pytest.param({"enabled": True, "default_policy": "always"}, [_OTHER_RULE], id="no-hook"),
+        pytest.param({**_ASKING, "tools": {"execute": "skip"}}, id="skip"),
+        pytest.param({**_ASKING, "enabled": False}, id="approval-disabled"),
+        pytest.param({**_ASKING, "hook_wired": False}, id="no-hook"),
+        pytest.param({"enabled": True, "default_policy": "always"}, id="hook-unstated"),
     ],
 )
 def test_a_call_whose_tool_never_asks_restores_its_own_generation(
@@ -304,10 +282,8 @@ def test_a_call_whose_tool_never_asks_restores_its_own_generation(
     channels: _Channels,
     monkeypatch: pytest.MonkeyPatch,
     approval: dict[str, Any],
-    rules: list[dict[str, Any]],
 ) -> None:
     _write_config(repo, approval)
-    _write_settings(repo, *rules)
     path = _plant({"Q": 0.0})
     _approve(monkeypatch, None, None)
 
@@ -337,7 +313,7 @@ def test_a_stale_journal_names_the_approval_remedy_when_the_tool_asks(
 def test_a_stale_journal_names_the_remove_remedy_with_approval_disabled(
     repo: Path, channels: _Channels
 ) -> None:
-    _write_config(repo, {"enabled": False})
+    _write_config(repo, {**_ASKING, "enabled": False})
     path = _plant({"Q": 0.0}, generation=GENERATION - 1)
 
     with pytest.raises(OspreyStaleJournal) as caught, lock(None):
@@ -350,7 +326,7 @@ def test_a_stale_journal_names_the_remove_remedy_with_approval_disabled(
 def test_a_stale_journal_names_the_remove_remedy_without_the_approval_hook(
     repo: Path, channels: _Channels
 ) -> None:
-    _write_settings(repo, _OTHER_RULE)
+    _write_config(repo, {**_ASKING, "hook_wired": False})
     path = _plant({"Q": 0.0}, generation=GENERATION - 1)
 
     with pytest.raises(OspreyStaleJournal) as caught, lock(None):
@@ -362,13 +338,25 @@ def test_a_stale_journal_names_the_remove_remedy_without_the_approval_hook(
 
 def test_approval_asks_reads_the_policy_and_the_wired_hook(repo: Path) -> None:
     assert approval_asks("execute") is True
-    _write_config(repo, {"enabled": True, "default_policy": "always", "tools": {"execute": "skip"}})
+    _write_config(repo, {**_ASKING, "tools": {"execute": "skip"}})
     assert approval_asks("execute") is False
     assert approval_asks("execute_file") is True
     assert approval_asks(None) is True, "any guarded tool that asks"
-    _write_settings(repo, _OTHER_RULE)
+    _write_config(repo, {**_ASKING, "hook_wired": False})
     assert approval_asks("execute_file") is False
     assert approval_asks(None) is False
+
+
+def test_approval_asks_never_reads_the_rendered_settings(repo: Path) -> None:
+    """A hook rule in ``.claude/settings.json`` says nothing; the config does."""
+    claude = repo / "build" / ".claude"
+    claude.mkdir()
+    rule = {"hooks": [{"type": "command", "command": "python3 .claude/hooks/osprey_approval.py"}]}
+    (claude / "settings.json").write_text(
+        json.dumps({"hooks": {"PreToolUse": [rule]}}), encoding="utf-8"
+    )
+    _write_config(repo, {**_ASKING, "hook_wired": False})
+    assert approval_asks("execute") is False
 
 
 def test_an_incomplete_replay_keeps_exactly_the_entries_left_displaced(

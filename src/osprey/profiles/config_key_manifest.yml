@@ -757,6 +757,15 @@ keys:
       true or false. true applies the approval hook, so every hook-wired tool
       call follows the policies below; false applies none of them and leaves
       those tools to the rendered settings.json permissions alone.
+  approval.hook_wired:
+    evidence: '_approval_section\(rendered\)\.get\("hook_wired"\)'
+    note: >-
+      Rendered by the framework template from the profile's `hooks:` list, never
+      stated in a `config:` block (cli/derived_keys refuses the spelling). At
+      run time nothing holds the profile, so this is where a guarded run reads
+      whether the approval hook is in front of its tool's call
+      (build_posture_check.asks_in_render).
+    default: false
   approval.default_policy:
     all-templates: true
     same-value: true
@@ -3569,6 +3578,7 @@ render_contexts:
     environment_python: null
     environment_packages: []
     environment_inherit_exclude: []
+    approval_hook_wired: false
   note_computed_context: >-
     osprey_ports, builtin_panels and provider_catalog are NOT spelled here. Each
     has exactly one home in the tree — the port layout, the panel registry and
@@ -3619,7 +3629,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 345
+  expected_union_size: 346
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

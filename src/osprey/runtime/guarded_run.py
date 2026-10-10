@@ -144,9 +144,6 @@ APPROVED_NO_JOURNAL = "none"
 #: :class:`RestoreReport` as a single JSON object.
 RESTORE_REPORT_TAG = "OSPREY_GUARDED_RUN_RESTORE"
 
-#: The hook script whose ``PreToolUse`` rule puts a guarded tool's call to a human.
-_APPROVAL_HOOK_SCRIPT = "osprey_approval.py"
-
 #: The executor's spelling of "no recorded control target". It names no
 #: machine, so it is never a directory; it resolves to the baseline's name.
 _BASELINE_STAND_IN = "baseline"
@@ -649,38 +646,14 @@ def _clear_journal(path: Path) -> None:
         durable.close()
 
 
-def _hook_wired(settings_path: Path) -> bool:
-    """Whether the settings at *settings_path* run the approval hook before a tool call.
-
-    True when a ``PreToolUse`` rule has a hook whose command names
-    :data:`_APPROVAL_HOOK_SCRIPT`. A missing or unreadable file runs no hook.
-    """
-    try:
-        settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
-    hooks = settings.get("hooks") if isinstance(settings, dict) else None
-    rules = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
-    for rule in rules if isinstance(rules, list) else ():
-        entries = rule.get("hooks") if isinstance(rule, dict) else None
-        for entry in entries if isinstance(entries, list) else ():
-            command = entry.get("command") if isinstance(entry, dict) else None
-            if isinstance(command, str) and _APPROVAL_HOOK_SCRIPT in command:
-                return True
-    return False
-
-
 def approval_asks(tool: str | None) -> bool:
     """Whether a call of the guarded *tool* is put to a human before it runs.
 
-    The rendered ``config.yml`` decides the policy and the render's
-    ``.claude/settings.json``, beside it, whether the approval hook is wired at
-    all (a ``PreToolUse`` rule whose command names ``osprey_approval.py``);
-    both are handed to :func:`osprey.cli.build_posture_check.ask_capable`, the
-    rule the build checks profiles with. The render is the config's directory
-    in every layout: ``build/`` in a host repo, the project root in a
-    container. One reading answers both what a call without an approved digest
-    does and which remedy a stale journal names.
+    Read from the rendered ``config.yml`` alone, by
+    :func:`osprey.cli.build_posture_check.asks_in_render`: the build records
+    there whether the approval hook is wired (``approval.hook_wired``), beside
+    the policies the hook applies. One reading answers both what a call without
+    an approved digest does and which remedy a stale journal names.
 
     Args:
         tool: The tool's short name, as ``approval.tools`` keys it. ``None``,
@@ -690,14 +663,12 @@ def approval_asks(tool: str | None) -> bool:
     Returns:
         ``True`` when the approval hook asks about such a call.
     """
-    from osprey.cli.build_posture_check import APPROVAL_HOOK, GUARDED_TOOLS, ask_capable
-    from osprey_connectors.workspace import load_osprey_config, resolve_config_path
+    from osprey.cli.build_posture_check import GUARDED_TOOLS, asks_in_render
+    from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
-    settings_path = resolve_config_path().parent / ".claude" / "settings.json"
-    selected = [APPROVAL_HOOK] if _hook_wired(settings_path) else []
     tools = GUARDED_TOOLS if tool is None else (tool,)
-    return any(ask_capable(config, selected, name) for name in tools)
+    return any(asks_in_render(config, name) for name in tools)
 
 
 def _open_approved_call(tool: str) -> None:

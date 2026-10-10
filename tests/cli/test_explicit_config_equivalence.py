@@ -1340,6 +1340,25 @@ def _standalone_picker_deltas() -> tuple[Delta, ...]:
     return (Delta(document="root", path="web.control_target_picker", fixture=ABSENT, live=False),)
 
 
+def _approval_hook_wired_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The record of a wired approval hook every document gains.
+
+    Every preset selects the approval hook, and the build records the selection
+    in the render as ``approval.hook_wired``. The fixtures were frozen before
+    the key existed.
+
+    Args:
+        *documents: The documents of the cell.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="approval.hook_wired", fixture=ABSENT, live=True)
+        for document in documents
+    )
+
+
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # The posture floor makes `hooks.debug` unconditional, and hello-world is the
     # one preset whose app template never carried it (Requirement 1). The other
@@ -1356,8 +1375,10 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
         *_simulation_models_deltas("root"),
         *_simulation_tick_deltas("root"),
         *_llama_cpp_catalog_deltas("root"),
+        *_approval_hook_wired_deltas("root"),
     ),
     "ariel-standalone/unset": _standalone_catalog_delta()
+    + _approval_hook_wired_deltas("root")
     + _facility_name_deltas()
     + _entry_publish_deltas("root")
     + _rail_tool_deltas("root")
@@ -1369,6 +1390,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _picture_module_deltas("root")
     + _standalone_picker_deltas(),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
+    + _approval_hook_wired_deltas("root")
     + _facility_name_deltas()
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
@@ -1377,6 +1399,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _standalone_picker_deltas()
     + _in_context_index_deltas("root"),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
+    + _approval_hook_wired_deltas("root")
     + _facility_name_deltas()
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
@@ -1385,6 +1408,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _standalone_picker_deltas()
     + _hierarchical_index_deltas("root"),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
+    + _approval_hook_wired_deltas("root")
     + _facility_name_deltas()
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
@@ -1393,6 +1417,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _standalone_picker_deltas()
     + _middle_layer_index_deltas("root"),
     "control-assistant/in_context": _control_assistant_persona_deltas()
+    + _approval_hook_wired_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1426,6 +1451,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _persona_catalog_project_deltas()
     + _in_context_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
+    + _approval_hook_wired_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1459,6 +1485,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _persona_catalog_project_deltas()
     + _hierarchical_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
+    + _approval_hook_wired_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1492,6 +1519,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _persona_catalog_project_deltas()
     + _middle_layer_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/graph": _control_assistant_persona_deltas()
+    + _approval_hook_wired_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)

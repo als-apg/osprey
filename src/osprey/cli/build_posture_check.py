@@ -48,7 +48,9 @@ a human sees that replay. A guarded tool whose policy is ``skip`` while
 ``channel_write`` still prompts would replay setpoints no one was asked about,
 so the build stops on it naming both keys. :func:`effective_policy` and
 :func:`ask_capable` are the one reading of a tool's policy that the check and
-the guarded run share.
+the guarded run share. At run time nothing holds the profile, so the build
+records its ``hooks:`` answer in the render as ``approval.hook_wired`` and
+:func:`asks_in_render` reads the whole question back from the render alone.
 """
 
 from __future__ import annotations
@@ -65,6 +67,7 @@ __all__ = [
     "REQUIRED_WITH_APPROVAL_HOOK",
     "REQUIRED_WITH_CONTROLS",
     "ask_capable",
+    "asks_in_render",
     "check_guarded_tool_policies",
     "effective_policy",
     "missing_posture_errors",
@@ -292,6 +295,24 @@ def ask_capable(rendered: Mapping[str, Any], selected_hooks: Iterable[str], tool
     if not _approval_section(rendered).get("enabled", True):
         return False
     return effective_policy(rendered, tool) != SKIP_POLICY
+
+
+def asks_in_render(rendered: Mapping[str, Any], tool: str) -> bool:
+    """Whether a call of *tool* is put to a human, read from the render alone.
+
+    :func:`ask_capable` with the hook selection the build recorded in the
+    render: the approval hook counts as selected only when
+    ``approval.hook_wired`` is ``true``.
+
+    Args:
+        rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+
+    Returns:
+        ``True`` when the approval hook is wired and can ask about *tool*.
+    """
+    wired = _approval_section(rendered).get("hook_wired") is True
+    return ask_capable(rendered, [APPROVAL_HOOK] if wired else [], tool)
 
 
 def check_guarded_tool_policies(rendered: Mapping[str, Any]) -> None:

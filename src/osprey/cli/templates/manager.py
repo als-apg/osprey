@@ -571,6 +571,12 @@ class TemplateManager:
         # literal and never re-derives a base of its own.
         ctx["osprey_ports"] = layout_ports(ctx.get("port_base", DEFAULT_PORT_BASE))
 
+        # Whether this render runs the approval hook, for the one config key
+        # that records it: at run time nothing holds the profile's `hooks:`.
+        from osprey.cli.build_posture_check import APPROVAL_HOOK
+
+        ctx["approval_hook_wired"] = APPROVAL_HOOK in ctx["selected_hooks"]
+
         # Derive channel finder configuration when the channel-finder agent
         # is selected (either explicitly via build profile artifacts, or via
         # the preset-profile fallback above for programmatic callers).

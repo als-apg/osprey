@@ -564,9 +564,11 @@ class ConfigKeyGuard:
     def _preset_context(self, profile: Any) -> dict[str, Any]:
         """The framework-render context a build of *profile* would use."""
         from osprey.cli.build_cmd import _ariel_server_enabled
+        from osprey.cli.build_posture_check import APPROVAL_HOOK
         from osprey.cli.templates.manager import _enable_flags
 
         ctx = self.framework_base()
+        ctx["approval_hook_wired"] = APPROVAL_HOOK in (profile.hooks or [])
         ctx["default_provider"] = profile.provider
         ctx["default_model"] = profile.model
         mode = profile.channel_finder_mode

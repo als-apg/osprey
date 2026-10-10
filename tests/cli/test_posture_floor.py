@@ -42,6 +42,7 @@ from osprey.cli.build_posture_check import (
     REQUIRED_WITH_APPROVAL_HOOK,
     REQUIRED_WITH_CONTROLS,
     ask_capable,
+    asks_in_render,
     check_guarded_tool_policies,
     effective_policy,
     missing_posture_errors,
@@ -306,6 +307,26 @@ class TestAskCapable:
     def test_a_skip_policy_is_not_ask_capable(self) -> None:
         rendered = _rendered(approval=_approval(pyaml_measure="skip"))
         assert not ask_capable(rendered, [APPROVAL_HOOK], "pyaml_measure")
+
+
+class TestAsksInRender:
+    """The same question at run time, with the hook selection read from the render."""
+
+    def test_a_wired_hook_and_a_prompting_policy_asks(self) -> None:
+        rendered = _rendered(approval={**_approval(), "hook_wired": True})
+        assert asks_in_render(rendered, "execute_file")
+
+    @pytest.mark.parametrize("stated", [False, None, "true", 1])
+    def test_anything_but_true_is_no_hook(self, stated: Any) -> None:
+        rendered = _rendered(approval={**_approval(), "hook_wired": stated})
+        assert not asks_in_render(rendered, "execute_file")
+
+    def test_an_unstated_answer_is_no_hook(self) -> None:
+        assert not asks_in_render(_rendered(approval=_approval()), "execute_file")
+
+    def test_a_skip_policy_under_a_wired_hook_does_not_ask(self) -> None:
+        rendered = _rendered(approval={**_approval(execute="skip"), "hook_wired": True})
+        assert not asks_in_render(rendered, "execute")
 
 
 class TestGuardedToolPolicies:
