@@ -146,12 +146,64 @@ def test_an_address_a_write_field_names_is_a_setpoint_whichever_field_named_it_f
     channel = _by_id(_rows(spear3, "channels.yaml"))[address]
     assert channel["role"] == "setpoint"
     assert "pair" not in channel
-    assert list(channel) == ["id", "on", "role", "unit", "description"]
+    assert list(channel) == ["id", "on", "role", "tolerance", "unit", "description"]
     described = yaml.safe_load((spear3 / MAPPING_FILE).read_text(encoding="utf-8"))
     fields = described["families"]["RF"]["fields"]
     assert fields["Setpoint"]["description"] != fields["Monitor"]["description"]
     assert channel["description"] == fields["Setpoint"]["description"]
     assert channel["unit"] == family["Setpoint"]["HWUnits"]
+
+
+def _setpoint(tree: str, family: str, index: int = 0) -> str:
+    stem = TREES[tree][0]
+    ao = json.loads((FIXTURES / tree / f"{stem}.ao.json").read_text())
+    names = ao[family]["Setpoint"]["ChannelNames"]
+    return (names[index] if isinstance(names, list) else names).strip()
+
+
+def test_a_setpoint_takes_its_exports_tolerance(spear3: Path, tmp_path: Path) -> None:
+    nsls2 = _import(tmp_path, "nsls2")
+
+    assert _by_id(_rows(spear3, "channels.yaml"))[_setpoint("spear3", "HCM")]["tolerance"] == {
+        "absolute": 0.101
+    }
+    assert _by_id(_rows(nsls2, "channels.yaml"))[_setpoint("nsls2", "HCM")]["tolerance"] == {
+        "absolute": 0.01
+    }
+
+
+def test_a_per_element_tolerance_is_sliced(tmp_path: Path) -> None:
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    for source in sorted((FIXTURES / "spear3").glob("spear3.storagering.*")):
+        shutil.copyfile(source, exports / source.name)
+    ao_path = exports / "spear3.storagering.ao.json"
+    ao = json.loads(ao_path.read_text())
+    count = len(ao["HCM"]["Setpoint"]["Tolerance"])
+    ao["HCM"]["Setpoint"]["Tolerance"] = [0.1 + i / 100 for i in range(count)]
+    ao_path.write_text(json.dumps(ao), encoding="utf-8")
+    facility = _facility(tmp_path, "spear3")
+
+    import_mml([ao_path], facility)
+
+    channels = _by_id(_rows(facility, "channels.yaml"))
+    assert channels[_setpoint("spear3", "HCM", 3)]["tolerance"] == {"absolute": 0.1 + 3 / 100}
+
+
+def test_an_eps_or_infinite_tolerance_writes_none(
+    spear3: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    nsls2 = _import(tmp_path, "nsls2")
+    ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
+    voltage = ao["RF"]["VoltageCtrl"]["ChannelNames"].strip()
+
+    assert "tolerance" not in _by_id(_rows(nsls2, "channels.yaml"))[_setpoint("nsls2", "RF")]
+    assert "tolerance" not in _by_id(_rows(spear3, "channels.yaml"))[voltage]
+    assert re.search(
+        r"^\d+ setpoint devices export no usable `Setpoint.Tolerance`$",
+        capsys.readouterr().out,
+        re.MULTILINE,
+    )
 
 
 def test_the_imported_tree_loads_with_its_mapping_beside_the_records(spear3: Path) -> None:

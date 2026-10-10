@@ -101,6 +101,7 @@ from osprey.facility.layers.mml.mapping import (
     TuneBlock,
     _text,
     check_mapping,
+    exported_number,
     field_roles,
     load_or_draft,
 )
@@ -139,6 +140,9 @@ _TWISS_KEYS: tuple[tuple[str, str], ...] = (
     ("closed_orbit", "ClosedOrbit"),
 )
 
+#: The largest exported ``Tolerance`` that states none: a machine-epsilon placeholder.
+_NO_TOLERANCE = 1e-12
+
 #: The keys of a channel record, in the order they are written.
 _CHANNEL_KEYS = (
     "id",
@@ -146,6 +150,7 @@ _CHANNEL_KEYS = (
     "on",
     "role",
     "pair",
+    "tolerance",
     "signal",
     "value_type",
     "shape",
@@ -374,7 +379,9 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
     if problems:
         raise MappingProblems(facility_dir / MAPPING_FILE, problems)
     judged, views = _carried(exports, mapping)
-    written = _write_records(exports, mapping, facility_dir, judged, views)
+    written, untoleranced = _write_records(exports, mapping, facility_dir, judged, views)
+    if untoleranced:
+        click.echo(f"{untoleranced} setpoint devices export no usable `Setpoint.Tolerance`")
     seeded = seed_once(exports, mapping, facility_dir, views)
     for line in seeded.lines:
         click.echo(line)
@@ -412,7 +419,7 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
     if unnamed:
         raise MappingProblems(facility_dir / MAPPING_FILE, unnamed)
     judged, views = _carried(exports, mapping)
-    return _write_records(exports, mapping, facility_dir, judged, views)
+    return _write_records(exports, mapping, facility_dir, judged, views)[0]
 
 
 def _unnamed(exports: Exports, mapping: Mapping) -> list[Problem]:
@@ -442,8 +449,13 @@ def _write_records(
     facility_dir: Path,
     judged: dict[str, dict[str, FamilyView]],
     views: list[FamilyView],
-) -> list[Path]:
-    """Write the layer's files from the families as :func:`_carried` judged them."""
+) -> tuple[list[Path], int]:
+    """Write the layer's files from the families as :func:`_carried` judged them.
+
+    Returns:
+        Every file written, and how many setpoints carry no ``tolerance``
+        because their export states no usable ``Tolerance``.
+    """
     roles = field_roles(mapping)
     systems = {system: _model_name(mapping, system) for system in exports.systems}
     models = [_model(exports, system, systems[system]) for system in exports.systems]
@@ -459,11 +471,12 @@ def _write_records(
     devices: dict[str, dict[str, Any]] = {}
     channels: dict[str, dict[str, Any]] = {}
     groups: dict[str, dict[str, Any]] = {}
+    untoleranced: set[str] = set()
     for view, slot_ids in zip(views, ids, strict=True):
         family = mapping.families[view.raw_name]
         for device_id, device in zip(slot_ids, _devices(view, family.class_), strict=True):
             _add_device(devices, device_id, device, branches)
-        _channels(view, slot_ids, owners, mapping, roles, channels)
+        _channels(view, slot_ids, owners, mapping, roles, channels, untoleranced)
         _group(groups, mapping.mapped(view.raw_name), mapping, view.raw_name, slot_ids)
 
     for system in exports.systems:
@@ -493,7 +506,8 @@ def _write_records(
     written.extend(_copy_responses(exports, mapping, layer))
     for line in lines:
         click.echo(line)
-    return written
+    untoleranced -= {address for address, channel in channels.items() if "tolerance" in channel}
+    return written, len(untoleranced)
 
 
 def _carried(
@@ -599,6 +613,28 @@ def _field_scalar(fld: FieldView, key: str, index: int, n_devices: int) -> str |
     return _text(value)
 
 
+def _field_number(fld: FieldView, key: str, index: int, n_devices: int) -> float | None:
+    """The finite number ``fld.body[key]`` gives one device: its slot of a per-device list, or itself."""
+    value = fld.body.get(key)
+    if isinstance(value, (list, tuple)):
+        value = value[index] if len(value) == n_devices else None
+    return exported_number(value)
+
+
+def _tolerance(
+    fld: FieldView, index: int, n_devices: int, unit: str | None
+) -> dict[str, float] | None:
+    """A setpoint's ``tolerance`` from its write field's ``Tolerance``, or ``None``.
+
+    Only a finite tolerance above 1e-12 in a stated unit is one: an export's
+    ``Inf`` or a machine-epsilon placeholder says the field has none.
+    """
+    value = _field_number(fld, "Tolerance", index, n_devices)
+    if unit is None or value is None or value <= _NO_TOLERANCE:
+        return None
+    return {"absolute": value}
+
+
 def _channels(
     view: FamilyView,
     ids: list[str],
@@ -606,6 +642,7 @@ def _channels(
     mapping: Mapping,
     roles: dict[str, Any],
     channels: dict[str, dict[str, Any]],
+    untoleranced: set[str],
 ) -> None:
     """Add one channel per address of one family that no earlier family wrote.
 
@@ -613,7 +650,10 @@ def _channels(
     names each in ``endpoint_of`` and belongs to no device. An address a
     ``write`` field names is a setpoint: when an earlier field wrote its
     channel as anything else, the channel takes the setpoint role, its pair
-    and the write field's unit and description, and keeps the rest.
+    and the write field's unit, tolerance and description, and keeps the rest.
+    A setpoint takes its ``tolerance`` from the write field's ``Tolerance``
+    in the field's unit; one whose export states no usable tolerance is added
+    to ``untoleranced``.
     """
     family = mapping.families[view.raw_name]
     for fld in view.fields.values():
@@ -644,6 +684,11 @@ def _channels(
                         unit = _field_scalar(fld, "HWUnits", index, view.n_devices)
                         if unit is not None:
                             found["unit"] = unit
+                        tolerance = _tolerance(fld, index, view.n_devices, unit)
+                        if tolerance is not None:
+                            found["tolerance"] = tolerance
+                        else:
+                            untoleranced.add(address)
                         if description is not None:
                             found["description"] = description
                         channels[address] = {
@@ -665,9 +710,15 @@ def _channels(
                 unit = _field_scalar(fld, "HWUnits", index, view.n_devices)
                 if unit is not None:
                     channel["unit"] = unit
+                if writes:
+                    tolerance = _tolerance(fld, index, view.n_devices, unit)
+                    if tolerance is not None:
+                        channel["tolerance"] = tolerance
+                    else:
+                        untoleranced.add(address)
                 if description is not None:
                     channel["description"] = description
-                channels[address] = channel
+                channels[address] = {key: channel[key] for key in _CHANNEL_KEYS if key in channel}
 
 
 def _shared_pairs(fld: FieldView, paired: FieldView | None, devices: int) -> set[str]:
