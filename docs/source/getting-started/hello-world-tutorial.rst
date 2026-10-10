@@ -108,12 +108,13 @@ per line:
      # and `osprey config --defaults` lists every shipped connector type.
      control_system.type: virtual_accelerator
      control_system.connector.virtual_accelerator.serving: in_process
-     # Writes are refused until this is on. Uncomment it, rebuild, and the limits
-     # and approval hooks above take over from there.
-     # control_system.writes_enabled: true
+     # The FIRST guard in the write-safety chain: while false, every hardware
+     # write is refused before the limits check or the approval prompt is even
+     # consulted. Set it true, rebuild, and the two hooks below take over.
+     control_system.writes_enabled: false
      # ...
 
-That commented ``control_system.writes_enabled`` line is the one this tutorial
+That ``control_system.writes_enabled: false`` line is the one this tutorial
 comes back to in Step 7. For everything the profile can hold, see
 :doc:`../how-to/build-profiles`.
 
@@ -239,15 +240,15 @@ guarded. Only a read-only deployment may drop them.
 Step 7: Enable Writes — in profile.yml
 ---------------------------------------
 
-Open ``profile.yml``, find the ``config:`` block from Step 2, and uncomment
-one line:
+Open ``profile.yml``, find the ``config:`` block from Step 2, and set one
+key to ``true``:
 
 .. code-block:: yaml
 
    config:
      control_system.type: virtual_accelerator
      control_system.connector.virtual_accelerator.serving: in_process
-     control_system.writes_enabled: true   # ← was commented out
+     control_system.writes_enabled: true   # ← was false
 
 Then re-render and relaunch:
 
