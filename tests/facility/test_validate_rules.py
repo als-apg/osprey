@@ -441,8 +441,9 @@ class TestReferences:
             ({"faults": {"nomodel": {"Q1:SP": 1.0}}}, "`faults` names model nomodel"),
             ({"couple": {"GONE": [{"driver": "d", "gain": 1.0}]}}, "`couple` names channel GONE"),
             ({"noise": {"GONE": {"absolute": 0.1}}}, "`noise` names channel GONE"),
+            ({"still": ["GONE"]}, "`still` names channel GONE"),
         ],
-        ids=["override", "archiver", "fault-model", "couple", "noise"],
+        ids=["override", "archiver", "fault-model", "couple", "noise", "still"],
     )
     def test_scenario_entries(
         self, tmp_path: Path, scenario: dict[str, Any], fragment: str
@@ -944,6 +945,58 @@ class TestValueRules:
             "facility: value-invalid: scenario s — faults.optics.BPM1:X.cal_factor is not a "
             "fault field of BPM1:X; fix: use one of gain, noise, offset, polarity, roll"
         )
+
+
+class TestStillRules:
+    def test_still_all_and_a_list_of_float_readings_build(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "scenarios/a.yaml": {"still": "all"},
+                "scenarios/b.yaml": {"still": ["BPM1:X", "Q1:RB"]},
+            }
+        )
+        assert _run(tmp_path, files).ok
+
+    @pytest.mark.parametrize(
+        "still", ["none", [], [1.0], True], ids=["word", "empty", "number", "bool"]
+    )
+    def test_still_is_all_or_a_list_of_addresses(self, tmp_path: Path, still: Any) -> None:
+        files = _tree(**{"scenarios/s.yaml": {"still": still}})
+        error = _rule(tmp_path, files, "value-invalid")
+        assert (error.record_kind, error.record_id) == ("scenario", "s")
+        assert error.detail == f"`still` is {still!r}, neither `all` nor a list of addresses"
+        assert error.remedy == "write `still: all` or a list of addresses"
+
+    def test_still_lists_only_float_readings(self, tmp_path: Path) -> None:
+        files = _with_channels(
+            {"id": "T", "value_type": "string"}, **{"scenarios/s.yaml": {"still": ["T"]}}
+        )
+        error = _rule(tmp_path, files, "value-invalid")
+        assert error.detail == "`still` lists T, a string channel"
+        assert error.remedy == "remove T from `still`; only a float reading moves"
+
+    @pytest.mark.parametrize(
+        ("still", "slot", "block"),
+        [
+            (["BPM1:X"], "noise", {"BPM1:X": {"absolute": 0.1}}),
+            ("all", "noise", {"BPM1:X": {"absolute": 0.1}}),
+            (["BPM1:X"], "couple", {"BPM1:X": [{"driver": "d", "gain": 1.0}]}),
+        ],
+        ids=["listed-noise", "all-noise", "listed-couple"],
+    )
+    def test_a_scenario_stilling_a_reading_sets_none_of_its_motion(
+        self, tmp_path: Path, still: Any, slot: str, block: dict[str, Any]
+    ) -> None:
+        files = _tree(**{"scenarios/s.yaml": {"still": still, slot: block}})
+        error = _rule(tmp_path, files, "value-invalid")
+        assert error.detail == f"`{slot}.BPM1:X` sets the motion of a reading `still` stills"
+        assert error.remedy == "a scenario either stills a reading or sets its motion"
+
+    def test_a_scenario_stilling_one_reading_sets_anothers_noise(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{"scenarios/s.yaml": {"still": ["Q1:RB"], "noise": {"BPM1:X": {"absolute": 0.1}}}}
+        )
+        assert _run(tmp_path, files).ok
 
 
 class TestLimitRules:

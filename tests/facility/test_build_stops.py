@@ -361,6 +361,13 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "value-invalid",
         "a scenario `noise` entry stating both terms",
     ),
+    ("value_invalid__still_shape", "value-invalid", "a `still` neither `all` nor addresses"),
+    ("value_invalid__still_non_float", "value-invalid", "a `still` listing a non-float"),
+    (
+        "value_invalid__still_with_motion",
+        "value-invalid",
+        "a scenario setting the motion of a reading it stills",
+    ),
     ("value_invalid__tolerance_not_setpoint", "value-invalid", "`tolerance` on a non-setpoint"),
     ("value_invalid__tolerance_non_float", "value-invalid", "`tolerance` on a non-float"),
     ("value_invalid__tolerance_no_unit", "value-invalid", "`tolerance` on a channel with no unit"),
@@ -1364,6 +1371,30 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: value-invalid: scenario warm — `noise.BPM1:X` states both `absolute` and "
             "`relative`; fix: write `BPM1:X: {absolute: <sigma>}` or `BPM1:X: {relative: "
             "<fraction>}`"
+        ),
+    ),
+    "value_invalid__still_shape": (
+        _plain(scenario("warm", {"still": "everything"})),
+        (
+            "facility: value-invalid: scenario warm — `still` is 'everything', neither `all` "
+            "nor a list of addresses; fix: write `still: all` or a list of addresses"
+        ),
+    ),
+    "value_invalid__still_non_float": (
+        _plain(
+            append("records/channels.yaml", {"id": "T", "value_type": "int"}),
+            scenario("warm", {"still": ["T"]}),
+        ),
+        (
+            "facility: value-invalid: scenario warm — `still` lists T, a int channel; fix: "
+            "remove T from `still`; only a float reading moves"
+        ),
+    ),
+    "value_invalid__still_with_motion": (
+        _plain(scenario("warm", {"still": "all", "noise": {"BPM1:X": {"absolute": 0.1}}})),
+        (
+            "facility: value-invalid: scenario warm — `noise.BPM1:X` sets the motion of a "
+            "reading `still` stills; fix: a scenario either stills a reading or sets its motion"
         ),
     ),
     "value_invalid__tolerance_not_setpoint": (
