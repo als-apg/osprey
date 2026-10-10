@@ -155,6 +155,7 @@ import pytest  # noqa: E402
 
 from osprey_connectors.control_system.va_in_process_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import decode_char_waveform  # noqa: E402
+from osprey_connectors.simulation.envelope import declares_motion, noise_sigma  # noqa: E402
 from osprey_connectors.simulation.view import (  # noqa: E402
     TEXTURE,
     VIEW_RELPATH,
@@ -190,9 +191,6 @@ EXPECTED_NOISY_CHANNELS = 626
 SAMPLES = 200
 #: The family-wise false-alarm rate the noise bounds are set for.
 FAMILY_ALPHA = 1e-4
-
-#: The seed keys that move a reading on its own.
-MOTION_KEYS = ("noise", "drift")
 
 #: The noise container's runner tick, so :data:`SAMPLES` reads take a minute.
 NOISE_TICK_S = 0.25
@@ -289,14 +287,14 @@ class View:
         return self.reader.seed(address) or {}
 
     def moving(self, address: str) -> bool:
-        seed = self.seed(address)
-        return any(seed.get(key) for key in MOTION_KEYS)
+        return declares_motion(self.seed(address))
 
     def motion_band(self, address: str, z: float) -> float:
         """How far a served read may sit from the held value: z noise sigmas plus the drift."""
         seed = self.seed(address)
         drift = seed.get("drift") or {}
-        return z * float(seed.get("noise") or 0.0) + abs(float(drift.get("amplitude") or 0.0))
+        sigma = noise_sigma(seed.get("noise"), seed.get("nominal"))
+        return z * sigma + abs(float(drift.get("amplitude") or 0.0))
 
     def labels(self, address: str) -> list[str]:
         return list(self.channel(address).options or ("FALSE", "TRUE"))
