@@ -161,8 +161,7 @@ class TestSet:
     @pytest.mark.parametrize(
         ("kind", "rid", "fields"),
         [
-            ("device", "Q1", {"s": 1.0}),
-            ("device", "Q1", {"model": "lattice"}),
+            ("device", "Q1", {"ordinalInModel": 1}),
             ("device", "Q1", {"groups": ["SR/QUAD"]}),
             ("wiring", "lattice/SR:Q1:SP", {"default": 1.0}),
         ],
@@ -219,7 +218,13 @@ class TestAdd:
         assert "imported/mml/devices.yaml" in err.sources
 
     def test_add_writing_a_computed_slot_is_fix_computed(self, tmp_path: Path) -> None:
-        fix = {"op": "add", "kind": "device", "id": "Q9", "record": {"s": 2.0}, "why": "x"}
+        fix = {
+            "op": "add",
+            "kind": "device",
+            "id": "Q9",
+            "record": {"ordinalInPlace": 2},
+            "why": "x",
+        }
         assert _one(_build(tmp_path, _fixes(fix)).errors).kind == "fix-computed"
 
 

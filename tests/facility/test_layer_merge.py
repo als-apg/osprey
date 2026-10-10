@@ -89,7 +89,7 @@ class TestSourcesLoad:
         assert (err.kind, err.record_kind, err.record_id) == ("source-invalid", "device", "Q1")
         assert "unknown key `colour`" in err.detail
 
-    @pytest.mark.parametrize("slot", ["model", "s", "length", "ordinalInPlace", "groups"])
+    @pytest.mark.parametrize("slot", ["ordinalInPlace", "ordinalInModel", "groups"])
     def test_computed_device_slot_is_source_invalid(self, tmp_path: Path, slot: str) -> None:
         rows = [{"id": "Q1", slot: 1}]
         err = _one(_load_errors(tmp_path, {"imported/mml/devices.yaml": rows}))
@@ -186,7 +186,7 @@ class TestSourcesLoad:
         errors = _load_errors(
             tmp_path,
             {
-                "records/devices.yaml": [{"id": "Q1", "s": 1.0}],
+                "records/devices.yaml": [{"id": "Q1", "ordinalInPlace": 1}],
                 "records/channels.yaml": [{"id": "X", "bogus": 1}],
             },
         )

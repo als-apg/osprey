@@ -737,6 +737,9 @@ class _References:
             if "place" in device:
                 files = stating_files(device, "place")
                 yield from self._missing("device", did, files, "place", "place", device["place"])
+            if "model" in device:
+                files = stating_files(device, "model")
+                yield from self._missing("device", did, files, "model", "model", device["model"])
             cls = device.get("class")
             if cls is not None and cls not in known:
                 yield FacilityBuildError(

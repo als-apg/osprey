@@ -283,6 +283,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("reference_missing__slice_device", "reference-missing", "`slices[].device`"),
     ("reference_missing__span_model", "reference-missing", "span model"),
     ("reference_missing__device_place", "reference-missing", "device place"),
+    ("reference_missing__device_model", "reference-missing", "device model"),
     ("reference_missing__place_parent", "reference-missing", "place parent path"),
     ("reference_missing__seed_address", "reference-missing", "seeds.yaml address"),
     ("reference_missing__limit_address", "reference-missing", "limits.yaml record address"),
@@ -456,6 +457,13 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "place-conflict",
         "an imported place contradicting its span",
     ),
+    ("place_conflict__stated_s", "place-conflict", "a wired device's stated s off its deck"),
+    (
+        "place_conflict__stated_model",
+        "place-conflict",
+        "a wired device's stated model not its wiring's",
+    ),
+    ("place_conflict__s_outside_deck", "place-conflict", "a stated s outside a single-pass deck"),
     ("span_invalid__overlap", "span-invalid", "overlapping spans"),
     ("span_invalid__marker_absent", "span-invalid", "a marker absent"),
     ("span_invalid__marker_not_unique", "span-invalid", "a marker not unique"),
@@ -761,10 +769,10 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "source_invalid__computed_slot": (
-        _plain(update("records/devices.yaml", 0, s=1.0)),
+        _plain(update("records/devices.yaml", 0, ordinalInPlace=1)),
         (
-            "facility: source-invalid: device SR/Q1 — `s` is computed by the build; fix: remove "
-            "`s` from records/devices.yaml"
+            "facility: source-invalid: device SR/Q1 — `ordinalInPlace` is computed by the build; "
+            "fix: remove `ordinalInPlace` from records/devices.yaml"
         ),
     ),
     "source_invalid__bare_noise": (
@@ -863,11 +871,19 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "fix_computed__set": (
         _plain(
             put("imported/mml/devices.yaml", [{"id": "SR/Q1", "class": QUAD}]),
-            fixes({"op": "set", "kind": "device", "id": "SR/Q1", "fields": {"s": 1.0}, "why": "x"}),
+            fixes(
+                {
+                    "op": "set",
+                    "kind": "device",
+                    "id": "SR/Q1",
+                    "fields": {"ordinalInModel": 1},
+                    "why": "x",
+                }
+            ),
         ),
         (
-            "facility: fix-computed: device SR/Q1 — `set` names `s`, which the build computes; "
-            "fix: remove `s` from the fix"
+            "facility: fix-computed: device SR/Q1 — `set` names `ordinalInModel`, which the build "
+            "computes; fix: remove `ordinalInModel` from the fix"
         ),
     ),
     "fix_authored__authored_only": (
@@ -1018,6 +1034,13 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: reference-missing: device SR/Q1 — records/devices.yaml `place` names place "
             "SR, which does not exist; fix: add place SR or correct `place`"
+        ),
+    ),
+    "reference_missing__device_model": (
+        _plain(update("records/devices.yaml", 0, model="Nope", s=1.0)),
+        (
+            "facility: reference-missing: device SR/Q1 — records/devices.yaml `model` names model "
+            "Nope, which does not exist; fix: add model Nope or correct `model`"
         ),
     ),
     "reference_missing__place_parent": (
@@ -1808,6 +1831,32 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: place-conflict: device SR/QD — layer mml states place SR/B, but the span "
             "of place SR/A holds the device at s 1.25 in model SR; fix: drop `place` from the "
             "layer, or add a fix `set` of place SR/B"
+        ),
+    ),
+    "place_conflict__stated_s": (
+        _deck(put("imported/mml/devices.yaml", [{"id": "SR/QD", "s": 99.0}])),
+        (
+            "facility: place-conflict: device SR/QD — layer mml states s 99 in model SR, but the "
+            "deck puts the device at s 1.25; fix: drop `s` from the layer, or add a fix `set` of "
+            "the deck's value"
+        ),
+    ),
+    "place_conflict__stated_model": (
+        _deck(put("imported/mml/devices.yaml", [{"id": "SR/QD", "model": "LINE"}])),
+        (
+            "facility: place-conflict: device SR/QD — layer mml states model LINE, but the deck "
+            "wires the device in model SR; fix: drop `model` from the layer, or add a fix `set` of "
+            "the deck's value"
+        ),
+    ),
+    "place_conflict__s_outside_deck": (
+        _deck(
+            append("records/devices.yaml", {"id": "SR/SPARE", "class": QUAD}),
+            put("imported/mml/devices.yaml", [{"id": "SR/SPARE", "model": "LINE", "s": 9.0}]),
+        ),
+        (
+            "facility: place-conflict: device SR/SPARE — layer mml states s 9 in model LINE, "
+            "outside its deck of length 2.2; fix: state an s inside the deck, or drop it"
         ),
     ),
     "span_invalid__overlap": (

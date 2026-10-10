@@ -246,13 +246,19 @@ classes:
         range: Any
         description: A free string to scalar or list map, carried verbatim.
       model:
-        description: Computed; the model whose deck gave `s` and `length`.
+        description: >-
+          The model whose deck `s` and `length` are measured in; computed when the
+          device is wired, else stated with `s`.
       s:
         range: float
-        description: Computed; the entrance of the device's wired elements, in metres.
+        description: >-
+          The entrance of the device in metres along its model; computed from the
+          deck when the device is wired, and a source may state it when not. On a
+          periodic deck of length L a stated s is read modulo L, and the device is
+          placed and numbered there; on a single-pass deck it lies in [0, L].
       length:
         range: float
-        description: Computed; in metres.
+        description: In metres; computed when the device is wired, and a source may state it when not.
       ordinalInPlace:
         range: integer
         description: Computed; the device's ordinal among its class in its place.
