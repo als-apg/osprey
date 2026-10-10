@@ -72,6 +72,24 @@ def test_a_clean_repo_exits_0_and_prints_nothing(repo: Path) -> None:
     assert (result.stdout, result.stderr) == ("", "")
 
 
+def test_a_wrapped_position_warns_in_validate_and_in_the_build(repo: Path) -> None:
+    """A stated s before the start of a periodic deck builds, with one warning per verb."""
+    devices = repo / "data" / "facility" / "records" / "devices.yaml"
+    records = yaml.safe_load(devices.read_text(encoding="utf-8"))
+    records.append({"id": "SR/SPARE", "class": "Quadrupole", "model": "SR", "s": -1.3e-05})
+    devices.write_text(yaml.safe_dump(records, sort_keys=False), encoding="utf-8")
+    fragment = "place-wrapped: device SR/SPARE"
+
+    validated = _validate(repo)
+    built = run_build(repo)
+
+    assert validated.exit_code == 0, validated.output
+    assert " ".join(validated.stderr.split()).count(fragment) == 1, validated.stderr
+    assert fragment not in validated.stdout
+    assert built.exit_code == 0, built.output
+    assert " ".join(built.stderr.split()).count(fragment) == 1, built.stderr
+
+
 def test_a_build_warns_of_a_scenario_beyond_tolerance_and_validate_does_not(repo: Path) -> None:
     warning = "scenario rf-thermal-live moves"
 

@@ -41,7 +41,7 @@ import shlex
 import shutil
 import sys
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -51,7 +51,7 @@ import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.errors import BuildProfileError
-from osprey.facility.errors import FacilityBuildError
+from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
     config_edit_session,
@@ -2416,6 +2416,22 @@ def _warn_knowledge_links(
         )
 
 
+def _warn_facility_build(warnings: Iterable[FacilityBuildWarning]) -> None:
+    """Print the facility build's warnings, one each.
+
+    They go through ``warn_fact`` because the altitude gate keeps raw warnings
+    off the terminal while the build draws its phases; the build made them
+    once, so each prints once.
+
+    Args:
+        warnings: The warnings of a clean facility build, in the order found.
+    """
+    from . import output
+
+    for warning in warnings:
+        output.warn_fact(logger, warning.summary, None, warning.remedy)
+
+
 def _persona_deltas(repo_root: Path) -> list[Path]:
     """Every persona delta a build of *repo_root* renders a project for.
 
@@ -3280,7 +3296,7 @@ def _build_repo(
 
         # The facility file, before the venv and every render: a facility stop
         # is the author's to fix, and nothing is installed or rendered first.
-        from osprey.facility.build import build_facility
+        from osprey.facility.build import build_facility_with_warnings
         from osprey.facility.render import facility_digest
 
         data_root = build_profile.resolved_data_root(repo_root)
@@ -3292,8 +3308,9 @@ def _build_repo(
             raise limits_stop
         facility_dir = data_root / "facility"
         facility_sha256 = facility_digest(facility_dir)
-        facility = build_facility(facility_dir, project_name=name)
+        facility, facility_warnings = build_facility_with_warnings(facility_dir, project_name=name)
         logger.debug("  ✓ Built the facility file (sha256 %s)", facility_sha256)
+        _warn_facility_build(facility_warnings)
 
         # The project venv, at its final path. It is the one artifact that
         # cannot be rendered somewhere and moved (see `_swap_in_render`), so it
