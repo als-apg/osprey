@@ -49,8 +49,8 @@ EPICS_TYPE = "epics"
 VA_TYPE = "virtual_accelerator"
 STANDIN_TYPE = "live_standin"
 
-#: A control system the switch has no way to dial. Any type outside
-#: ``CHANNEL_ACCESS_TYPES`` would do; this one is a real connector a facility
+#: A control system the switch has no way to dial. Any type for which
+#: ``speaks_channel_access`` is false would do; this one is a real connector a facility
 #: can be deployed on, which is the case the refusal exists for.
 UNSWITCHABLE_TYPE = "doocs"
 
@@ -224,8 +224,8 @@ def test_an_unknown_target_is_ineligible_rather_than_raising() -> None:
 def test_live_on_an_all_simulated_deployment_is_ineligible_never_guessed() -> None:
     """No connector block names a real machine, so 'live' has nowhere to land."""
     config = _config(
-        control_system_type="mock",
-        connector={"mock": {"response_delay_ms": 10}, VA_TYPE: _va_block()},
+        control_system_type=VA_TYPE,
+        connector={VA_TYPE: _va_block()},
     )
 
     verdict = _eligibility(config, LIVE)
