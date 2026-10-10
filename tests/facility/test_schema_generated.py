@@ -159,7 +159,13 @@ def _two_channel_scenario_measurement() -> dict[str, Any]:
         {"name": "texture", "engine": "texture"},
     ]
     document["scenarios"] = [
-        {"name": "warm", "overrides": {"DEMO:ONE": 1.5}, "faults": {}, "logbook": []}
+        {
+            "name": "warm",
+            "overrides": {"DEMO:ONE": 1.5},
+            "faults": {},
+            "logbook": [],
+            "still": ["DEMO:TWO"],
+        }
     ]
     return document
 

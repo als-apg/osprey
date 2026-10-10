@@ -692,6 +692,11 @@ classes:
         description: >-
           `{<address>: {absolute: <sigma>} | {relative: <fraction>}}`, the
           channel's noise while the scenario is active, in place of its seed's.
+      still:
+        range: Any
+        description: >-
+          `all`, or a list of addresses: while the scenario is active, those
+          readings serve without drift, couplings or noise.
 
   Any:
     class_uri: linkml:Any

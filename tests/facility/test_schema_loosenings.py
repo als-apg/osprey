@@ -192,6 +192,7 @@ def test_scenario_record_shape(core: dict) -> None:
         "drivers",
         "couple",
         "noise",
+        "still",
     ]
     faults = scenario["faults"]
     assert faults["range"] == "Any" and not faults.get("multivalued")
