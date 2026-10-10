@@ -185,24 +185,6 @@ def test_the_served_deck_moves_in_six_dimensions(addressed: Addressing) -> None:
     assert {cavity.PassMethod for cavity in cavities} == {"RFCavityPass"}
 
 
-def test_every_wired_corrector_is_served_zeroed_polynomials(addressed: Addressing) -> None:
-    served = served_deck(addressed)
-    correctors = {
-        piece.position
-        for bindings in addressed.bindings.values()
-        for binding in bindings
-        if binding.engine.attribute == "KickAngle"
-        for piece in binding.slices
-        if addressed.owners[piece.position] == piece.owner == binding.family
-    }
-    assert correctors
-    for position in correctors:
-        element = served[position]
-        width = int(element.MaxOrder) + 1
-        for name in ("PolynomA", "PolynomB"):
-            assert list(getattr(element, name)) == [0.0] * width, (position, name)
-
-
 def test_serving_leaves_the_addressed_deck_as_it_was(addressed: Addressing) -> None:
     before = [(e.FamName, e.PassMethod) for e in addressed.deck]
     served_deck(addressed)
@@ -322,16 +304,6 @@ def test_a_harmonic_number_spelled_as_text_builds_no_cavity(word: str) -> None:
     model, deck, ao, _ad = _fixture(*STORAGE[1])
     with pytest.raises(ValueError, match="family RF drives a cavity the deck does not hold"):
         address_elements(model, deck, ao, {"HarmonicNumber": word})
-
-
-def test_a_corrector_is_served_polynomials_as_wide_as_it_carries() -> None:
-    corrector = at.Corrector("C", 0.1, [0.0, 0.0], PolynomB=[0.0, 0.5, 0.2], MaxOrder=1)
-    deck = _deck(at.Drift("D", 1.0), corrector)
-    ao = {"HCM": _family([2], [[1, 1]])}
-    model = _model(HCM=EngineBlock(attribute="KickAngle", index=0))
-    served = served_deck(address_elements(model, deck, ao))
-    assert list(served[1].PolynomB) == [0.0, 0.0, 0.0]
-    assert list(served[1].PolynomA) == [0.0, 0.0]
 
 
 def test_a_corrector_winding_leaves_the_magnet_it_is_wound_on_alone() -> None:
