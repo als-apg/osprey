@@ -10,7 +10,7 @@ same reason.
 
 An orbit bump moves the stored beam locally through one element: three or four
 correctors kick the beam off its reference orbit inside the bump region and
-back onto it outside, so the ring beyond the last corrector never sees the
+back onto it outside, so the machine beyond the last corrector never sees the
 excursion. `orbit_bump_sweep` builds that bump without a lattice model, by
 measuring the machine instead, and the pieces here are the arithmetic of each
 measurement step:
@@ -28,7 +28,7 @@ measurement step:
 Everything here is expressed *relative to the measured reference orbit*: a
 "desired" vector is an orbit change away from where the beam already is, and
 "closed" means back inside the band around the reference, never literal zero.
-A ring running a corrected orbit idles with nonzero corrector currents and a
+A machine running a corrected orbit idles with nonzero corrector currents and a
 nonzero orbit, and neither is knowable in advance -- which is exactly why the
 plan measures both instead of assuming them.
 
@@ -216,7 +216,7 @@ def solve_offsets(
     minimum-norm solution: one arbitrary pick from an infinite family that all
     satisfy every listed constraint exactly and differ from each other at every
     BPM nobody listed. The run would report "converged" at each target and
-    closure BPM while an unconstrained orbit distortion rides along ring-wide.
+    closure BPM while an unconstrained orbit distortion rides along machine-wide.
     So the plan's PARAMS validator rejects `len(targets) +
     len(closure_readbacks) < len(correctors)` at enqueue time, where it is a
     legible 400 against the request instead of a silent success in the middle
@@ -268,7 +268,7 @@ def solve_offsets(
             f"the constraint rows resolve only {rank} of {n_corr} correctors at rcond={rcond:g}: "
             f"the remaining direction(s) are unconstrained, and a least-squares answer would "
             f"pick one arbitrary bump out of infinitely many that all satisfy every constrained "
-            f"BPM while differing everywhere else in the ring"
+            f"BPM while differing everywhere else in the machine"
         )
 
     offsets, *_ = np.linalg.lstsq(matrix, demand, rcond=rcond)

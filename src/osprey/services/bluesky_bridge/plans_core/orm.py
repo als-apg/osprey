@@ -175,14 +175,14 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     in one bundle, so each point emits exactly one event carrying the driven
     corrector's current alongside every BPM reading.
 
-    **Relative, because a machine with beam in it is not at zero.** A ring
+    **Relative, because a machine with beam in it is not at zero.** A machine
     running corrected orbit holds every corrector at a nonzero
     orbit-correction working point. Sweeping absolute currents about zero
     would measure the response about a point the machine is not at, and
-    "restoring" to a literal 0 A would drop the entire correction the ring
+    "restoring" to a literal 0 A would drop the entire correction the machine
     was holding — on a stored beam, that is the orbit gone. Reading each
     corrector's working point costs one extra read per corrector and makes
-    the plan mean the same thing on a real ring as on a virtual accelerator
+    the plan mean the same thing on a real machine as on a virtual accelerator
     whose correctors happen to idle at zero.
 
     The working point is the setpoint the corrector locates at
@@ -420,7 +420,7 @@ def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
             "oscillation in sign is betatron phase advance; a flat line is a "
             "corrector with no measured response.",
             "BPMs are in the order they were requested, which is not their "
-            "order around the ring -- this plan carries no lattice positions.",
+            "order around the machine -- this plan carries no lattice positions.",
         ],
         series_picker=True,
         mark=LinesMark(series=series, source_points=len(fit.readbacks) * len(series)),

@@ -8,7 +8,7 @@ comes back to where it was.
 
 **Why several correctors and not one.** A single corrector kick does not stay
 local: it launches a betatron oscillation that rings all the way around the
-ring, so every BPM sees it. Three (or four) kicks placed across a span can be
+machine, so every BPM sees it. Three (or four) kicks placed across a span can be
 chosen so their contributions cancel downstream — the orbit is displaced across
 the span and unchanged outside it. That closure is the whole point of the
 diagnostic: it is what makes a deliberate local orbit change safe on a machine
@@ -617,13 +617,13 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     restores). A non-finite BPM or beam-current reading aborts the same way,
     wherever it appears.
 
-    **Relative, because a machine with beam in it is not at zero.** A ring
+    **Relative, because a machine with beam in it is not at zero.** A machine
     running corrected orbit holds every corrector at a nonzero
     orbit-correction working point, and a bump is a change *on top of* that.
-    "Restoring" to a literal 0 A would drop the entire correction the ring was
+    "Restoring" to a literal 0 A would drop the entire correction the machine was
     holding — on a stored beam, that is the orbit gone. Reading each
     corrector's working point costs one read per corrector and makes the plan
-    mean the same thing on a real ring as on a virtual accelerator whose
+    mean the same thing on a real machine as on a virtual accelerator whose
     correctors happen to idle at zero.
 
     The working point is the setpoint each corrector locates at
@@ -1237,7 +1237,7 @@ def _orbit_shift_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
         f"target BPMs (index {_index_list(targets)}) and back on the reference "
         f"orbit at the closure BPMs (index {_index_list(closure)}); {beyond}",
         "BPMs are in the order they were requested, which is not their order "
-        "around the ring — this plan carries no lattice positions.",
+        "around the machine — this plan carries no lattice positions.",
     ]
     if len(selected) < len(sweep.scales):
         annotations.append(
@@ -1387,7 +1387,7 @@ def _band_residual_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
 def _corrector_offset_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
     """Where each corrector sat, relative to the working point it started on.
 
-    Not the raw current: a ring running a corrected orbit idles every corrector
+    Not the raw current: a machine running a corrected orbit idles every corrector
     somewhere nonzero, and the bump is the change on top of that. Zero here
     means "back where the run found it", which is what the terminal step is
     supposed to read.
