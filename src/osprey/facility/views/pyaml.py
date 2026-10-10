@@ -66,6 +66,9 @@ __all__ = [
 #: The view's directory under the render's ``data/``.
 PYAML_DIR = "pyaml"
 
+#: The file a model record is named in when no source states it.
+_MODELS_FILE = "models.yaml"
+
 #: The configuration file of one model's view.
 CONFIGURATION_FILE = "configuration.yaml"
 
@@ -1012,23 +1015,21 @@ def _design_lattice(
     """The design simulator's lattice text and the corrector elements it could not convert.
 
     The model's engine copies the deck with the elements the view's correctors
-    drive carrying their kicks as polynomials (``polynomial_kicks``); an engine
-    without that function gives the deck as it is.
+    drive carrying their kicks as polynomials (``polynomial_kicks``). For a
+    view driving no corrector, an engine without that function gives the deck
+    as it is.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid``: the view drives a corrector and
+            the model's engine states no ``polynomial_kicks``.
     """
     from importlib import metadata
 
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.validate import stating_files
     from osprey.simulation.engines import ENTRY_POINT_GROUP
 
     deck = inputs.facility_dir / str(record["deck"])
-    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
-    engine = str(record["engine"])
-    convert = (
-        getattr(engines[engine].load(), "polynomial_kicks", None)
-        if engine in engines.names
-        else None
-    )
-    if convert is None:
-        return deck.read_bytes().decode("utf-8"), frozenset()
     elements = sorted(
         {
             element
@@ -1037,6 +1038,28 @@ def _design_lattice(
             for element, _ in _slice_elements(magnet.entry)
         }
     )
+    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    engine = str(record["engine"])
+    model = str(record["name"])
+    convert = (
+        getattr(engines[engine].load(), "polynomial_kicks", None)
+        if engine in engines.names
+        else None
+    )
+    if convert is None and not elements:
+        return deck.read_bytes().decode("utf-8"), frozenset()
+    if convert is None:
+        raise FacilityBuildError(
+            "engine-invalid",
+            model,
+            stating_files(record, None, fallback=_MODELS_FILE),
+            "add polynomial_kicks() to the engine plug-in",
+            record_kind="model",
+            detail=(
+                f"engine {engine} states no polynomial_kicks(), so model {model}'s design "
+                "correctors would carry no kick"
+            ),
+        )
     copy = convert(deck, elements)
     return str(copy.text), frozenset(copy.refused)
 
