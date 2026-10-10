@@ -27,11 +27,15 @@ from osprey.services.python_executor.write_surface import (
     _ARMED_CA_PROVIDER,
     _ARMED_CHECKED,
     _ARMED_RPC,
+    _CLIENT_LIBRARY_NAMES,
+    _CLIENT_LIBRARY_SYMBOLS,
+    _CLIENT_LOADER_ROWS,
     _FRAMEWORK_WRITE_TARGETS,
     _READONLY_WRITE_TARGETS,
+    CLIENT_PACKAGES,
 )
 from osprey.utils.logger import get_logger
-from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER
+from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER, ClientLibraryRefusedError
 
 logger = get_logger("execution_wrapper")
 
@@ -143,6 +147,23 @@ def armed_contract(*, refuse_rpc: bool) -> dict:
         "ca_provider_targets": _armed_rows(
             {row: reason for row, reason in _ARMED_CHECKED.items() if row[0] in _ARMED_CA_PROVIDER}
         ),
+    }
+
+
+def no_client_contract() -> dict:
+    """The keyword arguments of ``raw_put_block.install("no_client", ...)``.
+
+    The notebook kernel is its one caller; it is never embedded into an
+    executor script. Every value is a literal read from the write-surface
+    tables at call time, so the kernel refuses exactly the packages the
+    executor's import check denies.
+    """
+    return {
+        "denied_packages": tuple(sorted(CLIENT_PACKAGES)),
+        "library_names": tuple(_CLIENT_LIBRARY_NAMES),
+        "library_symbols": tuple(_CLIENT_LIBRARY_SYMBOLS),
+        "loader_targets": tuple((dotted, tuple(attrs)) for dotted, attrs in _CLIENT_LOADER_ROWS),
+        "marker": ClientLibraryRefusedError.MARKER,
     }
 
 
