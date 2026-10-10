@@ -19,7 +19,7 @@ How it is put together is :doc:`/architecture/virtual-accelerator`.
    - Which channels the simulator serves, and what the build will not invent
    - Pointing a project at the Virtual Accelerator the stack already deploys
    - Moving a running deployment between the machines it describes
-   - Switching back to the mock, and why plans go browse-only there
+   - The simulator's two venues, and why plans go browse-only in process
    - How ``osprey sim apply`` scenarios behave in Virtual Accelerator mode
    - Write limits
    - The stored archive the stack deploys, and the one pairing it refuses
@@ -40,16 +40,13 @@ the deployment **starts** on:
 
    * - ``type``
      - Backend
-   * - ``mock``
-     - The in-process simulation. No container, no network — every channel
-       returns a synthesized value. The fallback for environments with no
-       containers to depend on; plans are browse-only there (below).
    * - ``virtual_accelerator`` *(default)*
-     - A containerized simulator serving real EPICS Channel Access. The magnet
-       setpoints your facility wires to a deck drive a live pyAT lattice and BPM
-       readbacks respond;
-       every other channel is composed by the same simulation engine the mock
-       uses. The tutorial's default, and deployed as part of its stack.
+     - The simulator. Served from its container, it speaks real EPICS Channel
+       Access: the magnet setpoints your facility wires to a deck drive a live
+       pyAT lattice and BPM readbacks respond, and every other channel is
+       composed by the same simulation engine. The tutorial's default, and
+       deployed as part of its stack. The same simulator can also run in
+       process, with no container; see `Two venues`_.
    * - ``epics``
      - Production EPICS, pointed at the facility gateway. Untouched by this
        guide.
@@ -61,7 +58,7 @@ the deployment **starts** on:
 
 The Virtual Accelerator is a **local physics simulator**, not a digital twin —
 it is not synced to any real machine. The OSPREY agent reads and writes it
-exactly as it does the mock or a real machine; only the backend changes.
+exactly as it does a real machine; only the backend changes.
 
 The physics behind the channels comes from the profile's
 ``simulation.models``: the container builds each served physics model through
@@ -144,8 +141,9 @@ archive lives, so the deployment already reads a real store. On one with no
 archive of its own — still reading the mock archiver, which makes its history
 up as it is asked for it — the build **refuses** the profile, and says what to
 do instead: point ``archiver.type`` at a store this deployment writes
-(``mongodb_archiver`` for the store the preset deploys), or stay on ``mock`` for
-an honestly storeless deployment. `The honesty rule`_ below explains why.
+(``mongodb_archiver`` for the store the preset deploys), or keep the simulator
+in process for an honestly storeless deployment. `The honesty rule`_ below
+explains why.
 
 Switching a running deployment
 ==============================
@@ -202,44 +200,78 @@ recorded, the ``live`` target is refused — a real machine's readings must not
 land in a stand-in's archive. :doc:`switch-control-target` says how to clear
 that.
 
-Switching back to the mock
-==========================
+.. _va-two-venues:
+
+Two venues
+==========
+
+The simulator is one connector type, ``virtual_accelerator``, reached in one of
+two venues. Where it runs is a setting under its connector block:
+
+.. code-block:: yaml
+
+   control_system:
+     type: virtual_accelerator
+     connector:
+       virtual_accelerator:
+         serving: in_process   # or: served (the default)
+
+- ``served`` --- the simulator's container, serving the facility's channels over
+  Channel Access and PVAccess and answering the model RPC. This is the default
+  whenever the type is stated, and what the rest of this page describes.
+- ``in_process`` --- the same simulator view and composite, run inside the
+  process that asks. It needs no Docker, opens no port and serves no Channel
+  Access, and it answers no model RPC. The ``hello-world`` preset runs this way.
+
+A config whose ``control_system:`` section states no ``type`` gets the simulator
+in process, and its ``serving`` leaf is not read: a section that names nothing
+dials nothing. ``serving: in_process`` is refused on a deployment whose own type
+is not ``virtual_accelerator``; on such a deployment the ``va`` target is the
+served container.
 
 An environment with no containers to depend on can run the tutorial on the
-in-process simulation instead:
+simulator in process:
 
 .. code-block:: bash
 
-   osprey set connector=mock
+   osprey set config.control_system.connector.virtual_accelerator.serving=in_process
    osprey build
    osprey up
 
-Read one consequence before you do: **plans become browse-only.** The mock
-does not settle-wait a corrector's readback against its setpoint, which every
-plan needs between grid points, so a plan started there would never
-complete. Rather than let one start and hang, the stack refuses earlier — plans
-can still be listed, authored, validated and staged into the shared draft, but
-the queue will not hold them, and both the panels and the agent report a
-browse-only deployment with the exact command that flips it back. Everything
-that is not a plan — channel reads and writes, the archiver, the Channel
-Finder — works as before. The ``epics`` block keeps its production values
-throughout.
+Read one consequence before you do: **plans become browse-only.** The simulator
+in process speaks no Channel Access, and the queue worker builds its devices
+over Channel Access, so a plan started there could not drive a channel. Rather
+than let one start and fail, the stack refuses earlier --- plans can still be
+listed, authored, validated and staged into the shared draft, but the queue
+will not hold them, and both the panels and the agent report a browse-only
+deployment with the exact command that flips it back
+(``osprey set config.control_system.connector.virtual_accelerator.serving=served``).
+Everything that is not a plan --- channel reads and writes, the archiver, the
+Channel Finder --- works as before. The ``epics`` block keeps its production
+values throughout.
 
 The archive follows the flip on its own. The recorder records **only** a machine
-this deployment owns, so with no stand-in deployed it stops writing on ``mock``
-and idles; it re-reads the project's ``config.yml`` every 30 seconds, so the
-change takes effect within one poll and no restart or rebuild is involved.
-Nothing is deleted — the history already in the store stays readable, it simply
-stops growing, and it ages out under the retention window as usual.
-``osprey health`` will report the archive as **stale** (a warning, not an error)
-once the newest sample is older than the freshness threshold, which is the
-honest answer to "is this archive still being written". Flipping back to
-``virtual_accelerator`` restarts recording within a poll too.
+this deployment owns and serves over the network, so with no stand-in deployed
+it stops writing while the simulator runs in process and idles; it re-reads the
+project's ``config.yml`` every 30 seconds, so the change takes effect within one
+poll and no restart or rebuild is involved. Nothing is deleted --- the history
+already in the store stays readable, it simply stops growing, and it ages out
+under the retention window as usual. ``osprey health`` will report the archive
+as **stale** (a warning, not an error) once the newest sample is older than the
+freshness threshold, which is the honest answer to "is this archive still being
+written". Flipping back to ``served`` restarts recording within a poll too.
 
 A stand-in changes that answer, because the recorder follows the machine rather
-than the ``control_system.type`` line: the stand-in keeps running and is still
-the machine this deployment records, so it keeps being recorded on ``mock`` as
-well.
+than the ``control_system`` section: the stand-in keeps running and is still
+the machine this deployment records, so it keeps being recorded while the
+simulator runs in process as well.
+
+``mock`` is no longer a control-system type. A config or profile that states it
+is refused, and the refusal names the new spelling:
+
+.. code-block:: text
+
+   `mock` is retired: the simulator in process is `control_system.type: virtual_accelerator` with `control_system.connector.virtual_accelerator.serving: in_process` (`osprey set connector=virtual_accelerator config.control_system.connector.virtual_accelerator.serving=in_process`), then rebuild with `osprey build`.
 
 Connecting to the IOC
 =====================
@@ -339,19 +371,19 @@ image has to be on the host or pullable where it is named;
 Scenarios
 =========
 
-``osprey sim apply <scenario>`` works in Virtual Accelerator mode exactly as it
-does for the mock. Applying a scenario writes the project's
-``var/agent_data/simulation/active_scenarios`` file; the in-container engine polls
-it and, within about a second, composed channel values reflect the new scenario.
-One behavioral difference from the mock: in VA mode a scenario switch only
-refreshes the engine-composed channels — setpoints you wrote during the session
-live in the IOC's own records and **survive** the switch. (In mock mode, written
-values are reset.)
+``osprey sim apply <scenario>`` works the same in both venues. Applying a
+scenario writes the project's ``var/agent_data/simulation/active_scenarios``
+file; the in-container engine polls it and, within about a second, composed
+channel values reflect the new scenario. One behavioral difference between the
+venues: served, a scenario switch only refreshes the engine-composed channels —
+setpoints you wrote during the session live in the IOC's own records and
+**survive** the switch. (In process, written values are reset.)
 
-The container mounts two of the project's directories: ``data/simulation`` for
-the machine model (rebuilt from your profile on every build) and
-``var/agent_data/simulation`` for that scenario state (written while the system
-runs). Both are automatic for the deployed service.
+The served simulator's container mounts two directories: the render's data root
+(``build/data``, read-only, holding the simulator view the build writes, rebuilt
+on every ``osprey build``) and the scenario state directory
+(``var/agent_data/simulation``, written by ``osprey sim apply`` while the system
+runs). Both mounts are automatic for the deployed service.
 
 What a scenario may contain, how scenarios compose, and what ``osprey sim
 apply`` refuses is in :doc:`/how-to/run-scenarios`.
@@ -529,9 +561,10 @@ The honesty rule
 ================
 
 There is one configuration this stack refuses: a machine the deployment stands
-up for itself — the ``virtual_accelerator`` control system, or the
-``live_standin`` one — paired with the **mock archiver**, or with no archiver
-set at all, which resolves to the same thing.
+up for itself and serves over the network — the ``virtual_accelerator`` control
+system served from its container, or the ``live_standin`` one — paired with the
+**mock archiver**, or with no archiver set at all, which resolves to the same
+thing.
 
 The reason is what the two do differently. The Virtual Accelerator serves
 channels that move for modelled reasons: you step a corrector, the orbit
@@ -556,8 +589,8 @@ The pairing is refused at every point it can be created:
    * - ``osprey up`` / ``restart``
      - The deploy aborts before starting anything, and names the ``config.yml``
        edit: set ``type:`` under ``archiver:`` to a connector reading a store
-       this stack writes, or set ``type:`` under ``control_system:`` back to
-       ``mock``.
+       this stack writes, or serve the simulator in process
+       (``control_system.connector.virtual_accelerator.serving: in_process``).
    * - MCP server startup
      - The server refuses to start on such a ``config.yml``, so a file
        hand-edited after the build cannot quietly bring the pairing back.
@@ -567,8 +600,9 @@ The pairing is refused at every point it can be created:
        deploy time.
 
 Two pairings that look similar are perfectly legal, because nothing lies in
-either: **mock control system + mock archiver** is the honestly storeless
-deployment (nothing is claimed to be real), and **EPICS + mock archiver** is a
+either: **the simulator in process + mock archiver** is the honestly storeless
+deployment (it has no recorder, so a synthesized archive is the only one it can
+have, and nothing is claimed to be real), and **EPICS + mock archiver** is a
 real machine that simply has no archive attached yet.
 
 .. warning::

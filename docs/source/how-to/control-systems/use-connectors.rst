@@ -6,16 +6,17 @@ Use Connectors
 A connector is OSPREY's single interface to a control system, and a second,
 parallel connector is its interface to an archiver. Everything above them — the
 agent, the plans, the safety layers — is written against those two interfaces,
-so moving from a mock to real hardware is a change of ``control_system.type``
-and its connector block, not of code.
+so moving from the simulator to real hardware is a change of
+``control_system.type`` and its connector block, not of code.
 
 One API, whatever the machine
 -----------------------------
 
-The Python API is the same for every connector. The mock connector serves the
-addresses of the built facility file without hardware access, which is what
-makes it the development and R&D default. Run ``osprey build`` first; the mock
-refuses an address outside the facility file:
+The Python API is the same for every connector. The simulator served in
+process answers for the addresses of the built facility file without hardware
+or network access, which is what makes it the development and R&D default. Run
+``osprey build`` first; the simulator refuses an address outside the facility
+file:
 
 .. code-block:: python
 
@@ -23,11 +24,12 @@ refuses an address outside the facility file:
 
    register_builtin_connectors()   # registers the built-in names; idempotent
 
-   # Create mock connector - serves the addresses of the built facility file
+   # The simulator in process - serves the addresses of the built facility file
    connector = await ConnectorFactory.create_control_system_connector({
-       'type': 'mock',
+       'type': 'virtual_accelerator',
        'connector': {
-           'mock': {
+           'virtual_accelerator': {
+               'serving': 'in_process',
                'response_delay_ms': 10
            }
        }
@@ -64,18 +66,14 @@ Pick a control system
 .. tab-set::
    :sync-group: cs
 
-   .. tab-item:: Mock
-      :sync: mock
+   .. tab-item:: Simulator in process
+      :sync: in-process
 
-      The default. Serves the addresses of the built facility file, no
-      hardware or network access required:
-
-      .. code-block:: yaml
-
-         control_system:
-           type: mock
-           connector:
-             mock: { response_delay_ms: 10 }
+      The default. The simulator, run inside the process that asks, serving
+      the addresses of the built facility file with no hardware or network
+      access. It is the Virtual Accelerator's in-process venue; see
+      :ref:`va-two-venues` for both venues and the one setting that picks
+      between them.
 
    .. tab-item:: EPICS
       :sync: epics
@@ -306,7 +304,7 @@ Pick a control system
       The containerized simulator, over real EPICS Channel Access -- it behaves
       like ``epics`` but tracks setpoints through the simulator's LUME-backed
       physics, so correctors move, BPMs respond, and plans actually run (the
-      mock connector can't do that):
+      simulator in process can't run plans):
 
       .. code-block:: yaml
 
@@ -341,7 +339,7 @@ independently of the control system:
    :sync-group: cs
 
    .. tab-item:: Mock
-      :sync: mock
+      :sync: in-process
 
       History for the addresses of the built facility file — the development
       default:
