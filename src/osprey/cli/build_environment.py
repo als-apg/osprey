@@ -447,8 +447,8 @@ def _write_project_pyproject(
     if _pins_prerelease(osprey_spec):
         lines += [
             "[tool.uv]",
-            "# The osprey pin is a pre-release, and so is the osprey-connectors release",
-            "# it ships with; a resolve from this record has to admit both.",
+            "# The osprey pin is a pre-release, and so is every workspace-member",
+            "# release it ships with; a resolve from this record has to admit them.",
             'prerelease = "allow"',
             "",
         ]
@@ -457,6 +457,52 @@ def _write_project_pyproject(
 
 
 _OSPREY_DIST_NAME = "osprey-framework"
+
+
+def _pip_member_requirements(osprey_spec: str) -> list[str]:
+    """The workspace-member requirements pip needs beside *osprey_spec*.
+
+    A framework built from the repository depends on its workspace members,
+    which uv resolves through the checkout's ``[tool.uv.sources]``. pip reads no
+    such table, so the members must come from the same place the framework
+    does: each ``packages/<member>`` directory of a local tree, or the same
+    subdirectory of a VCS URL. A plain requirement names a release, whose paired
+    member releases resolve from the index, so it needs none.
+
+    Raises:
+        BuildProfileError: The spec names a location the members cannot be
+            derived from (an archive URL, a non-git VCS), so pip would resolve
+            them by name from the index instead of from the framework's source.
+    """
+    from packaging.requirements import InvalidRequirement, Requirement
+
+    from osprey.deployment.members import WORKSPACE_MEMBERS
+
+    location: str | None = osprey_spec
+    if not osprey_spec.startswith((".", "~", "/")):
+        try:
+            # A named requirement: its direct-reference URL, or None for a release.
+            location = Requirement(osprey_spec).url
+        except InvalidRequirement:
+            pass  # A bare URL, which is no PEP 508 requirement.
+    if location is None:
+        return []
+
+    if location.startswith("file://"):
+        location = unquote(urlparse(location).path)
+    if location.startswith((".", "~", "/")):
+        source_root = Path(location).expanduser()
+        return [str(source_root / "packages" / member) for member in WORKSPACE_MEMBERS]
+    if location.startswith("git+"):
+        base = location.split("#", 1)[0]
+        return [f"{m} @ {base}#subdirectory=packages/{m}" for m in WORKSPACE_MEMBERS]
+    raise BuildProfileError(
+        f"Cannot locate the workspace members for osprey_install {osprey_spec!r}. "
+        "pip needs each member from the same source as the framework: use a local "
+        "path, a file:// URL, a git+ URL, or a released version such as "
+        "'osprey-framework==<version>'."
+    )
+
 
 _VENV_PROBE = "import sys; print(1 if sys.prefix != sys.base_prefix else 0)"
 
@@ -876,14 +922,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
             # pip draws the same line uv does: see _pins_prerelease.
             cmd.append("--pre")
         cmd += all_deps
-        if osprey_spec.startswith((".", "~", "/")):
-            # A source checkout's framework depends on its workspace members,
-            # which uv resolves through the checkout's `[tool.uv.sources]`. pip
-            # reads no such table, so each member directory is named here.
-            from osprey.deployment.members import WORKSPACE_MEMBERS
-
-            source_root = Path(osprey_spec).expanduser()
-            cmd += [str(source_root / "packages" / member) for member in WORKSPACE_MEMBERS]
+        cmd += _pip_member_requirements(osprey_spec)
 
     from rich.live import Live
     from rich.spinner import Spinner

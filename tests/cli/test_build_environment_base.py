@@ -205,3 +205,67 @@ class TestWorkspaceMembersFromSource:
         install_cmd = calls[1]
         assert install_cmd[-2:] == ["osprey-framework==1.2.3", "pyepics"]
         assert not any("packages/" in arg for arg in install_cmd)
+
+    _VCS_URL = "git+https://example.invalid/osprey.git@0123abc"
+
+    @classmethod
+    def _vcs_members(cls) -> list[str]:
+        return [f"{m} @ {cls._VCS_URL}#subdirectory=packages/{m}" for m in WORKSPACE_MEMBERS]
+
+    @pytest.mark.usefixtures("without_uv")
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            _VCS_URL,
+            f"{_VCS_URL}#egg=osprey-framework",
+            f"osprey-framework @ {_VCS_URL}",
+        ],
+        ids=["bare-vcs-url", "vcs-url-with-fragment", "direct-reference"],
+    )
+    def test_pip_command_names_every_member_subdirectory_for_a_vcs_spec(
+        self, calls, tmp_path, spec
+    ):
+        """The members live in the same repository, one subdirectory each, so
+        they come from the same commit rather than by name from PyPI."""
+        _create_project_venv(tmp_path, _profile(osprey_install=spec))
+
+        install_cmd = calls[1]
+        members = self._vcs_members()
+        assert install_cmd[-(1 + len(members)) :] == [spec, *members]
+
+    @pytest.mark.usefixtures("without_uv")
+    @pytest.mark.parametrize("form", ["direct-reference", "bare-url"])
+    def test_pip_command_names_every_member_directory_for_a_file_url(self, calls, tmp_path, form):
+        root = tmp_path / "osprey src"
+        url = root.as_uri()
+        spec = f"osprey-framework @ {url}" if form == "direct-reference" else url
+
+        _create_project_venv(tmp_path, _profile(osprey_install=spec))
+
+        install_cmd = calls[1]
+        members = [str(root / "packages" / name) for name in WORKSPACE_MEMBERS]
+        assert install_cmd[-(1 + len(members)) :] == [spec, *members]
+
+    @pytest.mark.usefixtures("without_uv", "calls")
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            "osprey-framework @ https://example.invalid/osprey_framework-1.0-py3-none-any.whl",
+            "https://example.invalid/osprey_framework-1.0.tar.gz",
+            "hg+https://example.invalid/osprey",
+        ],
+    )
+    def test_pip_command_refuses_a_spec_whose_members_it_cannot_locate(self, tmp_path, spec):
+        """A framework fetched from an arbitrary URL names no place its members
+        live, and resolving them by name from PyPI may pick up a different
+        project's package."""
+        from osprey.errors import BuildProfileError
+
+        with pytest.raises(BuildProfileError, match="workspace member"):
+            _create_project_venv(tmp_path, _profile(osprey_install=spec))
+
+    @pytest.mark.usefixtures("without_uv")
+    def test_pip_command_appends_no_member_for_a_version_range(self, calls, tmp_path):
+        _create_project_venv(tmp_path, _profile(osprey_install="osprey-framework>=2026.9"))
+
+        assert calls[1][-1] == "osprey-framework>=2026.9"
