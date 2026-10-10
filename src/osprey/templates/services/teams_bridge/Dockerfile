@@ -133,9 +133,9 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # the glob always matches at least one file; `*.wh[l]` optionally pulls in the
 # wheel. The framework wheel's first install carries the [teams] extra so a dev
 # wheel that adds or bumps a dependency INSIDE the extra picks it up (`pip
-# check` cannot detect a missing extra), with the staged osprey-connectors
-# wheel in the same call so the framework's requirement on it resolves locally
-# rather than from PyPI; the wheels are then force-reinstalled --no-deps to
+# check` cannot detect a missing extra), with every other staged wheel -- one
+# per workspace member -- in the same call so the framework's requirement on
+# each resolves locally rather than from PyPI; the wheels are then force-reinstalled --no-deps to
 # guarantee their own modules win, and `pip check` guards against residual
 # mismatches. No wheel staged → no-op, image already complete after the deps
 # layer.
@@ -143,7 +143,7 @@ COPY .dockerignore *.wh[l] /tmp/ctx/
 RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
         && whl="$(ls /tmp/ctx/osprey_framework-*.whl)" \
-        && pip install --no-cache-dir "${whl}[teams]" /tmp/ctx/osprey_connectors-*.whl \
+        && pip install --no-cache-dir "${whl}[teams]" $(ls /tmp/ctx/*.whl | grep -v /osprey_framework-) \
         && pip install --no-cache-dir --no-deps --force-reinstall /tmp/ctx/*.whl \
         && pip check ; \
     fi \

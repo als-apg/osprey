@@ -158,11 +158,12 @@ ENV DISABLE_AUTOUPDATER=1
 # only busts when the manifest content changes. When OSPREY_DEV=1 and the pinned
 # spec is unreleased (the primer install fails), fall back to the latest
 # published osprey-framework so dev builds are not blocked; otherwise the build
-# fails loudly. A git+ OSPREY_PIP_SPEC points into the monorepo, so the
-# osprey-connectors workspace member the framework requires is pre-installed
-# from the same URL's packages/ subdirectory first — a commit-pinned build
-# cannot assume a satisfying connectors release exists on PyPI (best-effort: a
-# spec pip cannot take a #subdirectory fragment on falls through to PyPI).
+# fails loudly. A git+ OSPREY_PIP_SPEC points into the monorepo, so each
+# workspace member the framework requires is pre-installed from the same URL's
+# packages/<member> subdirectory first — a commit-pinned build cannot assume a
+# satisfying member release exists on PyPI (best-effort: a spec pip cannot take
+# a #subdirectory fragment on falls through to PyPI). The member list is the
+# framework's own, rendered in by `osprey build`; a PyPI pin installs none.
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling
 # (CompileError escapes uncaught), which fails any source build of the EPICS
@@ -186,8 +187,12 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
     && { case "$OSPREY_PIP_SPEC" in \
-           git+*) pip install --no-cache-dir "osprey-connectors @ ${OSPREY_PIP_SPEC}#subdirectory=packages/osprey-connectors" \
-                  || echo "WARNING: could not pre-install osprey-connectors from the git spec; resolving from PyPI" ;; \
+           git+*) : \
+{%- for member in workspace_members %}
+                  ; pip install --no-cache-dir "{{ member }} @ ${OSPREY_PIP_SPEC}#subdirectory=packages/{{ member }}" \
+                  || echo "WARNING: could not pre-install {{ member }} from the git spec; resolving from PyPI" \
+{%- endfor %}
+                  ;; \
          esac; } \
     && { pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
          || if [ "$OSPREY_DEV" = "1" ]; then \
