@@ -449,9 +449,11 @@ def test_a_nested_parent_gets_real_mappings_not_a_dotted_key(
     nothing, and every per-tool policy silently falls back to
     ``default_policy``.
 
-    ``default_policy: skip`` is what makes the collapse visible: a channel write
-    the preset asks to prompt for would proceed unprompted, on a profile that
-    was correct before the expansion touched it.
+    ``default_policy: selective`` is what makes the collapse visible: a channel
+    write the preset asks to prompt for every time would prompt only
+    selectively, on a profile that was correct before the expansion touched it.
+    ``skip`` cannot carry the proof, since a guarded tool inheriting it while
+    ``channel_write`` prompts stops the build.
     """
     repo = tmp_path / "facility"
     _init(runner, repo, "hello-world")
@@ -460,7 +462,7 @@ def test_a_nested_parent_gets_real_mappings_not_a_dotted_key(
     profile.write_text(
         profile.read_text(encoding="utf-8").replace(
             "\nconfig:\n",
-            "\nconfig:\n  approval:\n    enabled: true\n    default_policy: skip\n",
+            "\nconfig:\n  approval:\n    enabled: true\n    default_policy: selective\n",
             1,
         ),
         encoding="utf-8",
@@ -471,8 +473,8 @@ def test_a_nested_parent_gets_real_mappings_not_a_dotted_key(
 
     approval = _rendered_config(repo)["approval"]
     # The operator's own value is untouched, so a policy that fell back to it
-    # would read `skip` rather than the preset's `always`.
-    assert approval["default_policy"] == "skip"
+    # would read `selective` rather than the preset's `always`.
+    assert approval["default_policy"] == "selective"
     assert approval["tools"]["channel_write"] == "always"
     assert _dotted_keys_below(approval) == []
 
