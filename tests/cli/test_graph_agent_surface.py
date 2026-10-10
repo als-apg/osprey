@@ -318,7 +318,11 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
                 # stages none. This repo ships the source zone only, and the
                 # accelerator is not what these tests are about.
                 "virtual_accelerator": None,
-                "config": {"control_system.type": "mock", **(config or {})},
+                "config": {
+                    "control_system.type": "virtual_accelerator",
+                    "control_system.connector.virtual_accelerator.serving": "in_process",
+                    **(config or {}),
+                },
             },
             default_flow_style=False,
         ),

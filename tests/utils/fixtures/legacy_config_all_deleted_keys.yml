@@ -51,7 +51,7 @@ workspace:
   base_dir: ./osprey-workspace
 
 control_system:
-  type: mock
+  type: virtual_accelerator
   writes_enabled: false
 
   limits_checking:
@@ -73,6 +73,7 @@ control_system:
       simulation_file: data/simulation/machine.json  # RETIRED — the build writes the simulator view
       noise_level: 0.0       # RETIRED — the simulator view carries each channel's noise
     virtual_accelerator:
+      serving: in_process
       simulation_file: data/simulation/machine.json  # RETIRED — the build writes the simulator view
       noise_level: 0.0       # RETIRED — the simulator view carries each channel's noise
     epics:

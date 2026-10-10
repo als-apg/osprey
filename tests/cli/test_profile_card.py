@@ -142,9 +142,18 @@ def test_a_single_target_render_keeps_one_unqualified_write_right() -> None:
     from osprey.cli.profile_card import _write_rights
 
     armed = SimpleNamespace(
-        config={"control_system.type": "mock", "control_system.writes_enabled": True}
+        config={
+            "control_system.type": "virtual_accelerator",
+            "control_system.connector.virtual_accelerator.serving": "in_process",
+            "control_system.writes_enabled": True,
+        }
     )
-    cold = SimpleNamespace(config={"control_system.type": "mock"})
+    cold = SimpleNamespace(
+        config={
+            "control_system.type": "virtual_accelerator",
+            "control_system.connector.virtual_accelerator.serving": "in_process",
+        }
+    )
     assert _write_rights(armed, {}, "readwrite") == ["rights approval-gated"]
     assert _write_rights(cold, {}, "readonly") == []
 

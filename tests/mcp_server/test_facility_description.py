@@ -17,7 +17,17 @@ from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 def facility_config(tmp_path):
     """Create minimal config.yml and .claude/rules/facility.md for testing."""
     config = tmp_path / "config.yml"
-    config.write_text(yaml.dump({"control_system": {"type": "mock", "writes_enabled": False}}))
+    config.write_text(
+        yaml.dump(
+            {
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    "writes_enabled": False,
+                }
+            }
+        )
+    )
 
     rules_dir = tmp_path / ".claude" / "rules"
     rules_dir.mkdir(parents=True)
@@ -47,7 +57,17 @@ def _write_facts_page(project_root):
 def missing_facility_config(tmp_path):
     """Create config.yml but no facility.md."""
     config = tmp_path / "config.yml"
-    config.write_text(yaml.dump({"control_system": {"type": "mock", "writes_enabled": False}}))
+    config.write_text(
+        yaml.dump(
+            {
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    "writes_enabled": False,
+                }
+            }
+        )
+    )
     return tmp_path
 
 
@@ -135,7 +155,16 @@ class TestFacilityDescription:
     async def test_utf8_content(self, tmp_path, monkeypatch):
         """Handles UTF-8 special characters correctly."""
         config = tmp_path / "config.yml"
-        config.write_text(yaml.dump({"control_system": {"type": "mock"}}))
+        config.write_text(
+            yaml.dump(
+                {
+                    "control_system": {
+                        "type": "virtual_accelerator",
+                        "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    }
+                }
+            )
+        )
 
         rules_dir = tmp_path / ".claude" / "rules"
         rules_dir.mkdir(parents=True)

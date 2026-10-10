@@ -37,10 +37,10 @@ import pytest
 
 from osprey.connectors.control_system.base import ChannelValue
 from osprey.connectors.control_system.epics_connector import EPICSConnector
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey.errors import ChannelReadFailedError
 from osprey.runtime import read_channels
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 # The value each of the three requested channels holds; the middle one is the
 # channel that fails.
@@ -97,13 +97,15 @@ def _raise_or_value(addresses, scenario, address):
 MOCK_ADDRESSES = ["SIM:A:RB", "SIM:B:RB", "SIM:C:RB"]
 
 
-async def _mock_connector(scenario: ReadScenario, monkeypatch, tmp_path) -> MockConnector:
+async def _in_process_connector(
+    scenario: ReadScenario, monkeypatch, tmp_path
+) -> VAInProcessConnector:
     """A mock serving ``MOCK_ADDRESSES`` with ``VALUES``, whose middle read raises."""
     view = served_tree(tmp_path, readings=MOCK_ADDRESSES)
-    connector = MockConnector()
-    await connector.connect(mock_config(view, response_delay_ms=0))
+    connector = VAInProcessConnector()
+    await connector.connect(in_process_config(view, response_delay_ms=0))
 
-    def reading(address, *, held):  # noqa: ARG001 - MockConnector._reading signature
+    def reading(address, *, held):  # noqa: ARG001 - VAInProcessConnector._reading signature
         value = _raise_or_value(MOCK_ADDRESSES, scenario, address)
         return ChannelValue(value=value, timestamp=datetime.now(UTC))
 
@@ -112,7 +114,7 @@ async def _mock_connector(scenario: ReadScenario, monkeypatch, tmp_path) -> Mock
 
 
 async def _read_mock(scenario: ReadScenario, monkeypatch, tmp_path) -> tuple[list[str], dict]:
-    connector = await _mock_connector(scenario, monkeypatch, tmp_path)
+    connector = await _in_process_connector(scenario, monkeypatch, tmp_path)
     result = await connector.read_multiple_channels(MOCK_ADDRESSES)
     await connector.disconnect()
     return MOCK_ADDRESSES, result
@@ -272,7 +274,7 @@ async def _read_tango(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
 
 
 _DRIVERS = {
-    "mock": _read_mock,
+    "in_process": _read_mock,
     "epics": _read_epics,
     "doocs": _read_doocs,
     "tango": _read_tango,
@@ -397,7 +399,7 @@ def _connector_classes():
     from osprey.connectors.control_system.tango_connector import TangoConnector
 
     return {
-        "mock": MockConnector,
+        "in_process": VAInProcessConnector,
         "epics": EPICSConnector,
         "doocs": DOOCSConnector,
         "tango": TangoConnector,

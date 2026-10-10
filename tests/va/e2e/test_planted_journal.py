@@ -84,7 +84,7 @@ PLANTED: dict[str, float] = {
 }
 
 #: The mock connector's journal, under the state directory.
-JOURNAL = ("mock", "writes.json")
+JOURNAL = ("inprocess", "writes.json")
 
 
 #: Floor for this module's own test count -- a guard against a refactor that
@@ -125,7 +125,7 @@ def _writable_setpoint(channel: Channel) -> bool:
 
 def _plant_journal(state_dir: Path) -> Path:
     """Write the journal the mock connector would have written; return its path."""
-    from osprey_connectors.control_system.mock_connector import active_set_sha256
+    from osprey_connectors.control_system.va_in_process_connector import active_set_sha256
 
     active = (state_dir / "active_scenarios").read_text(encoding="utf-8").split()
     path = state_dir.joinpath(*JOURNAL)
@@ -322,13 +322,13 @@ def test_every_setpoint_holds_its_wiring_default_after_three_ticks(
 
 
 @pytest.mark.asyncio
-async def test_the_mock_connector_replays_the_planted_journal(
+async def test_the_in_process_connector_replays_the_planted_journal(
     project: e2e_conftest.VaProject, ports: dict[str, int]
 ) -> None:
-    from osprey.connectors.control_system.mock_connector import MockConnector
+    from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 
     del ports  # the containers read the journal first, and the mock may rewrite it
-    connector = MockConnector()
+    connector = VAInProcessConnector()
     with e2e_conftest.patched_config():
         await connector.connect(
             {

@@ -440,7 +440,10 @@ class TestProviderEnvironment:
         """
         monkeypatch.delenv("EPICS_CA_ADDR_LIST", raising=False)
         monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-        stub_build(lifecycle_repo, config="control_system:\n  type: mock\n")
+        stub_build(
+            lifecycle_repo,
+            config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+        )
         (lifecycle_repo / ".env").write_text(
             "ANTHROPIC_BASE_URL=https://elsewhere.example.org\n"
             "EPICS_CA_ADDR_LIST=10.0.0.1 10.0.0.2\n",
@@ -464,7 +467,10 @@ class TestProviderEnvironment:
         auth failure.
         """
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-from-the-shell")
-        stub_build(lifecycle_repo, config="control_system:\n  type: mock\n")
+        stub_build(
+            lifecycle_repo,
+            config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+        )
         (lifecycle_repo / ".env").write_text("EPICS_CA_ADDR_LIST=10.0.0.1\n", encoding="utf-8")
 
         result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
@@ -477,7 +483,10 @@ class TestProviderEnvironment:
     ):
         """Both provenances at once: the overlay's value goes, the shell's stays."""
         monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://shell.example.org")
-        stub_build(lifecycle_repo, config="control_system:\n  type: mock\n")
+        stub_build(
+            lifecycle_repo,
+            config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+        )
         (lifecycle_repo / ".env").write_text(
             "ANTHROPIC_BASE_URL=https://dotenv.example.org\n", encoding="utf-8"
         )
@@ -602,7 +611,10 @@ class TestProviderEnvironment:
     ):
         """With no provider injected there is nothing to agree with, so any policy
         provider key refuses."""
-        stub_build(lifecycle_repo, config="control_system:\n  type: mock\n")
+        stub_build(
+            lifecycle_repo,
+            config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+        )
         monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://shell.example.org")
         _pin_policy(monkeypatch, ANTHROPIC_BASE_URL="https://shell.example.org")
 

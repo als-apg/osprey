@@ -217,7 +217,10 @@ def _write_project(
     config: dict = {
         "project_name": "rewrite-project",
         "project_root": str(root),
-        "control_system": {"type": "mock"},
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
         "va_archiver": {
             "retention_days": KNOBS.retention_days,
             "hot_span_hours": KNOBS.hot_span_hours,

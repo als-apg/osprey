@@ -50,7 +50,13 @@ class _StubLoaded:
         )
         self.extra_rows = extra_rows if extra_rows is not None else []
         self.settings = parse_health_config(None)  # suite_timeout_s=30, on_demand_timeout_s=None
-        self.expanded: dict[str, Any] = {"control_system": {"type": "mock", "tag": "full"}}
+        self.expanded: dict[str, Any] = {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "tag": "full",
+            }
+        }
         self.control_system: dict[str, Any] = self.expanded["control_system"]
         self.config_ok = True
 

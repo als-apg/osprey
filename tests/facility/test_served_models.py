@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
@@ -66,13 +66,13 @@ def test_a_texture_only_list_leaves_the_facility_file_and_the_graph_alone(
     assert ttl_sha256((render_dir / GRAPH).read_text(encoding="utf-8")) == ttl_sha256(built_graph)
 
 
-async def test_a_texture_only_mock_holds_every_sr_magnet_at_its_wiring_default(
+async def test_a_texture_only_in_process_simulator_holds_every_sr_magnet_at_its_wiring_default(
     tmp_path: Path, built_control_assistant: BuiltProject, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
     render_dir = _texture_only(tmp_path, built_control_assistant)
     defaults = _sr_magnet_defaults(render_dir)
-    connector = MockConnector()
+    connector = VAInProcessConnector()
     await connector.connect(
         {"simulator_view": str(render_dir / "data" / "simulator"), "response_delay_ms": 0}
     )

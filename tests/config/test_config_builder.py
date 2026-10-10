@@ -534,7 +534,9 @@ class TestTimezoneDriftWarning:
         from osprey.utils.config import get_config_value, get_facility_timezone
 
         config_file = tmp_path / "config.yml"
-        config_file.write_text("control_system:\n  type: mock\n")  # no system.timezone
+        config_file.write_text(
+            "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+        )  # no system.timezone
         monkeypatch.setenv("CONFIG_FILE", str(config_file))
         self._reset(monkeypatch)
         get_config_value("system.timezone", None)

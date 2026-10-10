@@ -51,7 +51,10 @@ SIM_CONFIG = """\
 claude_code:
   provider: anthropic
 control_system:
-  type: mock
+  type: virtual_accelerator
+  connector:
+    virtual_accelerator:
+      serving: in_process
 """
 
 #: The scenarios the simulator view of a ``SIM_CONFIG`` render lists.

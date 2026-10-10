@@ -35,7 +35,13 @@ class _StubLoaded:
         self.records: list[Any] = []
         self.extra_rows: list[CheckResult] = []
         self.settings = parse_health_config(None)  # interval_s=60, suite_timeout_s=30
-        self.expanded: dict[str, Any] = {"control_system": {"type": "mock", "tag": tag}}
+        self.expanded: dict[str, Any] = {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                "tag": tag,
+            }
+        }
         self.control_system: dict[str, Any] = self.expanded["control_system"]
         self.config_ok = True
 

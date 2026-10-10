@@ -5,9 +5,12 @@ import copy
 from pathlib import Path
 from typing import Any
 
-#: The ``control_system`` block of a mock-connector project: the mock connector
-#: serves the simulator view under ``data/`` and takes no setting of its own.
-MOCK_SIM_CONTROL_SYSTEM = {"connector": {"mock": {}}}
+#: The ``control_system`` block of a project serving the simulator in process:
+#: it serves the simulator view under ``data/`` and takes no setting of its own.
+IN_PROCESS_SIM_CONTROL_SYSTEM = {
+    "type": "virtual_accelerator",
+    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+}
 
 
 def stage_sim_project(
@@ -17,7 +20,7 @@ def stage_sim_project(
 
     The flat shape. The tests write the simulator view under ``data/``
     themselves (:func:`tests._simulator_view.write_scenarios_view`).
-    ``control_system`` defaults to the mock connector; any other top-level
+    ``control_system`` defaults to the simulator in process; any other top-level
     config sections (``ariel``, ``system``, ...) go in ``config_extra``.
     """
     import yaml
@@ -25,7 +28,7 @@ def stage_sim_project(
     root.mkdir(parents=True, exist_ok=True)
     config = {
         "control_system": copy.deepcopy(
-            MOCK_SIM_CONTROL_SYSTEM if control_system is None else control_system
+            IN_PROCESS_SIM_CONTROL_SYSTEM if control_system is None else control_system
         ),
         **config_extra,
     }

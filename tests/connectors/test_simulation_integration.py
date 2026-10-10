@@ -12,8 +12,8 @@ from unittest.mock import patch
 import pytest
 
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.control_system.mock_connector import MockConnector
-from tests.facility.served_tree import mock_config, served_tree
+from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
+from tests.facility.served_tree import in_process_config, served_tree
 
 #: The test rig's channels, in the facility schema's own spelling.
 RIG = {
@@ -50,14 +50,14 @@ def view(tmp_path):
     )
 
 
-class TestMockConnectorSimulation:
-    """MockConnector over the rig's simulator view."""
+class TestVAInProcessConnectorSimulation:
+    """VAInProcessConnector over the rig's simulator view."""
 
     @pytest.mark.asyncio
     async def test_read_engine_channel(self, view):
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            connector = MockConnector()
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.read_channel("T:Q1:CUR:SP")
             assert result.value == 42.0
@@ -72,8 +72,8 @@ class TestMockConnectorSimulation:
     @pytest.mark.asyncio
     async def test_string_channel_passes_through(self, view):
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            connector = MockConnector()
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.read_channel("T:MODE")
             assert result.value == "CW"
@@ -82,12 +82,12 @@ class TestMockConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_write_is_echoed_into_the_paired_readback(self, view):
-        connector = MockConnector()
+        connector = VAInProcessConnector()
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             await connector.write_channel("MAGNET:CURRENT:SP", 100.0)
             rb = await connector.read_channel("MAGNET:CURRENT:RB")
@@ -98,8 +98,8 @@ class TestMockConnectorSimulation:
     @pytest.mark.asyncio
     async def test_get_metadata_from_the_channel_record(self, view):
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            connector = MockConnector()
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             metadata = await connector.get_metadata("T:Q1:CUR:SP")
             assert metadata.units == "A"
@@ -114,7 +114,7 @@ class TestMockArchiverSimulation:
     @pytest.mark.asyncio
     async def test_engine_baseline_series(self, view):
         connector = MockArchiverConnector()
-        await connector.connect(mock_config(view))
+        await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
             channels=["T:Q1:CUR:SP"],
@@ -131,7 +131,7 @@ class TestMockArchiverSimulation:
     @pytest.mark.asyncio
     async def test_an_address_outside_the_view_is_refused(self, view):
         connector = MockArchiverConnector()
-        await connector.connect(mock_config(view))
+        await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
             channels=["T:Q1:CUR:SP"],
@@ -157,7 +157,7 @@ class TestMockArchiverSimulation:
         """A single request mixing a numeric channel and a string (enum/status)
         channel returns rows for both — neither is dropped or coerced."""
         connector = MockArchiverConnector()
-        await connector.connect(mock_config(view))
+        await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
             channels=["T:Q1:CUR:SP", "T:MODE"],

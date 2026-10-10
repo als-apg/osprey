@@ -30,7 +30,10 @@ from osprey.utils.config_writer import config_edit_session, config_update_fields
 
 SAMPLE = """\
 control_system:
-  type: mock
+  type: virtual_accelerator
+  connector:
+    virtual_accelerator:
+      serving: in_process
   limits_checking:
     enabled: false
 container_runtime: docker

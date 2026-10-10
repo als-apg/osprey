@@ -65,15 +65,21 @@ def test_each_configured_target_is_provisioned(tmp_path: Path) -> None:
 def test_a_deployment_without_a_control_system_gets_its_baseline(tmp_path: Path) -> None:
     ensure_guarded_run_dirs(tmp_path, {})
 
-    assert [path.name for path in (tmp_path / "var" / "guarded_run").iterdir()] == ["live"]
+    assert [path.name for path in (tmp_path / "var" / "guarded_run").iterdir()] == ["va"]
 
 
 def test_the_build_path_provisions_it(tmp_path: Path) -> None:
-    config: dict[str, Any] = {"project_root": str(tmp_path), "control_system": {"type": "mock"}}
+    config: dict[str, Any] = {
+        "project_root": str(tmp_path),
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
+    }
 
     _ensure_agent_data_structure(config)
 
-    _assert_shared(tmp_path / "var" / "guarded_run" / "live")
+    _assert_shared(tmp_path / "var" / "guarded_run" / "va")
 
 
 def _guarded_run_mounts(service: dict[str, Any]) -> list[str]:

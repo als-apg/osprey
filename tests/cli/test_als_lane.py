@@ -255,7 +255,7 @@ pytestmark = [pytest.mark.requires_als_profiles]
 # ===================================================================
 
 #: The connector types the lane accepts a configured target resolving to.
-SIMULATED_TYPES = frozenset({"mock", "virtual_accelerator", "live_standin"})
+SIMULATED_TYPES = frozenset({"virtual_accelerator", "live_standin"})
 
 #: The connector blocks that address a facility's own machine.
 REAL_BLOCKS = ("epics", "tango", "doocs")
@@ -345,7 +345,7 @@ def isolation_errors(section: Any) -> list[str]:
             continue
         block = connector.get(kind) or {}
         gateways = dict(block.get("gateways") or {})
-        if kind != "mock":
+        if block.get("serving") != "in_process":
             errors += [
                 f"control_system.connector.{kind}.gateways.{lane} is not stated"
                 for lane in ("read_only", "write_access")

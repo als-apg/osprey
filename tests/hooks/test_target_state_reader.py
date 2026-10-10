@@ -480,7 +480,17 @@ def test_effective_writes_needs_the_deployment_ceiling(state_dir):
     write_record(state_dir)
 
     assert reader.effective_writes_for(None, _ARMED, "va") is True
-    assert reader.effective_writes_for(None, {"type": "mock"}, "va") is False
+    assert (
+        reader.effective_writes_for(
+            None,
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            },
+            "va",
+        )
+        is False
+    )
 
 
 def test_a_narrowing_refuses_an_armed_target(state_dir):

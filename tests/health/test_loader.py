@@ -95,10 +95,14 @@ class TestReturnContract:
     def test_control_system_mapping_extracted(self, tmp_path):
         _write(
             tmp_path / "config.yml",
-            _VALID_CONFIG + "control_system:\n  type: mock\n",
+            _VALID_CONFIG
+            + "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
         )
         result = HealthConfigLoader(tmp_path / "config.yml").load()
-        assert result.control_system == {"type": "mock"}
+        assert result.control_system == {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
 
 
 # --------------------------------------------------------------------------- #

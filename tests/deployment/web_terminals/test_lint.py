@@ -4657,7 +4657,12 @@ def test_lint_profile_config_lets_a_deeper_dotted_key_refine_the_subtree() -> No
 def test_lint_profile_config_ignores_a_config_block_that_omits_the_module() -> None:
     """A profile that never mentions the module lints clean."""
     # Act
-    findings = lint_profile_config({"control_system.type": "mock"})
+    findings = lint_profile_config(
+        {
+            "control_system.type": "virtual_accelerator",
+            "control_system.connector.virtual_accelerator.serving": "in_process",
+        }
+    )
 
     # Assert
     assert findings == []
@@ -5937,7 +5942,12 @@ def test_lint_walled_mock_deployment_armed_for_writes_reports_nothing(tmp_path) 
     rule never falls back to the armed flat key."""
     # Arrange
     config = _live_writer_config(
-        tmp_path, {"control_system.type": "mock", "control_system.writes_enabled": True}
+        tmp_path,
+        {
+            "control_system.type": "virtual_accelerator",
+            "control_system.connector.virtual_accelerator.serving": "in_process",
+            "control_system.writes_enabled": True,
+        },
     )
 
     # Act

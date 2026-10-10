@@ -6,7 +6,7 @@ read-failure → error, the explicit ``timeout_s`` pass-through, and — the saf
 crux — that the probe *only ever reads*: a spy connector fails loudly on any
 ``write_channel``/``subscribe``, and a spy runtime proves the connector is
 acquired lazily via ``ctx.runtime.get_connector()``. One test drives the real
-in-tree :class:`MockConnector` end to end through a real ``HealthRuntime``.
+in-tree :class:`VAInProcessConnector` end to end through a real ``HealthRuntime``.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 from osprey.connectors.control_system.base import ChannelMetadata, ChannelValue
 from osprey.health.models import Status
@@ -202,12 +202,17 @@ async def test_connector_acquired_lazily() -> None:
     assert runtime.get_connector_calls == 1  # acquired exactly once, on demand
 
 
-# --- Real in-tree MockConnector end to end ----------------------------------
+# --- Real in-tree VAInProcessConnector end to end ----------------------------------
 
 
 async def test_real_mock_connector_read_is_ok(tmp_path: Path) -> None:
     view = served_tree(tmp_path, readings=["BEAM:CURRENT"])
-    runtime = HealthRuntime({"type": "mock", "connector": {"mock": mock_config(view)}})
+    runtime = HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": in_process_config(view)},
+        }
+    )
     try:
         ctx = ProbeContext(runtime=runtime)
         result = await run({"address": "BEAM:CURRENT", "name": "beam"}, ctx)

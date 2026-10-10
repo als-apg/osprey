@@ -88,7 +88,9 @@ def _get_channel_read():
 async def test_channel_read_single(tmp_path, monkeypatch):
     """Single channel read returns value with metadata in summary."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     mock_value = _make_channel_value(value=500.2, units="mA")
@@ -114,7 +116,9 @@ async def test_channel_read_single(tmp_path, monkeypatch):
 async def test_channel_read_multiple(tmp_path, monkeypatch):
     """Multiple channel read returns all values in summary."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     values = {
@@ -142,7 +146,9 @@ async def test_channel_read_multiple(tmp_path, monkeypatch):
 async def test_channel_read_metadata_disabled(tmp_path, monkeypatch):
     """Reading with include_metadata=False omits metadata fields."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     mock_value = _make_channel_value(value=500.2)
@@ -169,7 +175,9 @@ async def test_channel_read_metadata_disabled(tmp_path, monkeypatch):
 async def test_channel_read_with_metadata(tmp_path, monkeypatch):
     """Reading with include_metadata=True includes metadata fields."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     mock_value = _make_channel_value(value=500.2, units="mA", alarm_status="NO_ALARM")
@@ -202,7 +210,9 @@ async def test_access_details_lists_exactly_the_fields_shipped(
     agent reading access_details asked for a key that was never there.
     """
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     mock_connector = AsyncMock()
@@ -225,7 +235,9 @@ async def test_access_details_lists_exactly_the_fields_shipped(
 async def test_include_metadata_changes_the_payload(tmp_path, monkeypatch):
     """include_metadata must be observable — it was inert."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     mock_connector = AsyncMock()
@@ -259,7 +271,9 @@ async def test_channel_read_does_not_promise_write_limits(tmp_path, monkeypatch)
     assert "limits" not in doc
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     mock_connector = AsyncMock()
@@ -281,7 +295,9 @@ async def test_channel_read_does_not_promise_write_limits(tmp_path, monkeypatch)
 async def test_channel_read_connection_error(tmp_path, monkeypatch):
     """Connection error returns standard error format."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     mock_connector = AsyncMock()
@@ -394,7 +410,9 @@ async def test_enum_reading_carries_its_state_label(tmp_path, monkeypatch):
 async def test_a_non_enum_entry_has_no_enum_keys_at_all(tmp_path, monkeypatch):
     """Two null keys on every analogue reading would read as "no labels known"."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     mock_connector = AsyncMock()

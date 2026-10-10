@@ -267,7 +267,10 @@ def _run_executor_sandbox(tmp_path: Path, base_url: str, operator_secret: str) -
     exec_project.mkdir()
     (exec_project / "config.yml").write_text(
         "control_system:\n"
-        "  type: mock\n"
+        "  type: virtual_accelerator\n"
+        "  connector:\n"
+        "    virtual_accelerator:\n"
+        "      serving: in_process\n"
         "  limits_checking:\n"
         "    enabled: false\n"
         "execution:\n"
@@ -355,7 +358,10 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
         "system:\n"
         "  name: terminal-auth-e2e\n"
         "control_system:\n"
-        "  type: mock\n"
+        "  type: virtual_accelerator\n"
+        "  connector:\n"
+        "    virtual_accelerator:\n"
+        "      serving: in_process\n"
         "  writes_enabled: false\n",
         encoding="utf-8",
     )

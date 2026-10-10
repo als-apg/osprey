@@ -20,7 +20,7 @@ from tests.e2e.sdk_helpers import (
     is_claude_code_available,
     render_dir,
 )
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 # Dedicated, preset-decoupled limits DB for the write-safety scenarios. The
 # generic safety e2e must not depend on the build's limits view (which is a
@@ -71,17 +71,18 @@ SAFETY_READINGS = ("SR:BEAM:CURRENT", "SR:MAG:QF:01:CURRENT:RB")
 
 
 def _serve_safety_channels(repo: Path, root: Path) -> None:
-    """Point the render's mock connector at a tree serving the scenarios' channels.
+    """Point the render's in-process simulator at a tree serving the scenarios' channels.
 
     The tree is built under *root* and holds every channel a safety scenario
-    reads or writes; the ``mock`` block names its simulator view, so a block
-    copied from it serves the same channels.
+    reads or writes; the ``virtual_accelerator`` block names its simulator view,
+    so a block copied from it serves the same channels.
     """
     view = served_tree(root, SAFETY_SETPOINTS, SAFETY_READINGS)
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     connector = config["control_system"]["connector"]
-    connector["mock"] = mock_config(view, **(connector.get("mock") or {}))
+    block = connector.get("virtual_accelerator") or {}
+    connector["virtual_accelerator"] = {**block, **in_process_config(view)}
     config_path.write_text(yaml.dump(config, default_flow_style=False))
 
 
@@ -172,13 +173,16 @@ def safety_project_writes_off(tmp_path_factory):
 
 
 #: The connector type the mixed-render fixture's ``live`` target resolves to: the
-#: mock connector by dotted path. ``live`` is derived from ``control_system.type``
-#: only when that type is not a simulated one, and the registry name ``mock`` is;
-#: the same class by its module path is "as written", so it counts as the
-#: deployment's real machine while still needing no hardware. It is the same
-#: device ``tests/mcp_server/test_switch_lifecycle.py`` uses to make a mock
-#: deployment switch-capable.
-MIXED_RENDER_LIVE_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+#: in-process simulator by dotted path. ``live`` is derived from
+#: ``control_system.type`` only when that type is not a simulated one, and the
+#: registry name ``virtual_accelerator`` is; the same class by its module path is
+#: "as written", so it counts as the deployment's real machine while still
+#: needing no hardware. It is the same device
+#: ``tests/mcp_server/test_switch_lifecycle.py`` uses to serve ``live`` with no
+#: Channel Access.
+MIXED_RENDER_LIVE_TYPE = (
+    "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
+)
 
 
 @pytest.fixture(scope="module")
@@ -190,7 +194,7 @@ def safety_project_mixed_render(tmp_path_factory):
     the simulator — two of the three posture keys the shipped
     ``control-assistant-readwrite`` preset spells. The render is made
     switch-capable the way the switch lifecycle tests do it:
-    ``control_system.type`` is the mock connector by
+    ``control_system.type`` is the in-process simulator by
     dotted path (so ``live`` resolves to it) with a connector block of its own,
     beside the ``virtual_accelerator`` block the control-assistant render already
     carries. Nothing switches, so the session stays on the baseline ``live``
@@ -220,7 +224,10 @@ def safety_project_mixed_render(tmp_path_factory):
     section["type"] = MIXED_RENDER_LIVE_TYPE
     section["writes_enabled"] = False
     connector = section["connector"]
-    connector[MIXED_RENDER_LIVE_TYPE] = dict(connector["mock"])
+    connector[MIXED_RENDER_LIVE_TYPE] = dict(connector["virtual_accelerator"])
+    # On a deployment whose own type is a real machine, ``va`` is the served
+    # venue; the in-process venue belongs to the simulator's own deployments.
+    connector["virtual_accelerator"].pop("serving", None)
     connector["virtual_accelerator"]["writes_enabled"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
     _point_at_safety_limits_db(repo)

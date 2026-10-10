@@ -285,7 +285,14 @@ PROTECTED_CASES = [
     pytest.param("approval.mode", "disabled", id="approval-gate"),
     pytest.param("claude_code.permissions.deny", [], id="permission-surface"),
     pytest.param("agent_data.base_dir", "/tmp/elsewhere", id="agent-data-root"),
-    pytest.param("control_system", {"type": "mock"}, id="ancestor-block"),
+    pytest.param(
+        "control_system",
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
+        id="ancestor-block",
+    ),
 ]
 
 

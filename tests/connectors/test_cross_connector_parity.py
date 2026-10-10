@@ -61,10 +61,10 @@ import pytest
 
 from osprey.connectors.control_system.base import ChannelValue, WriteOutcome
 from osprey.connectors.control_system.epics_connector import EPICSConnector
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey_connectors.ipc import frames
 from tests.connectors._epics_fakes import ca_connector, connected_pv
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 # The one value every scenario writes, and the value a channel that did not
 # keep it holds instead.
@@ -170,7 +170,7 @@ def _writes_enabled(key, default=None):
 
 
 async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
-    """Drive MockConnector through ``scenario``.
+    """Drive VAInProcessConnector through ``scenario``.
 
     The composite's held value is what the mock confirms against, so "value
     differs" is a ``_put`` that keeps a different number (a clamped setpoint),
@@ -178,8 +178,8 @@ async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
     """
     monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
     view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
-    connector = MockConnector()
-    await connector.connect(mock_config(view, response_delay_ms=0))
+    connector = VAInProcessConnector()
+    await connector.connect(in_process_config(view, response_delay_ms=0))
 
     reads: list[str] = []
     real_confirming_read = connector._confirming_read
@@ -361,7 +361,7 @@ async def _run_tango(scenario: Scenario, _monkeypatch, _tmp_path) -> WriteRun:
 
 
 _DRIVERS = {
-    "mock": _run_mock,
+    "in_process": _run_mock,
     "epics": _run_epics,
     "doocs": _run_doocs,
     "tango": _run_tango,
@@ -571,8 +571,8 @@ class TestTranslatedReadFailures:
 async def _reading_mock(monkeypatch, tmp_path) -> ChannelValue:
     monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
     view = served_tree(tmp_path, readings=["TEST:CHANNEL:RB"])
-    connector = MockConnector()
-    await connector.connect(mock_config(view, response_delay_ms=0))
+    connector = VAInProcessConnector()
+    await connector.connect(in_process_config(view, response_delay_ms=0))
     reading = await connector.read_channel("TEST:CHANNEL:RB")
     await connector.disconnect()
     return reading
@@ -622,7 +622,7 @@ async def _reading_tango(_monkeypatch, _tmp_path) -> ChannelValue:
 
 
 _READERS = {
-    "mock": _reading_mock,
+    "in_process": _reading_mock,
     "epics": _reading_epics,
     "doocs": _reading_doocs,
     "tango": _reading_tango,

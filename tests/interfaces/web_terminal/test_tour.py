@@ -126,7 +126,13 @@ class TestPanelsPayloadTourCapabilities:
         never claims a reading capability; the browser derives that wording
         from the active control target's kind.
         """
-        config = {"web": {}, "control_system": {"type": "mock"}}
+        config = {
+            "web": {},
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            },
+        }
         with _started_over(workspace_dir, config) as client:
             tour = client.get("/api/panels").json()["tour"]
         assert tour["capabilities"] == ["run Python analysis", "make plots"]

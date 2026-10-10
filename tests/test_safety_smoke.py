@@ -3,7 +3,7 @@
 Exercises every safety layer in the OSPREY Claude Code integration without
 requiring API keys, containers, or real hardware. Tests run the hook chain
 (as subprocesses, matching real Claude Code behavior) and then call MCP tools
-directly against the MockConnector.
+directly against the VAInProcessConnector.
 
 Scenarios mirror what an operator would manually test after setting up
 a new control_assistant project:
@@ -38,7 +38,7 @@ from osprey.stores.artifact_store import reset_artifact_store
 from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import posture_store
 from tests._control_context_fixtures import write_control_context
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -114,8 +114,8 @@ def smoke_env(tmp_path, monkeypatch):
     # Main config: writes enabled, limits on, selective approval
     config = {
         "control_system": {
-            "type": "mock",
-            "connector": {"mock": mock_config(view)},
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": in_process_config(view)},
             "writes_enabled": True,
             "limits_checking": {
                 "enabled": True,

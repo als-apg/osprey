@@ -20,8 +20,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
-from tests.facility.served_tree import mock_config, served_tree
+from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
+from tests.facility.served_tree import in_process_config, served_tree
 
 _DOOCS_LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
 _DOOCS_TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
@@ -56,8 +56,8 @@ class WriteRun:
 async def _run_mock(monkeypatch, tmp_path) -> WriteRun:
     monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
     view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
-    connector = MockConnector()
-    await connector.connect(mock_config(view, response_delay_ms=0))
+    connector = VAInProcessConnector()
+    await connector.connect(in_process_config(view, response_delay_ms=0))
     connector._limits_validator = _broken_validator()
 
     put = MagicMock()
@@ -117,7 +117,7 @@ async def _run_tango(_monkeypatch, _tmp_path) -> WriteRun:
     return WriteRun(result=result, client_call=proxy.write_attribute)
 
 
-_DRIVERS = {"mock": _run_mock, "doocs": _run_doocs, "tango": _run_tango}
+_DRIVERS = {"in_process": _run_mock, "doocs": _run_doocs, "tango": _run_tango}
 
 
 @pytest.mark.asyncio

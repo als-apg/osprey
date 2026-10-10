@@ -844,7 +844,8 @@ class TestOtherHookDenies:
             yaml.dump(
                 {
                     "control_system": {
-                        "type": "mock",
+                        "type": "virtual_accelerator",
+                        "connector": {"virtual_accelerator": {"serving": "in_process"}},
                         "writes_enabled": True,
                         "limits_checking": {
                             "enabled": True,
@@ -882,7 +883,8 @@ class TestOtherHookDenies:
             yaml.dump(
                 {
                     "control_system": {
-                        "type": "mock",
+                        "type": "virtual_accelerator",
+                        "connector": {"virtual_accelerator": {"serving": "in_process"}},
                         "writes_enabled": True,
                         "limits_checking": {
                             "enabled": True,

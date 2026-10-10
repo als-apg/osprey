@@ -40,7 +40,7 @@ resolves the posture and builds the wrapper), the generated script, the
 subprocess that runs it, and every ``from_config`` call either half makes.
 
 Substituted: the connector CLASS behind the two types, registered inside the
-sandbox script as :class:`MockConnector` so the run needs no soft IOC and no
+sandbox script as :class:`VAInProcessConnector` so the run needs no soft IOC and no
 facility. The substitution is downstream of everything under test — the factory
 still stamps ``_connector_type`` from the type the target resolved to, and
 ``connect()`` still reads its posture from that stamp — so it changes which wire
@@ -58,7 +58,7 @@ import yaml
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor as host_executor
 from tests._control_context_fixtures import write_control_context
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 #: Absent from the limits database on purpose: the posture is the only thing
 #: that can decide this write. Free of ``:SP``/``:SET``, which the mock mirrors
@@ -81,12 +81,12 @@ PROBE_SCRIPT = textwrap.dedent(
     f"""
     import json
 
-    from osprey_connectors.control_system.mock_connector import MockConnector
+    from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
     from osprey_connectors.factory import ConnectorFactory
 
     # See the module docstring: the class is substituted, the type keys are not.
-    ConnectorFactory.register_control_system("epics", MockConnector)
-    ConnectorFactory.register_control_system("virtual_accelerator", MockConnector)
+    ConnectorFactory.register_control_system("epics", VAInProcessConnector)
+    ConnectorFactory.register_control_system("virtual_accelerator", VAInProcessConnector)
 
     import osprey.runtime as _rt
 
@@ -162,8 +162,8 @@ def _write_deployment(root: Path) -> Path:
                 "database_path": "limits.json",
             },
             "connector": {
-                "epics": mock_config(view),
-                "virtual_accelerator": mock_config(
+                "epics": in_process_config(view),
+                "virtual_accelerator": in_process_config(
                     view,
                     limits_checking={
                         "enabled": True,

@@ -123,7 +123,9 @@ def _prepare(tmp_path, monkeypatch, *, session=None):
     report and is therefore held up only by a swap in flight.
     """
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     root = tmp_path / "var" / "agent_data"
     state_dir_under(root).mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))

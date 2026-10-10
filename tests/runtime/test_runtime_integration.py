@@ -11,7 +11,7 @@ from osprey.runtime import (
     write_channel,
     write_channels,
 )
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 #: Every address this module writes; each test reads back what it wrote.
 WRITTEN = (
@@ -43,9 +43,9 @@ def setup_registry(tmp_path, monkeypatch):
     config_file = tmp_path / "config.yml"
     config_data = {
         "control_system": {
-            "type": "mock",
+            "type": "virtual_accelerator",
             "writes_enabled": True,
-            "connector": {"mock": mock_config(view, response_delay_ms=1)},
+            "connector": {"virtual_accelerator": in_process_config(view, response_delay_ms=1)},
         }
     }
     config_file.write_text(yaml.dump(config_data))
@@ -95,7 +95,7 @@ async def clear_runtime_state():
 
 
 @pytest.mark.usefixtures("clear_runtime_state")
-def test_write_read_with_mock_connector():
+def test_write_read_with_the_in_process_connector():
     """Test write and read operations with Mock connector."""
     test_channel = "TEST:VOLTAGE"
     test_value = 123.45

@@ -492,18 +492,19 @@ def test_both_targets_armed_renders_nothing_even_with_the_global_key_off(tmp_pat
 
 
 def test_an_armed_block_for_an_unreachable_machine_keeps_the_hard_deny(tmp_path):
-    """A mock deployment carrying an armed epics block is NOT mixed.
+    """A doocs deployment carrying an armed epics block is NOT mixed.
 
-    The session runs the mock connector; the epics block names a machine
-    nothing here reaches, and the deployment does not render the switch, so
-    there is no second target to disagree with. Reading both targets anyway
-    would drop the hard deny over a stray config block — writes off, yet
+    The session runs the doocs connector; the epics block names a second real
+    machine no target reaches, and with no simulator block the deployment does
+    not render the switch, so there is no second target to disagree with.
+    Reading the stray block anyway would drop the hard deny — writes off, yet
     channel_write neither denied nor pulled from ask.
     """
     ctx = _build_ctx(
         tmp_path,
         writes_enabled=False,
-        control_system_type="mock",
+        control_system_type="doocs",
+        drop_connectors=(_VA_CONNECTOR,),
         connector_writes={_LIVE_CONNECTOR: True},
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )

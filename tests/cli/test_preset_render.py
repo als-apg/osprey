@@ -6,9 +6,10 @@ deployment where a write is harmless. The preset also declares
 ``virtual_accelerator.live_standin``, so a second copy of the simulator ships
 and is deployed as the deployment's own third control target — the
 hardware-shaped soft IOC an operator switches to on purpose to rehearse under
-approval prompts and strict-limit refusals. ``mock`` is the documented fallback
-for environments with no containers to depend on — its non-tracking readbacks
-make plans browse-only — reachable via ``osprey set connector=mock``.
+approval prompts and strict-limit refusals. Serving the simulator in process
+is the documented fallback for environments with no containers to depend on —
+it speaks no Channel Access, so plans are browse-only — reachable via
+``osprey set config.control_system.connector.virtual_accelerator.serving=in_process``.
 
 The module also pins the preset's TIER FLOOR: the privileges the base preset
 takes away from every tier built on it (the ``setup_patch`` deployment-editing

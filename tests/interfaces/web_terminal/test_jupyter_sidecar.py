@@ -841,7 +841,16 @@ class TestTheStarterNotebooksExampleRead:
                 None,
             ),
             # The hello-world shape: a mock connector, no server, no declaration.
-            ({"control_system": {"type": "mock", "writes_enabled": False}}, None),
+            (
+                {
+                    "control_system": {
+                        "type": "virtual_accelerator",
+                        "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                        "writes_enabled": False,
+                    }
+                },
+                None,
+            ),
         ],
         ids=["canary", "probe-fallback", "canary-outranks-probe", "placeholder", "mock-only"],
     )
@@ -872,8 +881,10 @@ class TestTheStarterNotebooksExampleRead:
         project.mkdir()
         (project / "config.yml").write_text(
             "control_system:\n"
-            "  type: mock\n"
+            "  type: virtual_accelerator\n"
             "  connector:\n"
+            "    virtual_accelerator:\n"
+            "      serving: in_process\n"
             "    va:\n"
             "      probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB\n",
             encoding="utf-8",

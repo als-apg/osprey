@@ -92,15 +92,21 @@ def bridge_fn(name):
     [
         ({"type": "virtual_accelerator"}, target_state.TARGET_VA),
         ({"type": "epics"}, target_state.TARGET_LIVE),
-        ({"type": "mock"}, target_state.TARGET_LIVE),
-        ({}, target_state.TARGET_LIVE),
-        (None, target_state.TARGET_LIVE),
+        (
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            },
+            target_state.TARGET_VA,
+        ),
+        ({}, target_state.TARGET_VA),
+        (None, target_state.TARGET_VA),
     ],
 )
 def test_baseline_target_follows_the_shared_resolver(
     tmp_path, monkeypatch, control_system, expected
 ):
-    """Only a virtual-accelerator deployment has a ``va`` baseline."""
+    """The simulator, in either venue or by default, has a ``va`` baseline."""
     set_config(tmp_path, monkeypatch, control_system)
     assert target_banner.resolve_baseline_target() == expected
 

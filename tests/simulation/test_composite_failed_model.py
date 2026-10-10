@@ -24,7 +24,10 @@ from lume.variables import ScalarVariable, StrVariable, Variable
 from lume_pyat.exceptions import OrbitSolveError
 
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector, simulation_state_dir
+from osprey.connectors.control_system.va_in_process_connector import (
+    VAInProcessConnector,
+    simulation_state_dir,
+)
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import ENGINE_GROUP, STATUS_MAX_BYTES, Composite
@@ -55,8 +58,8 @@ def _no_model_log_file(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
 
 
-async def _connected(view: Path) -> MockConnector:
-    connector = MockConnector()
+async def _connected(view: Path) -> VAInProcessConnector:
+    connector = VAInProcessConnector()
     await connector.connect({"simulator_view": str(view), "response_delay_ms": 0})
     return connector
 
@@ -202,7 +205,7 @@ async def test_a_live_quadrupole_write_that_destabilises_the_orbit_is_refused(
     assert composite is not None
     setpoints = _sr_setpoints(demo_view)
     before = composite.held(setpoints)
-    journal = simulation_state_dir(demo_view) / "mock" / "writes.json"
+    journal = simulation_state_dir(demo_view) / "inprocess" / "writes.json"
 
     result = await connector.write_channel(QUADRUPOLE, UNSTABLE_CURRENT)
 
@@ -381,7 +384,7 @@ def test_a_stub_that_never_built_reads_its_bool_and_enum_as_zero(tmp_path: Path)
 
 
 @pytest.mark.usefixtures("stub_engine")
-async def test_a_2kb_non_ascii_engine_text_is_capped_alike_in_the_composite_and_the_mock(
+async def test_a_2kb_non_ascii_engine_text_is_capped_alike_in_the_composite_and_in_process(
     tmp_path: Path,
 ) -> None:
     message = "Ä" * 1024
@@ -410,5 +413,5 @@ async def test_an_unknown_model_is_refused_naming_the_served_ones(tmp_path: Path
 
 
 def test_a_connector_without_an_in_process_simulator_is_refused() -> None:
-    with pytest.raises(ValueError, match="MockConnector serves no simulator in process"):
-        model_status(MockConnector(), "SR")
+    with pytest.raises(ValueError, match="VAInProcessConnector serves no simulator in process"):
+        model_status(VAInProcessConnector(), "SR")

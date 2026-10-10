@@ -101,7 +101,11 @@ def _get_channel_write():
     return get_tool_fn(channel_write)
 
 
-def _prepare(tmp_path, monkeypatch, config="control_system:\n  type: mock\n"):
+def _prepare(
+    tmp_path,
+    monkeypatch,
+    config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+):
     """Minimal project + server context the tool needs to run."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(config)
@@ -188,7 +192,9 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     from osprey.errors import ChannelLimitsViolationError
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
 
     from osprey.connectors.control_system.limits_validator import LimitsValidator
 
@@ -364,7 +370,9 @@ async def test_channel_write_empty_operations(tmp_path, monkeypatch):
 async def test_channel_write_missing_channel_key(tmp_path, monkeypatch):
     """Operation missing 'channel' key returns validation error."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
 
     with patch(
         "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
@@ -1060,7 +1068,7 @@ async def test_oversize_observed_value_is_summarised(tmp_path, monkeypatch):
     _prepare(
         tmp_path,
         monkeypatch,
-        config="control_system:\n  type: mock\n  read_inline_max_elements: 4\n",
+        config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  read_inline_max_elements: 4\n",
     )
 
     result = _make_write_result(
@@ -1086,7 +1094,7 @@ async def test_observed_value_within_the_budget_stays_inline(tmp_path, monkeypat
     _prepare(
         tmp_path,
         monkeypatch,
-        config="control_system:\n  type: mock\n  read_inline_max_elements: 4\n",
+        config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  read_inline_max_elements: 4\n",
     )
 
     result = _make_write_result(
@@ -1109,7 +1117,7 @@ async def test_long_string_observed_value_stays_inline(tmp_path, monkeypatch):
     _prepare(
         tmp_path,
         monkeypatch,
-        config="control_system:\n  type: mock\n  read_inline_max_elements: 4\n",
+        config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  read_inline_max_elements: 4\n",
     )
 
     reading = "OPEN" * 50

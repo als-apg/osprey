@@ -808,7 +808,11 @@ def names_build(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
     write_tree(facility_dir, NAMES_TREE)
     profile_file = repo / "profile.yml"
     profile = yaml.safe_load(profile_file.read_text(encoding="utf-8"))
-    profile["config"] = {**(profile.get("config") or {}), "control_system.type": "mock"}
+    profile["config"] = {
+        **(profile.get("config") or {}),
+        "control_system.type": "virtual_accelerator",
+        "control_system.connector.virtual_accelerator.serving": "in_process",
+    }
     profile_file.write_text(yaml.safe_dump(profile, sort_keys=True), encoding="utf-8")
     result = run_build(repo)
     assert result.exit_code == 0, result.output

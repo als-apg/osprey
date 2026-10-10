@@ -16,7 +16,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
-from osprey_connectors.control_system.mock_connector import simulation_state_dir
+from osprey_connectors.control_system.va_in_process_connector import simulation_state_dir
 from osprey_connectors.simulation.composite import Composite
 from tests._builds import BuiltProject
 from tests.cli._lifecycle_build import stub_build
@@ -47,7 +47,7 @@ def _stage(built: BuiltProject, tmp_path: Path) -> tuple[Path, Path]:
         The repo and its simulator view.
     """
     repo = build_exemplar_repo(tmp_path / "repo")
-    config = {"control_system": {"connector": {"mock": {}}}}
+    config = {"control_system": {"connector": {"virtual_accelerator": {"serving": "in_process"}}}}
     build = stub_build(repo, config=yaml.safe_dump(config))
     prefix = "data/simulator/"
     for name, data in built.outputs[0].files.items():

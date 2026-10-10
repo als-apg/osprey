@@ -39,7 +39,7 @@ def _make_channel_value(value, timestamp="2024-01-15T10:30:00"):
     return cv
 
 
-class _MockConnector:
+class _FakeConnector:
     """Connector stub feeding synthetic values through the real tool body."""
 
     def __init__(self, values: dict):
@@ -69,13 +69,15 @@ def _config_patch(overrides: dict):
 async def _read(tmp_path, monkeypatch, values, *, overrides=None, **kwargs):
     """Run the real channel_read tool body against a mock connector."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
     initialize_artifact_store(workspace_root=tmp_path / "agent_data")
 
     from osprey.mcp_server.control_system.tools.channel_read import channel_read
 
-    connector = _MockConnector(values)
+    connector = _FakeConnector(values)
     with (
         patch(
             "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",

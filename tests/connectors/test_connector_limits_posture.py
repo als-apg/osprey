@@ -26,7 +26,7 @@ import pytest
 
 from osprey.connectors.types import DOOCS, EPICS, LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey.errors import ChannelLimitsViolationError
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
 
@@ -95,17 +95,19 @@ def _posture(connector) -> tuple[Any, Any]:
 
 
 async def _connected_mock(monkeypatch, tmp_path, section, db_path, connector_type):
-    from osprey.connectors.control_system.mock_connector import MockConnector
+    from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 
     _patch_config(monkeypatch, section, db_path)
-    connector = MockConnector()
+    connector = VAInProcessConnector()
     connector._connector_type = connector_type
-    await connector.connect(mock_config(served_tree(tmp_path / "served"), response_delay_ms=0))
+    await connector.connect(
+        in_process_config(served_tree(tmp_path / "served"), response_delay_ms=0)
+    )
     return connector
 
 
-class TestMockConnectorPosture:
-    """``MockConnector.connect()`` asks about the type the factory stamped."""
+class TestVAInProcessConnectorPosture:
+    """``VAInProcessConnector.connect()`` asks about the type the factory stamped."""
 
     @pytest.mark.asyncio
     async def test_stamped_type_reads_its_own_block(self, monkeypatch, tmp_path):

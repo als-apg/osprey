@@ -31,7 +31,8 @@ from tests._preset_data import copy_bundle_data
 #: on by framework default and whose client would otherwise dial a
 #: ``postgresql`` port with nothing listening behind it.
 POSTURE_FLOOR = {
-    "control_system.type": "mock",
+    "control_system.type": "virtual_accelerator",
+    "control_system.connector.virtual_accelerator.serving": "in_process",
     "archiver.type": "mock_archiver",
     "approval.enabled": True,
     "approval.default_policy": "always",

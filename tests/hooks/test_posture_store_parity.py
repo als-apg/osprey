@@ -388,7 +388,9 @@ def test_the_unstamped_record_path_is_one_path(tmp_path, monkeypatch):
     from osprey_connectors.workspace import reset_config_cache
 
     config = tmp_path / "config.yml"
-    config.write_text(f"project_root: {tmp_path}\ncontrol_system:\n  type: mock\n")
+    config.write_text(
+        f"project_root: {tmp_path}\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
@@ -428,7 +430,7 @@ def test_a_staged_configs_foreign_root_moves_neither_reader(tmp_path, monkeypatc
     render.mkdir()
     config = render / "config.yml"
     config.write_text(
-        "project_root: /home/runner/work/osprey/osprey/stack\ncontrol_system:\n  type: mock\n"
+        "project_root: /home/runner/work/osprey/osprey/stack\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
     )
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -730,7 +732,9 @@ def test_an_unstamped_process_with_no_record_is_fail_closed(tmp_path, monkeypatc
     from osprey_connectors.workspace import reset_config_cache
 
     config = tmp_path / "config.yml"
-    config.write_text(f"project_root: {tmp_path}\ncontrol_system:\n  type: mock\n")
+    config.write_text(
+        f"project_root: {tmp_path}\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
@@ -782,7 +786,9 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
     from osprey_connectors.workspace import reset_config_cache
 
     config = tmp_path / "config.yml"
-    config.write_text(f"project_root: {tmp_path}\ncontrol_system:\n  type: mock\n")
+    config.write_text(
+        f"project_root: {tmp_path}\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))

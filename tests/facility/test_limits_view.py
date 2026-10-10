@@ -256,7 +256,16 @@ class TestTheBuildDerivesTheDatabasePath:
             "database_path": LIMITS,
         }
 
-    @pytest.mark.parametrize("control_system", [None, {"type": "mock"}])
+    @pytest.mark.parametrize(
+        "control_system",
+        [
+            None,
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            },
+        ],
+    )
     def test_a_config_stating_no_limits_block_gains_nothing(
         self, tmp_path: Path, control_system: dict[str, Any] | None
     ) -> None:

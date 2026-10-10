@@ -62,7 +62,7 @@ Stages, in order, each an independently-reportable test:
    and history (they live in Redis, not in the bridge), the completed runs'
    data now serves off the DURABLE Tiled path (``run_uid`` populated), and that
    stored table exports as a real CSV and parquet file.
-8. ``test_8_mock_flip_*``        -- ``osprey set connector=mock`` + rebuild +
+8. ``test_8_in_process_flip_*``  -- serve the simulator in process + rebuild +
    redeploy: every container still healthy, ``/health`` still 200 but
    ``can_execute: false`` / ``browse_only_connector``, and enqueue refused --
    a browse-only deployment never holds items it could never run.
@@ -82,7 +82,7 @@ one deploy back every stage (a per-test deploy would take hours). Later stages
 consume earlier ones' run ids through the module-level ``_S`` state object and
 ``pytest.skip`` when a prerequisite never happened, so a failure in stage 3
 reports as one failure plus honest skips rather than eight cascading errors.
-Stage 8 leaves the deployment on the mock connector on purpose -- it is the
+Stage 8 leaves the deployment on the simulator in process on purpose -- it is the
 last stage that needs an executable one, and stage 9's probes are connector-
 independent.
 
@@ -203,7 +203,7 @@ TILED_CONTAINER = f"{PROJECT_NAME}-bluesky-tiled"
 PANELS_CONTAINER = f"{PROJECT_NAME}-bluesky-web"
 VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
 
-# Every container this proof asserts healthy after the mock flip (stage 8).
+# Every container this proof asserts healthy after the in-process flip (stage 8).
 _STACK_CONTAINERS = (
     BRIDGE_CONTAINER,
     QUEUESERVER_CONTAINER,
@@ -2390,12 +2390,12 @@ def test_7_export_refuses_in_the_uniform_shape() -> None:
 
 
 # ===========================================================================
-# Stage 8 -- flip to mock: browse-only
+# Stage 8 -- serve the simulator in process: browse-only
 # ===========================================================================
 
 
-def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None:
-    """``osprey set connector=mock`` + rebuild + redeploy -> healthy, but browse-only.
+def test_8_in_process_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None:
+    """Serve the simulator in process + rebuild + redeploy -> healthy, but browse-only.
 
     Three claims, and the first is the one people get wrong: a browse-only
     deployment is a HEALTHY deployment. ``/health`` still answers 200 and every
@@ -2412,15 +2412,20 @@ def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None
     render and will not quietly deploy an edit that was never built.
 
     Deliberately last among the functional stages: it leaves the deployment on
-    the mock connector, and stage 9's probes do not care which connector is
+    the simulator in process, and stage 9's probes do not care which connector is
     configured.
     """
     flip = _run(
-        [str(stack.osprey_bin), "set", "connector=mock"],
+        [
+            str(stack.osprey_bin),
+            "set",
+            "connector=virtual_accelerator",
+            "config.control_system.connector.virtual_accelerator.serving=in_process",
+        ],
         cwd=stack.repo,
         timeout=180,
     )
-    assert flip.returncode == 0, f"osprey set connector=mock failed: {flip.stdout}\n{flip.stderr}"
+    assert flip.returncode == 0, f"the in-process flip failed: {flip.stdout}\n{flip.stderr}"
 
     rebuild = _run(
         [str(stack.osprey_bin), "build", "--skip-deps", "--skip-lifecycle", "--dev"],
@@ -2428,7 +2433,7 @@ def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None
         timeout=BUILD_TIMEOUT_SEC,
     )
     assert rebuild.returncode == 0, (
-        f"rebuild after the mock flip failed: {rebuild.stdout}\n{rebuild.stderr}"
+        f"rebuild after the in-process flip failed: {rebuild.stdout}\n{rebuild.stderr}"
     )
 
     up = _run(
@@ -2436,7 +2441,9 @@ def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None
         cwd=stack.repo,
         timeout=DEPLOY_UP_TIMEOUT_SEC,
     )
-    assert up.returncode == 0, f"redeploy after the mock flip failed: {up.stdout}\n{up.stderr}"
+    assert up.returncode == 0, (
+        f"redeploy after the in-process flip failed: {up.stdout}\n{up.stderr}"
+    )
 
     _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
     _wait_for_health(f"{PANELS_URL}/health", HEALTH_TIMEOUT_SEC)
@@ -2448,9 +2455,11 @@ def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None
     assert body["status"] == "ok", f"liveness must not track capability: {body}"
 
     capability = body["capability"]
-    assert capability["can_execute"] is False, f"mock must not be executable: {capability}"
+    assert capability["can_execute"] is False, (
+        f"the simulator in process must not be executable: {capability}"
+    )
     assert capability["reason"] == REASON_BROWSE_ONLY_CONNECTOR, (
-        f"wrong capability reason on the mock connector: {capability}"
+        f"wrong capability reason in process: {capability}"
     )
     # Asserted against the bridge's own FLIP_COMMAND rather than a literal: the
     # subject is that the detail NAMES the flip command, and a copy of its

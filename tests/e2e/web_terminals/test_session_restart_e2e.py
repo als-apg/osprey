@@ -328,7 +328,10 @@ def test_browser_session_survives_a_server_restart(tmp_path: Path) -> None:
         "system:\n"
         "  name: session-restart-e2e\n"
         "control_system:\n"
-        "  type: mock\n"
+        "  type: virtual_accelerator\n"
+        "  connector:\n"
+        "    virtual_accelerator:\n"
+        "      serving: in_process\n"
         "  writes_enabled: false\n",
         encoding="utf-8",
     )

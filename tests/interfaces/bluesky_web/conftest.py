@@ -212,7 +212,7 @@ def bluesky_live_server(
     def _launch(catalog: list[str] | None = DEFAULT_CHANNEL_CATALOG) -> Iterator[str]:
         project = tmp_path / "project"
         project.mkdir(exist_ok=True)
-        (project / "config.yml").write_text("connector:\n  type: mock\n")
+        (project / "config.yml").write_text("connector:\n  type: virtual_accelerator\n")
         catalog_file = project / "channels.json"
         if catalog is None:
             # A relaunch within one test may leave a previous catalog behind;

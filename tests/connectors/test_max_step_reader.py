@@ -26,9 +26,9 @@ from osprey.connectors.control_system.limits_validator import (
     LimitsValidator,
     step_read_timeout_seconds,
 )
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey.errors import ChannelLimitsViolationError
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import in_process_config, served_tree
 
 _DOOCS_LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
 _DOOCS_TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
@@ -64,9 +64,9 @@ def _step_validator(channel: str, max_step: float = 5.0) -> LimitsValidator:
 
 async def test_the_simulator_reads_its_own_store(monkeypatch, tmp_path):
     monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
-    connector = MockConnector()
+    connector = VAInProcessConnector()
     await connector.connect(
-        mock_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
+        in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
     )
     connector._composite.set({"SIM:CHANNEL:SP": CURRENT})
 
@@ -163,9 +163,9 @@ async def test_max_step_blocks_an_oversized_step_on_the_simulator(monkeypatch, t
     write used to be refused as unverifiable however small the step was.
     """
     monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
-    connector = MockConnector()
+    connector = VAInProcessConnector()
     await connector.connect(
-        mock_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
+        in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
     )
     connector._composite.set({"SIM:CHANNEL:SP": CURRENT})
     connector._limits_validator = _step_validator("SIM:CHANNEL:SP", max_step=5.0)
@@ -181,9 +181,9 @@ async def test_max_step_blocks_an_oversized_step_on_the_simulator(monkeypatch, t
 
 async def test_max_step_lets_a_small_step_through_on_the_simulator(monkeypatch, tmp_path):
     monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
-    connector = MockConnector()
+    connector = VAInProcessConnector()
     await connector.connect(
-        mock_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
+        in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
     )
     connector._composite.set({"SIM:CHANNEL:SP": CURRENT})
     connector._limits_validator = _step_validator("SIM:CHANNEL:SP", max_step=5.0)
