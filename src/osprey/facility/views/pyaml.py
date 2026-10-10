@@ -24,7 +24,8 @@ A model solved ``single_pass`` has no design simulator (``simulators: []``):
 pyAML's design simulator solves a periodic orbit. Every other model the render
 serves names a note on stderr saying why it has no view. A setpoint pyAML cannot
 convert is left out of the view and named in a note; a corrector whose element
-the engine cannot give its kick as polynomials is left out of the view.
+the engine cannot give its kick as polynomials is left out of the view and named
+in a note.
 
 Every name the configuration holds comes from :mod:`pyaml_cs_osprey.names`, so
 the view, the measurement tools and a reader of the configuration cannot spell
@@ -1064,6 +1065,11 @@ def _design_lattice(
     return str(copy.text), frozenset(copy.refused)
 
 
+def _shown(addresses: Sequence[str]) -> str:
+    """The first three of ``addresses``, with an ellipsis when there are more."""
+    return ", ".join(addresses[:3]) + (", …" if len(addresses) > 3 else "")
+
+
 def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
     """Write every measured model's pyAML view into ``root``.
 
@@ -1081,14 +1087,20 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
         report_note(inputs, _omitted_note(model, reason))
     written: list[Path] = []
     for model in written_models:
-        configuration, files, unmodelled, _ = _configuration(inputs, model)
+        configuration, files, unmodelled, unkicked = _configuration(inputs, model)
         if unmodelled:
-            shown = ", ".join(unmodelled[:3]) + (", …" if len(unmodelled) > 3 else "")
             report_note(
                 inputs,
                 f"view pyaml: {model} leaves out {len(unmodelled)} "
                 f"setpoint{'' if len(unmodelled) == 1 else 's'} pyAML has no magnet model "
-                f"for: {shown}",
+                f"for: {_shown(unmodelled)}",
+            )
+        if unkicked:
+            report_note(
+                inputs,
+                f"view pyaml: {model} leaves out {len(unkicked)} "
+                f"corrector{'' if len(unkicked) == 1 else 's'} whose element has no length "
+                f"to carry a kick: {_shown(unkicked)}",
             )
         directory = root / model
         directory.mkdir(parents=True, exist_ok=True)

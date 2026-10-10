@@ -20,12 +20,16 @@ import yaml
 
 from osprey.facility.views.pyaml import CONFIGURATION_FILE, LATTICE_FILE, measurement_groups
 from tests.facility._pyaml_trees import (
+    _setting,
+    _sr,
+    _sr_deck,
     measured_tree,
     view_inputs,
     with_correctors,
     with_rf,
     write_view,
 )
+from tests.facility._synthetic_trees import Deck
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -142,6 +146,57 @@ def test_a_corrector_with_no_drift_beside_it_steps_the_orbit_the_served_kick_doe
     )
     assert np.max(np.abs(served)) > 1.0e-7
     assert after - before == pytest.approx(served, rel=1.0e-4, abs=1.0e-11)
+
+
+def _sr_deck_with_a_thin_multipole() -> Deck:
+    """SR's deck with TCOR, a zero-length element whose pass applies polynomials, after SCOR."""
+
+    def elements(at: Any) -> list[Any]:
+        found = _sr_deck().elements(at)
+        (after,) = [i + 1 for i, element in enumerate(found) if element.FamName == "SCOR"]
+        thin = at.ThinMultipole("TCOR", [0.0, 0.0], [0.0, 0.0], KickAngle=[0.0, 0.0])
+        return [*found[:after], thin, *found[after:]]
+
+    return Deck(elements)
+
+
+def test_a_thin_polynomial_pass_corrector_is_left_out_with_a_note(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A zero-length element whose pass applies polynomials has no length to carry a kick."""
+    from pyaml.accelerator import Accelerator
+
+    tree = with_correctors(with_rf(measured_tree()))
+    tree["measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
+    tree["decks/sr.json"] = _sr_deck_with_a_thin_multipole()
+    tree["records/devices.yaml"].append({"id": "SR/COR2", "class": "HCorrector"})
+    tree["records/channels.yaml"] += [
+        {"id": "TCOR:H:SP", "role": "setpoint", "unit": "A", "on": {"device": "SR/COR2"}},
+        {"id": "TCOR:V:SP", "role": "setpoint", "unit": "A", "on": {"device": "SR/COR2"}},
+    ]
+    for group in tree["records/groups.yaml"]:
+        if group["id"] in ("SR/HCM", "SR/VCM"):
+            group["members"].append("SR/COR2")
+    _sr(tree)["wiring"] += [
+        _setting("TCOR:H:SP", "KickAngle", 0, element="TCOR"),
+        _setting("TCOR:V:SP", "KickAngle", 1, element="TCOR"),
+    ]
+
+    directory, _ = write_view(tmp_path, tree)
+
+    assert (
+        "view pyaml: SR leaves out 2 correctors whose element has no length to carry a kick: "
+        "TCOR:H:SP, TCOR:V:SP"
+    ) in capsys.readouterr().err
+    view = directory / "SR"
+    configuration = yaml.safe_load((view / CONFIGURATION_FILE).read_text(encoding="utf-8"))
+    devices = {device["name"] for device in configuration["devices"]}
+    assert {"SCOR:H:SP", "SCOR:V:SP"} <= devices
+    assert not {"TCOR:H:SP", "TCOR:V:SP"} & devices
+    arrays = {array["name"]: array["elements"] for array in configuration["arrays"]}
+    assert arrays["SR_HCM"] == ["SCOR:H:SP"]
+    assert arrays["SR_VCM"] == ["SCOR:V:SP"]
+    Accelerator.load(str(view / CONFIGURATION_FILE))
 
 
 class _Engines:
