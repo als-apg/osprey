@@ -88,6 +88,36 @@
   source: single-pass BPM resolution
 
 - class: BeamPositionMonitor
+  signal: position_x_readback
+  machine: LINE
+  noise: none
+  source: model-computed trajectory, served without simulated motion
+
+- class: BeamPositionMonitor
+  signal: position_y_readback
+  machine: LINE
+  noise: none
+  source: model-computed trajectory, served without simulated motion
+
+- class: Quadrupole
+  signal: current_readback
+  machine: LINE
+  noise: none
+  source: model-served supply readback, served without simulated motion
+
+- class: HCorrector
+  signal: current_readback
+  machine: LINE
+  noise: none
+  source: model-served supply readback, served without simulated motion
+
+- class: VCorrector
+  signal: current_readback
+  machine: LINE
+  noise: none
+  source: model-served supply readback, served without simulated motion
+
+- class: BeamPositionMonitor
   signal: position_offset
   noise: none
   source: stored reference, not a measurement
