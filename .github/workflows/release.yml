@@ -5,15 +5,16 @@ on:
     tags:
       - 'v*.*.*'  # Triggers on version tags like v2026.5.0
 
-# PAIRED PUBLISHING: osprey-connectors versions with the framework's own
-# calendar stream (same v-tags, same describe — see its pyproject.toml), so one
-# tag builds and publishes BOTH wheels, always carrying the same number. The
-# old two-tag dance (a connectors release published before the framework tag
-# that needed it, from its own osprey-connectors-v* trigger) is retired with
-# the 0.x line itself. verify-pypi-resolvable still gates the framework wheel,
-# resolving its dependencies from PyPI plus ONLY the sibling connectors wheel
-# this same run publishes — the one honest offline stand-in for the state PyPI
-# reaches the moment the publish job lands. (validate-install-docs cannot be
+# PAIRED PUBLISHING: every workspace member (osprey-connectors,
+# pyaml-cs-osprey) versions with the framework's own calendar stream (same
+# v-tags, same describe — see each member's pyproject.toml), so one tag builds
+# and publishes EVERY wheel, always carrying the same number. The old two-tag
+# dance (a connectors release published before the framework tag that needed
+# it, from its own osprey-connectors-v* trigger) is retired with the 0.x line
+# itself. verify-pypi-resolvable still gates the framework wheel, resolving its
+# dependencies from PyPI plus ONLY the sibling member wheels this same run
+# publishes — the one honest offline stand-in for the state PyPI reaches the
+# moment the publish job lands. (validate-install-docs cannot be
 # that gate: it installs with `--find-links dist`, so any unpublished sibling
 # resolves locally there.)
 
@@ -160,8 +161,8 @@ jobs:
       run: uv python install 3.11
 
     - name: Build packages
-      # Both workspace packages: the framework and osprey-connectors ride the
-      # same v-tag and must land on PyPI together, carrying the same number.
+      # Every workspace package: the framework and its member packages ride
+      # the same v-tag and must land on PyPI together, carrying the same number.
       run: uv build --all-packages
 
     - name: Verify built versions match tag
@@ -214,13 +215,16 @@ jobs:
     runs-on: ubuntu-latest
 
     # The wheel about to be published, installed the way the docs tell users to
-    # install it: every dependency must resolve from the index — except the one
-    # sibling this same run publishes. The connectors wheel is staged into its
-    # own find-links directory (never the whole dist/, which would let ANY
-    # unpublished dependency resolve locally and defeat the gate): PyPI plus
-    # that one wheel is exactly the index state the moment publish-to-pypi
-    # lands, so this is what refuses a framework wheel whose OTHER pins nothing
-    # on PyPI satisfies yet.
+    # install it: every dependency must resolve from the index — except the
+    # siblings this same run publishes. Every member wheel (each dist/*.whl but
+    # the framework's own) is staged into a find-links directory of its own
+    # (never the whole dist/ as-is, which would also offer the sdists and let
+    # ANY unpublished dependency resolve locally and defeat the gate): PyPI plus
+    # those wheels is exactly the index state the moment publish-to-pypi lands,
+    # so this is what refuses a framework wheel whose OTHER pins nothing on PyPI
+    # satisfies yet. Staged by exclusion rather than by name, so a member added
+    # later is offered here the day it starts publishing, not after this gate
+    # has failed its first tag.
     steps:
     - name: Download distribution artifacts
       uses: actions/download-artifact@v8
@@ -231,10 +235,16 @@ jobs:
     - name: Install uv
       uses: astral-sh/setup-uv@v7
 
-    - name: Install framework wheel with deps from PyPI plus the paired connectors wheel
+    - name: Install framework wheel with deps from PyPI plus the paired member wheels
       run: |
         mkdir -p /tmp/sibling
-        cp dist/osprey_connectors-*.whl /tmp/sibling/
+        for wheel in dist/*.whl; do
+          case "$(basename "$wheel")" in
+            osprey_framework-*) ;;
+            *) cp "$wheel" /tmp/sibling/ ;;
+          esac
+        done
+        ls /tmp/sibling
         uv tool install ./dist/osprey_framework-*.whl --find-links /tmp/sibling
         osprey --version
 
@@ -257,9 +267,39 @@ jobs:
         name: python-package-distributions
         path: dist/
 
-    - name: Publish to PyPI
+    # The framework depends on every workspace member, and PyPI takes files one
+    # at a time. Members upload first, from a directory holding only their
+    # files, so a refused member upload stops the run before the framework is
+    # live with a dependency nothing satisfies. Staged by exclusion, so a member
+    # added later publishes ahead of the framework without an edit here.
+    # skip-existing lets a re-pushed tag complete a publish that stopped halfway.
+    - name: Stage member distributions
+      run: |
+        mkdir -p dist-members
+        for file in dist/*; do
+          case "$(basename "$file")" in
+            osprey_framework-*|osprey-framework-*) ;;
+            *) mv "$file" dist-members/ ;;
+          esac
+        done
+        ls -l dist-members/ dist/
+        if [ -z "$(ls -A dist-members)" ]; then
+          echo "No member distributions found in dist/"
+          exit 1
+        fi
+
+    - name: Publish workspace members to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
+        packages-dir: dist-members/
+        skip-existing: true
+        verbose: true
+
+    - name: Publish framework to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        packages-dir: dist/
+        skip-existing: true
         verbose: true
 
   create-github-release:

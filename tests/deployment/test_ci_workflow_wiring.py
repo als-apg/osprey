@@ -6480,6 +6480,11 @@ VA_IMAGE_TAG = "osprey-va-full:latest"
 VA_CACHE_DIR = "/tmp/va-buildx-cache"
 VA_CACHE_EXPORT_DIR = "/tmp/va-buildx-cache-new"
 VA_CACHE_KEY_PREFIX = "va-full-buildx-"
+#: Every workspace member's manifest, by glob rather than by name: the image
+#: installs each member under packages/, so a member's dependency change must
+#: invalidate the layers as surely as the framework's does, including a member
+#: added after this key was written.
+VA_CACHE_MEMBER_GLOB = "'packages/*/pyproject.toml'"
 #: The fixture constant the built tag has to agree with, read from source
 #: rather than restated, for the reason the xdist pairing is read from source.
 VA_E2E_CONFTEST = REPO_ROOT / "tests" / "va" / "e2e" / "conftest.py"
@@ -6639,8 +6644,8 @@ def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(
     )
     for hashed in (
         "docker/virtual-accelerator/Containerfile",
-        "pyproject.toml",
-        "packages/osprey-connectors/pyproject.toml",
+        "'pyproject.toml'",
+        VA_CACHE_MEMBER_GLOB,
     ):
         assert hashed in cache_with["key"], f"the cache key no longer hashes {hashed}"
 
@@ -6658,6 +6663,21 @@ def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(
         "the rotation must follow the build: run first, it deletes the restored cache and "
         "then fails its own `mv`."
     )
+
+
+def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation__mutation_names_one_member() -> (
+    None
+):
+    """A key naming one member's manifest serves stale layers the day another
+    member's dependencies move."""
+    mutated = copy.deepcopy(_load_va_image_action())
+    for step in mutated["runs"]["steps"]:
+        if "actions/cache@" in str(step.get("uses", "")):
+            step["with"]["key"] = step["with"]["key"].replace(
+                VA_CACHE_MEMBER_GLOB, "'packages/osprey-connectors/pyproject.toml'"
+            )
+    with pytest.raises(AssertionError, match="no longer hashes"):
+        test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(mutated)
 
 
 def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation__mutation_drops_the_rotation() -> (
@@ -7904,6 +7924,95 @@ def test_the_tag_gate_blocks_the_publish() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The publish uploads every member before the framework, and can be resumed
+# ---------------------------------------------------------------------------
+#
+# The framework declares a hard dependency on each workspace member, and PyPI
+# accepts files one at a time. Uploading the framework first would leave it live
+# with a dependency nothing satisfies whenever a member upload is refused (an
+# unregistered trusted publisher, a name conflict). Members go first, from a
+# directory holding only their files; the framework goes last. `skip-existing`
+# on both lets a re-pushed tag finish a publish that stopped halfway instead of
+# failing on "File already exists".
+
+PUBLISH_JOB = "publish-to-pypi"
+PUBLISH_ACTION = "pypa/gh-action-pypi-publish"
+
+
+def _load_release() -> dict[str, Any]:
+    return yaml.safe_load(RELEASE_YML.read_text())
+
+
+def _publish_steps(release: dict[str, Any]) -> list[dict[str, Any]]:
+    steps = release["jobs"][PUBLISH_JOB]["steps"]
+    return [s for s in steps if str(s.get("uses", "")).startswith(PUBLISH_ACTION)]
+
+
+def _packages_dir(step: dict[str, Any]) -> str:
+    return str(step.get("with", {}).get("packages-dir", "dist/")).rstrip("/")
+
+
+def test_the_publish_uploads_members_before_the_framework(
+    release: dict[str, Any] | None = None,
+) -> None:
+    """The first upload carries only member files; the framework's upload is the last."""
+    release = release if release is not None else _load_release()
+    publishes = _publish_steps(release)
+    assert len(publishes) >= 2, "members and the framework must upload in separate steps"
+    member_dir = _packages_dir(publishes[0])
+    assert member_dir != "dist", "the first upload must not be the whole dist/"
+    assert _packages_dir(publishes[-1]) == "dist", "the framework uploads last, from dist/"
+
+    steps = release["jobs"][PUBLISH_JOB]["steps"]
+    first_publish = steps.index(publishes[0])
+    stagers = [s for s in steps[:first_publish] if member_dir in s.get("run", "")]
+    assert stagers, f"no step before the first upload stages files into {member_dir}/"
+    script = stagers[-1]["run"]
+    assert "osprey_framework-" in script and "mv " in script, (
+        "the member directory must be staged by moving every file except the framework's"
+    )
+
+
+def test_every_publish_step_skips_existing_files(release: dict[str, Any] | None = None) -> None:
+    """A re-pushed tag must be able to complete a partial publish."""
+    release = release if release is not None else _load_release()
+    publishes = _publish_steps(release)
+    assert publishes, f"{PUBLISH_JOB} has no {PUBLISH_ACTION} step"
+    for step in publishes:
+        assert step.get("with", {}).get("skip-existing") is True, (
+            f"{step.get('name')!r} must set skip-existing: true"
+        )
+
+
+def test_the_publish_order__mutation_one_upload_of_all_of_dist() -> None:
+    """The single upload over dist/ is the shape that goes framework-first."""
+    mutated = copy.deepcopy(_load_release())
+    steps = mutated["jobs"][PUBLISH_JOB]["steps"]
+    publishes = _publish_steps(mutated)
+    for step in publishes[:-1]:
+        steps.remove(step)
+    with pytest.raises(AssertionError, match="separate steps"):
+        test_the_publish_uploads_members_before_the_framework(mutated)
+
+
+def test_the_publish_order__mutation_framework_first() -> None:
+    mutated = copy.deepcopy(_load_release())
+    steps = mutated["jobs"][PUBLISH_JOB]["steps"]
+    first, last = _publish_steps(mutated)[0], _publish_steps(mutated)[-1]
+    i, j = steps.index(first), steps.index(last)
+    steps[i], steps[j] = last, first
+    with pytest.raises(AssertionError):
+        test_the_publish_uploads_members_before_the_framework(mutated)
+
+
+def test_the_publish_order__mutation_drops_skip_existing() -> None:
+    mutated = copy.deepcopy(_load_release())
+    del _publish_steps(mutated)[0]["with"]["skip-existing"]
+    with pytest.raises(AssertionError, match="skip-existing"):
+        test_every_publish_step_skips_existing_files(mutated)
+
+
+# ---------------------------------------------------------------------------
 # The type check's stubs are declared where CI installs them: the dev extra
 # ---------------------------------------------------------------------------
 #
@@ -8600,3 +8709,197 @@ def test_all_checks_passed_needs_graph_reseed__mutation_drops_check_pr_lane_line
     step["run"] = "".join(kept)
     with pytest.raises(AssertionError):
         test_all_checks_passed_needs_graph_reseed(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The pyAML control-system member: coverage, wheel and release
+# ---------------------------------------------------------------------------
+#
+# `pyaml-cs-osprey` is the second workspace member, and every place the first
+# member is wired by name is a place the second can silently be missing from:
+# the coverage cell measures only the source trees it names, the package job
+# walks only the wheels it builds, and the release gate offers only the sibling
+# wheels it stages. Each is pinned here with a mutation that removes exactly
+# that wiring.
+
+PYAML_COVERAGE_FLAG = "--cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey"
+PACKAGE_JOB = "package"
+LEAN_WHEEL_STEP = "Verify wheel is self-contained on a bare venv"
+PYAML_WHEEL_STEP = "Build pyaml-cs-osprey wheel and import-walk it with the framework"
+PYAML_WHEEL_GLOBS = (
+    "dist/osprey_framework-*.whl",
+    "dist/osprey_connectors-*.whl",
+    "dist/pyaml_cs_osprey-*.whl",
+)
+RELEASE_VERIFY_JOB = "verify-pypi-resolvable"
+RELEASE_SIBLING_DIR = "/tmp/sibling"
+
+
+def _coverage_cell_flags(wf: dict[str, Any]) -> list[str]:
+    """The ``--cov=`` flags the coverage cell's ``COV_ARGS`` carries."""
+    run_text = _find_named_step(wf, UNIT_TEST_JOB, "Run unit tests")["run"]
+    found = re.findall(r'COV_ARGS="([^"]+)"', run_text)
+    assert len(found) == 1, f"expected one non-empty COV_ARGS assignment; got {found}"
+    return [flag for flag in found[0].split() if flag.startswith("--cov=")]
+
+
+def test_the_coverage_cell_measures_the_pyaml_member(workflow: dict[str, Any]) -> None:
+    """Coverage measures only the trees named on the command line, so a member
+    left off it reports nothing -- not zero, nothing -- and the upload stays green."""
+    flags = _coverage_cell_flags(workflow)
+    assert PYAML_COVERAGE_FLAG in flags, (
+        f"the coverage cell does not measure the pyAML member; COV_ARGS names {flags}"
+    )
+    assert "--cov=packages/osprey-connectors/src/osprey_connectors" in flags
+
+
+def test_the_coverage_cell_measures_the_pyaml_member__mutation_drops_the_flag() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    assert PYAML_COVERAGE_FLAG in step["run"], "the flag moved; this mutation is stale"
+    step["run"] = step["run"].replace(f" {PYAML_COVERAGE_FLAG}", "")
+    with pytest.raises(AssertionError, match="does not measure the pyAML member"):
+        test_the_coverage_cell_measures_the_pyaml_member(mutated)
+
+
+def _package_step_index(wf: dict[str, Any], step_name: str) -> int:
+    steps = _jobs(wf)[PACKAGE_JOB]["steps"]
+    for i, step in enumerate(steps):
+        if step.get("name") == step_name:
+            return i
+    raise AssertionError(f"job '{PACKAGE_JOB}' has no step named '{step_name}'")
+
+
+def test_the_package_job_import_walks_the_pyaml_wheel(workflow: dict[str, Any]) -> None:
+    """The pyAML wheel is built and every module in it imported, in a venv that
+    holds the framework and connectors wheels too -- it imports the framework
+    by design -- while the lean check keeps the connectors wheel alone."""
+    steps = _jobs(workflow)[PACKAGE_JOB]["steps"]
+    walk = _package_step_index(workflow, PYAML_WHEEL_STEP)
+    lean = _package_step_index(workflow, LEAN_WHEEL_STEP)
+    upload = _package_step_index(workflow, "Upload package artifacts")
+    assert walk > lean > upload, (
+        "the pyAML wheel must be built after the framework-only dist/ reaches the upload, "
+        "and its import-walk must not precede the lean check"
+    )
+    script = steps[walk]["run"]
+    assert "uv build --package pyaml-cs-osprey" in script
+    for glob in PYAML_WHEEL_GLOBS:
+        assert glob in script, f"the pyAML import-walk venv does not install {glob}"
+    assert "pkgutil.walk_packages(pyaml_cs_osprey.__path__" in script
+    assert "onerror=_raise" in script, (
+        "walk_packages swallows a package import error unless onerror raises"
+    )
+    lean_script = steps[lean]["run"]
+    assert "osprey_framework" not in lean_script and "pyaml_cs_osprey" not in lean_script, (
+        "the lean check must install the connectors wheel alone; a framework in its venv "
+        "satisfies every osprey.* import it exists to refuse"
+    )
+
+
+def test_the_package_job_import_walks_the_pyaml_wheel__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[PACKAGE_JOB]["steps"]
+    steps.pop(_package_step_index(mutated, PYAML_WHEEL_STEP))
+    with pytest.raises(AssertionError, match="no step named"):
+        test_the_package_job_import_walks_the_pyaml_wheel(mutated)
+
+
+def test_the_package_job_import_walks_the_pyaml_wheel__mutation_walks_without_framework() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _jobs(mutated)[PACKAGE_JOB]["steps"][_package_step_index(mutated, PYAML_WHEEL_STEP)]
+    step["run"] = step["run"].replace("dist/osprey_framework-*.whl ", "")
+    with pytest.raises(AssertionError, match="does not install dist/osprey_framework"):
+        test_the_package_job_import_walks_the_pyaml_wheel(mutated)
+
+
+def test_the_package_job_import_walks_the_pyaml_wheel__mutation_lean_venv_gets_framework() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _jobs(mutated)[PACKAGE_JOB]["steps"][_package_step_index(mutated, LEAN_WHEEL_STEP)]
+    step["run"] = step["run"].replace(
+        "dist/osprey_connectors-*.whl", "dist/osprey_framework-*.whl dist/osprey_connectors-*.whl"
+    )
+    with pytest.raises(AssertionError, match="connectors wheel alone"):
+        test_the_package_job_import_walks_the_pyaml_wheel(mutated)
+
+
+def test_the_package_job_import_walks_the_pyaml_wheel__mutation_built_before_upload() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[PACKAGE_JOB]["steps"]
+    walk = steps.pop(_package_step_index(mutated, PYAML_WHEEL_STEP))
+    steps.insert(_package_step_index(mutated, "Upload package artifacts"), walk)
+    with pytest.raises(AssertionError, match="framework-only dist/"):
+        test_the_package_job_import_walks_the_pyaml_wheel(mutated)
+
+
+def _release_staging_script(release: dict[str, Any]) -> str:
+    """The sibling-staging lines of the release gate, up to the install itself."""
+    steps = release["jobs"][RELEASE_VERIFY_JOB]["steps"]
+    staging = [s for s in steps if RELEASE_SIBLING_DIR in str(s.get("run", ""))]
+    assert len(staging) == 1, f"expected one step staging {RELEASE_SIBLING_DIR}; got {staging}"
+    script = staging[0]["run"]
+    assert "uv tool install" in script, "the staging step no longer installs the framework"
+    return script.split("uv tool install", 1)[0]
+
+
+def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
+    """Run the staging lines against a dist/ holding every artifact a tag builds,
+    and return what they offer as find-links."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    for name in (
+        "osprey_framework-2026.9.1-py3-none-any.whl",
+        "osprey_framework-2026.9.1.tar.gz",
+        "osprey_connectors-2026.9.1-py3-none-any.whl",
+        "osprey_connectors-2026.9.1.tar.gz",
+        "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
+        "pyaml_cs_osprey-2026.9.1.tar.gz",
+    ):
+        (dist / name).write_text("")
+    sibling = tmp_path / "sibling"
+    script = _release_staging_script(release).replace(RELEASE_SIBLING_DIR, str(sibling))
+    subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, check=True)
+    return sorted(p.name for p in sibling.iterdir())
+
+
+def _assert_release_stages_every_member_wheel(release: dict[str, Any], tmp_path: Path) -> None:
+    assert _staged_siblings(release, tmp_path) == [
+        "osprey_connectors-2026.9.1-py3-none-any.whl",
+        "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
+    ], "the release gate stages the wrong sibling set"
+
+
+def _with_staging(release: dict[str, Any], staging: str) -> dict[str, Any]:
+    """``release`` with the staging lines replaced and the install kept."""
+    mutated = copy.deepcopy(release)
+    for step in mutated["jobs"][RELEASE_VERIFY_JOB]["steps"]:
+        if RELEASE_SIBLING_DIR in str(step.get("run", "")):
+            tail = step["run"].split("uv tool install", 1)[1]
+            step["run"] = f"mkdir -p {RELEASE_SIBLING_DIR}\n{staging}\nuv tool install{tail}"
+    return mutated
+
+
+def test_the_release_gate_stages_every_member_wheel_but_the_framework(tmp_path: Path) -> None:
+    """The framework depends on every member, so a sibling left out of the
+    find-links fails the gate on the tag that first ships it; the framework's
+    own wheel or any sdist staged there would let an unpublished pin resolve."""
+    _assert_release_stages_every_member_wheel(yaml.safe_load(RELEASE_YML.read_text()), tmp_path)
+
+
+def test_the_release_gate_stages_every_member_wheel__mutation_connectors_only(
+    tmp_path: Path,
+) -> None:
+    mutated = _with_staging(
+        yaml.safe_load(RELEASE_YML.read_text()),
+        f"cp dist/osprey_connectors-*.whl {RELEASE_SIBLING_DIR}/",
+    )
+    with pytest.raises(AssertionError, match="wrong sibling set"):
+        _assert_release_stages_every_member_wheel(mutated, tmp_path)
+
+
+def test_the_release_gate_stages_every_member_wheel__mutation_whole_dist(tmp_path: Path) -> None:
+    mutated = _with_staging(
+        yaml.safe_load(RELEASE_YML.read_text()), f"cp dist/* {RELEASE_SIBLING_DIR}/"
+    )
+    with pytest.raises(AssertionError, match="wrong sibling set"):
+        _assert_release_stages_every_member_wheel(mutated, tmp_path)

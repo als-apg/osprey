@@ -27,7 +27,7 @@ runs:
       uses: actions/cache@v6
       with:
         path: /tmp/va-buildx-cache
-        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'packages/osprey-connectors/pyproject.toml') }}
+        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'packages/*/pyproject.toml') }}
         # One key for every lane, because it is the same image from the same
         # inputs: whichever lane runs first saves it, the others restore it,
         # and a concurrent second save is a non-fatal "cache already exists"
