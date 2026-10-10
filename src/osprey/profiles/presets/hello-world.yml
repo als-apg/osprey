@@ -1,8 +1,8 @@
 # hello-world.yml
 # The onboarding preset: the smallest agent that still shows the whole
-# write-safety chain. A mock control system, fourteen hooks, and one container (the
-# telemetry store), so `osprey init` → `osprey build` → `osprey web` is the entire
-# first session.
+# write-safety chain. The simulator, served in this process, fourteen hooks, and
+# one container (the telemetry store), so `osprey init` → `osprey build` →
+# `osprey web` is the entire first session.
 #
 # `osprey init my-agent --preset hello-world` writes this out as
 # my-agent/profile.yml, at the root of a repo you own. Edit it there; the
@@ -67,8 +67,8 @@ rules:
   - safety          # Core safety rules: never write without approval
   - error-handling  # Standard error handling and retry guidance
   - timezone        # Always localise timestamps to facility timezone
-  # The `facility` rule is left out: mock channels have no naming scheme or
-  # units to teach. Add it once yours do.
+  # The `facility` rule is left out: the hello_world facility's channels have no
+  # naming scheme or units to teach. Add it once yours do.
 
 # The three empty lists below are where a real deployment grows. Leaving them
 # empty keeps the interface small; control-assistant shows them filled in.
