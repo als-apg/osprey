@@ -574,8 +574,8 @@ def _renders_the_target_switch(control_system: dict) -> bool:
     predicate the controls server uses at run time to decide whether its tools
     are served by a connector-host child. Restating it here — "an epics block
     and a virtual_accelerator block", say — would be a second opinion that gets
-    a ``doocs`` deployment wrong and a ``mock``-with-an-epics-block deployment
-    wrong in the other direction, and the failure would be a frozen rule
+    a ``doocs`` deployment wrong, or a simulator deployment carrying a live
+    block, and the failure would be a frozen rule
     promising the agent a switch the runtime refuses to perform.
 
     Deliberately not keyed on the ``control_system.target_switch`` tuning keys:

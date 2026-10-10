@@ -661,8 +661,8 @@ def test_the_live_and_va_pair_is_still_switch_capable():
 def test_the_in_process_simulator_carrying_a_live_block_is_switch_capable():
     """The simulator in process baselines on ``va``, and an ``epics`` block is ``live``.
 
-    Its baseline resolves back to its own type, so two configured targets are
-    a switchable deployment, as the served simulator beside a live block is.
+    Two configured targets are a switchable deployment, as the served
+    simulator beside a live block is.
     """
     # Arrange
     section = _section(

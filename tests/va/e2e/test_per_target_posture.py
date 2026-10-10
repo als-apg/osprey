@@ -49,10 +49,9 @@ Three targets, two containers
 -----------------------------
 The deployment configures the facility's own machine, the virtual accelerator
 and the stand-in; the last two have a container behind them and are the only
-ones anything here dials. The facility machine is configured and never touched,
-because ``switch_capable`` — the predicate deciding whether the controls server
-serves its connector from a child at all — is defined over ``live`` and ``va``
-together; :func:`raw_config` says the rest.
+ones anything here dials. The facility machine is configured so the module runs
+the three-target world the chip is specified over, and is never written to;
+:func:`raw_config` says the rest.
 
 Container V backs the ``va`` target and container S the ``standin`` target.
 They are two so that "the virtual accelerator still writes while the stand-in
@@ -372,16 +371,9 @@ def raw_config(*, va_port: int, standin_port: int, project_root: Path) -> dict:
     ``live_standin`` block. Those two are the ones with a container behind them
     and the ones every leg below writes to.
 
-    **The facility's own machine is configured and never touched**, and that is
-    a requirement rather than scenery: ``switch_capable`` — the predicate that
-    decides whether the controls server serves its connector from a child at all,
-    and the predicate ``session_posture`` reads before it will answer a ceiling
-    per target — is defined over ``live`` and ``va`` together
-    (``osprey_connectors.types.switch_capable``). A deployment carrying only
-    ``virtual_accelerator`` and ``live_standin`` blocks answers ``False``, its
-    tools take the in-process connector, and every per-target ceiling but the
-    baseline's reads unarmed. So the ``epics`` block is here to put this module
-    in the two-target world the chip is specified over. Its writes stay unarmed
+    **The facility's own machine is configured and never written to**: the
+    ``epics`` block is here so this module runs the three-target world the chip
+    is specified over. Its writes stay unarmed
     (it inherits the deployment-wide ``false``) and nothing here ever switches
     to it — its gateways name a port nothing serves, which is the truth about a
     facility machine no test may reach.

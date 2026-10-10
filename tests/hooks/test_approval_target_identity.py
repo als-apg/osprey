@@ -1057,8 +1057,8 @@ def test_a_simulator_only_deployment_is_armed_for_an_unidentified_call(reader):
 def test_the_simulator_in_process_carrying_one_live_block_is_two_targets(reader):
     """`live` resolves to the block and the baseline is `va`, so both are reachable.
 
-    The baseline resolves back to `control_system.type`, so the deployment is in
-    the two-target world, and the most restrictive posture a session here can
+    Two targets are configured, so the deployment is in the two-target world,
+    and the most restrictive posture a session here can
     hold is the live block's `false`.
     """
     section = {
@@ -1075,7 +1075,7 @@ def test_the_simulator_in_process_carrying_one_live_block_is_two_targets(reader)
 
 
 def test_both_targets_are_reachable_only_on_a_switch_capable_render(reader):
-    """Both types configured with a block, and the baseline naming its own type."""
+    """Both types configured with a block."""
     section = {
         "type": "epics",
         "writes_enabled": True,
