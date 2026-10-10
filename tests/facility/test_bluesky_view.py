@@ -210,21 +210,6 @@ def test_a_scenario_beyond_tolerance_warns(
     assert "scenario calm" not in err
 
 
-def test_a_render_without_tolerance_warnings_prints_none(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    from dataclasses import replace
-
-    scenarios = [{"name": "loud", "noise": {"A:RB": {"absolute": 0.01}}}]
-    services = {"bluesky": {"settle_tolerance": 0.001}}
-    inputs = _rendered(_toleranced(scenarios), services, "epics", set())
-
-    write_bluesky_view(tmp_path, replace(inputs, tolerance_warnings=False))
-
-    assert capsys.readouterr().err == ""
-    assert (tmp_path / BLUESKY_DEVICES_FILE).is_file()
-
-
 # --- the file ----------------------------------------------------------------------
 
 

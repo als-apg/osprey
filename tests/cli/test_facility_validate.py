@@ -10,6 +10,7 @@ is byte-unchanged either way.
 
 from __future__ import annotations
 
+import json
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -95,6 +96,37 @@ def test_a_stock_build_prints_no_tolerance_warning(repo: Path) -> None:
 
     assert built.exit_code == 0, built.output
     assert "tolerance" not in built.stderr
+
+
+def test_a_scenario_beyond_a_tolerance_warns_in_the_build_and_in_validate(repo: Path) -> None:
+    built = run_build(repo)
+    assert built.exit_code == 0, built.output
+    document = json.loads((repo / BUILD_DIR_NAME / FACILITY_FILE).read_text(encoding="utf-8"))
+    channels = {channel["id"]: channel for channel in document["channels"]}
+    setpoint = next(
+        channel
+        for _, channel in sorted(channels.items())
+        if "absolute" in (channel.get("tolerance") or {})
+        and "simulation" in channels.get(channel.get("pair", ""), {})
+    )
+    readback = setpoint["pair"]
+    name = "settle-breach"
+    (repo / "data" / "facility" / "scenarios" / f"{name}.yaml").write_text(
+        yaml.safe_dump(
+            {"noise": {readback: {"absolute": setpoint["tolerance"]["absolute"]}}},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    warning = f"scenario {name} moves {readback}"
+
+    rebuilt = run_build(repo)
+    validated = _validate(repo)
+
+    assert rebuilt.exit_code == 0, rebuilt.output
+    assert warning in rebuilt.stderr
+    assert validated.exit_code == 0, validated.output
+    assert warning in validated.stderr
 
 
 def test_a_clean_run_leaves_the_repo_byte_unchanged(repo: Path) -> None:

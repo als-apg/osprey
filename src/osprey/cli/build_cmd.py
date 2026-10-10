@@ -1322,13 +1322,6 @@ class _SharedRenderInputs(NamedTuple):
     for a single render, which names each view it omits.
     """
 
-    tolerance_warnings: bool = True
-    """Whether the Bluesky view prints its settle tolerance warnings.
-
-    A build prints them; a render made in memory to check the tree renders the
-    same views and prints none, so a tree that builds checks silently.
-    """
-
     runtime_interpreter: str | None = None
     """The interpreter this render's artifacts launch with, when it is KNOWN
     rather than derivable.
@@ -2208,7 +2201,6 @@ def _render_project(
             rendered,
             data_root / "facility",
             omitted_reported=shared.views_omitted_reported,
-            tolerance_warnings=shared.tolerance_warnings,
         )
         progress("  ✓ Wrote the facility file and its views")
         _warn_knowledge_links(
