@@ -19,6 +19,8 @@ child's own variables that no channel names (faults, optics) are reached as
 t)``, passed through the child's ``readout`` when the engine exports one, then
 clamped; the readout always sees both readings of a monitor, so a read of one
 plane reads its partner too. A texture channel reads as the texture serves it.
+A reading the active scenarios still has no motion: a physics readback reads
+its truth through readout and clamp, a texture channel its held value.
 :meth:`Composite.get` returns each value as its variable declares it, a
 waveform as an array of the variable's dtype and shape.
 :meth:`Composite.held` reads every channel without motion or readout.
@@ -43,8 +45,10 @@ and on a change of the active scenarios.
 directory, re-read when its modification time changes. A change rebuilds every
 physics child with the active scenarios' writes and fault seeds as its start
 state, and hands the texture the active writes it owns and the active drivers,
-couplings and noise replacements; session writes are dropped. A set whose
-scenarios touch one target twice is served without its scenarios.
+couplings and noise replacements; session writes are dropped. The readings
+any active scenario stills, ``nominal`` included, are stilled; ``all`` stills
+every one. A set whose scenarios touch one target twice is served without its
+scenarios.
 
 **The model log.** Each physics child appends JSON lines ``{instance, pid,
 ...}`` to ``var/simulator/<model>.log`` under the repo root of the loaded
@@ -133,6 +137,7 @@ _FAULT_SEPARATOR = "/"
 _MODEL_SEPARATOR = "/"
 _LOG_MODE = 0o664
 _MS_PER_S = 1000.0
+_STILL_ALL = "all"
 
 
 def cap_status(text: str, max_bytes: int = STATUS_MAX_BYTES) -> str:
@@ -436,6 +441,8 @@ class Composite(LUMEModel):
         drivers: dict[str, Mapping[str, Any]] = {}
         couple: dict[str, list[Mapping[str, Any]]] = {}
         noise: dict[str, Mapping[str, Any]] = {}
+        still: set[str] = set()
+        still_all = False
         for name in active:
             scenario = self._scenarios.get(name, {})
             overrides.update(scenario.get("overrides") or {})
@@ -446,6 +453,11 @@ class Composite(LUMEModel):
             for address, terms in (scenario.get("couple") or {}).items():
                 couple.setdefault(str(address), []).extend(terms)
             noise.update(scenario.get("noise") or {})
+            stilled = scenario.get("still")
+            if stilled == _STILL_ALL:
+                still_all = True
+            elif stilled and not isinstance(stilled, str):
+                still.update(str(address) for address in stilled)
 
         resolved: dict[str, list[Mapping[str, Any]]] = {}
         for address, terms in couple.items():
@@ -455,7 +467,7 @@ class Composite(LUMEModel):
                     logger.warning(f"{address} couples to undeclared driver {term['driver']!r}")
                     continue
                 resolved.setdefault(address, []).append({**term, "drive": drive})
-        self._texture.set_motion(resolved, noise)
+        self._texture.set_motion(resolved, noise, still=frozenset(still), still_all=still_all)
         self._moving = frozenset(
             address
             for address in self._owner
@@ -520,8 +532,8 @@ class Composite(LUMEModel):
         """The served channels whose motion can be non-zero under the active scenarios.
 
         The texture's own channels, and the physics readbacks the texture moves
-        on their level, each when its seed drift, a held coupling or a non-zero
-        noise term moves it.
+        on their level, each when no active scenario stills it and its seed
+        drift, a held coupling or a non-zero noise term moves it.
         """
         self._refresh()
         return self._moving

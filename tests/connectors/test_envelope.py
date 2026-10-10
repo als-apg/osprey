@@ -8,8 +8,11 @@ motion.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from osprey.facility.views import view_bytes
 from osprey_connectors.simulation.envelope import (
     MOTION_SIGMAS,
     active_envelopes,
@@ -17,6 +20,8 @@ from osprey_connectors.simulation.envelope import (
     motion_envelope,
     noise_sigma,
 )
+from osprey_connectors.simulation.view import SCHEMAS, SEEDS_FILE, SimulatorView
+from tests._simulator_view import write_scenarios_view
 
 _DRIFT = {"amplitude": 0.005, "period_s": 600.0}
 _DRIVE = {"kind": "sine", "amplitude": 2.0, "period_s": 300.0}
@@ -106,6 +111,47 @@ def test_active_envelopes_merge_like_the_composite() -> None:
     assert active_envelopes(seeds, scenarios, ["warm", "quiet"])["T:A"] == 0.0
     assert active_envelopes(seeds, scenarios, ["orphan", "unknown"])["T:C"] == 0.0
     assert list(active_envelopes(seeds, scenarios, ["orphan"])) == ["T:A", "T:B", "T:C", "T:SP"]
+
+
+def test_a_stilled_reading_has_no_envelope() -> None:
+    seed = {"nominal": 1.0, "noise": {"absolute": 0.1}, "drift": _DRIFT}
+    couplings = [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]
+
+    assert motion_envelope(seed, noise={"absolute": 0.3}, couplings=couplings, still=True) == 0.0
+
+
+def test_active_envelopes_honour_still_all_and_a_list() -> None:
+    seeds = {
+        "T:A": {"nominal": 1.0, "noise": {"absolute": 0.1}},
+        "T:B": {"nominal": 4.0, "drift": _DRIFT},
+    }
+    scenarios = {
+        "warm": {
+            "name": "warm",
+            "drivers": {"d1": _DRIVE},
+            "couple": {"T:C": [{"driver": "d1", "gain": 0.5}]},
+        },
+        "one": {"name": "one", "still": ["T:A"]},
+        "every": {"name": "every", "still": "all"},
+    }
+
+    assert active_envelopes(seeds, scenarios, ["one"]) == pytest.approx({"T:A": 0.0, "T:B": 0.005})
+    assert active_envelopes(seeds, scenarios, ["warm", "one"]) == pytest.approx(
+        {"T:A": 0.0, "T:B": 0.005, "T:C": 1.0}
+    )
+    assert set(active_envelopes(seeds, scenarios, ["warm", "every"]).values()) == {0.0}
+
+
+def test_nominal_counts_in_the_readers_envelope(tmp_path: Path) -> None:
+    view = tmp_path / "data" / "simulator"
+    view.mkdir(parents=True)
+    seeds = {"T:A": {"nominal": 1.0, "noise": {"absolute": 0.1}}}
+    (view / SEEDS_FILE).write_bytes(view_bytes({"schema": SCHEMAS[SEEDS_FILE], "seeds": seeds}))
+    write_scenarios_view(tmp_path, {"nominal": {"still": ["T:A"]}, "loud": {}})
+    reader = SimulatorView.open(view)
+
+    assert reader.motion_envelope("T:A") == 0.0
+    assert reader.motion_envelope("T:A", active=("loud",)) == 0.0
 
 
 @pytest.mark.parametrize(

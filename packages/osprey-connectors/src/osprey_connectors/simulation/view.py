@@ -512,8 +512,8 @@ class SimulatorView:
 
         Args:
             address: A channel address.
-            active: The active scenario names, in order; none for the seeds'
-                own motion.
+            active: The active scenario names, in order; ``nominal`` always
+                counts, as the composite counts it.
 
         Returns:
             The channel's envelope under ``active``
@@ -521,8 +521,9 @@ class SimulatorView:
             0.0 for a channel that declares no motion.
         """
         from osprey_connectors.simulation.envelope import active_envelopes
+        from osprey_connectors.simulation.state import resolve_active_scenarios
 
-        key = tuple(active)
+        key = tuple(resolve_active_scenarios(active))
         if key not in self._envelopes:
             self._envelopes[key] = active_envelopes(
                 self.document(SEEDS_FILE)["seeds"],

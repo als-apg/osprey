@@ -364,6 +364,32 @@ class TestVAInProcessConnector:
         await connector.disconnect()
 
     @pytest.mark.asyncio
+    async def test_a_stilled_reading_fires_no_subscription(self, tmp_path):
+        """A reading the active scenarios still fires no tick, though its seed declares noise."""
+        from osprey.connectors.control_system.va_in_process_connector import (
+            simulation_state_dir,
+        )
+
+        view = self._ticking_tree(tmp_path, 0.05)
+        scenarios = json.loads((view / "scenarios.json").read_text(encoding="utf-8"))
+        scenarios["scenarios"] = [{"name": "quiet", "still": ["BEAM:NOISY"]}]
+        (view / "scenarios.json").write_text(json.dumps(scenarios), encoding="utf-8")
+        state = simulation_state_dir(view)
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "active_scenarios").write_text("quiet\n", encoding="utf-8")
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
+        noisy = []
+        await connector.subscribe("BEAM:NOISY", noisy.append)
+
+        await asyncio.sleep(0.4)
+
+        assert len(noisy) <= 1
+        assert all(reading.value == pytest.approx(1.0) for reading in noisy)
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
     async def test_the_tick_period_comes_from_the_rendered_config(self, tmp_path):
         """With no ``simulation.tick_s`` the default period applies: no tick in 0.3 s."""
         from osprey_connectors.simulation import DEFAULT_TICK_S

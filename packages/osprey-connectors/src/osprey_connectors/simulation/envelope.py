@@ -15,7 +15,8 @@ A served value is therefore the held value plus at most its envelope::
       + MOTION_SIGMAS x noise sigma
 
 where a relative noise sigma is taken at the seed's own ``nominal``. A
-channel that declares no motion has an envelope of 0.0.
+channel that declares no motion, or that an active scenario stills, has an
+envelope of 0.0.
 
 The module imports only the standard library, so the build, the simulator
 view's reader and the texture model share one rule.
@@ -39,6 +40,7 @@ MOTION_SIGMAS = 6.0
 
 _ABSOLUTE = "absolute"
 _RELATIVE = "relative"
+_STILL_ALL = "all"
 
 
 def _number(value: Any) -> float | None:
@@ -94,6 +96,7 @@ def motion_envelope(
     *,
     noise: Mapping[str, Any] | None = None,
     couplings: Iterable[Mapping[str, Any]] = (),
+    still: bool = False,
 ) -> float:
     """The band a channel's motion keeps its value within around the held value.
 
@@ -104,12 +107,15 @@ def motion_envelope(
         couplings: Resolved couplings, each ``{driver, gain, gain_wander?,
             drive}`` with ``drive`` the driver's ``{kind, amplitude,
             period_s}``.
+        still: The active scenarios still the channel.
 
     Returns:
         ``|drift.amplitude| + sum |gain| x (1 + |gain_wander.amplitude|) x
         |drive.amplitude| + MOTION_SIGMAS x noise sigma``; 0.0 for an absent
-        seed with no couplings.
+        seed with no couplings, and for a stilled channel.
     """
+    if still:
+        return 0.0
     seed = seed or {}
     drift = seed.get("drift") or {}
     envelope = abs(float(drift.get("amplitude") or 0.0))
@@ -135,7 +141,9 @@ def active_envelopes(
     The active scenarios' ``noise`` and ``couple`` blocks merge in order, a
     later scenario's noise record replacing an earlier one's, and each
     coupling takes its driver's ``drive`` from the merged ``drivers``; a
-    coupling to an undeclared driver adds nothing, as it serves nothing.
+    coupling to an undeclared driver adds nothing, as it serves nothing. A
+    reading any active scenario stills has an envelope of 0.0; ``all`` stills
+    every one.
 
     Args:
         seeds: Seeds by address.
@@ -149,8 +157,15 @@ def active_envelopes(
     drivers: dict[str, Mapping[str, Any]] = {}
     couple: dict[str, list[Mapping[str, Any]]] = {}
     noise: dict[str, Mapping[str, Any]] = {}
+    still: set[str] = set()
+    still_all = False
     for name in active:
         scenario = scenarios.get(name) or {}
+        stilled = scenario.get("still")
+        if stilled == _STILL_ALL:
+            still_all = True
+        elif stilled and not isinstance(stilled, str):
+            still.update(str(address) for address in stilled)
         drivers.update(scenario.get("drivers") or {})
         for address, terms in (scenario.get("couple") or {}).items():
             couple.setdefault(str(address), []).extend(terms)
@@ -165,7 +180,10 @@ def active_envelopes(
     addresses = {str(address) for address in seeds} | set(couple) | set(noise)
     return {
         address: motion_envelope(
-            seeds.get(address), noise=noise.get(address), couplings=resolved.get(address, ())
+            seeds.get(address),
+            noise=noise.get(address),
+            couplings=resolved.get(address, ()),
+            still=still_all or address in still,
         )
         for address in sorted(addresses)
     }

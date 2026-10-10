@@ -753,6 +753,113 @@ def test_moving_follows_active_scenarios(tmp_path: Path) -> None:
     assert composite.moving() == seeded
 
 
+# -- still ---------------------------------------------------------------------
+
+
+def _patch(view: Path, name: str, edit: Any) -> None:
+    path = view / name
+    document = json.loads(path.read_text(encoding="utf-8"))
+    edit(document)
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+
+def _clocked(tmp_path: Path, **view: Any) -> tuple[Composite, list[float], Path]:
+    clock = [T0]
+    path = _view(tmp_path, **view)
+    return Composite(path, state_dir=tmp_path / "state", clock=lambda: clock[0]), clock, path
+
+
+def _over_time(composite: Composite, clock: list[float], names: list[str]) -> list[dict]:
+    reads = []
+    for step in range(8):
+        clock[0] = T0 + 0.37 * step
+        reads.append(composite.get(names))
+    return reads
+
+
+def test_a_stilled_physics_readback_serves_truth_through_readout_and_clamp(
+    tmp_path: Path,
+) -> None:
+    scenarios = [
+        {
+            "name": "quiet",
+            "still": ["M:BPM:X", "M:BPM:Y", "M:RB"],
+            "faults": {"M": {"writes": {"M:BPM:Y": {"polarity": -1}}}},
+        }
+    ]
+    clock = [T0]
+    view = _view(tmp_path, scenarios=scenarios)
+    _patch(view, "seeds.json", lambda doc: doc["seeds"]["M:RB"].update(clamp=[None, 3.5]))
+    composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: clock[0])
+
+    _activate(tmp_path / "state", "quiet")
+
+    reads = _over_time(composite, clock, ["M:BPM:X", "M:BPM:Y", "M:RB"])
+    assert reads == [{"M:BPM:X": 0.25, "M:BPM:Y": 0.5, "M:RB": 3.5}] * len(reads)
+
+
+def test_a_stilled_texture_reading_serves_its_held_value(tmp_path: Path) -> None:
+    composite, clock, _ = _clocked(tmp_path, scenarios=[{"name": "quiet", "still": ["T:NOISY"]}])
+
+    _activate(tmp_path / "state", "quiet")
+
+    assert _over_time(composite, clock, ["T:NOISY"]) == [{"T:NOISY": 10.0}] * 8
+
+
+def test_a_partial_still_leaves_the_other_readings_moving(tmp_path: Path) -> None:
+    composite, clock, _ = _clocked(tmp_path, scenarios=[{"name": "quiet", "still": ["T:NOISY"]}])
+    before = _over_time(composite, clock, ["M:RB", "M:BPM:X"])
+
+    _activate(tmp_path / "state", "quiet")
+
+    assert _over_time(composite, clock, ["M:RB", "M:BPM:X"]) == before
+    assert len({read["M:RB"] for read in before}) == len(before)
+
+
+def test_still_all_with_a_noise_scenario_serves_nominal_alone(tmp_path: Path) -> None:
+    scenarios = [
+        {"name": "quiet", "still": "all"},
+        {"name": "loud", "noise": {"T:NOISY": {"absolute": 2.0}}},
+    ]
+    composite = _composite(tmp_path, scenarios=scenarios)
+    plain = composite.get("T:NOISY")
+
+    _activate(tmp_path / "state", "quiet", "loud")
+
+    assert composite.active == ["nominal"]
+    assert composite.get("T:NOISY") == plain != 10.0
+
+
+def test_moving_excludes_stilled_readings(tmp_path: Path) -> None:
+    scenarios = [
+        {"name": "quiet", "still": ["T:NOISY", "M:RB"]},
+        {"name": "hush", "still": "all"},
+    ]
+    composite = _composite(tmp_path, scenarios=scenarios)
+
+    _activate(tmp_path / "state", "quiet")
+    assert composite.moving() == frozenset({"M:BPM:X", "M:BPM:Y"})
+
+    _activate(tmp_path / "state", "hush")
+    assert composite.moving() == frozenset()
+
+
+def test_a_nominal_scenario_stating_still_applies_with_no_state_file(tmp_path: Path) -> None:
+    view = _view(tmp_path)
+    _patch(
+        view,
+        "scenarios.json",
+        lambda doc: doc.update(scenarios=[{"name": "nominal", "still": "all"}]),
+    )
+    clock = [T0]
+    composite = Composite(view, state_dir=None, clock=lambda: clock[0])
+
+    reads = _over_time(composite, clock, ["T:NOISY", "M:RB"])
+
+    assert reads == [{"T:NOISY": 10.0, "M:RB": 4.0}] * len(reads)
+    assert composite.moving() == frozenset()
+
+
 # -- the demo's simulator view -------------------------------------------------
 
 
