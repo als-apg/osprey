@@ -130,8 +130,10 @@ Path(osprey.__file__).parent   # -> installed osprey package root
 Join the paths above onto that root, dropping `src/osprey/`. Two live schema examples
 that document themselves inline, worth opening verbatim:
 
-- `templates/apps/control_assistant/data/channel_databases/TEMPLATE_EXAMPLE.json`
-  — channel-database schema, including device-family template expansion.
+- `facility/schema/core.yaml` — the facility record schema, every slot of a place,
+  device, channel, group and model described in place.
+- `templates/facilities/example/` — the reference example's facility sources, the
+  worked instance of that schema.
 
 ## Adjacent skills
 

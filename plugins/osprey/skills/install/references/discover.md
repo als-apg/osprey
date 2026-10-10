@@ -151,13 +151,14 @@ is not a zone: nothing reads it, and `osprey build` names it in its unrecognized
 warning. `overlays/` in a current-generation repo is exactly that. Give it an `unknown` row
 and one question: what reads this?
 
-**`data/`** is counted, not summarized: channel-database files and their tiers,
-`data/facility/limits.yaml` records, documents under the facility-knowledge bundle, lattice
-files, ARIEL vocabulary, simulation scenarios, benchmark sets. Also count `personas/` and
-`triggers.yml`. The card JSON's machine group gives `<mode> finder · tier <n>`; in `graph`
-mode that is the whole channel-store fact, because graph ships no tiered database — its
-store is a seeded service, not a file, and the tier there selects only the tier-3 benchmark
-query set. Do not look for `data/channel_databases/` to count in graph mode.
+**`data/`** is counted, not summarized: `data/facility/` records per kind and its
+imported layers under `data/facility/imported/` (`osprey facility show` prints the
+counts), `data/facility/limits.yaml` records, documents under the facility-knowledge
+bundle, decks, ARIEL vocabulary, simulation scenarios, benchmark sets. Also count
+`personas/` and `triggers.yml`. The card JSON's machine group gives `<mode> finder`,
+and that is the whole channel-store fact in every mode: the finder reads what the
+build writes from the facility file, so there is no channel store of its own to
+count.
 
 **Environment variables** are names, never values. The source of truth is `profile.yml`'s
 `env:` block: `required`, `pinned`, and the keys of `defaults`. A deployment's env chain is
