@@ -5,13 +5,13 @@
    activity the operator has not seen". Everything here anchors on the rail
    element bound once via initAgentAttention().
 
-   A badge must outlive the page: the server's history ring is re-read on every
+   A badge must outlive the page: the server's history buffer is re-read on every
    SSE open (restoreAgentBadges) and any panel activity the operator has not
    seen re-badges its entry. "Seen" is an ACKNOWLEDGMENT — the server ts of the
    newest badge the operator cleared by surfacing that panel, kept per panel in
    localStorage under `agent-ack:<panelId>`.
 
-   Only SERVER timestamps are ever stored or compared here. The ring's `ts` is
+   Only SERVER timestamps are ever stored or compared here. The buffer's `ts` is
    the web-terminal process's clock; a browser clock skewed ahead of it would
    permanently suppress real badges, and one skewed behind would resurrect
    cleared ones on every reconnect. So a badge whose frame carried no ts leaves
@@ -68,7 +68,7 @@ function ackStorageKey(panelId) {
 }
 
 /**
- * Record a badge's server ts, keeping the newest. The history ring replays a
+ * Record a badge's server ts, keeping the newest. The history buffer replays a
  * panel's older events alongside its newest, so this must not walk backwards.
  * @param {string} panelId
  * @param {number} [ts]

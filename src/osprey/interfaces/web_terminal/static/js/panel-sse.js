@@ -127,7 +127,7 @@ export function subscribePanelEvents(sseDeps) {
     // without a resync a client that missed one frame never converges again.
     // The hook fires on every open, including the first; the extra boot-time
     // fetch is a no-op delta.
-    // Badges are restored from the history ring after the membership delta, so
+    // Badges are restored from the history buffer after the membership delta, so
     // an entry the resync just re-added can carry one (restoreAgentBadges).
     onOpen: () => { void resyncPanelState().then(restoreAgentBadges); },
     onMessage: (raw) => {

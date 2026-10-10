@@ -519,7 +519,7 @@ _TERMINAL_PANEL_ID = "terminal"
 
 
 def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> None:
-    """Record an agent-origin panel command in the agent-activity history ring.
+    """Record an agent-origin panel command in the agent-activity history buffer.
 
     Panel commands reach the browser as their own SSE frames (``panel_focus``,
     ``panel_visibility``, ...), never through ``POST /api/agent-activity``, so
@@ -592,7 +592,7 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
     concurrent arrange overtook, and applying it would resurrect the panel the
     arrange just pruned.
 
-    An agent switch is also mirrored into the activity history ring as one
+    An agent switch is also mirrored into the activity history buffer as one
     ``open_panel`` row. When the open additionally adds rail membership,
     only the focus is mirrored: the pair of frames is one agent action, and
     history counts actions, not frames.
@@ -664,7 +664,7 @@ class PanelVisibilityRequest(BaseModel):
 async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     """Show or hide a panel and broadcast the change via SSE.
 
-    An agent-origin change is also mirrored into the activity history ring, as
+    An agent-origin change is also mirrored into the activity history buffer, as
     an ``add_panel_to_rail`` or ``remove_panel_from_rail`` row depending on the
     flag, so a client reading the history can word it the way it words the live
     frame.
@@ -863,7 +863,7 @@ async def arrange_panels(body: PanelArrangeRequest, request: Request):
     broadcast still carries ``focus`` only when one was requested, leaving the
     client's fallback rule in charge of what is actually focused on screen.
 
-    An agent arrangement is mirrored into the activity history ring as a single
+    An agent arrangement is mirrored into the activity history buffer as a single
     ``arrange_workspace`` row targeting the recorded focus panel.
 
     Args:
@@ -1331,7 +1331,7 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     If a custom panel with the same ``id`` already exists it is replaced
     atomically (remove-then-append) so the proxy always returns the first match.
 
-    An agent-origin registration is mirrored into the activity history ring as
+    An agent-origin registration is mirrored into the activity history buffer as
     a ``register_panel`` row.
 
     Args:

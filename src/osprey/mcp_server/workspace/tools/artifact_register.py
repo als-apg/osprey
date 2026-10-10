@@ -274,7 +274,7 @@ async def artifact_delete_all(scope: str) -> str:
         store = get_artifact_store()
         # One action, one activity frame: the store fires its delete listener
         # once per removed entry, and a scope bigger than the web terminal's
-        # 50-frame history ring would evict the ring's whole content with
+        # 50-frame history buffer would evict the buffer's whole content with
         # copies of the same delete. Suppress the per-entry frames and report
         # the summary instead.
         with suppress_delete_frames():

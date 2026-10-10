@@ -11,7 +11,7 @@ frontend highlighter::
 The server adds ``type`` and ``ts`` and fans the frame out through the
 ``FileEventBroadcaster`` on ``app.state.broadcaster``. The SSE stream only
 reaches browsers that are already connected, so every accepted event is also
-recorded in a bounded deque on ``app.state.agent_activity_ring``, which a
+recorded in a bounded deque on ``app.state.agent_activity_buffer``, which a
 browser that opens or reloads mid-session reads back.
 
 Four concerns are covered, in the sections below:
@@ -35,7 +35,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX, router
+from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX, router
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
 
 from .conftest import bare_route_app
@@ -131,7 +131,7 @@ def test_malformed_body_422_and_no_broadcast(body):
     resp = client.post("/api/agent-activity", json=body)
     assert resp.status_code == 422
     client.app.state.broadcaster.broadcast.assert_not_called()
-    assert len(client.app.state.agent_activity_ring) == 0
+    assert len(client.app.state.agent_activity_buffer) == 0
 
 
 @pytest.mark.parametrize("kind", ["widget", "Config", "UI", "", "settings"])
@@ -141,7 +141,7 @@ def test_unknown_kinds_still_rejected(kind):
     resp = client.post("/api/agent-activity", json={"tool": "emit", "target": {"kind": kind}})
 
     assert resp.status_code == 422
-    assert len(client.app.state.agent_activity_ring) == 0
+    assert len(client.app.state.agent_activity_buffer) == 0
 
 
 @pytest.mark.parametrize(
@@ -177,10 +177,10 @@ def test_app_lifespan_builds_a_bounded_ring(tmp_path):
     ):
         app = create_app(shell_command="echo")
         with TestClient(app):
-            ring = app.state.agent_activity_ring
+            ring = app.state.agent_activity_buffer
 
     assert isinstance(ring, deque)
-    assert ring.maxlen == ACTIVITY_RING_MAX
+    assert ring.maxlen == ACTIVITY_BUFFER_MAX
     assert len(ring) == 0
 
 
@@ -193,7 +193,7 @@ def test_append_happens_before_broadcast():
     client = _make_client()
     seen_at_broadcast: list[int] = []
     client.app.state.broadcaster.broadcast.side_effect = lambda _frame: seen_at_broadcast.append(
-        len(client.app.state.agent_activity_ring)
+        len(client.app.state.agent_activity_buffer)
     )
 
     _post(client)
@@ -250,10 +250,10 @@ def test_recent_limit_takes_the_newest_events():
 def test_recent_defaults_to_the_whole_ring():
     """Omitting ``limit`` returns everything the ring holds."""
     client = _make_client()
-    for index in range(ACTIVITY_RING_MAX):
+    for index in range(ACTIVITY_BUFFER_MAX):
         _post(client, tool=f"tool-{index}")
 
-    assert len(_get_recent(client)) == ACTIVITY_RING_MAX
+    assert len(_get_recent(client)) == ACTIVITY_BUFFER_MAX
 
 
 def test_recent_limit_above_the_ring_max_is_clamped_not_rejected():
@@ -262,7 +262,7 @@ def test_recent_limit_above_the_ring_max_is_clamped_not_rejected():
     for index in range(3):
         _post(client, tool=f"tool-{index}")
 
-    assert len(_get_recent(client, limit=ACTIVITY_RING_MAX * 10)) == 3
+    assert len(_get_recent(client, limit=ACTIVITY_BUFFER_MAX * 10)) == 3
 
 
 @pytest.mark.parametrize("limit", [0, -1, -100])
@@ -323,7 +323,7 @@ def _panel_post(client: TestClient, path: str, body: dict) -> None:
 
 def _only_row(client: TestClient) -> dict:
     """The ring's single row, asserting there is exactly one."""
-    ring = client.app.state.agent_activity_ring
+    ring = client.app.state.agent_activity_buffer
     assert len(ring) == 1, [event["tool"] for event in ring]
     return ring[0]
 
@@ -443,7 +443,7 @@ def test_human_origin_commands_are_never_mirrored(path, body):
     with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
         _panel_post(client, path, body)
 
-    assert list(client.app.state.agent_activity_ring) == []
+    assert list(client.app.state.agent_activity_buffer) == []
 
 
 def test_mirrored_rows_read_back_through_the_recent_endpoint():

@@ -16,7 +16,7 @@
  *     disturbs an already-visible entry or its timer
  *   - agent-supplied strings land as text nodes only (no element injection)
  *   - unknown kinds render the generic "agent activity" + tool fallback
- *   - the click-to-expand history popover, read through the real ring reader
+ *   - the click-to-expand history popover, read through the real buffer reader
  *     against a stubbed fetch: fetch on open, newest-first rows,
  *     live frames prepended while open, Escape / outside-click close,
  *     aria-expanded on the trigger, and the live slot behaving as before
@@ -28,9 +28,9 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 // The host-chrome import graph below reaches bar-sync.js, which GETs the
 // operator's bar layout at import time, and the history popover reads the
-// server's ring through the real reader. Both are answered here — from
+// server's buffer through the real reader. Both are answered here — from
 // `vi.hoisted`, which runs before the static imports are evaluated and
-// therefore before the bar GET is made. `recent` is the ring a test serves:
+// therefore before the bar GET is made. `recent` is the buffer a test serves:
 // its events, whether the read fails, a pending read a test settles by hand,
 // and the limits every read asked for. Any other URL is a dependency this
 // file has not declared, and fails loudly.
@@ -56,9 +56,9 @@ const { recent } = vi.hoisted(() => {
         }),
       };
     }
-    const ring = /^\/api\/agent-activity\/recent\?limit=(\d+)$/.exec(url);
-    if (ring) {
-      recent.limits.push(Number(ring[1]));
+    const history = /^\/api\/agent-activity\/recent\?limit=(\d+)$/.exec(url);
+    if (history) {
+      recent.limits.push(Number(history[1]));
       if (recent.fail) throw new Error('offline');
       const events = recent.pending ? await recent.pending : recent.events;
       return { ok: true, status: 200, json: async () => ({ events: [...events] }) };
@@ -433,7 +433,7 @@ function pastFrame(target, agoSecs, tool = 'write_channel') {
 }
 
 /**
- * Serve `events` from the server ring; returns the limits the reads asked for.
+ * Serve `events` from the server buffer; returns the limits the reads asked for.
  * @param {AgentActivityFrame[]} events
  */
 function serveHistory(events) {
@@ -442,7 +442,7 @@ function serveHistory(events) {
 }
 
 describe('history popover: open, fetch, render', () => {
-  test('opening fetches the server ring and renders rows newest first', async () => {
+  test('opening fetches the server buffer and renders rows newest first', async () => {
     const { calls } = serveHistory([
       pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 5),
       pastFrame({ kind: 'run', detail: 'orm-42' }, 120, 'run_plan'),
@@ -479,7 +479,7 @@ describe('history popover: open, fetch, render', () => {
     expect(rows[1]).not.toContain('tiles');
   });
 
-  test('an empty ring renders a message, not a bare empty list', async () => {
+  test('an empty buffer renders a message, not a bare empty list', async () => {
     serveHistory([]);
     const strip = makeStrip();
     await strip.openHistory();
@@ -496,7 +496,7 @@ describe('history popover: open, fetch, render', () => {
     expect(popover()?.textContent).toContain('Could not load recent activity');
   });
 
-  test('reopening refetches — the server ring is the only source of history', async () => {
+  test('reopening refetches — the server buffer is the only source of history', async () => {
     const { calls } = serveHistory([
       pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 1),
     ]);
@@ -579,7 +579,7 @@ describe('history popover: live frames while open', () => {
     expect(rowTexts().length).toBe(1);
   });
 
-  test('a SUPPRESSED frame is still recorded in the history, as the server ring records it', async () => {
+  test('a SUPPRESSED frame is still recorded in the history, as the server buffer records it', async () => {
     activePanel = 'artifacts';
     serveHistory([]);
     const strip = makeStrip();
@@ -609,7 +609,7 @@ describe('history popover: live frames while open', () => {
     strip.handleActivity(frame({ kind: 'channel', detail: 'SR01:HCM1:SP' }));
     await strip.openHistory();
 
-    // No client-side ring: what the popover shows is exactly what the server
+    // No client-side buffer: what the popover shows is exactly what the server
     // returned, which the stub says is nothing.
     expect(rowTexts().length).toBe(0);
   });
@@ -723,7 +723,7 @@ describe('formatRelativeTime', () => {
 describe('empty-strip focusability', () => {
   // The strip is the trigger for a history that lives on the SERVER, fetched
   // when the popover opens. An empty live line therefore says nothing about
-  // whether there is history to show — after any reload the ring is full and
+  // whether there is history to show — after any reload the buffer is full and
   // the line is empty — so the trigger stays operable regardless. The floating
   // variant's empty-state invisibility is solved in activity-strip.css, which
   // reveals the strip on focus rather than removing the way in.

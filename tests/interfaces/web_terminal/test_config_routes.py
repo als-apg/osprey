@@ -70,7 +70,7 @@ from osprey.cli.profile_conventions import (
 )
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_terminal.routes import router
-from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.config import _changed_protected_keys
 from osprey.utils.config_writer import config_update_fields
 from osprey.utils.identity import acting_identity
@@ -146,7 +146,7 @@ def client(built_project):
     # The lifespan resolves this tier flag; a routes-only app states it.
     app.state.config_panel_enabled = True
     # The real app carries this ring; a refusal frame is only observable with it.
-    app.state.agent_activity_ring = deque(maxlen=ACTIVITY_RING_MAX)
+    app.state.agent_activity_buffer = deque(maxlen=ACTIVITY_BUFFER_MAX)
     with TestClient(app) as c:
         yield c
 
@@ -167,7 +167,7 @@ def _audit_records(zone):
 def _refusal_frames(client):
     return [
         frame
-        for frame in client.app.state.agent_activity_ring
+        for frame in client.app.state.agent_activity_buffer
         if frame["tool"] == "config_patch_refused"
     ]
 

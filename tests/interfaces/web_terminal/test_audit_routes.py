@@ -37,7 +37,7 @@ from osprey.audit import writer
 from osprey.audit.writer import ledger_path
 from osprey.interfaces.web_terminal.routes import audit as audit_routes
 from osprey.interfaces.web_terminal.routes import router
-from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.config import _require_config_panel
 from osprey.utils.identity import acting_identity
 
@@ -113,7 +113,7 @@ def _app(project_dir, *, config_panel_enabled: bool | None) -> FastAPI:
     app.include_router(router)
     app.state.config_path = project_dir / "config.yml"
     app.state.project_cwd = str(project_dir)
-    app.state.agent_activity_ring = deque(maxlen=ACTIVITY_RING_MAX)
+    app.state.agent_activity_buffer = deque(maxlen=ACTIVITY_BUFFER_MAX)
     if config_panel_enabled is not None:
         app.state.config_panel_enabled = config_panel_enabled
     return app

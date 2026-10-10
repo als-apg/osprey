@@ -261,7 +261,7 @@ def test_suppressed_scope_emits_no_per_entry_delete_frames(project, notified):
     """The bulk-delete scope silences the per-entry flood, and only the flood.
 
     ``artifact_delete_all`` over a big gallery would otherwise evict the whole
-    50-slot history ring with one frame per entry; the tool suppresses those
+    50-slot history buffer with one frame per entry; the tool suppresses those
     and reports a single summary instead. Saves are unaffected, and the
     suppression ends with the scope.
     """

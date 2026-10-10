@@ -60,7 +60,7 @@ from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
-from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.sidecar_status import (
     PANEL_STATUS_DIRNAME,
     SidecarStatus,
@@ -2059,9 +2059,9 @@ def _create_lifespan(
         app.state.broadcaster = FileEventBroadcaster()
         app.state.active_panel = None
         # Bounded history of agent-activity events. The SSE stream only reaches
-        # browsers that are already connected, so the ring is what a browser
+        # browsers that are already connected, so the buffer is what a browser
         # opened (or reloaded) mid-session reads to catch up on recent actions.
-        app.state.agent_activity_ring = deque(maxlen=ACTIVITY_RING_MAX)
+        app.state.agent_activity_buffer = deque(maxlen=ACTIVITY_BUFFER_MAX)
         # Optional human-readable deployment name shown in the header so
         # otherwise-identical web terminals are distinguishable. The
         # ``OSPREY_WEB_APP_NAME`` environment variable takes precedence over

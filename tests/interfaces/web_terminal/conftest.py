@@ -315,19 +315,19 @@ def bare_route_app(*routers: APIRouter, **state: Any) -> FastAPI:
     """A bare ``FastAPI`` mounting *routers*, with the lifespan's shared state seeded.
 
     Route suites that skip ``create_app`` still reach code that reads
-    ``app.state.broadcaster`` and ``app.state.agent_activity_ring`` — every
+    ``app.state.broadcaster`` and ``app.state.agent_activity_buffer`` — every
     agent-origin panel command records into the ring — so a bare mount without
     them tests a state the shipped app never has. Both are seeded here, a
     ``MagicMock`` broadcaster and an empty bounded ring; *state* sets further
     ``app.state`` attributes and overrides either default.
     """
-    from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+    from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 
     app = FastAPI()
     for router in routers:
         app.include_router(router)
     app.state.broadcaster = MagicMock()
-    app.state.agent_activity_ring = deque(maxlen=ACTIVITY_RING_MAX)
+    app.state.agent_activity_buffer = deque(maxlen=ACTIVITY_BUFFER_MAX)
     for name, value in state.items():
         setattr(app.state, name, value)
     return app

@@ -20,7 +20,7 @@
  *
  * Three modules, one feature: this one owns the live line, activity-format.js
  * words every frame for both surfaces, and activity-history.js is the
- * click-to-expand popover over the server's ring (the strip mount is its
+ * click-to-expand popover over the server's buffer (the strip mount is its
  * trigger, so the strip builds it and hands out its open/close).
  *
  * All agent-supplied strings (tool, detail, panel) are rendered as text nodes
@@ -114,7 +114,7 @@ export function createActivityStrip({ mount, getActivePanel, labelOf: panelLabel
 
     // History records what the agent did, not what the strip chose to show,
     // so the live prepend happens BEFORE the suppression check — the server
-    // ring keeps suppressed frames too, and the two must not disagree.
+    // buffer keeps suppressed frames too, and the two must not disagree.
     if (history.isOpen()) history.prepend(frame);
 
     if (isSuppressed(target, getActivePanel())) return;
