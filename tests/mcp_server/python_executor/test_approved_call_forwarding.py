@@ -277,3 +277,62 @@ def test_a_changed_journal_stops_the_run_before_user_code(tmp_path: Path) -> Non
     assert "_results" not in metadata, "the user code never started"
     assert sandbox.values() == {"Q": 9.0, "S": 5.0}
     assert sandbox.journal.read_bytes() == before
+
+
+def test_a_finished_runs_restore_report_is_filed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A replay before user code prints one report; the finished run's result files it."""
+    from osprey.audit import writer
+
+    zone = tmp_path / "audit"
+    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
+    folder = tmp_path / "exec"
+    folder.mkdir()
+    report = {
+        "restored": ["Q"],
+        "unchanged": [],
+        "refused": [],
+        "failed": [],
+        "aborted": True,
+        "deadline_guard": False,
+    }
+    metadata = {
+        "success": True,
+        "stdout": "restored 1 addresses from a dead run (pid 4242)\n",
+        "stderr": f"{executor.RESTORE_REPORT_TAG} {json.dumps(report)}\n",
+    }
+
+    executor._result_from_run(
+        folder,
+        metadata,
+        stdout_text="",
+        stderr_text="",
+        returncode=0,
+        elapsed=0.1,
+        control_target="live",
+    )
+
+    saved = json.loads((folder / executor.RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
+    assert saved == [report]
+    (ledger,) = zone.rglob("*.jsonl")
+    (record,) = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+    assert record["reason"] == "guarded_run_restore_complete"
+    assert folder.name in record["subject"]
+
+
+def test_a_finished_run_without_a_report_files_nothing(tmp_path: Path) -> None:
+    folder = tmp_path / "exec"
+    folder.mkdir()
+
+    executor._result_from_run(
+        folder,
+        {"success": True, "stdout": "hello\n", "stderr": ""},
+        stdout_text="",
+        stderr_text="",
+        returncode=0,
+        elapsed=0.1,
+        control_target="live",
+    )
+
+    assert not (folder / executor.RESTORE_REPORT_FILE).exists()

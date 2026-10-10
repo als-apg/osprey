@@ -1181,6 +1181,11 @@ def _result_from_run(
     fallback for a child that left no record at all. *stderr_notice*, when
     given, is appended to the reported stderr — a fact about the sandbox
     (it had to be killed) rather than about the script.
+
+    A guarded run that restored setpoints in the run — a pending journal
+    replayed before user code, or a journaled span an exception escaped —
+    printed one restore report line; the reports in that same output are
+    filed as an interrupted run's are (:func:`_record_restore_report`).
     """
     figures = _collect_figures(execution_folder)
     artifacts = collect_artifacts(execution_folder)
@@ -1195,6 +1200,8 @@ def _result_from_run(
         final_stderr = stderr_text
         success = returncode == 0
         error_msg = stderr_text if not success else None
+
+    _record_restore_report(final_stdout or "", final_stderr or "", execution_folder)
 
     if stderr_notice:
         final_stderr = f"{final_stderr.rstrip()}\n{stderr_notice}".lstrip()
