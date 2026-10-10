@@ -28,12 +28,14 @@ What is written, relative to ``data/facility/``:
   setpoint that reads back through its family's ``Monitor`` names that
   device's ``Monitor`` address as its ``pair``, unless that address reads back
   several setpoints of the field, when it pairs none. A field the mapping
-  gives a ``signal`` role writes it on each of its channels.
-* ``imported/mml/groups.yaml``: one group per family, id the family's mapped
-  token; same-named families of several exports are one group whose members
-  are the union of theirs. Its ``signals`` holds the description of each field
-  the mapping gives a ``signal`` role, keyed by that role; a family with no
-  such field states none.
+  gives a ``signal`` role writes it on each of its channels. A channel's
+  description is ``<device>: <field sentence>``, the device named by its
+  label, else its id, and a shared endpoint by each of its devices.
+* ``imported/mml/groups.yaml``: one group per physical family, id the family's
+  mapped token; same-named families of several exports are one group whose
+  members are the union of theirs. Families whose devices are the same set are
+  one group (plane- and field-split twins), named by their common stem; its
+  ``description`` is the family's sentence.
 * the model's ``tune`` addresses, from the mapping's ``tune`` block: each a
   readback channel, the record a family field wrote where one did; a waveform
   block's address is ``value_type: waveform`` with ``shape`` its number of
@@ -78,6 +80,7 @@ each is imported inside the function that needs it.
 from __future__ import annotations
 
 import shutil
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -480,6 +483,7 @@ def _write_records(
         family = mapping.families[view.raw_name]
         for device_id, device in zip(slot_ids, _devices(view, family.class_), strict=True):
             _add_device(devices, device_id, device, branches)
+    for view, slot_ids in zip(views, ids, strict=True):
         for device_id, row in zip(slot_ids, _export_rows(view), strict=True):
             if row is not None:
                 export_rows.append(
@@ -490,8 +494,9 @@ def _write_records(
                         "device": device_id,
                     }
                 )
-        _channels(view, slot_ids, owners, mapping, roles, channels, untoleranced)
+        _channels(view, slot_ids, owners, mapping, roles, channels, untoleranced, devices)
         _group(groups, mapping.mapped(view.raw_name), mapping, view.raw_name, slot_ids)
+    groups = _physical_groups(groups)
 
     for system in exports.systems:
         _tune_channels(mapping.models[system].tune, channels)
@@ -657,6 +662,7 @@ def _channels(
     roles: dict[str, Any],
     channels: dict[str, dict[str, Any]],
     untoleranced: set[str],
+    devices: dict[str, dict[str, Any]],
 ) -> None:
     """Add one channel per address of one family that no earlier family wrote.
 
@@ -667,7 +673,8 @@ def _channels(
     and the write field's unit, tolerance and description, and keeps the rest.
     A setpoint takes its ``tolerance`` from the write field's ``Tolerance``
     in the field's unit; one whose export states no usable tolerance is added
-    to ``untoleranced``.
+    to ``untoleranced``. A channel is described as ``<owner>: <field
+    sentence>`` (:func:`_described`).
     """
     family = mapping.families[view.raw_name]
     for fld in view.fields.values():
@@ -704,7 +711,7 @@ def _channels(
                         else:
                             untoleranced.add(address)
                         if description is not None:
-                            found["description"] = description
+                            found["description"] = _described(found, description, devices)
                         channels[address] = {
                             key: found[key] for key in _CHANNEL_KEYS if key in found
                         }
@@ -731,8 +738,19 @@ def _channels(
                     else:
                         untoleranced.add(address)
                 if description is not None:
-                    channel["description"] = description
+                    channel["description"] = _described(channel, description, devices)
                 channels[address] = {key: channel[key] for key in _CHANNEL_KEYS if key in channel}
+
+
+def _described(channel: dict[str, Any], sentence: str, devices: dict[str, dict[str, Any]]) -> str:
+    """``<owner>: <sentence>``, the owner the ``on`` device or each ``endpoint_of`` device.
+
+    A device is named by its ``label``, else its id.
+    """
+    on = channel.get("on") or {}
+    owned = [on["device"]] if on.get("device") else list(channel.get("endpoint_of") or [])
+    owner = ", ".join(str(devices.get(d, {}).get("label") or d) for d in owned)
+    return f"{owner}: {sentence}" if owner else sentence
 
 
 def _shared_pairs(fld: FieldView, paired: FieldView | None, devices: int) -> set[str]:
@@ -779,17 +797,52 @@ def _group(
         if family.aliases:
             group["names"] = list(family.aliases)
         group["members"] = []
-        signals = dict(
-            sorted(
-                (fld.signal, fld.description)
-                for fld in family.fields.values()
-                if fld.signal is not None and fld.description is not None
-            )
-        )
-        if signals:
-            group["signals"] = signals
         groups[token] = group
     group["members"] = sorted({*group["members"], *ids})
+
+
+def _stem(tokens: Sequence[str]) -> str:
+    """The tokens' longest common prefix, less its trailing non-alphanumerics."""
+    prefix = tokens[0]
+    for token in tokens[1:]:
+        while not token.startswith(prefix):
+            prefix = prefix[:-1]
+    while prefix and not prefix[-1].isalnum():
+        prefix = prefix[:-1]
+    return prefix
+
+
+def _physical_groups(groups: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Fold the groups whose members are the same set into one group per physical family.
+
+    A fold is named by its tokens' common stem when that has two characters
+    or more, is no other group's id and is no other fold's stem, else by its
+    first token in sorted order. Its ``names`` are the union of the twins' names and tokens, sorted;
+    its ``description`` the twins' distinct descriptions in token order,
+    joined by one space.
+    """
+    folds: dict[tuple[str, ...], list[str]] = {}
+    for token in sorted(groups):
+        folds.setdefault(tuple(groups[token]["members"]), []).append(token)
+    stems = Counter(_stem(tokens) for tokens in folds.values() if len(tokens) > 1)
+    out: dict[str, dict[str, Any]] = {}
+    for members, tokens in folds.items():
+        if len(tokens) == 1:
+            out[tokens[0]] = groups[tokens[0]]
+            continue
+        stem = _stem(tokens)
+        outside = set(groups) - set(tokens)
+        unique = len(stem) >= 2 and stem not in outside and stems[stem] == 1
+        group_id = stem if unique else tokens[0]
+        group: dict[str, Any] = {"id": group_id}
+        descriptions = [groups[t]["description"] for t in tokens if groups[t].get("description")]
+        if descriptions:
+            group["description"] = " ".join(dict.fromkeys(descriptions))
+        names = {*tokens, *(name for t in tokens for name in groups[t].get("names", []))}
+        group["names"] = sorted(names)
+        group["members"] = list(members)
+        out[group_id] = group
+    return out
 
 
 # -- models -------------------------------------------------------------------

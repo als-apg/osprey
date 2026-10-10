@@ -173,8 +173,8 @@ def test_a_family_folded_into_another_binds_that_family_s_devices(nsls2: Path) -
             assert [channels[address]["on"]["device"] for address, _ in bound] == [
                 device for _, device in bound
             ]
-    assert groups["BPMy"]["members"] == groups["BPMx"]["members"]
-    assert len(groups["BPMx"]["members"]) == 187
+    assert {"BPMx", "BPMy"} <= set(groups["BPM"]["names"])
+    assert len(groups["BPM"]["members"]) == 187
 
 
 def test_an_address_both_axes_of_one_device_bind_is_on_that_device(nsls2: Path) -> None:
