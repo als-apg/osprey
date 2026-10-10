@@ -127,7 +127,8 @@ def test_a_micrometre_rule_lands_in_each_channels_unit() -> None:
 def test_every_setpoint_carries_a_tolerance() -> None:
     channels = read_yaml(reseed_module().stamp())
     setpoints = [channel for channel in channels if channel.get("role") == "setpoint"]
-    assert len(setpoints) == 396
+    assert len(setpoints) == 412
+    assert sum(channel["id"].startswith("LINE:") for channel in setpoints) == 16
     for channel in setpoints:
         assert set(channel["tolerance"]) == {"absolute"}, channel["id"]
         assert channel["tolerance"]["absolute"] > 0, channel["id"]
@@ -162,15 +163,24 @@ def test_a_stamped_tolerance_below_its_readbacks_envelope_stops_the_stamper() ->
 
 
 def test_a_stored_reference_carries_no_motion() -> None:
-    still = {(row["class"], row["signal"]) for row in rules() if row.get("noise") == "none"}
+    still = [row for row in rules() if row.get("noise") == "none"]
     channels, devices = records("channel"), records("device")
-    references = [
-        address
-        for address, channel in channels.items()
-        if "device" in channel.get("on", {})
-        and (devices[channel["on"]["device"]]["class"], channel.get("signal")) in still
-    ]
-    assert len(references) == 636
+
+    def held_still(channel: dict[str, Any]) -> bool:
+        device = channel.get("on", {}).get("device")
+        if device is None:
+            return False
+        cls, machine = devices[device]["class"], device.split("/")[0]
+        return any(
+            row["class"] == cls
+            and row["signal"] == channel.get("signal")
+            and row.get("machine", machine) == machine
+            for row in still
+        )
+
+    references = [address for address, channel in channels.items() if held_still(channel)]
+    assert len(references) == 660
+    assert sum(address.startswith("LINE:") for address in references) == 24
     for address in references:
         assert not set(MOTION_KEYS) & set(generated().get(address, {})), address
 
