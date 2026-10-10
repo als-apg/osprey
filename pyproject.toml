@@ -235,6 +235,14 @@ dependencies = [
     # (`--prerelease=allow`); it fails loudly with that hint, never silently
     # pairs the old stable.
     "osprey-connectors>=2026.6.2",
+    # pyAML control-system backend over the connector; versions with this repo's
+    # calendar stream exactly as osprey-connectors does, hence the same specifier.
+    "pyaml-cs-osprey>=2026.6.2",
+    # pyAML itself: string-equal to the pin in packages/pyaml-cs-osprey/pyproject.toml
+    # (a test holds them together).
+    "accelerator-middle-layer==0.3.1",
+    # pySC, the measurement engine pyAML's tuning tools drive.
+    "accelerator-commissioning==1.5.3",
 ]
 
 [project.optional-dependencies]
@@ -292,6 +300,7 @@ dev = [
     # The HTTP client starlette's TestClient is built on. Without it the test
     # client falls back to httpx, which starlette deprecates.
     "httpx2>=2.13.0",
+    "pyaml-test-lattice==0.2.0",  # pyAML's test lattices, loaded by the pyAML view tests
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -420,10 +429,11 @@ all = [
 ]
 
 [tool.uv.workspace]
-members = ["packages/osprey-connectors"]
+members = ["packages/osprey-connectors", "packages/pyaml-cs-osprey"]
 
 [tool.uv.sources]
 osprey-connectors = { workspace = true }
+pyaml-cs-osprey = { workspace = true }
 
 [project.urls]
 Homepage = "https://als-apg.github.io/osprey"
@@ -525,9 +535,9 @@ python_version = "3.11"
 # report the same errors. `explicit_package_bases` is the half that makes the
 # roots count: it derives each module's name from them rather than from the
 # directory the file happens to live in.
-mypy_path = "src:packages/osprey-connectors/src"
+mypy_path = "src:packages/osprey-connectors/src:packages/pyaml-cs-osprey/src"
 explicit_package_bases = true
-files = ["src", "packages/osprey-connectors/src"]
+files = ["src", "packages/osprey-connectors/src", "packages/pyaml-cs-osprey/src"]
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false  # Gradual typing
@@ -650,7 +660,13 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
+src = [
+    "src",
+    "interfaces",
+    "deployment",
+    "packages/osprey-connectors/src",
+    "packages/pyaml-cs-osprey/src",
+]
 # Executable Python scripts without a .py suffix. Ruff selects files by suffix and
 # cannot see them; the pre-commit hook selects by shebang and lints them.
 extend-include = ["tests/pty/stub_runtime/docker"]
@@ -659,6 +675,7 @@ extend-include = ["tests/pty/stub_runtime/docker"]
 extend-exclude = [
     "*/src/osprey/_version.py",
     "*/src/osprey_connectors/_version.py",
+    "*/src/pyaml_cs_osprey/_version.py",
     # Generated from the facility schema by gen-pydantic; compared byte for byte
     # with a regeneration, so it is never reformatted.
     "src/osprey/facility/schema/_generated/",
@@ -719,7 +736,13 @@ known-first-party = ["osprey", "configs", "applications", "interfaces", "deploym
 
 # Coverage configuration (if using pytest-cov)
 [tool.coverage.run]
-source = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
+source = [
+    "src",
+    "interfaces",
+    "deployment",
+    "packages/osprey-connectors/src",
+    "packages/pyaml-cs-osprey/src",
+]
 # Hooks ship as standalone scripts and are exercised by spawning them, so most of
 # their code runs in child processes. The subprocess patcher makes those children
 # measure themselves. It force-enables parallel data files; the explicit entry

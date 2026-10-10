@@ -210,6 +210,7 @@ node_modules/
 # packaged into the wheel and sdist — the hook registers it as a build artifact.
 src/osprey/_version.py
 packages/osprey-connectors/src/osprey_connectors/_version.py
+packages/pyaml-cs-osprey/src/pyaml_cs_osprey/_version.py
 
 # feature-scaffolding logs (not committed)
 .claude/.logs/
