@@ -55,6 +55,7 @@ import platform
 import shutil
 import subprocess
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -362,14 +363,25 @@ def base_venv(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def built_render(base_venv, tmp_path_factory) -> Path:
+def built_render(base_venv, tmp_path_factory) -> Iterator[Path]:
     """A real init + build whose profile declares the venv base + one addition.
 
-    Returns the RENDER (``<repo>/build``) — the zone that holds the project
+    Yields the RENDER (``<repo>/build``) — the zone that holds the project
     venv, the ``pyproject.toml`` dependency record and the ``Dockerfile``, and
     the directory the image is built from.
     """
     out_dir = tmp_path_factory.mktemp("parity-build")
+    repo = out_dir / PROJECT_NAME
+    try:
+        yield _build_render(repo, base_venv)
+    finally:
+        # The host half of every comparison runs from this venv, so it lives as
+        # long as the module does and no longer. In a ``finally``, so a build
+        # that fails half-way leaves none behind either.
+        shutil.rmtree(repo / "build" / ".venv", ignore_errors=True)
+
+
+def _build_render(repo: Path, base_venv: Path) -> Path:
     edits = {
         "environment": {"python": str(base_venv), "packages": [MARKER_ADDED]},
         # The gallery auto-launches a web server on a fixed host port on first
@@ -379,7 +391,6 @@ def built_render(base_venv, tmp_path_factory) -> Path:
         "config": {"artifact_server.auto_launch": False},
     }
 
-    repo = out_dir / PROJECT_NAME
     runner = CliRunner()
     init_result = runner.invoke(
         cli,

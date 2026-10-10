@@ -79,6 +79,7 @@ import difflib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 from collections import Counter
@@ -96,6 +97,7 @@ from tests.pty.conftest import StubRuntime
 # imports them.
 from tests.pty.test_live_region_real_terminal import (
     CLI_BOOTSTRAP,
+    RUN_TIMEOUT,
     SPINNER_FRAMES,
     TERMINAL_COLUMNS,
     TERMINAL_ROWS,
@@ -195,6 +197,17 @@ class PipedRun:
         )
 
 
+#: How long a killed run's pipes are given to reach end of file.
+_DRAIN_TIMEOUT = 10.0
+
+
+def _captured(partial: str | bytes | None) -> str:
+    """What an interrupted read had collected, as text."""
+    if partial is None:
+        return ""
+    return partial if isinstance(partial, str) else partial.decode(errors="replace")
+
+
 def run_piped(argv: list[str], *, cwd: Path, env: dict[str, str]) -> PipedRun:
     """Run one verb with stdout and stderr redirected to separate pipes.
 
@@ -210,21 +223,43 @@ def run_piped(argv: list[str], *, cwd: Path, env: dict[str, str]) -> PipedRun:
     a prompt here would read an immediate end of file and give up, which is a
     failure the scenario can see. Inheriting pytest's stdin would leave it
     waiting for a keystroke nobody is going to send.
+
+    The run is bounded by :data:`~tests.pty.test_live_region_real_terminal.RUN_TIMEOUT`,
+    the bound the terminal run has, and starts in a session of its own so that
+    the kill on expiry reaches the whole deploy and not only its first process.
     """
-    result = subprocess.run(  # argv is built here, not by input
+    process = subprocess.Popen(  # argv is built here, not by input
         [sys.executable, "-c", CLI_BOOTSTRAP, *argv],
         cwd=str(cwd),
         env=env,
         stdin=subprocess.DEVNULL,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        check=False,
+        start_new_session=True,
     )
+    try:
+        stdout, stderr = process.communicate(timeout=RUN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            stdout, stderr = process.communicate(timeout=_DRAIN_TIMEOUT)
+        except subprocess.TimeoutExpired as still_open:
+            # Something that left the session still holds a pipe open; what was
+            # read so far is all there is to show.
+            stdout, stderr = _captured(still_open.stdout), _captured(still_open.stderr)
+        pytest.fail(
+            f"{argv} did not finish within {RUN_TIMEOUT:.0f}s.\n"
+            f"--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+        )
     return PipedRun(
         argv=list(argv),
-        exit_code=result.returncode,
-        stdout=result.stdout,
-        stderr=result.stderr,
+        exit_code=process.returncode,
+        stdout=stdout,
+        stderr=stderr,
     )
 
 

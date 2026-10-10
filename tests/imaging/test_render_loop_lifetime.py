@@ -82,8 +82,17 @@ def _no_worker(monkeypatch):
     monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 30.0)
     monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
     render._forget_worker()
-    yield
-    render._forget_worker()
+    # These tests force a collection to make the transports of their own closed
+    # loop report. A collection is process-wide: unfrozen, it also walks and
+    # finalises whatever the tests before this one left in the process, at their
+    # cost and with their reports landing in this test's list. Frozen objects
+    # are left out of a collection, so it covers what this test created.
+    gc.freeze()
+    try:
+        yield
+    finally:
+        gc.unfreeze()
+        render._forget_worker()
 
 
 @contextmanager

@@ -76,10 +76,16 @@ fi
 # does not re-run the suite serially; ci_check.sh does, and so does CI.
 # -n auto sizes the worker pool to this machine; CI pins -n 4 to keep its matrix cells
 # comparable. Override with PYTEST_XDIST_AUTO_NUM_WORKERS=<n>.
+# tests/services/channel_finder/graph_index/test_scale.py is ignored for the same
+# reason ci_check.sh and ci.yml's lane ignore it: it is a wall-clock latency guard
+# whose budgets are held to an unloaded workstation. Under -n it measures worker
+# contention rather than the index. It runs serially and alone — on demand with
+# `uv run pytest tests/services/channel_finder/graph_index/test_scale.py`, and in
+# the benchmark job.
 # run_bounded.py exits 124 when the run is still going after its bound, which is
 # reported apart from a failure; `|| tests_rc=$?` keeps `set -e` from exiting here.
 tests_rc=0
-uv run python scripts/run_bounded.py 1800 -- uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n auto --dist loadgroup --maxfail=1 --tb=no -q >/dev/null 2>&1 || tests_rc=$?
+uv run python scripts/run_bounded.py 1800 -- uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty" -n auto --dist loadgroup --maxfail=1 --tb=no -q >/dev/null 2>&1 || tests_rc=$?
 if [ "$tests_rc" -eq 124 ]; then
   echo "✗ Tests still running after 1800 s — run them without -q to see which threads remain"
   ERRORS=$((ERRORS + 1))

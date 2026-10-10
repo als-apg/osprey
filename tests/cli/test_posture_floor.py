@@ -311,6 +311,8 @@ def built_preset(tmp_path_factory: pytest.TempPathFactory) -> Any:
         assert init.returncode == 0, f"osprey init {preset} failed:\n{_output(init)}"
         repo = workspace / PROJECT_NAME
         build = _run_cli(["build"], repo)
+        # Every reader of this repo reads its rendered files, never the venv.
+        shutil.rmtree(repo / "build" / ".venv", ignore_errors=True)
         assert build.returncode == 0, f"osprey build ({preset}) failed:\n{_output(build)}"
         built[preset] = repo
         return repo

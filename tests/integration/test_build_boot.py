@@ -94,7 +94,9 @@ def _forbidden_path_fragments() -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def build_outputs(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
+def build_outputs(
+    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+) -> dict[str, Path]:
     """Build every preset once per module run; reuse across tests.
 
     Module-scoped because ``osprey build`` is the slow step (uv sync inside
@@ -104,6 +106,15 @@ def build_outputs(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     outputs: dict[str, Path] = {}
     base = tmp_path_factory.mktemp("preset_builds")
     osprey_bin = _find_osprey_console_script()
+
+    def _drop_project_venvs() -> None:
+        for preset in PRESETS:
+            shutil.rmtree(base / preset / "build" / ".venv", ignore_errors=True)
+
+    # The venv is what these tests boot from, so it lives as long as the module
+    # does and no longer. Registered before the first build, so a build that
+    # fails half-way leaves none behind either.
+    request.addfinalizer(_drop_project_venvs)
 
     for preset in PRESETS:
         repo = base / preset

@@ -96,6 +96,7 @@ and no ``xdist_group`` is needed.
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -1323,6 +1324,9 @@ class CellRenderer:
 
         project = scratch / PROJECT_NAME
         result = _run_cli(["build"], cwd=project, env=env)
+        # The comparison reads only rendered documents, never the venv, and a
+        # refused build has no reader at all.
+        shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
         if result.returncode != 0:
             return Refused("build", _failure_reason(result))
 
