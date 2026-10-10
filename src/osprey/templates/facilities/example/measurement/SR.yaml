@@ -12,7 +12,6 @@ groups:
   sext: SR/SF
 instruments:
   tune: SR:DIAG:TUNE:X
-  chromaticity: SR:DIAG:CHROM:X
   rf: SR:RF:CAVITY:01:FREQUENCY:SP
 n_step: 5
 n_avg_meas: 1

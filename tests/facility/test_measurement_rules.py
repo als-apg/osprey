@@ -20,7 +20,7 @@ import pytest
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.views.pyaml import measurement_groups
-from tests.facility._pyaml_trees import built_document, measured_tree
+from tests.facility._pyaml_trees import built_document, measured_tree, with_rf
 
 if TYPE_CHECKING:
     from tests.facility._mml_built import BuiltModel
@@ -66,7 +66,7 @@ def _stop(tmp_path: Path, tree: dict[str, Any]) -> FacilityBuildError:
 def test_the_demo_sr_model_builds_all_five_kinds(built_control_assistant: BuiltProject) -> None:
     measurement = _model(built_control_assistant.facility, "SR")["measurement"]
     assert measurement["kinds"] == DEMO_KINDS
-    assert set(measurement["instruments"]) == {"tune", "chromaticity", "rf"}
+    assert set(measurement["instruments"]) == {"tune", "rf"}
 
 
 def test_the_demo_corrector_groups_are_their_planes(built_control_assistant: BuiltProject) -> None:
@@ -209,6 +209,46 @@ def test_an_instrument_the_model_does_not_wire_stops(tmp_path: Path) -> None:
         "model SR does not wire SR:TUNE:S; fix: wire SR:TUNE:S in model SR, or name a "
         "channel it wires as `instruments.tune`"
     )
+
+
+def _with_sextupole_group(tree: dict[str, Any]) -> dict[str, Any]:
+    """``tree`` with SR's sextupole SX wired and named ``groups.sext``."""
+    tree["records/devices.yaml"].append({"id": "SR/SX", "class": "Sextupole"})
+    tree["records/channels.yaml"].append(
+        {"id": "SX:SP", "role": "setpoint", "on": {"device": "SR/SX"}}
+    )
+    tree["records/groups.yaml"].append({"id": "SR/S", "members": ["SR/SX"]})
+    (sr,) = [model for model in tree["models.yaml"] if model["name"] == "SR"]
+    sr["wiring"].append(
+        {"address": "SX:SP", "element": "SX", "engine": {"attribute": "PolynomB", "index": 2}}
+    )
+    tree["measurement/SR.yaml"] |= {"kinds": ["crm"], "sextu_delta": 0.01}
+    tree["measurement/SR.yaml"]["groups"]["sext"] = "SR/S"
+    return tree
+
+
+def test_a_crm_file_without_rf_stops_naming_it(tmp_path: Path) -> None:
+    """pyAML measures chromaticity from the tunes and an RF step, so crm needs both."""
+    stop = _stop(tmp_path, _with_sextupole_group(measured_tree()))
+    assert str(stop.format_message()) == (
+        "facility: reference-missing: measurement SR — kind crm needs `instruments.rf`, which "
+        "the file does not name; fix: name `instruments.rf`, or remove crm from `kinds`"
+    )
+
+
+def test_a_crm_file_without_tune_stops_naming_it(tmp_path: Path) -> None:
+    tree = with_rf(_with_sextupole_group(measured_tree()))
+    del tree["measurement/SR.yaml"]["instruments"]["tune"]
+    stop = _stop(tmp_path, tree)
+    assert str(stop.format_message()) == (
+        "facility: reference-missing: measurement SR — kind crm needs `instruments.tune`, "
+        "which the file does not name; fix: name `instruments.tune`, or remove crm from `kinds`"
+    )
+
+
+def test_a_crm_file_with_sext_tune_and_rf_builds(tmp_path: Path) -> None:
+    document, _ = built_document(tmp_path, with_rf(_with_sextupole_group(measured_tree())))
+    assert _model(document, "SR")["measurement"]["kinds"] == ["crm"]
 
 
 def test_a_kind_other_than_orm_on_a_single_pass_model_stops(tmp_path: Path) -> None:

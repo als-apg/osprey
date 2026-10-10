@@ -16,7 +16,7 @@ in a note on stderr. `data/pyaml/` is written by the build only; a profile's
 
 A measurement file is held to the kinds it allows: `orm` needs groups `bpm`,
 `hcor` and `vcor`; `dispersion` adds instrument `rf`; `trm` needs group `quad`
-and instrument `tune`; `crm` needs group `sext` and instrument `chromaticity`;
+and instrument `tune`; `crm` needs group `sext` and instruments `tune` and `rf`;
 `chromaticity_monitor` needs instruments `tune` and `rf`. A member the file does
 not name or the model does not wire, or any kind but `orm` on a `single_pass`
 model, stops the build (`reference-missing`); a step or settle key the kind's

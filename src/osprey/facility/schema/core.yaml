@@ -572,7 +572,6 @@ classes:
     description: Channel addresses.
     attributes:
       tune:
-      chromaticity:
       rf:
 
   Limits:

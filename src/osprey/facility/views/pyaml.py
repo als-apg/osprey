@@ -135,7 +135,7 @@ KIND_MEMBERS: dict[str, tuple[str, ...]] = {
     "orm": ("bpm", "hcor", "vcor"),
     "dispersion": ("bpm", "hcor", "vcor", "rf"),
     "trm": ("quad", "tune"),
-    "crm": ("sext", "chromaticity"),
+    "crm": ("sext", "tune", "rf"),
     "chromaticity_monitor": ("tune", "rf"),
 }
 

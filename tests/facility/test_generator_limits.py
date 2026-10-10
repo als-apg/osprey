@@ -203,7 +203,6 @@ def test_measurement_instruments_are_served_channels() -> None:
     instruments = measurement()["instruments"]
     assert instruments == {
         "tune": "SR:DIAG:TUNE:X",
-        "chromaticity": "SR:DIAG:CHROM:X",
         "rf": "SR:RF:CAVITY:01:FREQUENCY:SP",
     }
     for address in instruments.values():

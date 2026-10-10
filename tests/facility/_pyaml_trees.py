@@ -10,9 +10,8 @@
   ``LINE/BPM1`` and the corrector ``LINE/COR1`` steered in both planes from two
   setpoints; its measurement file allows ``orm``.
 
-:func:`with_rf`, :func:`with_correctors` and :func:`with_chromaticity` wire
-more of SR's deck into the tree. :func:`write_view` builds a tree in memory and
-writes its pyAML view.
+:func:`with_rf` and :func:`with_correctors` wire more of SR's deck into the
+tree. :func:`write_view` builds a tree in memory and writes its pyAML view.
 """
 
 from __future__ import annotations
@@ -31,7 +30,6 @@ __all__ = [
     "built_document",
     "measured_tree",
     "view_inputs",
-    "with_chromaticity",
     "with_correctors",
     "with_rf",
     "write_view",
@@ -217,20 +215,6 @@ def with_correctors(tree: dict[str, Any]) -> dict[str, Any]:
         _setting("SCOR:V:SP", "KickAngle", 1, element="SCOR"),
     ]
     tree["measurement/SR.yaml"]["groups"] |= {"hcor": "SR/HCM", "vcor": "SR/VCM"}
-    return tree
-
-
-def with_chromaticity(tree: dict[str, Any]) -> dict[str, Any]:
-    """``tree`` with SR's chromaticity outputs wired and named ``instruments.chromaticity``."""
-    tree["records/channels.yaml"] += [
-        {"id": "SR:CHROM:X", "on": {"place": "SR"}},
-        {"id": "SR:CHROM:Y", "on": {"place": "SR"}},
-    ]
-    _sr(tree)["wiring"] += [
-        {"address": "SR:CHROM:X", "engine": {"attribute": "chromaticity", "axis": "x"}},
-        {"address": "SR:CHROM:Y", "engine": {"attribute": "chromaticity", "axis": "y"}},
-    ]
-    tree["measurement/SR.yaml"]["instruments"]["chromaticity"] = "SR:CHROM:X"
     return tree
 
 
