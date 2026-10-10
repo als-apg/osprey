@@ -239,7 +239,7 @@ CHANNEL_KEYS = {
     "on",
 }
 CHANNEL_OPTIONAL = {"options", "shape", "precision"}
-SCENARIO_SLOTS = ("description", "drivers", "couple", "noise", "still")
+SCENARIO_SLOTS = ("description", "drivers", "couple", "noise", "still", "channel_faults")
 BUILT_IN_STILL = {
     "name": "still",
     "description": "Every reading serves without drift, couplings or noise.",
@@ -534,7 +534,15 @@ def test_scenarios_carry_every_scenario_and_its_blocks(
             continue
         authored = yaml.safe_load((source / f"{entry['name']}.yaml").read_text())
         assert entry["description"] == authored["description"], entry["name"]
-        for block in ("overrides", "archiver", "logbook", "drivers", "couple", "noise"):
+        for block in (
+            "overrides",
+            "archiver",
+            "logbook",
+            "drivers",
+            "couple",
+            "noise",
+            "channel_faults",
+        ):
             assert entry.get(block) == authored.get(block), (entry["name"], block)
         faults = {model: fault["writes"] for model, fault in entry.get("faults", {}).items()}
         assert faults == authored.get("faults", {}), entry["name"]
@@ -689,6 +697,24 @@ def test_the_built_in_still_is_listed_when_no_file_defines_one(
     )
 
     assert scenarios == [{"name": "alpha"}, BUILT_IN_STILL, {"name": "zeta"}]
+
+
+def test_channel_faults_are_carried_verbatim_on_a_texture_address(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    texture = next(
+        record["address"]
+        for record in _view(built_control_assistant.build_dir, VARIABLES)["channels"]
+        if record["owner"] == TEXTURE and record["role"] == "readback"
+    )
+    scenario = {"name": "cut", "channel_faults": {texture: "disconnected"}}
+
+    (entry,) = [
+        e
+        for e in _rendered_scenarios(tmp_path, built_control_assistant, [scenario])
+        if e["name"] == "cut"
+    ]
+    assert entry == scenario
 
 
 def test_a_files_still_replaces_the_built_in(

@@ -115,6 +115,7 @@ _SCENARIO_BLOCKS = (
     "couple",
     "noise",
     "still",
+    "channel_faults",
 )
 
 #: The scenario ``scenarios.json`` lists when no file defines ``still``.
