@@ -1,9 +1,10 @@
-"""The pyat engine's single-pass solve, over a three-cell synthetic line and an imported one.
+"""The pyat engine's single-pass solve, over a synthetic, the demo and an imported line.
 
 A ``single_pass`` model tracks one particle once through its line from the
 ``twiss_in`` its settings state: its monitors read that pass, its beta
 functions are propagated from ``twiss_in``, and it serves no tunes or
-chromaticity. The NSLS-II transport line, imported and built from its Middle
+chromaticity. The example facility's ``LINE`` model, as the control-assistant
+build renders it, serves the pass a direct track of its deck reads. The NSLS-II transport line, imported and built from its Middle
 Layer export, answers each corrector's step as the Middle Layer's transport
 calculator does.
 """
@@ -234,6 +235,147 @@ class TestFailedSolve:
         lattice = at.load_lattice(str(deck))
         loss_map = at.lattice_track(lattice, np.zeros((6, 1)), losses=True)[2]["loss_map"]
         assert pyat_single_pass.loss_text(lattice, loss_map) is None
+
+
+# ---------------------------------------------------------------------------
+# The demo transfer line
+# ---------------------------------------------------------------------------
+
+DEMO_LINE = "LINE"
+
+#: The corrector setpoints the demo line's served pass is compared at, in the
+#: hardware units its wiring writes.
+DEMO_LINE_SETPOINTS = {
+    "LINE:MAG:HCM:01:CURRENT:SP": 0.04,
+    "LINE:MAG:VCM:02:CURRENT:SP": -0.03,
+    "LINE:MAG:HCM:03:CURRENT:SP": -0.02,
+}
+
+
+@pytest.fixture(scope="module")
+def demo_line(built_control_assistant: Any) -> dict[str, Any]:
+    """The demo ``LINE`` model as the build renders it: wiring, deck and settings."""
+    from osprey.facility.views.simulator import simulator_wiring
+
+    facility = built_control_assistant.facility
+    (model,) = [entry for entry in facility["models"] if entry["name"] == DEMO_LINE]
+    return {
+        "wiring": simulator_wiring(facility, DEMO_LINE),
+        "deck": built_control_assistant.facility_dir / model["deck"],
+        "settings": model["settings"],
+    }
+
+
+def _demo_line_build(demo_line: dict[str, Any]) -> Any:
+    return engine.build(DEMO_LINE, demo_line["wiring"], demo_line["deck"], demo_line["settings"])
+
+
+def _demo_line_entry(demo_line: dict[str, Any], address: str) -> dict[str, Any]:
+    (found,) = [entry for entry in demo_line["wiring"] if entry["address"] == address]
+    return found
+
+
+def _demo_line_monitors(demo_line: dict[str, Any]) -> list[dict[str, Any]]:
+    """The wiring's monitor readings, one per plane of each monitor element."""
+    return [
+        entry
+        for entry in demo_line["wiring"]
+        if "axis" in entry["engine"] and "attribute" not in entry["engine"]
+    ]
+
+
+def _demo_line_physics(entry: dict[str, Any], hardware: float) -> float:
+    from osprey.simulation.engines.calibration import curve_from_record, to_physics
+
+    return float(to_physics(curve_from_record(entry["calibration"]["curve"]), hardware))
+
+
+def _demo_line_track(demo_line: dict[str, Any], setpoints: dict[str, float]) -> np.ndarray:
+    """What a direct ``at.lattice_track`` of the deck reads at each monitor entry.
+
+    Each setpoint is written onto its element through its wiring's
+    calibration, and the particle starts at the ``twiss_in`` the model's
+    settings state.
+    """
+    lattice = at.load_lattice(str(demo_line["deck"]))
+    for address, hardware in setpoints.items():
+        entry = _demo_line_entry(demo_line, address)
+        element = lattice[lattice.get_uint32_index(entry["element"])[0]]
+        kick = np.array(getattr(element, entry["engine"]["attribute"]), dtype=float)
+        kick[int(entry["engine"]["index"])] = _demo_line_physics(entry, hardware)
+        setattr(element, entry["engine"]["attribute"], kick)
+    monitors = lattice.get_uint32_index(at.Monitor)
+    rows = {str(lattice[int(index)].FamName): row for row, index in enumerate(monitors)}
+    twiss_in = engine.prepare(demo_line["deck"], demo_line["settings"]).twiss_in
+    r_out = at.lattice_track(lattice, twiss_in["closed_orbit"].reshape(6, 1), refpts=monitors)[0]
+    plane = {"x": 0, "y": 2}
+    return np.array(
+        [
+            r_out[plane[entry["engine"]["axis"]], 0, rows[str(entry["element"])], 0]
+            for entry in _demo_line_monitors(demo_line)
+        ]
+    )
+
+
+def _demo_line_readings(model: Any, demo_line: dict[str, Any]) -> np.ndarray:
+    """What the model serves at each monitor entry, in the physics units of its wiring."""
+    entries = _demo_line_monitors(demo_line)
+    served = model.get([entry["address"] for entry in entries])
+    return np.array([_demo_line_physics(entry, served[entry["address"]]) for entry in entries])
+
+
+class TestDemoLine:
+    """The example facility's ``LINE`` model, built from the control-assistant build."""
+
+    def test_the_demo_line_builds_on_the_single_pass_simulator(self, demo_line: dict[str, Any]):
+        model = _demo_line_build(demo_line)
+        assert isinstance(model.simulator, SinglePassSimulator)
+        assert len(_demo_line_monitors(demo_line)) > 0
+
+    def test_the_demo_line_monitors_read_a_direct_track_of_the_deck(
+        self, demo_line: dict[str, Any]
+    ):
+        model = _demo_line_build(demo_line)
+        np.testing.assert_allclose(
+            _demo_line_readings(model, demo_line),
+            _demo_line_track(demo_line, {}),
+            rtol=0,
+            atol=1e-12,
+        )
+
+    def test_the_demo_line_monitors_follow_its_corrector_settings(self, demo_line: dict[str, Any]):
+        model = _demo_line_build(demo_line)
+        unkicked = _demo_line_readings(model, demo_line)
+        model.set(DEMO_LINE_SETPOINTS)
+        kicked = _demo_line_readings(model, demo_line)
+        np.testing.assert_allclose(
+            kicked, _demo_line_track(demo_line, DEMO_LINE_SETPOINTS), rtol=0, atol=1e-12
+        )
+        assert np.max(np.abs(kicked - unkicked)) > 1e-6
+
+    def test_the_demo_line_declares_no_tunes_variable(self, demo_line: dict[str, Any]):
+        model = _demo_line_build(demo_line)
+        assert TUNES not in model.supported_variables
+        assert CHROMATICITY not in model.supported_variables
+        assert not any(
+            entry["engine"].get("attribute") in ("tune", "chromaticity")
+            for entry in demo_line["wiring"]
+        )
+        with pytest.raises(ValueError, match="'tunes' is not supported"):
+            model.get([TUNES])
+
+    def test_the_demo_line_beta_at_monitors_is_propagated_from_twiss_in(
+        self, demo_line: dict[str, Any]
+    ):
+        model = _demo_line_build(demo_line)
+        lattice = at.load_lattice(str(demo_line["deck"]))
+        twiss_in = engine.prepare(demo_line["deck"], demo_line["settings"]).twiss_in
+        expected = at.get_optics(
+            lattice, refpts=lattice.get_uint32_index(at.Monitor), twiss_in=twiss_in
+        )[2].beta
+        np.testing.assert_allclose(
+            model.get([BETA_AT_MONITORS])[BETA_AT_MONITORS], expected, rtol=0, atol=1e-12
+        )
 
 
 # ---------------------------------------------------------------------------
