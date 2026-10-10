@@ -419,7 +419,7 @@ def _activity_detail(file: str, key_path: str, *, blocked: bool = False) -> str:
     """Describe a patch for the activity feed — file and key only, never values.
 
     Config values are secrets: ``.mcp.json`` carries API keys and tokens, and
-    the activity ring is persistent and served over HTTP, so neither the old
+    the activity buffer is persistent and served over HTTP, so neither the old
     nor the new value may appear here. That exclusion is why the refusal path
     composes its detail here too rather than formatting its own: one function
     decides what may reach the feed, whether the patch landed or was refused.

@@ -3,10 +3,10 @@
  *
  * The activity strip's live line shows only the latest action, so clicking the
  * strip opens this popover listing the recent ones. The history itself lives on
- * the server (a bounded ring, GET /api/agent-activity/recent) — this module
- * keeps no client-side ring, it just fetches on open and renders the rows.
+ * the server (a bounded buffer, GET /api/agent-activity/recent) — this module
+ * keeps no client-side buffer, it just fetches on open and renders the rows.
  * Frames arriving while it is open are prepended live; because the server
- * appends to its ring BEFORE broadcasting, a refetch always re-includes them,
+ * appends to its buffer BEFORE broadcasting, a refetch always re-includes them,
  * so a live row is never lost when a slower fetch resolves over it.
  *
  * The popover is a child of <body>, position:fixed, because the hub's strip
@@ -29,15 +29,15 @@ import { formatActivity, formatRelativeTime } from './activity-format.js';
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityFrame */
 
 /**
- * Rows requested from the server ring, and the cap on rows kept in the open
- * popover's DOM. Matches ACTIVITY_RING_MAX server-side: asking for more just
+ * Rows requested from the server buffer, and the cap on rows kept in the open
+ * popover's DOM. Matches ACTIVITY_BUFFER_MAX server-side: asking for more just
  * gets clamped, and a popover left open through a long run must not grow
  * without bound.
  */
 export const HISTORY_LIMIT = 50;
 
 /**
- * Default history reader: the server's ring, newest first. Throws on a
+ * Default history reader: the server's buffer, newest first. Throws on a
  * transport or HTTP failure so the popover can show its error state rather
  * than an empty list that would read as "the agent did nothing".
  * @param {number} limit

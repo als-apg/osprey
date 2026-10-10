@@ -299,7 +299,7 @@ def _refuse_protected_keys(request: Request, keys: list[str]) -> HTTPException:
     therefore no panel token.
 
     Args:
-        request: The incoming request, for the activity ring on ``app.state``.
+        request: The incoming request, for the activity buffer on ``app.state``.
         keys: Every protected key the request would have written, dotted for
             display. A PATCH lists them in the order the body sent them; a PUT
             lists them sorted, since a document diff has no request order.
@@ -336,7 +336,7 @@ def _refuse_protected_keys(request: Request, keys: list[str]) -> HTTPException:
         except Exception:  # audit is best-effort; the refusal is not
             logger.warning("Could not record the protected-key refusal for audit", exc_info=True)
 
-    # Keys only, never values: config values are secrets, and the activity ring
+    # Keys only, never values: config values are secrets, and the activity buffer
     # is persistent and served over HTTP. The wording is `setup_patch`'s, so one
     # phrase in the feed covers a refused config write whichever surface saw it.
     detail = f"BLOCKED a protected config key — {_CONFIG_FILE}: {', '.join(shown)}"

@@ -49,7 +49,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import register_scaffold_conflict_handlers
 from osprey.interfaces.web_terminal.routes import router
-from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 
 #: Verbs that author. Everything else under ``/api/scaffold`` is a read, which
 #: the gallery gate deliberately leaves open.
@@ -128,7 +128,7 @@ def _app(project_dir) -> FastAPI:
     register_scaffold_conflict_handlers(app)
     app.state.config_path = project_dir / "config.yml"
     app.state.project_cwd = str(project_dir)
-    app.state.agent_activity_ring = deque(maxlen=ACTIVITY_RING_MAX)
+    app.state.agent_activity_buffer = deque(maxlen=ACTIVITY_BUFFER_MAX)
     app.state.config_panel_enabled = False
     app.state.scaffold_write_enabled = False
     return app

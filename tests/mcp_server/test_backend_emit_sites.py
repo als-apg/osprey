@@ -1311,7 +1311,7 @@ async def test_lattice_read_only_tool_never_emits(tool_name, kwargs):
 # ── setup_patch / manage_window ─────────────────────────────────────────────
 #
 # setup_patch edits the two files that hold the agent's credentials, so its
-# detail names the file and the key path and NOTHING else: the ring is
+# detail names the file and the key path and NOTHING else: the activity buffer is
 # persistent and served back over HTTP, and a leaked `.mcp.json` value is an
 # API key. The leak tests use sentinel values distinctive enough that no
 # coincidental substring can let a leak through, and check every notify
