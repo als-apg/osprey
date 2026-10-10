@@ -1471,8 +1471,8 @@ build** and prints the valid set:
        an absolute difference (default ``1e-9``). This is the floor for every
        device. A device whose readback declares motion in the facility file
        (``noise``, ``drift``) settles within that motion's band,
-       ``|drift.amplitude| + 6 × |noise|``, whenever the band is wider than the
-       floor; the build writes the band into the device file. The default is a
+       ``|drift.amplitude|`` + 6 × the noise sigma (a ``relative`` sigma taken
+       at the seed's ``nominal``), whenever the band is wider than the floor; the build writes the band into the device file. The default is a
        float-noise bound, right for a readback with no declared motion that a
        controller echoes back exactly.
    * - ``live_max_runs``

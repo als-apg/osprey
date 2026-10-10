@@ -110,9 +110,13 @@ name. Every key is optional:
        (``{days_ago, time}``), ``author``, ``title`` and ``text``, and
        optionally ``tags``, ``categories``, ``loto_tag``, ``extra`` and
        ``attachments``.
-   * - ``drivers``, ``couple``, ``noise``
-     - Slow shared signals, the channels that follow them, and per-channel
-       noise while the scenario is active.
+   * - ``drivers``, ``couple``
+     - Slow shared signals, and the channels that follow them.
+   * - ``noise``
+     - Per-channel noise while the scenario is active, replacing the seed's:
+       ``{<address>: {absolute: <sigma>}}`` with the sigma in the channel's
+       unit, or ``{<address>: {relative: <fraction>}}`` with the sigma a
+       fraction of the reading.
 
 An entry's ``attachments`` lists its pictures, each ``{path: <picture file>}``
 or ``{plot: <plot spec .json>}``, relative to the folder
