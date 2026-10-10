@@ -1,8 +1,10 @@
 """MCP tool: facility_description.
 
 Returns the hand-written facility description (.claude/rules/facility.md) and
-the build's generated facts page (data/facility_facts.md) so sub-agents can
-understand facility-specific context, terminology, and operational details.
+the build's generated facts page (data/facility_facts.md: the place tree with
+device counts, device classes with their aliases and groups, the signals and
+roles the channels use, models and channel count) so sub-agents can understand
+facility-specific context, terminology, and operational details.
 """
 
 import json
@@ -40,8 +42,9 @@ async def facility_description() -> str:
     Reads two pages from the project root: the hand-written description in
     .claude/rules/facility.md (facility identity, systems, terminology, and
     operational context) and the facts page the build generates in
-    data/facility_facts.md (identity, place levels, device classes, models and
-    channel count).
+    data/facility_facts.md (identity, the place tree with device counts, device
+    classes with their aliases and groups, the signals and roles the channels
+    use, models and channel count).
 
     Returns:
         JSON with ``facility_description`` (the hand-written text, or null),
