@@ -75,6 +75,13 @@ Several scenarios apply together only when no two of them write one target,
 a channel or a model's fault. A set that breaks the rule is refused before
 anything is written, and the refusal names the target.
 
+Every facility has a scenario named ``still`` that stills every reading:
+``osprey sim apply still``, or ``simulation.default_scenarios: [still]`` for a
+deployment that should start still. A file may define its own ``still``,
+which replaces the built-in one. ``still`` composes with overrides and faults,
+and is refused beside a scenario that sets the same reading's ``noise`` or
+``couple``. It holds in both venues of the simulator.
+
 Write a scenario
 ================
 
@@ -117,6 +124,10 @@ name. Every key is optional:
        ``{<address>: {absolute: <sigma>}}`` with the sigma in the channel's
        unit, or ``{<address>: {relative: <fraction>}}`` with the sigma a
        fraction of the reading.
+   * - ``still``
+     - ``all``, or a list of addresses: while the scenario is active, those
+       readings serve without drift, couplings or noise; readout faults still
+       apply.
 
 An entry's ``attachments`` lists its pictures, each ``{path: <picture file>}``
 or ``{plot: <plot spec .json>}``, relative to the folder
