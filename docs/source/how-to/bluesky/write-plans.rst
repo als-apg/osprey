@@ -162,13 +162,23 @@ until it reaches the demand. Two profile keys bound that wait:
 ``bluesky.settle_timeout_s`` (default 5.0 seconds) is how long the poll runs
 before the move fails and the plan aborts, and ``bluesky.settle_tolerance``
 (default ``1e-9``) is how close the readback must come, as an absolute
-difference. The tolerance is a floor: a device whose readback declares motion
-in the facility file settles within that motion's band
+difference. That tolerance is a floor, never a ceiling.
+
+A setpoint states its own bound in the facility file, next to its ``pair``:
+``tolerance: {absolute: <x>}`` in the channel's unit, or ``tolerance:
+{relative: <f>}``, a fraction of the demand. The build writes it into the
+device file, and the device settles within the larger of the floor and that
+tolerance on every lane. A setpoint with no ``tolerance`` settles, on a lane
+that serves the simulator, within its readback's motion band
 (``|drift.amplitude|`` + 6 × the noise sigma, a ``relative`` sigma taken at the
-seed's ``nominal``), which the build writes into the device file, so only a device whose readback declares no motion and still physically
-moves needs ``settle_tolerance`` raised, and a slow device needs
-``settle_timeout_s`` raised. Running out of budget always fails the plan:
-neither key can turn an unsettled move into a successful one.
+seed's ``nominal``), and on a live or stand-in lane within the floor. The
+build warns once per such lane with the count of setpoints that declare no
+``tolerance``, and once per scenario that moves a readback beyond its
+setpoint's tolerance, since that scenario's moves time out while it is active.
+
+A device that physically moves needs a ``tolerance`` on its setpoint, and a
+slow device needs ``settle_timeout_s`` raised. Running out of budget always
+fails the plan: neither key can turn an unsettled move into a successful one.
 
 A deployment serving the simulator in process drives no channels over Channel
 Access, so its queue server comes up able to browse and describe plans and to run none of

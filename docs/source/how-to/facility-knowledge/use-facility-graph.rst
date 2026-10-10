@@ -336,7 +336,8 @@ facility file — one settable per setpoint channel, reading back through its
 
 The settable/readable split comes from the facility file's channel records in
 every channel-finder mode: a channel whose ``role`` is ``setpoint`` is settable
-and reads back through its ``pair``, and a readback channel is readable. No
+and reads back through its ``pair``, settling within its ``tolerance`` when it
+states one, and a readback channel is readable. No
 build derives a direction from the limits file or from an ``:SP`` address
 grammar.
 
