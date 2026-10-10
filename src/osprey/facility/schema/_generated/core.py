@@ -1528,6 +1528,7 @@ class Scenario(ConfiguredBaseModel):
     drivers: Optional[Any] = Field(default=None, description="""`{<driver>: {kind, amplitude, period_s}}`, slow signals shared by the channels `couple` names, so those channels move together.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     couple: Optional[Any] = Field(default=None, description="""`{<address>: [{driver, gain, gain_wander?}]}`: the channel adds `gain` times each named driver to its value; `gain_wander` `{amplitude, period_s}` lets that gain wax and wane.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     noise: Optional[Any] = Field(default=None, description="""`{<address>: {absolute: <sigma>} | {relative: <fraction>}}`, the channel's noise while the scenario is active, in place of its seed's.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Scenario']} })
+    still: Optional[Any] = Field(default=None, description="""`all`, or a list of addresses: while the scenario is active, those readings serve without drift, couplings or noise.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
 
 
 # Model rebuild
