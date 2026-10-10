@@ -640,6 +640,7 @@ class TestConfirmingRead:
         """A typo must not read as off: the IOC would be answered from a stale cache."""
         _patch_writes_enabled(monkeypatch, False)
         connector = EPICSConnector()
+        connector._connector_type = "epics"
 
         with pytest.raises(ValueError, match=r"control_system\.connector\.epics\.fresh_reads"):
             await connector.connect(
