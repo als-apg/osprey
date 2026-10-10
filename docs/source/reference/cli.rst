@@ -166,8 +166,12 @@ search a channel database file; ``graph`` searches the graph store named by
 a database file.
 
 One shorthand stands in for a longer key path: ``connector=`` writes
-``config.control_system.type``. (Control systems beyond the bundled ones are
-reachable through custom connector packages — see
+``config.control_system.type``. It takes the built-in types ``epics``,
+``virtual_accelerator``, ``doocs``, ``tango`` and ``live_standin``; whether the
+simulator runs in process is set by
+``config.control_system.connector.virtual_accelerator.serving``. (Control
+systems beyond the bundled ones are reachable through custom connector
+packages — see
 :doc:`/how-to/control-systems/use-connectors`.) An EPICS gateway is written by
 its own dotted keys, which is the only spelling: OSPREY ships no table of
 facilities' gateway addresses.
@@ -1074,8 +1078,8 @@ the current directory is used.
    simulator appends to under ``var/simulator/``, each followed by any
    scenario-overlap records from that log. ``--target`` selects the control
    target to report on and defaults to the deployment's own; a target the
-   deployment does not configure exits 1. On a mock target the status comes
-   from the simulator the connector serves in process; on any other target it
+   deployment does not configure exits 1. With the simulator served in process
+   the status comes from the composite this process holds; on any other target it
    is read from the model's status channel, ``<code>:SIM:<model>:STATUS``,
    through that target's connector.
 
