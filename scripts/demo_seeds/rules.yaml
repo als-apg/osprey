@@ -273,8 +273,8 @@
 
 - class: AcceleratingCavity
   signal: tuner_position_setpoint
-  tolerance: {value: 100, unit: µm}
-  source: tuner encoder band
+  tolerance: {value: 1100, unit: µm}
+  source: tuner encoder band plus the cooling-water thermal wander of the cavity body
 
 - class: AcceleratingCavity
   signal: voltage_setpoint

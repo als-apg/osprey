@@ -144,6 +144,24 @@ def test_every_tolerance_holds_its_readbacks_envelope() -> None:
             assert channel["tolerance"]["absolute"] >= envelope, channel["id"]
 
 
+def test_every_tolerance_holds_its_readbacks_envelope_under_each_shipped_scenario() -> None:
+    from osprey.facility.sources import load_sources
+    from osprey_connectors.simulation.envelope import active_envelopes
+
+    result = load_sources(TREE)
+    assert result.errors == []
+    scenarios = {scenario["name"]: scenario for scenario in result.sources.scenarios}
+    assert scenarios
+    toleranced = [
+        channel for channel in read_yaml(reseed_module().stamp()) if "tolerance" in channel
+    ]
+    for name in sorted(scenarios):
+        envelopes = active_envelopes(generated(), scenarios, [name])
+        for channel in toleranced:
+            envelope = envelopes.get(channel["pair"], 0.0)
+            assert envelope <= channel["tolerance"]["absolute"], (name, channel["pair"], envelope)
+
+
 def test_the_committed_channels_are_the_stampers_output() -> None:
     committed = (TREE / "records/channels.yaml").read_text(encoding="utf-8")
     assert reseed_module().stamp() == committed

@@ -19324,7 +19324,7 @@
   role: setpoint
   pair: SR:RF:CAVITY:01:TUNER:RB
   tolerance:
-    absolute: 0.01
+    absolute: 0.11
   'on':
     device: SR/CAVITY01
   signal: tuner_position_setpoint
@@ -19424,7 +19424,7 @@
   role: setpoint
   pair: SR:RF:CAVITY:02:TUNER:RB
   tolerance:
-    absolute: 0.01
+    absolute: 0.11
   'on':
     device: SR/CAVITY02
   signal: tuner_position_setpoint
