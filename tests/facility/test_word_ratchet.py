@@ -66,14 +66,6 @@ CLEAN_PATHS: tuple[str, ...] = (
 
 ALLOWLIST: dict[str, str] = {
     "src/osprey/interfaces/channel_finder/database_api.py": "rename:12",
-    "src/osprey/interfaces/lattice_dashboard/state.py": "rename:12",
-    "src/osprey/interfaces/lattice_dashboard/workers/_base.py": "rename:12",
-    "src/osprey/interfaces/lattice_dashboard/workers/chromaticity.py": "rename:12",
-    "src/osprey/interfaces/lattice_dashboard/workers/da.py": "rename:12",
-    "src/osprey/interfaces/lattice_dashboard/workers/footprint.py": "rename:12",
-    "src/osprey/interfaces/lattice_dashboard/workers/lma.py": "rename:12",
-    "src/osprey/interfaces/lattice_dashboard/workers/optics.py": "rename:12",
-    "src/osprey/interfaces/lattice_dashboard/workers/resonance.py": "rename:12",
     "src/osprey/interfaces/web_terminal/app.py": "rename:12",
     "src/osprey/interfaces/web_terminal/routes/agent_activity.py": "rename:12",
     "src/osprey/interfaces/web_terminal/routes/config.py": "rename:12",

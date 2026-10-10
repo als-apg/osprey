@@ -1,7 +1,7 @@
 """Local momentum aperture worker — dp acceptance vs s-position.
 
 Computes the momentum acceptance at reference points around one sector
-of the ring using a bisection search (matching the DA algorithm).
+of the lattice using a bisection search (matching the DA algorithm).
 Overlays a lattice element strip showing magnet locations and types.
 """
 
@@ -14,9 +14,9 @@ import numpy as np
 import plotly.graph_objects as go
 
 from osprey.interfaces.lattice_dashboard.workers._base import (
-    load_baseline_ring,
+    load_baseline_lattice,
     load_job,
-    load_ring,
+    load_lattice,
     load_settings,
     parse_args,
     save_data,
@@ -25,7 +25,7 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
 
 
 def find_ma_at_refpt(
-    ring: at.Lattice,
+    lattice: at.Lattice,
     refpt: int,
     nturns: int,
     dp_max: float,
@@ -36,7 +36,7 @@ def find_ma_at_refpt(
     Returns (dp_plus, dp_minus) — both positive values representing
     the positive and negative momentum acceptance.
     """
-    rotated = ring.rotate(refpt)
+    rotated = lattice.rotate(refpt)
 
     def search(dp_sign: float) -> float:
         lo, hi = 0.0, dp_max
@@ -62,7 +62,7 @@ def find_ma_at_refpt(
 
 
 def compute_lma(
-    ring: at.Lattice,
+    lattice: at.Lattice,
     n_refpts: int = 100,
     nturns: int = 512,
     dp_max: float = 0.05,
@@ -70,12 +70,12 @@ def compute_lma(
     sector_length: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compute local momentum acceptance over one sector via bisection."""
-    circumference = float(ring.get_s_pos(len(ring))[0])
+    circumference = float(lattice.get_s_pos(len(lattice))[0])
     if sector_length is None:
         sector_length = circumference
 
-    s_all = ring.get_s_pos(range(len(ring) + 1))
-    refpts = [i for i in range(len(ring)) if s_all[i] < sector_length]
+    s_all = lattice.get_s_pos(range(len(lattice) + 1))
+    refpts = [i for i in range(len(lattice)) if s_all[i] < sector_length]
 
     if len(refpts) > n_refpts:
         indices = np.linspace(0, len(refpts) - 1, n_refpts, dtype=int)
@@ -84,24 +84,24 @@ def compute_lma(
     dp_plus = np.zeros(len(refpts))
     dp_minus = np.zeros(len(refpts))
     for i, refpt in enumerate(refpts):
-        dp_plus[i], dp_minus[i] = find_ma_at_refpt(ring, refpt, nturns, dp_max, n_bisect)
+        dp_plus[i], dp_minus[i] = find_ma_at_refpt(lattice, refpt, nturns, dp_max, n_bisect)
 
     s_pos = np.array([float(s_all[r]) for r in refpts])
     return s_pos, dp_plus, dp_minus
 
 
 def extract_lattice_elements(
-    ring: at.Lattice,
+    lattice: at.Lattice,
     sector_length: float,
 ) -> list[dict[str, Any]]:
     """Extract magnet elements for one sector as a list of dicts.
 
     Each dict has: s_start, s_end, type, name, strength.
     """
-    s_all = ring.get_s_pos(range(len(ring) + 1))
+    s_all = lattice.get_s_pos(range(len(lattice) + 1))
     elements = []
 
-    for i, elem in enumerate(ring):
+    for i, elem in enumerate(lattice):
         s_start = float(s_all[i])
         if s_start >= sector_length:
             break
@@ -293,28 +293,28 @@ def main() -> None:
     job_path, output_path = parse_args()
     job = load_job(job_path)
 
-    ring = load_ring(job)
+    lattice = load_lattice(job)
     settings = load_settings(job, "lma")
     nturns = settings["nturns"]
     n_refpts = settings["n_refpts"]
     dp_max = settings["dp_max_pct"] / 100.0
     n_bisect = settings["n_bisect"]
 
-    circumference = float(ring.get_s_pos(len(ring))[0])
+    circumference = float(lattice.get_s_pos(len(lattice))[0])
     periodicity = job.get("periodicity", 1)
     n_sectors_setting = settings["n_sectors"]
     n_sectors = n_sectors_setting if n_sectors_setting is not None else periodicity
     sector_length = circumference / n_sectors
 
     s_pos, dp_plus, dp_minus = compute_lma(
-        ring,
+        lattice,
         n_refpts=n_refpts,
         nturns=nturns,
         dp_max=dp_max,
         n_bisect=n_bisect,
         sector_length=sector_length,
     )
-    lattice_elements = extract_lattice_elements(ring, sector_length)
+    lattice_elements = extract_lattice_elements(lattice, sector_length)
 
     raw: dict = {
         "s_pos": s_pos.tolist(),
@@ -325,10 +325,10 @@ def main() -> None:
         "baseline": None,
     }
 
-    baseline_ring = load_baseline_ring(job)
-    if baseline_ring is not None:
+    baseline_lattice = load_baseline_lattice(job)
+    if baseline_lattice is not None:
         bs, bdp_p, bdp_m = compute_lma(
-            baseline_ring,
+            baseline_lattice,
             n_refpts=n_refpts,
             nturns=nturns,
             dp_max=dp_max,

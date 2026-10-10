@@ -11,9 +11,9 @@ import numpy as np
 import plotly.graph_objects as go
 
 from osprey.interfaces.lattice_dashboard.workers._base import (
-    load_baseline_ring,
+    load_baseline_lattice,
     load_job,
-    load_ring,
+    load_lattice,
     load_settings,
     parse_args,
     save_data,
@@ -21,7 +21,7 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
 
 
 def compute_chromaticity(
-    ring: at.Lattice,
+    lattice: at.Lattice,
     dp_min: float = -0.03,
     dp_max: float = 0.03,
     n_steps: int = 25,
@@ -33,7 +33,7 @@ def compute_chromaticity(
 
     for i, dp in enumerate(dp_values):
         try:
-            _, rd, _ = at.get_optics(ring, dp=dp)
+            _, rd, _ = at.get_optics(lattice, dp=dp)
             nux_vals[i] = rd.tune[0]
             nuy_vals[i] = rd.tune[1]
         except Exception:
@@ -131,13 +131,13 @@ def main() -> None:
     job_path, output_path = parse_args()
     job = load_job(job_path)
 
-    ring = load_ring(job)
+    lattice = load_lattice(job)
     settings = load_settings(job, "chromaticity")
     dp_min = settings["dp_min_pct"] / 100.0
     dp_max = settings["dp_max_pct"] / 100.0
     n_steps = settings["n_steps"]
 
-    dp, nux, nuy = compute_chromaticity(ring, dp_min=dp_min, dp_max=dp_max, n_steps=n_steps)
+    dp, nux, nuy = compute_chromaticity(lattice, dp_min=dp_min, dp_max=dp_max, n_steps=n_steps)
 
     raw: dict = {
         "dp": dp.tolist(),
@@ -146,10 +146,10 @@ def main() -> None:
         "baseline": None,
     }
 
-    baseline_ring = load_baseline_ring(job)
-    if baseline_ring is not None:
+    baseline_lattice = load_baseline_lattice(job)
+    if baseline_lattice is not None:
         bdp, bnux, bnuy = compute_chromaticity(
-            baseline_ring, dp_min=dp_min, dp_max=dp_max, n_steps=n_steps
+            baseline_lattice, dp_min=dp_min, dp_max=dp_max, n_steps=n_steps
         )
         raw["baseline"] = {
             "dp": bdp.tolist(),

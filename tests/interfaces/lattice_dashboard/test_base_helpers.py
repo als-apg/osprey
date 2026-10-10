@@ -14,9 +14,9 @@ import pytest
 
 from osprey.interfaces.lattice_dashboard.workers import _base
 from osprey.interfaces.lattice_dashboard.workers._base import (
-    load_baseline_ring,
+    load_baseline_lattice,
     load_job,
-    load_ring,
+    load_lattice,
     load_settings,
     parse_args,
     prepared_twiss_in,
@@ -75,14 +75,14 @@ class TestLoadJob:
 
 
 class TestLoadRing:
-    """load_ring applies the job's family overrides to the loaded deck."""
+    """load_lattice applies the job's family overrides to the loaded deck."""
 
     def test_override_applied_to_family(self, make_fodo, monkeypatch):
         ring = make_fodo()
         monkeypatch.setattr(_base.at, "load_lattice", lambda path: ring)
 
         job = {"deck": "/fake.json", "overrides": {"QF": 2.5}, "families": {"QF": "K"}}
-        result = load_ring(job)
+        result = load_lattice(job)
 
         qf_k = [e.K for e in result if e.FamName == "QF"]
         assert qf_k, "QF family should exist in the lattice"
@@ -94,7 +94,7 @@ class TestLoadRing:
             _base.at, "load_lattice", lambda path: loaded.append(path) or make_fodo()
         )
 
-        load_ring({"deck": "/decks/SR.json", "overrides": {}, "families": {}})
+        load_lattice({"deck": "/decks/SR.json", "overrides": {}, "families": {}})
 
         assert loaded == ["/decks/SR.json"]
 
@@ -103,7 +103,7 @@ class TestLoadRing:
         baseline_k = next(e.K for e in ring if e.FamName == "QF")
         monkeypatch.setattr(_base.at, "load_lattice", lambda path: ring)
 
-        result = load_ring({"deck": "/fake.json", "overrides": {}, "families": {}})
+        result = load_lattice({"deck": "/fake.json", "overrides": {}, "families": {}})
 
         qf_k = next(e.K for e in result if e.FamName == "QF")
         assert qf_k == pytest.approx(baseline_k)
@@ -113,24 +113,24 @@ class TestLoadRing:
         monkeypatch.setattr(_base.at, "load_lattice", lambda path: ring)
 
         # No families entry → param defaults to "K"
-        result = load_ring({"deck": "/fake.json", "overrides": {"QD": -1.7}, "families": {}})
+        result = load_lattice({"deck": "/fake.json", "overrides": {"QD": -1.7}, "families": {}})
 
         qd_k = [e.K for e in result if e.FamName == "QD"]
         assert all(k == pytest.approx(-1.7) for k in qd_k)
 
 
 class TestLoadBaselineRing:
-    """load_baseline_ring applies the job's baseline overrides."""
+    """load_baseline_lattice applies the job's baseline overrides."""
 
     def test_returns_none_when_no_baseline(self):
-        assert load_baseline_ring({"deck": "/x.json", "baseline_overrides": None}) is None
+        assert load_baseline_lattice({"deck": "/x.json", "baseline_overrides": None}) is None
 
     def test_applies_baseline_overrides(self, make_fodo, monkeypatch):
         ring = make_fodo()
         monkeypatch.setattr(_base.at, "load_lattice", lambda path: ring)
 
         job = {"deck": "/fake.json", "baseline_overrides": {"QF": 0.9}, "families": {"QF": "K"}}
-        result = load_baseline_ring(job)
+        result = load_baseline_lattice(job)
 
         assert result is not None
         qf_k = [e.K for e in result if e.FamName == "QF"]
@@ -140,7 +140,7 @@ class TestLoadBaselineRing:
         ring = make_fodo()
         monkeypatch.setattr(_base.at, "load_lattice", lambda path: ring)
 
-        result = load_baseline_ring(
+        result = load_baseline_lattice(
             {"deck": "/fake.json", "baseline_overrides": {}, "families": {}}
         )
         assert result is not None

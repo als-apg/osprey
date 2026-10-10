@@ -10,7 +10,7 @@ settings, the families' parameters, the overrides, the baseline overrides,
 the figure's settings group, the figure's key and the job id. A worker reads
 nothing else, and writes ``{key, job_id, deck_sha256, data}`` to the output.
 This module provides the common boilerplate: argument parsing, job loading,
-ring loading (with overrides), baseline ring loading, and data saving.
+lattice loading (with overrides), baseline lattice loading, and data saving.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def load_settings(job: dict[str, Any], group: str) -> dict[str, Any]:
 
 
 def unpack_tracking(result: Any) -> np.ndarray:
-    """Extract ndarray from ring.track() return value.
+    """Extract ndarray from lattice.track() return value.
 
     Handles both old API (returns ndarray) and new API (returns tuple).
     Squeezes single-particle dimension for 1-particle tracking.
@@ -67,22 +67,22 @@ def load_job(job_path: Path) -> dict[str, Any]:
 
 
 def _lattice_with(job: dict[str, Any], overrides: dict[str, float]) -> at.Lattice:
-    ring = at.load_lattice(job["deck"])
+    lattice = at.load_lattice(job["deck"])
     families = job.get("families", {})
     for fam_name, value in overrides.items():
         param = families.get(fam_name, "K")
-        for elem in ring:
+        for elem in lattice:
             if getattr(elem, "FamName", None) == fam_name:
                 setattr(elem, param, value)
-    return ring
+    return lattice
 
 
-def load_ring(job: dict[str, Any]) -> at.Lattice:
+def load_lattice(job: dict[str, Any]) -> at.Lattice:
     """Load the job's deck with its overrides applied."""
     return _lattice_with(job, job.get("overrides") or {})
 
 
-def load_baseline_ring(job: dict[str, Any]) -> at.Lattice | None:
+def load_baseline_lattice(job: dict[str, Any]) -> at.Lattice | None:
     """Load the job's deck with its baseline overrides applied, or None with no baseline."""
     baseline_overrides = job.get("baseline_overrides")
     if baseline_overrides is None:

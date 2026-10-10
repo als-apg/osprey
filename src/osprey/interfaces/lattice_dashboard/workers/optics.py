@@ -6,7 +6,7 @@ Overlays baseline traces (dashed) when a baseline exists.
 
 This is also the dashboard's source of fresh header-summary numbers: the
 same Twiss solve that draws the figure yields the tunes, chromaticity and
-beta maxima of the override-applied ring, published under
+beta maxima of the override-applied lattice, published under
 ``summary_updates``, where the dashboard's summary reads them.
 """
 
@@ -20,9 +20,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from osprey.interfaces.lattice_dashboard.workers._base import (
-    load_baseline_ring,
+    load_baseline_lattice,
     load_job,
-    load_ring,
+    load_lattice,
     parse_args,
     prepared_twiss_in,
     save_data,
@@ -30,7 +30,7 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
 
 
 def compute_optics(
-    ring: at.Lattice,
+    lattice: at.Lattice,
     twiss_in: dict[str, Any] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
     """Return (s_pos, beta_x, beta_y, eta_x, summary_updates).
@@ -39,19 +39,19 @@ def compute_optics(
     produces, which the dashboard's summary shows for this figure's key.
 
     Args:
-        ring: The lattice to solve.
+        lattice: The lattice to solve.
         twiss_in: A ``single_pass`` model's prepared ``twiss_in``, each value
             a list or array of the length the pyAT engine normalised it to;
             the optics then start from it, and the summary carries no tunes or
             chromaticity. None solves the lattice periodically.
     """
-    refpts = range(len(ring) + 1)
+    refpts = range(len(lattice) + 1)
     if twiss_in is not None:
         arrays = {key: np.asarray(values, dtype=float) for key, values in twiss_in.items()}
-        _, rd, ld = at.get_optics(ring, refpts=refpts, twiss_in=arrays)
+        _, rd, ld = at.get_optics(lattice, refpts=refpts, twiss_in=arrays)
     else:
-        _, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
-    s_pos = ring.get_s_pos(refpts)
+        _, rd, ld = at.get_optics(lattice, refpts=refpts, get_chrom=True)
+    s_pos = lattice.get_s_pos(refpts)
     beta_x, beta_y = ld.beta[:, 0], ld.beta[:, 1]
     summary_updates: dict[str, Any] = {
         "beta_max": (
@@ -171,9 +171,9 @@ def main() -> None:
     job_path, output_path = parse_args()
     job = load_job(job_path)
 
-    ring = load_ring(job)
+    lattice = load_lattice(job)
     start = prepared_twiss_in(job)
-    s_pos, beta_x, beta_y, eta_x, summary_updates = compute_optics(ring, start)
+    s_pos, beta_x, beta_y, eta_x, summary_updates = compute_optics(lattice, start)
 
     raw: dict = {
         "s_pos": s_pos.tolist(),
@@ -185,9 +185,9 @@ def main() -> None:
         "baseline": None,
     }
 
-    baseline_ring = load_baseline_ring(job)
-    if baseline_ring is not None:
-        bs, bbx, bby, bex, _ = compute_optics(baseline_ring, start)
+    baseline_lattice = load_baseline_lattice(job)
+    if baseline_lattice is not None:
+        bs, bbx, bby, bex, _ = compute_optics(baseline_lattice, start)
         raw["baseline"] = {
             "s_pos": bs.tolist(),
             "beta_x": bbx.tolist(),
