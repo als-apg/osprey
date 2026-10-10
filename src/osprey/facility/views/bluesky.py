@@ -5,19 +5,21 @@ Written to ``<render>/data/bluesky_devices.yml``::
     schema: osprey.facility.bluesky_devices/1
     # generated-file header
     settables:
-      - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, settle_tolerance: <band>}
+      - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, settle_tolerance: <x>}
+      - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, motion_band: <band>}
     readables:
       - {name: <readback>, pv: <readback>}
 
 One settable per setpoint channel, whose ``readback`` is the channel's ``pair``
 when the pair is another channel and is absent otherwise; one readable per
 readback channel, paired or not; a channel whose role is ``none`` is no device.
-A settable carries ``settle_tolerance`` when the channel it reads back declares
-motion in its ``simulation`` seed: the envelope
+A settable carries ``settle_tolerance`` when its setpoint declares a
+``tolerance``: the number of an absolute one, ``{relative: <f>}`` of a relative
+one. A settable without one carries ``motion_band`` when the channel it reads
+back declares motion in its ``simulation`` seed: the envelope
 :func:`osprey_connectors.simulation.envelope.motion_envelope` derives from that
-seed. A settable
-whose readback declares none carries no key and settles within the profile's
-floor.
+seed, which only a simulated lane settles within. A settable with neither
+settles within the profile's floor.
 A device's name is its address. Entries follow the facility file's channel
 order. A render carries the view when it runs a Bluesky lane, under every
 control system: the compose generator stages it for a connector that drives
@@ -60,7 +62,17 @@ def _records(doc: Mapping[str, Any], facility_file: Path) -> list[Any]:
     return [channel_record(channel, source) for channel in doc.get("channels", [])]
 
 
-def _settle_bands(doc: Mapping[str, Any]) -> dict[str, float]:
+def _tolerances(doc: Mapping[str, Any]) -> dict[str, Mapping[str, float]]:
+    """Each setpoint's declared ``tolerance`` record, by address."""
+    return {
+        channel["id"]: channel["tolerance"]
+        for channel in doc.get("channels", [])
+        if channel.get("tolerance")
+    }
+
+
+def _motion_bands(doc: Mapping[str, Any]) -> dict[str, float]:
+    """Each channel's motion envelope, by address."""
     from osprey_connectors.simulation.envelope import motion_envelope
 
     return {
@@ -80,7 +92,9 @@ def bluesky_document(doc: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """
     from osprey.services.bluesky_bridge.substrate_devices import devices_document
 
-    return devices_document(_records(doc, Path(FACILITY_FILE)), _settle_bands(doc))
+    return devices_document(
+        _records(doc, Path(FACILITY_FILE)), _tolerances(doc), _motion_bands(doc)
+    )
 
 
 def bluesky_configured(inputs: ViewInputs) -> bool:
@@ -121,6 +135,7 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
         _records(inputs.doc, facility_file),
         source=_source(facility_file),
         schema=BLUESKY_DEVICES_SCHEMA,
-        settle_bands=_settle_bands(inputs.doc),
+        tolerances=_tolerances(inputs.doc),
+        motion_bands=_motion_bands(inputs.doc),
     )
     return [target]
