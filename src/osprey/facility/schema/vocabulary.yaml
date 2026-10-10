@@ -250,6 +250,22 @@ enums:
       position_offset:
         description: Stored offset subtracted from a measured position.
         aliases: [position offset, offset, beam position offset, position calibration offset]
+      current_x_setpoint:
+        description: >-
+          Power-supply current setpoint of the coil that acts in the horizontal plane,
+          on a device that holds one coil per plane.
+        aliases: [horizontal current setpoint, horizontal coil setpoint, x current setpoint]
+      current_x_readback:
+        description: Power-supply current readback of the coil that acts in the horizontal plane.
+        aliases: [horizontal current readback, horizontal coil readback, x current readback]
+      current_y_setpoint:
+        description: >-
+          Power-supply current setpoint of the coil that acts in the vertical plane, on
+          a device that holds one coil per plane.
+        aliases: [vertical current setpoint, vertical coil setpoint, y current setpoint]
+      current_y_readback:
+        description: Power-supply current readback of the coil that acts in the vertical plane.
+        aliases: [vertical current readback, vertical coil readback, y current readback]
 
   property_name_enum:
     description: >-
