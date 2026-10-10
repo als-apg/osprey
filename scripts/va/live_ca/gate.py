@@ -46,6 +46,12 @@ runs ``pytest.main`` under the tally plugin and prints one machine-readable
 sentinel line; the parent sums those. A child that prints no sentinel is
 treated as a failure, so a hard crash cannot be mistaken for a zero-count pass.
 
+**Each module runs under a wall-clock limit**, in a session of its own. When
+the limit expires the whole session is killed -- the module and every process
+it started -- and the module counts as one error, so a hang is a red result
+with a name on it rather than a run that never ends. ``--module-timeout=SECONDS``
+or ``OSPREY_LIVE_CA_MODULE_TIMEOUT`` changes the limit.
+
 Run it directly (``scripts/va/live_ca/run_live_ca.sh``) rather than invoking
 pytest by hand in the container, or the second and third conditions go
 unchecked. On a developer's Mac, run the suites with the worktree's own pytest
@@ -56,8 +62,12 @@ from __future__ import annotations
 
 import importlib
 import json
+import math
+import os
+import signal
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -93,6 +103,21 @@ PYTEST_ARGS = ("-q", "-ra", "--tb=short", "-p", "no:cacheprovider", "-o", "addop
 #: Internal flag: run exactly one module and report its counts. Not part of the
 #: gate's interface -- ``main`` re-enters this file with it, once per module.
 RUN_ONE_FLAG = "--run-module"
+
+#: Wall-clock limit for one module, in seconds. A whole run of every module
+#: takes about ten seconds and the longest deadline any suite sets for itself
+#: is 60 s, so this is five times the slowest legitimate wait: a module still
+#: running at this point is hung, not slow. It is also small enough that
+#: several hung modules in one run end well inside an hour-long CI job, so the
+#: run reports which modules hung instead of being cut off without a verdict.
+MODULE_TIMEOUT_S = 300
+
+#: Overrides ``MODULE_TIMEOUT_S``. Accepted only as ``--module-timeout=SECONDS``
+#: -- one token, so the value can never be fanned out as a module path.
+TIMEOUT_FLAG = "--module-timeout"
+
+#: Environment override for ``MODULE_TIMEOUT_S``, in seconds. The flag wins.
+TIMEOUT_ENV = "OSPREY_LIVE_CA_MODULE_TIMEOUT"
 
 #: Prefix of the one line a child writes for its parent to read. Distinctive
 #: enough that no pytest output or test print can be mistaken for it.
@@ -140,21 +165,74 @@ def _run_one(target: str) -> int:
     return status
 
 
-def _run_module(target: str) -> tuple[dict[str, int], int]:
+def _kill_session(proc: subprocess.Popen[bytes]) -> None:
+    """Kill every process in the session ``proc`` leads, then reap ``proc``."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    proc.wait()
+
+
+def _run_child(cmd: list[str], limit_s: float) -> tuple[str, str, int, bool]:
+    """Run ``cmd`` for at most ``limit_s`` seconds.
+
+    Returns ``(stdout, stderr, returncode, timed_out)``. The output written so
+    far is returned on every path, including the timed-out one.
+
+    Output goes to files, not pipes. A reader on a pipe waits until every
+    process holding the write end has closed it, and a server the module
+    started inherits that end -- so with pipes, a server that outlives its
+    module keeps the reader waiting on a module that has already exited. A
+    file has no such reader: once the child is gone, what is in the file is
+    the output.
+
+    The child leads a session of its own, which makes it a process group
+    leader too. The processes a module starts stay in that group unless they
+    deliberately leave it, so killing the group on expiry takes the module's
+    servers down with it instead of leaving them holding ports for the
+    modules that follow.
+    """
+    timed_out = False
+    with (
+        tempfile.TemporaryFile(mode="w+", errors="replace") as out,
+        tempfile.TemporaryFile(mode="w+", errors="replace") as err,
+    ):
+        proc = subprocess.Popen(cmd, stdout=out, stderr=err, start_new_session=True)
+        try:
+            proc.wait(timeout=limit_s)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _kill_session(proc)
+        except BaseException:
+            # The child is outside this process's group, so an interrupt at the
+            # terminal reaches the gate but not the child: end it here.
+            _kill_session(proc)
+            raise
+        out.seek(0)
+        err.seek(0)
+        return (out.read(), err.read(), proc.returncode, timed_out)
+
+
+def _run_module(target: str, limit_s: float) -> tuple[dict[str, int], int]:
     """Run one module in a fresh process; return its counts and exit status.
 
     A child that dies without printing the sentinel -- a segfault in libca, an
     OOM kill, an import that took the interpreter down -- is reported as one
     error rather than as zeroes, because zeroes here would read as "nothing
     went wrong" to the caller summing them.
+
+    A child still running after ``limit_s`` seconds -- a test deadlocked in
+    libca, a server process that never came up -- is killed with everything it
+    started and reported as one error too, whatever counts it had already
+    printed: a module that finished its tests and then hung on the way out did
+    not finish.
     """
-    proc = subprocess.run(
-        [sys.executable, "-u", __file__, RUN_ONE_FLAG, target],
-        capture_output=True,
-        text=True,
+    stdout, stderr, returncode, timed_out = _run_child(
+        [sys.executable, "-u", __file__, RUN_ONE_FLAG, target], limit_s
     )
     counts: dict[str, int] | None = None
-    for line in proc.stdout.splitlines():
+    for line in stdout.splitlines():
         if line.startswith(COUNTS_SENTINEL):
             # Defensive only: the child writes this line itself, and pytest's
             # fd-level capture keeps test output from interleaving into it. But
@@ -168,19 +246,50 @@ def _run_module(target: str) -> tuple[dict[str, int], int]:
                 counts = None
         else:
             print(line)
-    if proc.stderr.strip():
-        print(proc.stderr, end="" if proc.stderr.endswith("\n") else "\n")
+    if stderr.strip():
+        print(stderr, end="" if stderr.endswith("\n") else "\n")
 
+    if timed_out:
+        print(
+            f"  !! {target} timed out after {limit_s:g} s -- its process group was killed; "
+            "output so far is above."
+        )
+        return ({"passed": 0, "skipped": 0, "failed": 0, "error": 1}, 1)
     if counts is None:
         print(f"  !! {target} produced no counts -- the child died before reporting.")
-        return ({"passed": 0, "skipped": 0, "failed": 0, "error": 1}, proc.returncode or 1)
-    return (counts, proc.returncode)
+        return ({"passed": 0, "skipped": 0, "failed": 0, "error": 1}, returncode or 1)
+    return (counts, returncode)
+
+
+def _parse_limit(raw: str) -> float | None:
+    """Return ``raw`` as a positive, finite number of seconds, or ``None``."""
+    try:
+        limit_s = float(raw)
+    except ValueError:
+        return None
+    return limit_s if limit_s > 0 and math.isfinite(limit_s) else None
 
 
 def main(argv: list[str]) -> int:
     """Run the suites and return the gate's exit status."""
     pva = "--pva" in argv
     argv = [arg for arg in argv if arg != "--pva"]
+
+    limit_s: float = MODULE_TIMEOUT_S
+    sources = [(TIMEOUT_ENV, os.environ.get(TIMEOUT_ENV) or None)]
+    sources += [
+        (TIMEOUT_FLAG, a.split("=", 1)[1]) for a in argv if a.startswith(f"{TIMEOUT_FLAG}=")
+    ]
+    argv = [arg for arg in argv if not arg.startswith(f"{TIMEOUT_FLAG}=")]
+    # In order of rising precedence: the last source that names a value wins.
+    for source, raw in sources:
+        if raw is None:
+            continue
+        parsed = _parse_limit(raw)
+        if parsed is None:
+            print(f"{source} must be a positive number of seconds; got {raw!r}.")
+            return 1
+        limit_s = parsed
 
     # Every remaining argument is fanned out as its own module path, so a
     # pytest flag would become a target: `-k foo` would hand one child `-k` and
@@ -221,7 +330,7 @@ def main(argv: list[str]) -> int:
     silent: list[str] = []
     for target in targets:
         print(f"--- {target} ---")
-        counts, target_status = _run_module(target)
+        counts, target_status = _run_module(target, limit_s)
         for outcome in OUTCOMES:
             totals[outcome] += counts.get(outcome, 0)
         status = status or target_status
