@@ -166,6 +166,18 @@ def test_a_device_carries_its_top_place_and_family_descriptions() -> None:
     assert _value(graph, "device", "M/Q1", "familyDescription") == "Diagnostics."
 
 
+def test_a_device_in_no_described_group_has_no_family_description() -> None:
+    doc = _doc()
+    doc["groups"] = [
+        {"id": "M/BPM", "description": "Monitors.", "members": ["M/BPM1"]},
+        {"id": "M/QUADS", "members": ["M/Q1"]},
+    ]
+    graph = _graph(graph_text(doc))
+
+    assert _value(graph, "device", "M/BPM1", "familyDescription") == "Monitors."
+    assert _value(graph, "device", "M/Q1", "familyDescription") is None
+
+
 def test_a_device_without_s_has_no_position_or_ordinals() -> None:
     graph = _graph(graph_text(_doc()))
 

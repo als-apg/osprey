@@ -3,8 +3,9 @@
 ``data/channel_finder/middle_layer.json`` carries
 ``"schema": "osprey.facility.channel_finder/1"``, which the middle-layer loader
 skips, and one System per top place. A Family is a group, named by its id
-less a leading ``<System>/``; its Fields list one channel per
-member, in ``CommonNames`` order, so ``ChannelNames`` aligns with
+less a leading ``<System>/``, or the devices of a class no single-class group
+holds under the System, named by the class. A Field is a signal, listing one
+channel per member, in ``CommonNames`` order, so ``ChannelNames`` aligns with
 ``DeviceList``. ``_setup`` is derived from the members: ``CommonNames`` from
 each label, ``DeviceList`` from each member's place among its sibling places,
 ``ElementList`` from the member order. The DuckDB copy ``run_sql`` queries is
@@ -86,7 +87,6 @@ SYNTHETIC: dict[str, Any] = {
             "id": "M/QUAD",
             "description": "the quadrupoles",
             "members": ["M/Q1", "M/Q2", "N/Q1"],
-            "signals": {"CURRENT/SP": "the current setpoint", "CURRENT": "the current"},
         },
         {"id": "M/ALL", "description": "everything", "members": ["M/Q1", "M/Q2", "M/G1"]},
     ],
@@ -106,9 +106,11 @@ def test_a_family_is_filed_under_each_system_of_its_members() -> None:
     document, _left_out, _by_address = _document(SYNTHETIC)
 
     assert sorted(document) == ["M", "N", "schema"]
-    assert sorted(document["M"]) == ["ALL", "QUAD", "_description"]
+    assert sorted(document["M"]) == ["ALL", "Gauge", "QUAD", "_description"]
     assert sorted(document["N"]) == ["M/QUAD", "_description"]
-    assert _fields(document["N"]["M/QUAD"])["CURRENT/SP"]["ChannelNames"] == ["N:Q1:CURRENT:SP"]
+    assert _fields(document["N"]["M/QUAD"])["current_setpoint"]["ChannelNames"] == [
+        "N:Q1:CURRENT:SP"
+    ]
 
 
 def test_each_class_lists_the_families_the_index_files_its_members_under() -> None:
@@ -117,7 +119,7 @@ def test_each_class_lists_the_families_the_index_files_its_members_under() -> No
     document, _left_out, _by_address = _document(SYNTHETIC)
 
     assert middle_layer_families(SYNTHETIC) == {
-        "Gauge": [("M", "ALL")],
+        "Gauge": [("M", "ALL"), ("M", "Gauge")],
         "Quadrupole": [("M", "ALL"), ("M", "QUAD"), ("N", "M/QUAD")],
     }
     for pairs in middle_layer_families(SYNTHETIC).values():
@@ -141,7 +143,10 @@ def test_a_field_lists_one_channel_per_member_in_common_name_order() -> None:
         "DeviceList": [[1, 1], [2, 1]],
         "ElementList": [1, 2],
     }
-    assert _fields(family)["CURRENT/SP"]["ChannelNames"] == ["M:Q1:CURRENT:SP", "M:Q2:CURRENT:SP"]
+    assert _fields(family)["current_setpoint"]["ChannelNames"] == [
+        "M:Q1:CURRENT:SP",
+        "M:Q2:CURRENT:SP",
+    ]
     assert _fields(family)["temperature"]["ChannelNames"] == ["M:Q1:TEMP", "M:Q2:TEMP"]
 
 
@@ -265,12 +270,124 @@ def test_a_system_and_a_family_are_described_only_by_description_or_label() -> N
     assert document["M"]["D"]["_description"] == "the described"
 
 
-def test_a_field_takes_the_sentence_under_the_longest_key_every_address_ends_with() -> None:
-    document, _left_out, _by_address = _document(SYNTHETIC)
-    fields = _fields(document["M"]["QUAD"])
+def _signal_text(name: str) -> str:
+    from osprey.facility.validate import vocabulary
 
-    assert fields["CURRENT/SP"]["_description"] == "the current setpoint"
-    assert "_description" not in fields["temperature"]
+    (row,) = [row for row in vocabulary()["signal_roles"] if row["name"] == name]
+    return str(row["description"])
+
+
+def _class_text(name: str) -> str:
+    from osprey.facility.validate import vocabulary
+
+    (row,) = [row for row in vocabulary()["classes"] if row["name"] == name]
+    return str(row["description"])
+
+
+def test_a_field_is_keyed_by_signal_and_described_by_the_vocabulary() -> None:
+    document, _left_out, _by_address = _document(SYNTHETIC)
+    field = _fields(document["M"]["QUAD"])["current_setpoint"]
+
+    assert field == {
+        "ChannelNames": ["M:Q1:CURRENT:SP", "M:Q2:CURRENT:SP"],
+        "_description": _signal_text("current_setpoint"),
+    }
+
+
+def test_an_address_keyed_field_takes_its_channel_s_description() -> None:
+    doc = {
+        "places": [{"id": "M"}],
+        "devices": [{"id": "M/A", "place": "M", "class": "Quadrupole"}],
+        "groups": [{"id": "M/F", "members": ["M/A"]}],
+        "channels": [{"id": "M:A:TUNE", "on": {"device": "M/A"}, "description": "the tune"}],
+    }
+
+    document, _left_out, by_address = _document(doc)
+
+    assert _fields(document["M"]["F"]) == {
+        "M:A:TUNE": {"ChannelNames": ["M:A:TUNE"], "_description": "the tune"}
+    }
+    assert by_address == 1
+
+
+def test_a_role_without_a_vocabulary_sentence_takes_the_members_common_description(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from osprey.facility import validate
+
+    table = validate.vocabulary()
+    stripped = {
+        **table,
+        "signal_roles": [
+            {key: value for key, value in row.items() if key != "description"}
+            if row["name"] == "current_setpoint"
+            else row
+            for row in table["signal_roles"]
+        ],
+    }
+    monkeypatch.setattr(validate, "vocabulary", lambda: stripped)
+
+    def described(first: str, second: str) -> dict[str, Any]:
+        doc = {
+            "places": [{"id": "M"}],
+            "devices": [
+                {"id": "M/A", "place": "M", "s": 1.0},
+                {"id": "M/B", "place": "M", "s": 2.0},
+            ],
+            "groups": [{"id": "M/F", "members": ["M/A", "M/B"]}],
+            "channels": [
+                {
+                    "id": "A:SP",
+                    "on": {"device": "M/A"},
+                    "signal": "current_setpoint",
+                    "description": first,
+                },
+                {
+                    "id": "B:SP",
+                    "on": {"device": "M/B"},
+                    "signal": "current_setpoint",
+                    "description": second,
+                },
+            ],
+        }
+        document, _left_out, _by_address = _document(doc)
+        return _fields(document["M"]["F"])["current_setpoint"]
+
+    assert described("the current", "the current")["_description"] == "the current"
+    assert "_description" not in described("one", "another")
+
+
+def test_a_classed_device_no_single_class_group_holds_files_under_its_place_and_class() -> None:
+    document, _left_out, _by_address = _document(SYNTHETIC)
+
+    gauge = document["M"]["Gauge"]
+    assert gauge["_description"] == _class_text("Gauge")
+    assert gauge["_setup"]["CommonNames"] == ["M/G1"]
+    assert _fields(gauge)["pressure"]["ChannelNames"] == ["M:G1:P"]
+    assert "Quadrupole" not in document["M"]
+    assert "Quadrupole" not in document["N"]
+
+
+def test_a_derived_family_name_colliding_with_a_group_keeps_the_group_s_id() -> None:
+    doc = {
+        "places": [{"id": "M"}],
+        "devices": [
+            {"id": "M/G1", "place": "M", "class": "Gauge"},
+            {"id": "M/Q1", "place": "M", "class": "Quadrupole"},
+        ],
+        "groups": [{"id": "M/Gauge", "members": ["M/G1", "M/Q1"]}],
+        "channels": [],
+    }
+
+    document, _left_out, _by_address = _document(doc)
+
+    assert sorted(key for key in document["M"] if not key.startswith("_")) == [
+        "Gauge",
+        "M/Gauge",
+        "Quadrupole",
+    ]
+    assert document["M"]["Gauge"]["_setup"]["CommonNames"] == ["M/G1"]
+    assert document["M"]["M/Gauge"]["_setup"]["CommonNames"] == ["M/G1", "M/Q1"]
 
 
 def test_a_channel_in_no_family_is_left_out_and_counted() -> None:
@@ -296,10 +413,10 @@ def test_a_field_a_member_lacks_or_repeats_is_keyed_by_address() -> None:
             {"id": "A", "place": "M", "label": "a"},
             {"id": "B", "place": "M", "label": "b"},
         ],
-        "groups": [{"id": "M/F", "members": ["A", "B"], "signals": {"X": "x"}}],
+        "groups": [{"id": "M/F", "members": ["A", "B"]}],
         "channels": [
-            {"id": "A:X", "on": {"device": "A"}},
-            {"id": "B:X", "on": {"device": "B"}},
+            {"id": "A:X", "on": {"device": "A"}, "signal": "position_x_readback"},
+            {"id": "B:X", "on": {"device": "B"}, "signal": "position_x_readback"},
             {"id": "A:H:CURRENT", "on": {"device": "A"}, "signal": "current"},
             {"id": "A:V:CURRENT", "on": {"device": "A"}, "signal": "current"},
             {"id": "B:H:CURRENT", "on": {"device": "B"}, "signal": "current"},
@@ -311,16 +428,19 @@ def test_a_field_a_member_lacks_or_repeats_is_keyed_by_address() -> None:
     document, left_out, by_address = _document(doc)
     fields = _fields(document["M"]["F"])
 
-    assert fields["X"] == {"ChannelNames": ["A:X", "B:X"], "_description": "x"}
+    assert fields["position_x_readback"] == {
+        "ChannelNames": ["A:X", "B:X"],
+        "_description": _signal_text("position_x_readback"),
+    }
     keyed = ["A:H:CURRENT", "A:V:CURRENT", "B:H:CURRENT", "A:ONLY", "B:BARE"]
     assert {address: fields[address]["ChannelNames"] for address in keyed} == {
         address: [address] for address in keyed
     }
-    assert sorted(fields) == sorted(["X", *keyed])
+    assert sorted(fields) == sorted(["position_x_readback", *keyed])
     assert (left_out, by_address) == (0, 5)
 
 
-def test_a_group_without_signals_is_a_family_keyed_by_signal_else_address() -> None:
+def test_a_family_is_keyed_by_signal_else_address() -> None:
     doc = {
         "devices": [
             {"id": "A", "place": "M", "label": "a", "s": 1.0},
@@ -351,7 +471,7 @@ def test_an_umbrella_group_is_its_own_family_beside_its_members_groups() -> None
     quad = _fields(document["M"]["QUAD"])
     umbrella = _fields(document["M"]["ALL"])
     assert document["M"]["ALL"]["_description"] == "everything"
-    assert quad["CURRENT/SP"]["ChannelNames"] == ["M:Q1:CURRENT:SP", "M:Q2:CURRENT:SP"]
+    assert quad["current_setpoint"]["ChannelNames"] == ["M:Q1:CURRENT:SP", "M:Q2:CURRENT:SP"]
     in_umbrella = {address for field in umbrella.values() for address in field["ChannelNames"]}
     assert {"M:Q1:CURRENT:SP", "M:Q2:CURRENT:SP", "M:G1:P"} <= in_umbrella
     assert all("_description" not in field for field in umbrella.values())
@@ -363,35 +483,40 @@ def test_a_shared_endpoint_is_listed_once_per_device_it_ends() -> None:
             {"id": "A", "place": "M", "label": "a", "s": 1.0},
             {"id": "B", "place": "M", "label": "b", "s": 2.0},
         ],
-        "groups": [{"id": "M/F", "members": ["B", "A"], "signals": {"SP": "setpoint"}}],
-        "channels": [{"id": "BUS:SP", "endpoint_of": ["A", "B"]}],
+        "groups": [{"id": "M/F", "members": ["B", "A"]}],
+        "channels": [
+            {"id": "BUS:SP", "endpoint_of": ["A", "B"], "signal": "current_setpoint"},
+        ],
     }
 
     document, _left_out, _by_address = _document(doc)
 
     assert document["M"]["F"]["_setup"]["CommonNames"] == ["a", "b"]
-    assert _fields(document["M"]["F"])["SP"]["ChannelNames"] == ["BUS:SP", "BUS:SP"]
+    assert _fields(document["M"]["F"])["current_setpoint"]["ChannelNames"] == [
+        "BUS:SP",
+        "BUS:SP",
+    ]
 
 
 def test_a_member_with_no_place_sits_under_system_none() -> None:
     doc = {
         "devices": [{"id": "A", "label": "a"}],
-        "groups": [{"id": "F", "members": ["A"], "signals": {"X": "x"}}],
-        "channels": [{"id": "A:X", "on": {"device": "A"}}],
+        "groups": [{"id": "F", "members": ["A"]}],
+        "channels": [{"id": "A:X", "on": {"device": "A"}, "signal": "current_setpoint"}],
     }
 
     document, _left_out, _by_address = _document(doc)
 
     assert document["-"]["_description"] == "no place"
-    assert _fields(document["-"]["F"])["X"]["ChannelNames"] == ["A:X"]
+    assert _fields(document["-"]["F"])["current_setpoint"]["ChannelNames"] == ["A:X"]
 
 
 def _one_family(place: str, group: str) -> dict[str, Any]:
     return {
         "places": [{"id": place}],
         "devices": [{"id": "A", "place": place, "label": "a"}],
-        "groups": [{"id": group, "members": ["A"], "signals": {"X": "x"}}],
-        "channels": [{"id": "A:X", "on": {"device": "A"}}],
+        "groups": [{"id": group, "members": ["A"]}],
+        "channels": [{"id": "A:X", "on": {"device": "A"}, "signal": "current_setpoint"}],
     }
 
 
@@ -456,7 +581,7 @@ def test_the_loader_reads_the_index_back_and_skips_its_schema(tmp_path: Path) ->
         "N:Q1:CURRENT:SP",
     ]
     assert [system["name"] for system in loaded.list_systems()] == ["M", "N"]
-    assert loaded.list_channel_names("M", "QUAD", "CURRENT/SP", sectors=[1, 2]) == [
+    assert loaded.list_channel_names("M", "QUAD", "current_setpoint", sectors=[1, 2]) == [
         "M:Q1:CURRENT:SP",
         "M:Q2:CURRENT:SP",
     ]
@@ -488,7 +613,7 @@ def test_the_writer_writes_the_index_and_its_duckdb_database(tmp_path: Path) -> 
     try:
         assert con.execute(
             "SELECT count(*), count(DISTINCT channel_name) FROM channels"
-        ).fetchone() == (10, 6)
+        ).fetchone() == (11, 6)
         assert con.execute(
             "SELECT common_name, sector, device FROM device_map "
             "WHERE system = 'M' AND family = 'QUAD' ORDER BY device_index"
@@ -560,8 +685,8 @@ def test_a_facility_whose_every_channel_is_filed_prints_no_note(
 ) -> None:
     doc = {
         "devices": [{"id": "A", "place": "M", "label": "a"}],
-        "groups": [{"id": "F", "members": ["A"], "signals": {"X": "x"}}],
-        "channels": [{"id": "A:X", "on": {"device": "A"}}],
+        "groups": [{"id": "F", "members": ["A"]}],
+        "channels": [{"id": "A:X", "on": {"device": "A"}, "signal": "current_setpoint"}],
     }
 
     _write(tmp_path, doc)
@@ -569,19 +694,37 @@ def test_a_facility_whose_every_channel_is_filed_prints_no_note(
     assert capsys.readouterr() == ("", "")
 
 
-def test_no_group_stops_with_view_unsupported(tmp_path: Path) -> None:
+def test_no_group_and_no_classed_device_stops_with_view_unsupported(tmp_path: Path) -> None:
     from osprey.facility.errors import FacilityBuildError
 
-    doc = {**SYNTHETIC, "groups": []}
+    devices = [
+        {key: value for key, value in device.items() if key != "class"}
+        for device in SYNTHETIC["devices"]
+    ]
+    doc = {**SYNTHETIC, "devices": devices, "groups": []}
     with pytest.raises(FacilityBuildError) as caught:
         _write(tmp_path, doc)
 
     assert caught.value.format_message() == (
         "facility: view-unsupported: path channel_finder.pipeline_mode — selects middle_layer "
-        "and the facility has no group; fix: add at least one group, or select another "
-        "channel_finder_mode"
+        "and no device of the facility is in a group or has a class; fix: add a group or give "
+        "the devices a class, or select another channel_finder_mode"
     )
     assert not (tmp_path / "channel_finder").exists()
+
+
+def test_classed_devices_without_groups_still_write_the_index(tmp_path: Path) -> None:
+    (index, _database) = _write(tmp_path, {**SYNTHETIC, "groups": []})
+
+    document = json.loads(index.read_bytes())
+    assert sorted(key for key in document["M"] if not key.startswith("_")) == [
+        "Gauge",
+        "Quadrupole",
+    ]
+    assert _fields(document["M"]["Quadrupole"])["current_setpoint"]["ChannelNames"] == [
+        "M:Q1:CURRENT:SP",
+        "M:Q2:CURRENT:SP",
+    ]
 
 
 def test_a_database_that_cannot_be_written_stops_with_view_unsupported(
@@ -672,19 +815,37 @@ def _families(document: dict[str, Any]) -> dict[str, list[str]]:
     }
 
 
+#: The demo's groups by System, each a Family named by its short id.
+DEMO_GROUPS = {
+    "BR": ["BPM", "DIAG", "DIPOLE", "MAG", "QD", "QF"],
+    "BTS": ["BPM", "DIAG", "HCM", "MAG", "VCM"],
+    "SR": [
+        *("BPM", "DIAG", "DIPOLE", "HCM", "MAG", "QD", "QF", "QFA"),
+        *("RF", "SD", "SF", "SHD", "SHF", "VAC", "VCM"),
+    ],
+}
+
+#: The demo's classes no single-class group holds, by System.
+DEMO_DERIVED = {
+    "BR": ["BeamCurrentMonitor"],
+    "BTS": ["Quadrupole"],
+    "SR": [
+        *("AcceleratingCavity", "BeamCurrentMonitor", "BeamLossMonitor", "Gauge"),
+        *("Modulator", "Pump", "Valve"),
+    ],
+}
+
+
 @pytest.mark.slow
-def test_every_demo_group_is_a_family(
+def test_every_demo_group_and_ungrouped_class_is_a_family(
     built_control_assistant: BuiltProject,
 ) -> None:
     document, left_out, by_address = _document(built_control_assistant.facility)
-    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    umbrellas = {"BR": ["DIAG", "MAG"], "BTS": ["DIAG", "MAG"], "SR": ["DIAG", "MAG", "RF", "VAC"]}
 
     assert _families(document) == {
-        system: sorted([*families, *umbrellas[system]])
-        for system, families in _families(golden).items()
+        system: sorted([*DEMO_GROUPS[system], *DEMO_DERIVED[system]]) for system in DEMO_GROUPS
     }
-    assert sum(len(families) for families in _families(document).values()) == 36
+    assert sum(len(families) for families in _families(document).values()) == 35
     fields = [
         field
         for system, families in document.items()
@@ -693,8 +854,8 @@ def test_every_demo_group_is_a_family(
         if not key.startswith("_")
         for field in _fields(family)
     ]
-    assert len(fields) == 1172
-    assert by_address == 1011
+    assert len(fields) == 1530
+    assert by_address == 1387
     assert left_out == 4
     assert left_out == sum(
         1
@@ -719,13 +880,13 @@ def test_every_sector_device_s_device_list_names_its_sector(
     document, _left_out, _by_address = middle_layer_document(facility)
 
     checked = 0
-    for _group, name, members in _families_by_system(facility)["SR"]:
-        rows = [tuple(row) for row in document["SR"][name]["_setup"]["DeviceList"]]
-        assert len(rows) == len(set(rows)), name
-        for member, row in zip(members, rows, strict=True):
+    for family in _families_by_system(facility)["SR"]:
+        rows = [tuple(row) for row in document["SR"][family.name]["_setup"]["DeviceList"]]
+        assert len(rows) == len(set(rows)), family.name
+        for member, row in zip(family.members, rows, strict=True):
             match = sector.fullmatch(str(member.get("place") or ""))
             if match:
-                assert row[0] == int(match.group(1)), (name, member["id"], row)
+                assert row[0] == int(match.group(1)), (family.name, member["id"], row)
                 checked += 1
     assert checked > 800
     assert not [device["id"] for device in facility["devices"] if "attributes" in device]
@@ -751,40 +912,44 @@ def test_every_sector_device_s_device_list_names_its_sector(
 
 
 @pytest.mark.slow
-def test_the_demo_bpm_family_has_one_field_per_today_s_leaf(
-    built_control_assistant: BuiltProject,
-) -> None:
-    document, _left_out, _by_address = _document(built_control_assistant.facility)
-    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    bpm = document["SR"]["BPM"]
-    leaves = sorted(
-        f"{field}/{leaf}"
-        for field, node in _fields(golden["SR"]["BPM"]).items()
-        for leaf in _fields(node)
-    )
-    members = len(_group(built_control_assistant.facility, "SR/BPM")["members"])
-
-    assert sorted(_fields(bpm)) == leaves
-    assert all(len(field["ChannelNames"]) == members for field in _fields(bpm).values())
-    assert bpm["_setup"]["CommonNames"] == golden["SR"]["BPM"]["_setup"]["CommonNames"]
-
-
-@pytest.mark.slow
-def test_a_demo_field_takes_its_own_machine_s_family_sentence(
+def test_the_demo_bpm_family_keys_each_once_held_signal_as_one_field(
     built_control_assistant: BuiltProject,
 ) -> None:
     facility = built_control_assistant.facility
     document, _left_out, _by_address = _document(facility)
+    bpm = document["SR"]["BPM"]
+    members = _group(facility, "SR/BPM")["members"]
+    fields = _fields(bpm)
 
-    sextupole = _fields(document["SR"]["SF"])["CURRENT/SP"]
-    assert all(address.endswith(":CURRENT:SP") for address in sextupole["ChannelNames"])
-    assert sextupole["_description"] == _group(facility, "SR/SF")["signals"]["CURRENT/SP"]
-    for key, field in _fields(document["BR"]["DIPOLE"]).items():
-        assert field["_description"] == _group(facility, "BR/DIPOLE")["signals"][key]
-    assert (
-        _fields(document["BR"]["DIPOLE"])["CURRENT/SP"]["_description"]
-        != _group(facility, "SR/DIPOLE")["signals"]["CURRENT/SP"]
-    )
+    assert len(members) == 72
+    for signal in (
+        "position_x_readback",
+        "position_y_readback",
+        "position_x_golden_readback",
+        "position_y_golden_readback",
+    ):
+        assert len(fields[signal]["ChannelNames"]) == 72, signal
+    twice = [
+        channel["id"]
+        for channel in facility["channels"]
+        if (channel.get("on") or {}).get("device") in members
+        and channel.get("signal") in ("status", "position_offset")
+    ]
+    assert len(twice) == 4 * 72
+    assert all(fields[address]["ChannelNames"] == [address] for address in twice)
+    assert len(bpm["_setup"]["DeviceList"]) == len(bpm["_setup"]["CommonNames"]) == 72
+
+
+@pytest.mark.slow
+def test_a_demo_field_takes_its_signal_s_vocabulary_sentence(
+    built_control_assistant: BuiltProject,
+) -> None:
+    document, _left_out, _by_address = _document(built_control_assistant.facility)
+
+    for system, family in (("SR", "SF"), ("BR", "DIPOLE")):
+        field = _fields(document[system][family])["current_setpoint"]
+        assert all(address.endswith(":CURRENT:SP") for address in field["ChannelNames"])
+        assert field["_description"] == _signal_text("current_setpoint"), (system, family)
 
 
 @pytest.mark.slow
@@ -849,19 +1014,18 @@ def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(tmp_pat
     assert built.output.count("view middle_layer: 4 channels in no family left out") == 1
 
 
-def test_an_imported_field_keyed_by_its_signal_role_carries_that_role_s_sentence(
+def test_an_imported_field_keyed_by_its_signal_carries_the_vocabulary_sentence(
     tmp_path: Path,
 ) -> None:
     pytest.importorskip("at")
     from osprey.facility.build import build_facility
+    from osprey.facility.validate import signal_roles
     from tests.facility._mml_built import WIDENED, import_tree, widen
 
     facility = import_tree(tmp_path, "spear3")
     widen(facility, WIDENED["spear3"])
     doc = build_facility(facility, project_name="demo")
-    sentences = {
-        group["id"]: group.get("signals", {}) for group in doc["groups"] if "signals" in group
-    }
+    roles = signal_roles()
 
     document, _, _ = _document(doc)
 
@@ -872,8 +1036,8 @@ def test_an_imported_field_keyed_by_its_signal_role_carries_that_role_s_sentence
         for family, body in families.items()
         if isinstance(body, dict)
         for key, field in _fields(body).items()
-        if key in sentences.get(family, {})
+        if key in roles
     ]
     assert {key for _, key, _ in keyed} >= {"position_x_readback", "current_setpoint"}
     for family, key, field in keyed:
-        assert field["_description"] == sentences[family][key], (family, key)
+        assert field["_description"] == _signal_text(key), (family, key)
