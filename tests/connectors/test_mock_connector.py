@@ -13,8 +13,11 @@ import pytest
 
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import NO_VIEW_MESSAGE, MockConnector
-from tests.facility.served_tree import mock_config, served_tree
+from osprey.connectors.control_system.va_in_process_connector import (
+    NO_VIEW_MESSAGE,
+    VAInProcessConnector,
+)
+from tests.facility.served_tree import in_process_config, served_tree
 
 
 def _config_with_writes_enabled(key, default=None):
@@ -24,14 +27,14 @@ def _config_with_writes_enabled(key, default=None):
     return default
 
 
-class TestMockConnector:
-    """Test MockConnector functionality."""
+class TestVAInProcessConnector:
+    """Test VAInProcessConnector functionality."""
 
     @pytest.mark.asyncio
     async def test_connect_disconnect(self, tmp_path):
         """Test connector connection and disconnection."""
-        connector = MockConnector()
-        config = mock_config(served_tree(tmp_path), response_delay_ms=0)
+        connector = VAInProcessConnector()
+        config = in_process_config(served_tree(tmp_path), response_delay_ms=0)
 
         await connector.connect(config)
         assert connector._connected is True
@@ -40,11 +43,15 @@ class TestMockConnector:
         assert connector._connected is False
 
     @pytest.mark.asyncio
-    async def test_a_disconnected_mock_serves_no_address(self, tmp_path, monkeypatch):
+    async def test_a_disconnected_in_process_simulator_serves_no_address(
+        self, tmp_path, monkeypatch
+    ):
         """After disconnect no address validates and a write says it is not connected."""
         monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
-        connector = MockConnector()
-        await connector.connect(mock_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0))
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+        )
         assert await connector.validate_channel("A:SP") is True
 
         await connector.disconnect()
@@ -52,13 +59,13 @@ class TestMockConnector:
         assert await connector.validate_channel("A:SP") is False
         with pytest.raises(RuntimeError) as refusal:
             await connector.write_channel("A:SP", 1.0)
-        assert str(refusal.value) == "mock connector is not connected"
+        assert str(refusal.value) == "the in-process simulator is not connected"
 
     @pytest.mark.asyncio
     async def test_connect_without_a_built_view_is_refused(self, tmp_path, monkeypatch):
         """No view named and none beside a loaded config: connect says to build."""
         monkeypatch.chdir(tmp_path)
-        connector = MockConnector()
+        connector = VAInProcessConnector()
 
         with pytest.raises(RuntimeError) as refusal:
             await connector.connect({"response_delay_ms": 0})
@@ -71,9 +78,11 @@ class TestMockConnector:
         """With no view named, the view beside the loaded config is served."""
         view = served_tree(tmp_path, readings=["BEAM:CURRENT"])
         render = view.parent.parent
-        (render / "config.yml").write_text("control_system:\n  type: mock\n")
+        (render / "config.yml").write_text(
+            "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+        )
         monkeypatch.chdir(render)
-        connector = MockConnector()
+        connector = VAInProcessConnector()
         await connector.connect({"response_delay_ms": 0})
 
         assert await connector.validate_channel("BEAM:CURRENT") is True
@@ -85,8 +94,8 @@ class TestMockConnector:
         """An address the built facility file does not hold is refused, by name."""
         view = served_tree(tmp_path, readings=["MADE:UP:CHANNEL"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.read_channel("MADE:UP:CHANNEL")
             assert isinstance(result.value, float)
@@ -104,8 +113,8 @@ class TestMockConnector:
         reversion to ``datetime.now()``."""
         view = served_tree(tmp_path, readings=["ANY:CHANNEL"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.read_channel("ANY:CHANNEL")
             assert result.timestamp.tzinfo is not None
@@ -127,8 +136,8 @@ class TestMockConnector:
         """A read's unit is exactly the one the channel record states."""
         view = served_tree(tmp_path, readings=[channel], channels={channel: {"unit": units}})
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.read_channel(channel)
             assert result.metadata.units == units
@@ -139,12 +148,12 @@ class TestMockConnector:
     async def test_write_and_read_maintains_state(self, tmp_path):
         """Test that mock connector maintains state between writes and reads."""
         view = served_tree(tmp_path, ["TEST:SETPOINT:SP"])
-        connector = MockConnector()
+        connector = VAInProcessConnector()
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             # Write a value
             channel = "TEST:SETPOINT:SP"
@@ -163,8 +172,8 @@ class TestMockConnector:
         """A channel that is not a writable setpoint is refused, and nothing is put."""
         monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
         view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
-        connector = MockConnector()
-        await connector.connect(mock_config(view, response_delay_ms=0))
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
         puts = []
         monkeypatch.setattr(connector, "_put", lambda *args: puts.append(args))
 
@@ -180,8 +189,10 @@ class TestMockConnector:
     async def test_write_outside_the_facility_file_is_refused(self, tmp_path, monkeypatch):
         """A write to an address the facility file does not hold is refused by name."""
         monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
-        connector = MockConnector()
-        await connector.connect(mock_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0))
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+        )
 
         result = await connector.write_channel("B:SP", 1.0)
 
@@ -196,8 +207,10 @@ class TestMockConnector:
     ):
         """The composite's refusal text is the refusal's message, verbatim."""
         monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
-        connector = MockConnector()
-        await connector.connect(mock_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0))
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+        )
 
         def rejecting_set(_values):
             raise ValueError("orbit does not close")
@@ -215,9 +228,9 @@ class TestMockConnector:
     async def test_write_disabled(self, tmp_path):
         """Test that writes are blocked via base class when config says false."""
         view = served_tree(tmp_path, ["TEST:PV"])
-        connector = MockConnector()
+        connector = VAInProcessConnector()
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.write_channel("TEST:PV", 100.0)
             assert result.outcome is WriteOutcome.REFUSED
@@ -233,8 +246,8 @@ class TestMockConnector:
             ["MODE:SP"],
             channels={"MODE:SP": {"value_type": "enum", "options": ["OFF", "CW", "PULSED"]}},
         )
-        connector = MockConnector()
-        await connector.connect(mock_config(view, response_delay_ms=0))
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
 
         result = await connector.write_channel("MODE:SP", 2)
         reading = await connector.read_channel("MODE:SP")
@@ -251,8 +264,8 @@ class TestMockConnector:
         """A write that changes a subscribed channel's held value fires its callback."""
         monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
         view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
-        connector = MockConnector()
-        await connector.connect(mock_config(view, response_delay_ms=0))
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
         seen = []
         await connector.subscribe("MAGNET:CURRENT:RB", seen.append)
 
@@ -288,9 +301,9 @@ class TestMockConnector:
     @pytest.mark.asyncio
     async def test_a_tick_fires_a_moving_channel_with_no_write(self, tmp_path):
         """After a tick of ``simulation.tick_s`` a channel declaring motion fires."""
-        connector = MockConnector()
+        connector = VAInProcessConnector()
         await connector.connect(
-            mock_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+            in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
         )
         seen = []
         await connector.subscribe("BEAM:NOISY", seen.append)
@@ -304,9 +317,9 @@ class TestMockConnector:
     @pytest.mark.asyncio
     async def test_a_tick_leaves_a_quiet_channel_silent(self, tmp_path):
         """A channel with no motion and an unchanged held value never fires on a tick."""
-        connector = MockConnector()
+        connector = VAInProcessConnector()
         await connector.connect(
-            mock_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+            in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
         )
         noisy, quiet = [], []
         await connector.subscribe("BEAM:NOISY", noisy.append)
@@ -327,8 +340,10 @@ class TestMockConnector:
         from osprey_connectors.simulation import DEFAULT_TICK_S
 
         assert DEFAULT_TICK_S >= 0.6
-        connector = MockConnector()
-        await connector.connect(mock_config(self._ticking_tree(tmp_path), response_delay_ms=0))
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(self._ticking_tree(tmp_path), response_delay_ms=0)
+        )
         seen = []
         await connector.subscribe("BEAM:NOISY", seen.append)
 
@@ -341,9 +356,9 @@ class TestMockConnector:
     @pytest.mark.asyncio
     async def test_disconnect_stops_the_tick(self, tmp_path):
         """No callback fires after disconnect."""
-        connector = MockConnector()
+        connector = VAInProcessConnector()
         await connector.connect(
-            mock_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+            in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
         )
         seen = []
         await connector.subscribe("BEAM:NOISY", seen.append)
@@ -360,8 +375,8 @@ class TestMockConnector:
         """Test reading multiple PVs concurrently."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3", "PV:4"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             channels = ["PV:1", "PV:2", "PV:3", "PV:4"]
             results = await connector.read_multiple_channels(channels)
@@ -389,8 +404,8 @@ class TestMockConnector:
         """A read that fails with an ordinary error is left out of the result."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
             self._fail_read_of(connector, "PV:2", RuntimeError("read failed"))
 
             results = await connector.read_multiple_channels(["PV:1", "PV:2", "PV:3"])
@@ -403,8 +418,8 @@ class TestMockConnector:
         """A cancelled read raises the cancellation instead of returning it as a value."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
             self._fail_read_of(connector, "PV:2", asyncio.CancelledError())
 
             with pytest.raises(asyncio.CancelledError):
@@ -416,8 +431,8 @@ class TestMockConnector:
         """A channel is valid exactly when the built facility file holds it."""
         view = served_tree(tmp_path, readings=["ANY:PV:NAME"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             assert await connector.validate_channel("ANY:PV:NAME") is True
             assert await connector.validate_channel("RANDOM:CHANNEL") is False
@@ -433,8 +448,8 @@ class TestMockConnector:
             channels={"BEAM:CURRENT": {"unit": "mA", "description": "Stored beam current"}},
         )
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect(mock_config(view, response_delay_ms=0))
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             metadata = await connector.get_metadata("BEAM:CURRENT")
             assert metadata.units == "mA"
@@ -459,7 +474,7 @@ class TestMockArchiverConnector:
     async def test_connect_disconnect(self, tmp_path):
         """Test archiver connection and disconnection."""
         connector = MockArchiverConnector()
-        config = mock_config(served_tree(tmp_path), sample_rate_hz=1.0)
+        config = in_process_config(served_tree(tmp_path), sample_rate_hz=1.0)
 
         await connector.connect(config)
         assert connector._connected is True
@@ -492,7 +507,7 @@ class TestMockArchiverConnector:
         """The view's channels are served; a name outside it is refused, by name."""
         channels = ["FAKE:PV:1", "RANDOM:PV:2", "ANY:NAME:3"]
         connector = MockArchiverConnector()
-        await connector.connect(mock_config(_archived_tree(tmp_path, *channels)))
+        await connector.connect(in_process_config(_archived_tree(tmp_path, *channels)))
 
         start_date = datetime(2024, 1, 1, 0, 0, 0)
         end_date = datetime(2024, 1, 1, 1, 0, 0)
@@ -515,7 +530,7 @@ class TestMockArchiverConnector:
     async def test_get_data_returns_dataframe(self, tmp_path):
         """Test that get_data returns the canonical long-format DataFrame."""
         connector = MockArchiverConnector()
-        await connector.connect(mock_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         start_date = datetime(2024, 1, 1, 0, 0, 0)
         end_date = datetime(2024, 1, 1, 0, 10, 0)
@@ -538,7 +553,7 @@ class TestMockArchiverConnector:
     async def test_get_metadata(self, tmp_path):
         """Test getting archiver metadata."""
         connector = MockArchiverConnector()
-        await connector.connect(mock_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         metadata = await connector.get_metadata("BEAM:CURRENT")
         assert metadata.channel == "BEAM:CURRENT"
@@ -552,7 +567,7 @@ class TestMockArchiverConnector:
         """A channel is available exactly when the simulator view holds it."""
         channels = ["PV:1", "PV:2", "PV:3"]
         connector = MockArchiverConnector()
-        await connector.connect(mock_config(_archived_tree(tmp_path, *channels)))
+        await connector.connect(in_process_config(_archived_tree(tmp_path, *channels)))
 
         availability = await connector.check_availability([*channels, "PV:4"])
 
@@ -567,7 +582,7 @@ class TestMockArchiverConnector:
     async def test_generated_time_series_has_variation(self, tmp_path):
         """Test that generated time series have realistic variation."""
         connector = MockArchiverConnector()
-        await connector.connect(mock_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         start_date = datetime(2024, 1, 1, 0, 0, 0)
         end_date = datetime(2024, 1, 1, 1, 0, 0)
@@ -588,7 +603,7 @@ class TestMockArchiverConnector:
         """Each channel contributes its own rows to the long frame."""
         connector = MockArchiverConnector()
         await connector.connect(
-            mock_config(_archived_tree(tmp_path, "BEAM:CURRENT", "MAGNET:VOLTAGE"))
+            in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT", "MAGNET:VOLTAGE"))
         )
 
         start_date = datetime(2024, 1, 1, 0, 0, 0)
@@ -623,7 +638,7 @@ class TestMockArchiverProcessing:
         connector = MockArchiverConnector()
         # Samples are a pure function of channel and timestamp, so the two
         # independent get_data() calls are comparable.
-        await connector.connect(mock_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         # Both calls generate the same 10 points (the generator's forced
         # minimum) over this 10s window; the 60s mean bin forces every sample
@@ -657,7 +672,7 @@ class TestMockArchiverProcessing:
     async def test_processing_mean_bounded_when_point_cap_binds(self, tmp_path):
         """A window wide enough to hit the 10,000-point cap must not blow up on resample."""
         connector = MockArchiverConnector()
-        await connector.connect(mock_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         start_date = datetime(2024, 1, 1)
         end_date = start_date + timedelta(days=7)
@@ -694,7 +709,7 @@ class TestMockArchiverReproducibility:
 
     async def _values(self, view, pv: str) -> list[float]:
         connector = MockArchiverConnector()
-        await connector.connect(mock_config(view))
+        await connector.connect(in_process_config(view))
         start, end = self._WINDOW
         df = await connector.get_data(channels=[pv], start_date=start, end_date=end)
         await connector.disconnect()
@@ -755,7 +770,7 @@ class TestMockArchiverReproducibility:
         assert len(runs[0]) > 0
 
 
-class TestMockWriteConfirmationContract:
+class TestInProcessWriteConfirmationContract:
     """Mock write results carry one outcome word and the value observed.
 
     Consumers decide what happened from ``outcome`` and ``observed_value``,
@@ -766,7 +781,7 @@ class TestMockWriteConfirmationContract:
     """
 
     @staticmethod
-    async def _connected_mock(monkeypatch, tmp_path, channels=None, **settings):
+    async def _connected_in_process(monkeypatch, tmp_path, channels=None, **settings):
         """A connected mock with writes enabled for the whole test.
 
         The writes_enabled gate is re-read on every write, so the config patch
@@ -779,8 +794,8 @@ class TestMockWriteConfirmationContract:
             {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB", "TEST:CHANNEL:SP": None},
             channels=channels,
         )
-        connector = MockConnector()
-        await connector.connect(mock_config(view, response_delay_ms=0, **settings))
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0, **settings))
         return connector
 
     @staticmethod
@@ -792,7 +807,7 @@ class TestMockWriteConfirmationContract:
 
     async def test_a_write_confirms_against_what_the_store_holds(self, monkeypatch, tmp_path):
         """A re-read holding the value sent is ``confirmed``, with no message."""
-        connector = await self._connected_mock(monkeypatch, tmp_path)
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
 
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
@@ -813,7 +828,7 @@ class TestMockWriteConfirmationContract:
         so its ordinary read moves, and a write to its setpoint still confirms
         on every attempt.
         """
-        connector = await self._connected_mock(
+        connector = await self._connected_in_process(
             monkeypatch, tmp_path, channels={"MAGNET:CURRENT:RB": {"simulation": {"noise": 0.5}}}
         )
 
@@ -837,7 +852,7 @@ class TestMockWriteConfirmationContract:
         — it is reserved for the outcomes that carry something the numbers
         cannot say.
         """
-        connector = await self._connected_mock(monkeypatch, tmp_path)
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
 
         def _clamping_put(channel_address, _value):
             connector._composite.set({channel_address: 10.0})
@@ -855,7 +870,7 @@ class TestMockWriteConfirmationContract:
 
     async def test_confirming_read_that_raises_is_unconfirmed(self, monkeypatch, tmp_path):
         """The value went out but what the channel holds is unknown."""
-        connector = await self._connected_mock(monkeypatch, tmp_path)
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
         monkeypatch.setattr(connector, "_confirming_read", self._raising_read("CA disconnected"))
 
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
@@ -870,7 +885,7 @@ class TestMockWriteConfirmationContract:
 
     async def test_confirm_false_does_not_read(self, monkeypatch, tmp_path):
         """``unrequested`` is the fast path: a read that would raise is never issued."""
-        connector = await self._connected_mock(monkeypatch, tmp_path)
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
         monkeypatch.setattr(connector, "_confirming_read", self._raising_read("must not be called"))
 
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0, confirm=False)
@@ -883,7 +898,7 @@ class TestMockWriteConfirmationContract:
 
     async def test_a_value_the_store_cannot_hold_is_a_failed_write(self, monkeypatch, tmp_path):
         """The put itself failing is ``failed``: the control system did not take it."""
-        connector = await self._connected_mock(monkeypatch, tmp_path)
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
         monkeypatch.setattr(connector, "_confirming_read", self._raising_read("must not be called"))
 
         result = await connector.write_channel("TEST:CHANNEL:SP", "not-a-number")
@@ -900,7 +915,7 @@ class TestMockWriteConfirmationContract:
         The exception text flows into ``notes`` and ``error_message`` and
         nowhere else — the machine-readable verdict must be identical.
         """
-        connector = await self._connected_mock(monkeypatch, tmp_path)
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
 
         monkeypatch.setattr(connector, "_confirming_read", self._raising_read("timeout after 3s"))
         first = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
@@ -924,7 +939,7 @@ class TestMockWriteConfirmationContract:
 
     async def test_write_is_echoed_into_the_readback_its_pair_names(self, monkeypatch, tmp_path):
         """A setpoint's write is echoed into the readback its pair names."""
-        connector = await self._connected_mock(monkeypatch, tmp_path)
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
 
         await connector.write_channel("MAGNET:CURRENT:SP", 100.0)
 

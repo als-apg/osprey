@@ -10,13 +10,13 @@ from __future__ import annotations
 import json
 import shutil
 
-from osprey.connectors.control_system.mock_connector import MockConnector
-from tests.facility.served_tree import mock_config
+from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
+from tests.facility.served_tree import in_process_config
 
 FACILITY_FILE = "facility.json"
 
 
-async def test_a_composite_without_the_facility_file_matches_the_mock_s_metadata(
+async def test_a_composite_without_the_facility_file_matches_the_in_process_metadata(
     built_control_assistant, tmp_path
 ):
     from osprey_connectors.simulation.composite import Composite
@@ -35,8 +35,10 @@ async def test_a_composite_without_the_facility_file_matches_the_mock_s_metadata
         for channel in json.loads((view / "variables.json").read_text())["channels"]
     }
 
-    connector = MockConnector()
-    await connector.connect(mock_config(built_control_assistant.build_dir / "data" / "simulator"))
+    connector = VAInProcessConnector()
+    await connector.connect(
+        in_process_config(built_control_assistant.build_dir / "data" / "simulator")
+    )
     try:
         addresses = sorted(connector._served)
         assert addresses == sorted(composite.supported_variables)

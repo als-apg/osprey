@@ -20,7 +20,7 @@ from osprey_connectors.archiver._timerange import (
 )
 from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.control_system.mock_connector import (
+from osprey_connectors.control_system.va_in_process_connector import (
     SIMULATOR_VIEW_SETTING,
     not_in_facility,
     simulation_state_dir,
