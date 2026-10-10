@@ -138,6 +138,8 @@ _RELATIVE_NOMINAL = (
     "a relative `noise` is taken of the seed's `nominal`, which this seed does not state"
 )
 _STUCK = "stuck"
+#: The ``still`` value that stills every reading.
+_STILL_ALL = "all"
 
 
 # --- stage results ---------------------------------------------------------------
@@ -843,6 +845,10 @@ class _References:
                 block = scenario.get(slot)
                 for address in sorted(block if isinstance(block, dict) else (), key=str):
                     yield from self._missing("scenario", name, files, slot, "channel", address)
+            still = scenario.get("still")
+            listed = still if isinstance(still, list) else ()
+            for address in sorted({entry for entry in listed if isinstance(entry, str)}):
+                yield from self._missing("scenario", name, files, "still", "channel", address)
             faults = scenario.get("faults")
             if not isinstance(faults, dict):
                 continue
@@ -1564,12 +1570,58 @@ class _Records:
                 noise.items() if isinstance(noise, dict) else (), key=lambda kv: str(kv[0])
             ):
                 yield from self._scenario_noise(name, files, str(address), entry)
+            yield from self._still(name, files, scenario)
             faults = scenario.get("faults") or {}
             for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
                 for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):
                     if str(address) not in self.index.channels:
                         continue
                     yield from self._fault(name, files, str(model), str(address), value, records)
+
+    def _still(
+        self, name: str, files: list[str], scenario: Mapping[str, Any]
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's ``still``: ``all`` or float readings, none of whose motion it sets."""
+        still = scenario.get("still")
+        if still is None:
+            return
+        if still != _STILL_ALL and (
+            not isinstance(still, list)
+            or not still
+            or not all(isinstance(address, str) for address in still)
+        ):
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`still` is {still!r}, neither `{_STILL_ALL}` nor a list of addresses",
+                f"write `still: {_STILL_ALL}` or a list of addresses",
+            )
+            return
+        stilled = set() if still == _STILL_ALL else set(still)
+        for address in sorted(stilled):
+            if address in self.index.channels and self._type(address) != "float":
+                yield self._error(
+                    "value-invalid",
+                    "scenario",
+                    name,
+                    files,
+                    f"`still` lists {address}, a {self._type(address)} channel",
+                    f"remove {address} from `still`; only a float reading moves",
+                )
+        for slot in ("noise", "couple"):
+            block = scenario.get(slot)
+            for address in sorted(block if isinstance(block, dict) else (), key=str):
+                if still == _STILL_ALL or str(address) in stilled:
+                    yield self._error(
+                        "value-invalid",
+                        "scenario",
+                        name,
+                        files,
+                        f"`{slot}.{address}` sets the motion of a reading `still` stills",
+                        "a scenario either stills a reading or sets its motion",
+                    )
 
     def _scenario_noise(
         self, name: str, files: list[str], address: str, entry: Any
