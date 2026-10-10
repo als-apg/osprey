@@ -20,9 +20,10 @@ Database Contracts, per Paradigm
 In-context
 ----------
 
-A flat JSON structure, the index ``osprey build`` writes from the channels
-tagged ``in_context``: one row per channel, sorted by address, loaded by the
-flat ``ChannelDatabase``:
+A flat JSON structure, the index ``osprey build`` writes from every channel, or
+from the subset the facility tags ``in_context``: one row per channel, sorted by
+address, loaded by the flat ``ChannelDatabase``. A row's ``channel`` is the
+channel's ``label``, else its address:
 
 .. code-block:: json
 
@@ -91,7 +92,9 @@ roster in its ``setup`` block:
      }
    }
 
-``DeviceList`` holds ``[sector, device]`` pairs, parallel to ``CommonNames``.
+``DeviceList`` holds ``[place index, ordinal]`` pairs derived from each member's
+place among its sibling places, or ``[n, 1]`` where the place has no sibling.
+It is parallel to ``CommonNames``, which is each device's label, else its id.
 An existing MML export keeps its metadata keys (``Units``, ``DataType``,
 ``Description``, …) — the pipeline skips them during navigation rather than
 requiring their removal.
