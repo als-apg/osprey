@@ -3,7 +3,8 @@
 Each app is built over a synthetic render under ``tmp_path``: its simulator
 view ``data/simulator/`` holds the view's documents, ``variables.json`` listing
 the models, and a pyAT JSON deck per deck-bearing model. Worker launches go to ``FakeSlots``
-(conftest), so no subprocess runs.
+(conftest), so no subprocess runs. ``TestDemoRender`` builds its app over the
+built control-assistant demo's render instead.
 """
 
 from __future__ import annotations
@@ -604,3 +605,43 @@ class TestUnservedIsAMark:
         models = {m["name"]: m["served"] for m in booster.get("/api/models").json()}
 
         assert models == {"SR": True, "TRANSFER": True, "BOOSTER": False}
+
+
+@pytest.mark.slow
+class TestDemoRender:
+    """The app over the built control-assistant demo's render."""
+
+    @pytest.fixture
+    def demo(self, tmp_path, built_control_assistant):
+        app = create_app(
+            workspace_root=tmp_path / "ws", render_root=built_control_assistant.build_dir
+        )
+        with TestClient(app) as client:
+            settle(client)
+            yield client
+
+    def test_models_list_the_served_models_in_served_order(self, demo, built_control_assistant):
+        view = built_control_assistant.build_dir / "data" / "simulator"
+        served = json.loads((view / SERVED_MODELS_FILE).read_text())["models"]
+        models = demo.get("/api/models").json()
+
+        assert [m["name"] for m in models] == [name for name in served if name != TEXTURE]
+        assert [(m["name"], m["served"], m["solve"]) for m in models] == [
+            ("LINE", True, "single_pass"),
+            ("SR", True, "periodic"),
+        ]
+
+    def test_startup_selects_the_first_served_model(self, demo, built_control_assistant):
+        view = built_control_assistant.build_dir / "data" / "simulator"
+        first = json.loads((view / SERVED_MODELS_FILE).read_text())["models"][0]
+        selection = demo.get("/api/state").json()["selection"]
+
+        assert (selection["model"], selection["status"]) == (first, "ready")
+        assert first == "LINE"
+
+    def test_line_chromaticity_figure_409(self, demo):
+        assert select(demo, "LINE")["selection"]["model"] == "LINE"
+        r = demo.get("/api/figures/chromaticity")
+
+        assert r.status_code == 409
+        assert r.json() == {"status": "unavailable", "reason": SINGLE_PASS_UNAVAILABLE}
