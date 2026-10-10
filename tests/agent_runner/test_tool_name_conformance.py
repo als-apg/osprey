@@ -12,16 +12,6 @@ binaries. This module checks the four hand-written deny lists in
 :mod:`osprey.agent_runner.tool_names` against both inventories. ``mcp__`` entries
 are outside the check: the inventory probe loads no MCP server, so it cannot say
 which server tools exist.
-
-The dispatch pass-through set is an allow list for the dispatch worker alone,
-which runs the SDK-bundled build, so its names are checked against that build's
-inventory only, and against its offline core (``tools``): a pass-through name has
-to exist without remote configuration. The npm-pinned build lists no task-list
-tool in a headless run.
-
-The same inventories check the lists that gate or name tools without denying
-them: the build's write-capable list, every standalone hook matcher, and the
-tools a persona may name.
 """
 
 from __future__ import annotations
@@ -41,7 +31,6 @@ from osprey.agent_runner.tool_names import (
     READ_ONLY_DENIED_BUILTINS,
     WRITE_CAPABLE_BUILTINS,
 )
-from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
 from osprey.cli.templates.artifact_library import parse_hook_frontmatter
 from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
 
@@ -121,29 +110,6 @@ def test_legacy_deny_aliases_are_not_inventory_names(build):
 
 def test_mcp_entries_are_outside_the_check():
     assert _unknown(["mcp__plugin_playwright_playwright__*"], frozenset()) == []
-
-
-# -- dispatch pass-through set ----------------------------------------------
-
-
-def _offline_core(version: str) -> frozenset[str]:
-    return frozenset(json.loads((INVENTORY_DIR / f"{version}.json").read_text())["tools"])
-
-
-def test_passthrough_names_exist_in_the_dispatch_build():
-    version = PINNED_BUILDS[DISPATCH_BUILD]
-    unknown = _unknown(PASSTHROUGH_TOOLS, _offline_core(version))
-    assert unknown == [], (
-        f"PASSTHROUGH_TOOLS names tools the {DISPATCH_BUILD} build {version} does not have: "
-        f"{unknown}. A pass-through name must be a tool the dispatch build lists, so spell "
-        "the current name or remove the entry: an allow-list entry the build lacks grants "
-        "nothing."
-    )
-
-
-def test_retired_passthrough_names_are_not_dispatch_inventory_names():
-    retired = ["TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "TodoWrite", "WaitForMcpServers"]
-    assert _unknown(retired, _offline_core(PINNED_BUILDS[DISPATCH_BUILD])) == retired
 
 
 # ---------------------------------------------------------------------------
