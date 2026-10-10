@@ -19,7 +19,7 @@ The queries fall into two halves, and the split is the point:
 
 * *Search by meaning* — the operator says "vacuum gauge" or "bending magnet"
   and the graph matches that against the prose the corpus carries: a per-address
-  description, what the device family does, which system it belongs to.
+  description, what a device's group is for, which top place it sits in.
 * *Search by structure* — the operator already knows a word, a place, a device
   or an address, and the graph walks the machine: a class and everything under
   it, a whole section, one device's addresses split into reads and writes, one
@@ -38,7 +38,7 @@ NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
 * relationship types are UPPERCASED — ``:HASBINDING``, ``:READSSIGNAL``,
   ``:WRITESSIGNAL``, ``:SUBCLASSOF``, ``:TYPE``;
 * property names keep their ``narad_p:`` local spelling — ``.fullPv``,
-  ``.sourceName``, ``.sectionCode``, ``.description``, ``.system``,
+  ``.deviceId``, ``.sectionCode``, ``.description``, ``.system``,
   ``.rawType``;
 * a place that channels sit on is a ``:Resource`` with ``HASBINDING`` edges
   too, so a query that means devices keeps the rows whose ``.rawType`` is set,
@@ -110,8 +110,8 @@ LIMIT 200
     parameters={"phrase": "vacuum gauge"},
 )
 
-_BY_FIELD_MEANING = ExampleQuery(
-    key="by_field_meaning",
+_BY_QUANTITY = ExampleQuery(
+    key="by_quantity",
     title="Addresses whose description names a quantity and how it is obtained",
     description=(
         "Narrower than a plain description search, and better when the operator "
@@ -124,20 +124,20 @@ _BY_FIELD_MEANING = ExampleQuery(
         "ones a pump infers from its own current, even though both are pressure "
         "readbacks.\n"
         "\n"
-        "$field_meaning — a phrase naming the quantity.\n"
-        "$subfield_meaning — a phrase naming how that quantity is obtained or "
-        "what reads it (a gauge, a setpoint, a readback, a reference)."
+        "$quantity — a phrase naming the quantity.\n"
+        "$qualifier — a phrase naming how that quantity is obtained or what "
+        "reads it (a gauge, a setpoint, a readback, a reference)."
     ),
     cypher="""
 MATCH (b:ChannelBinding)
-WHERE toLower(b.description) CONTAINS toLower($field_meaning)
-  AND toLower(b.description) CONTAINS toLower($subfield_meaning)
+WHERE toLower(b.description) CONTAINS toLower($quantity)
+  AND toLower(b.description) CONTAINS toLower($qualifier)
 RETURN b.fullPv AS pv,
        b.description AS description
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"field_meaning": "pressure", "subfield_meaning": "gauge"},
+    parameters={"quantity": "pressure", "qualifier": "gauge"},
 )
 
 _BY_CLASS_AND_SIGNAL = ExampleQuery(
@@ -154,13 +154,13 @@ _BY_CLASS_AND_SIGNAL = ExampleQuery(
         "This is what a one-phrase description search cannot do: sibling signals "
         "on one device share their prose words — a golden-orbit reference, its "
         "offset and the live position all say 'horizontal' — so matching one "
-        "word returns the whole family. A second phrase naming the signal "
+        "word returns every sibling. A second phrase naming the signal "
         "separates them.\n"
         "\n"
         "$synonym — the class word, as in by_synonym.\n"
-        "$field_meaning — a phrase naming the signal wanted.\n"
-        "$subfield_meaning — a second phrase that signal's description carries, "
-        "such as its plane."
+        "$quantity — a phrase naming the signal wanted.\n"
+        "$qualifier — a second phrase that signal's description carries, such "
+        "as its plane."
     ),
     cypher="""
 MATCH (cls:Class)
@@ -168,10 +168,10 @@ WHERE ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))
 MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
 MATCH (d:Resource)-[:TYPE]->(sub)
 MATCH (d)-[:HASBINDING]->(b:ChannelBinding)
-WHERE toLower(b.description) CONTAINS toLower($field_meaning)
-  AND toLower(b.description) CONTAINS toLower($subfield_meaning)
+WHERE toLower(b.description) CONTAINS toLower($quantity)
+  AND toLower(b.description) CONTAINS toLower($qualifier)
 RETURN b.fullPv AS pv,
-       d.sourceName AS device,
+       d.deviceId AS device,
        d.sectionCode AS section,
        b.description AS description
 ORDER BY pv
@@ -179,39 +179,39 @@ LIMIT 200
 """.strip(),
     parameters={
         "synonym": "BPM",
-        "field_meaning": "golden orbit",
-        "subfield_meaning": "horizontal",
+        "quantity": "golden orbit",
+        "qualifier": "horizontal",
     },
 )
 
-_BY_FAMILY_ROLE = ExampleQuery(
-    key="by_family_role",
-    title="Addresses of every device whose family does a described job",
+_BY_GROUP_PURPOSE = ExampleQuery(
+    key="by_group_purpose",
+    title="Addresses of every device whose group does a described job",
     description=(
-        "Goes through the *device* rather than the address. Each device carries "
-        "an explanation of what its family is for, and this matches a phrase "
+        "Goes through the *device* rather than the address. A device carries "
+        "the description of a group it belongs to, and this matches a phrase "
         "against that and then returns every address of every device that "
         "matched. Use it when the operator described a job — bending the beam, "
         "correcting the orbit, holding vacuum — instead of naming a device or a "
         "quantity.\n"
         "\n"
-        "The result is wider than a description search: one matching family is "
+        "The result is wider than a description search: one matching group is "
         "tens of devices and hundreds of addresses, so read the device column "
         "before acting on a row.\n"
         "\n"
-        "$role — a phrase from what the family does."
+        "$purpose — a phrase from what the group is for."
     ),
     cypher="""
 MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding)
-WHERE toLower(d.familyDescription) CONTAINS toLower($role)
+WHERE toLower(d.familyDescription) CONTAINS toLower($purpose)
 RETURN b.fullPv AS pv,
-       d.sourceName AS device,
+       d.deviceId AS device,
        d.sectionCode AS section,
-       d.familyDescription AS family_role
+       d.familyDescription AS group_purpose
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"role": "bending magnet"},
+    parameters={"purpose": "bending magnet"},
 )
 
 _BY_SYSTEM = ExampleQuery(
@@ -236,7 +236,7 @@ _BY_SYSTEM = ExampleQuery(
 MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding)
 WHERE d.system = $system
 RETURN b.fullPv AS pv,
-       d.sourceName AS device,
+       d.deviceId AS device,
        d.systemDescription AS system_meaning
 ORDER BY pv
 LIMIT 200
@@ -275,7 +275,7 @@ MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
 MATCH (d:Resource)-[:TYPE]->(sub)
 MATCH (d)-[:HASBINDING]->(b:ChannelBinding)
 RETURN DISTINCT b.fullPv AS pv,
-       d.sourceName AS device,
+       d.deviceId AS device,
        d.sectionCode AS section
 ORDER BY pv
 LIMIT 200
@@ -328,7 +328,7 @@ _IN_SECTION = ExampleQuery(
 MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding)
 WHERE d.sectionCode = $section AND d.rawType IS NOT NULL
 RETURN b.fullPv AS pv,
-       d.sourceName AS device,
+       d.deviceId AS device,
        [l IN labels(d) WHERE l <> "Resource"][0] AS device_class
 ORDER BY pv
 LIMIT 200
@@ -352,12 +352,10 @@ _DEVICE_ADDRESSES = ExampleQuery(
         "is permitted right now is the control-system connector's decision, not "
         "the graph's.\n"
         "\n"
-        "$name — the device's source name as the corpus records it.\n"
-        "$section — the section it sits in. Both are needed because a source "
-        "name can repeat across sections."
+        "$device — the device's id as the corpus records it in ``deviceId``."
     ),
     cypher="""
-MATCH (d:Resource {sourceName: $name, sectionCode: $section})-[:HASBINDING]->(b:ChannelBinding)
+MATCH (d:Resource {deviceId: $device})-[:HASBINDING]->(b:ChannelBinding)
 OPTIONAL MATCH (b)-[:READSSIGNAL]->(rs)
 OPTIONAL MATCH (b)-[:WRITESSIGNAL]->(ws)
 RETURN b.fullPv AS pv,
@@ -366,7 +364,7 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"name": "SR/DIPOLE01", "section": "SECT1"},
+    parameters={"device": "SR/DIPOLE01"},
 )
 
 _BY_ADDRESS = ExampleQuery(
@@ -391,7 +389,7 @@ _BY_ADDRESS = ExampleQuery(
 MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})
 WHERE d.rawType IS NOT NULL
 RETURN b.fullPv AS pv,
-       collect(DISTINCT d.sourceName) AS devices,
+       collect(DISTINCT d.deviceId) AS devices,
        collect(DISTINCT d.sectionCode) AS sections,
        count(DISTINCT d) AS device_count
 LIMIT 5
@@ -402,9 +400,9 @@ LIMIT 5
 
 EXAMPLE_QUERIES: tuple[ExampleQuery, ...] = (
     _BY_DESCRIPTION,
-    _BY_FIELD_MEANING,
+    _BY_QUANTITY,
     _BY_CLASS_AND_SIGNAL,
-    _BY_FAMILY_ROLE,
+    _BY_GROUP_PURPOSE,
     _BY_SYSTEM,
     _BY_SYNONYM,
     _CENSUS,

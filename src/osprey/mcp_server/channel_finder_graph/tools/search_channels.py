@@ -259,9 +259,10 @@ def search_channels(
     Args:
         query: Words that must all appear in a channel's text. Empty matches
             every channel, which is how a facet-only search is asked.
-        section: One section code to keep, e.g. ``"SR"``. A channel whose
-            device is placed in no section is never kept by this filter.
-        system: One system code to keep, e.g. ``"MAG"``.
+        section: One section code to keep: the last part of a device's
+            place, e.g. ``"SECT1"``; a device placed at a top place has that
+            place as its section.
+        system: One top place to keep, e.g. ``"SR"``.
         class_uri: One device-class URI to keep, as the ``class`` facet spells
             it. Subclasses of it are kept too.
         signal: One semantic signal name to keep, as the ``signal`` facet

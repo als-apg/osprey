@@ -261,27 +261,27 @@ def collect_vocabulary(run: RunCypher) -> list[dict[str, Any]]:
 #: One real device that actually has a binding, picked deterministically. A
 #: single specimen rather than a query per parameter, because it buys internal
 #: consistency the per-parameter shape could not: the ``pv`` example's address
-#: belongs to the same device the ``name``/``section`` examples name.
+#: belongs to the same device the ``device``/``section`` examples name.
 SPECIMEN_VALUES_CYPHER = (
     "MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding) "
-    "WHERE d.sourceName IS NOT NULL AND d.sectionCode IS NOT NULL AND b.fullPv IS NOT NULL "
-    "RETURN d.sourceName AS name, d.sectionCode AS section, d.system AS system, "
+    "WHERE d.deviceId IS NOT NULL AND d.sectionCode IS NOT NULL AND b.fullPv IS NOT NULL "
+    "RETURN d.deviceId AS device, d.sectionCode AS section, d.system AS system, "
     "b.fullPv AS pv "
-    "ORDER BY d.sectionCode, d.sourceName, b.fullPv LIMIT 1"
+    "ORDER BY d.sectionCode, d.deviceId, b.fullPv LIMIT 1"
 )
 
 #: The parameter names the specimen answers. Substitution is keyed on the
 #: parameter *name*, which already means the same thing in both catalogues, so
 #: the frozen ``ExampleQuery`` never has to change.
-SPECIMEN_PARAMETERS = ("name", "section", "system", "pv")
+SPECIMEN_PARAMETERS = ("device", "section", "system", "pv")
 
 
 def resolve_example_values(run: RunCypher) -> dict[str, Any]:
     """Resolve the curated examples' corpus-valued parameters through *run*.
 
-    Only parameters that are *facts about the store* are resolved: ``name``,
+    Only parameters that are *facts about the store* are resolved: ``device``,
     ``section``, ``system`` and ``pv``. Search terms (``phrase``,
-    ``field_meaning``, ``role``, ``synonym``, …) are deliberately English and
+    ``quantity``, ``purpose``, ``synonym``, …) are deliberately English and
     exist to demonstrate a prose search — "resolving" them would be meaningless.
     Absence from this result is therefore the declaration that a parameter is
     not resolvable; a future example taking a new search term is left alone.

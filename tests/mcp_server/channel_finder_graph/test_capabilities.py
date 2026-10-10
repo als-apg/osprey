@@ -18,6 +18,7 @@ paradigm expects of it.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -180,25 +181,26 @@ class TestGraphVocabulary:
         assert addresses["property"] == "fullPv"
         assert addresses["node_label"] == "ChannelBinding"
 
-    def test_addresses_report_the_generated_six_token_grammar(self, payload):
-        grammar = payload["addresses"]["generated_grammar"]
+    def test_addresses_carry_no_grammar(self, payload):
+        """An address is the facility's own spelling, never a token list to fill in."""
+        addresses = payload["addresses"]
 
-        assert grammar["tokens"] == [
-            "ring",
-            "system",
-            "family",
-            "device",
-            "field",
-            "subfield",
-        ]
-        assert grammar["example"].count(":") == 5
+        assert "generated_grammar" not in addresses
+        assert set(addresses) == {"property", "node_label", "form", "notes"}
+        assert any("Take fullPv verbatim" in note for note in addresses["notes"])
 
-    def test_addresses_warn_that_the_grammar_is_the_corpus_own(self, payload):
-        """A facility corpus records its own address shape; the grammar is the demo's."""
+    def test_addresses_warn_that_the_shape_is_the_corpus_own(self, payload):
+        """A corpus records its own address shape; the rows say what it is."""
         notes = " ".join(payload["addresses"]["notes"])
 
-        assert "real facility" in notes
+        assert "read the shape off the rows" in notes
         assert "fullPv" in notes
+
+    def test_no_middle_layer_word_in_the_manifest(self, payload):
+        text = json.dumps(payload)
+
+        hit = re.search(r"(?i)\b(famil(y|ies)|field|subfield)\b", text)
+        assert hit is None, f"the manifest names {hit.group(0)!r}"
 
     def test_description_predicates_are_reported_per_node_type(self, payload):
         predicates = payload["description_predicates"]

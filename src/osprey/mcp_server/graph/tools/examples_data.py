@@ -12,9 +12,9 @@ NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
   plus ``:ChannelBinding``, ``:Class``, and one device-class label per device;
 * relationship types are UPPERCASED — ``:HASBINDING``, ``:READSSIGNAL``,
   ``:WRITESSIGNAL``, ``:SUBCLASSOF``, ``:TYPE``;
-* property names keep their ``narad_p:`` local spelling — ``.uri``, ``.fullPv``,
-  ``.sourceName``, ``.sectionCode``, ``.rawType``, ``.sPositionM``,
-  ``.ordinalInPlace``;
+* property names keep their ``narad_p:`` local spelling — ``.uri``,
+  ``.deviceId``, ``.fullPv``, ``.sourceName``, ``.sectionCode``, ``.rawType``,
+  ``.sPositionM``, ``.ordinalInPlace``;
 * a place that channels sit on is a ``:Resource`` with ``HASBINDING`` edges
   too, so a query that means devices keeps the rows whose ``.rawType`` is set,
   which only a device carries.
@@ -186,12 +186,10 @@ _Q3 = ExampleQuery(
         "it is read or written. Use it to go from a device an operator named to the addresses a control-system "
         "connector can actually talk to.\n"
         "\n"
-        "$name — the device's source name as the corpus records it.\n"
-        "$section — the section that device sits in. Both are needed because a "
-        "source name can repeat across sections."
+        "$device — the device's id as the corpus records it in ``deviceId``."
     ),
     cypher="""
-MATCH (d:Resource {sourceName: $name, sectionCode: $section})-[:HASBINDING]->(b:ChannelBinding)
+MATCH (d:Resource {deviceId: $device})-[:HASBINDING]->(b:ChannelBinding)
 OPTIONAL MATCH (b)-[:READSSIGNAL]->(rs)
 OPTIONAL MATCH (b)-[:WRITESSIGNAL]->(ws)
 RETURN b.fullPv AS pv,
@@ -200,7 +198,7 @@ RETURN b.fullPv AS pv,
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"name": "SR/DIPOLE01", "section": "SECT1"},
+    parameters={"device": "SR/DIPOLE01"},
 )
 
 _Q4B = ExampleQuery(

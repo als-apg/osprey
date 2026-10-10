@@ -72,13 +72,13 @@ def read_cypher(query: str, params: dict[str, Any] | None = None) -> str:
     * Relationship types are UPPERCASED: ``HASBINDING``, ``READSSIGNAL``,
       ``WRITESSIGNAL``, ``SUBCLASSOF``, ``TYPE``. Writing ``hasBinding`` matches
       nothing and returns zero rows rather than an error.
-    * Properties keep their original spelling: ``uri`` (every node's identity),
-      ``fullPv``, ``sourceName``, ``sectionCode``, ``placePath``, ``sPositionM``,
-      ``ordinalInPlace``.
+    * Properties keep their original spelling: ``deviceId`` (the device's
+      identity), ``uri`` (every node's identity), ``fullPv``, ``sourceName``,
+      ``sectionCode``, ``placePath``, ``sPositionM``, ``ordinalInPlace``.
 
     Pass values through ``params`` as ``$name`` placeholders rather than pasting
     them into the query text — ``MATCH (d:Resource {sectionCode: $section})``
-    with ``params={"section": "SR"}``. The curated examples are written that way,
+    with ``params={"section": "SECT1"}``. The curated examples are written that way,
     so an example plus its parameter set runs unedited.
 
     Read-only in both directions: a query that tries to write is refused by the
@@ -113,7 +113,7 @@ def read_cypher(query: str, params: dict[str, Any] | None = None) -> str:
                 "Empty Cypher query.",
                 [
                     "Pass a read-only Cypher query, e.g. "
-                    "'MATCH (d:Resource) RETURN d.sourceName LIMIT 10'.",
+                    "'MATCH (d:Resource) RETURN d.deviceId LIMIT 10'.",
                     "example_queries lists runnable queries for the common question shapes.",
                 ],
             )
@@ -124,7 +124,7 @@ def read_cypher(query: str, params: dict[str, Any] | None = None) -> str:
                 f"`params` must be a JSON object keyed by parameter name, got "
                 f"{type(params).__name__}.",
                 [
-                    'Pass parameters as an object, e.g. {"section": "SR"} for a query '
+                    'Pass parameters as an object, e.g. {"section": "SECT1"} for a query '
                     "referencing $section.",
                     "Omit `params` entirely when the query has no $placeholders.",
                 ],
