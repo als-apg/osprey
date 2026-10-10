@@ -219,7 +219,13 @@ def test_zero_sources_write_the_same_view_set_with_no_channel(build_project: Bui
     assert (view["addresses.json"]["channels"], view["addresses.json"]["status"]) == ([], [])
     assert view["variables.json"]["channels"] == []
     assert view["seeds.json"]["seeds"] == {}
-    assert view["scenarios.json"]["scenarios"] == []
+    assert view["scenarios.json"]["scenarios"] == [
+        {
+            "name": "still",
+            "description": "Every reading serves without drift, couplings or noise.",
+            "still": "all",
+        }
+    ]
 
 
 def _writes_enabled(key: str, default: Any = None) -> Any:

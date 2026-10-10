@@ -239,6 +239,35 @@ def test_list_names_the_views_scenarios_and_marks_the_active_set(deployment: Pat
     ]
 
 
+def test_list_names_the_built_in_still(lifecycle_repo: Path) -> None:
+    from osprey.facility.build import build_facility
+    from osprey.facility.served import resolve_served
+    from osprey.facility.views import ViewInputs
+    from osprey.facility.views.simulator import write_simulator_view as render_simulator_view
+
+    stub_build(lifecycle_repo, config=IN_PROCESS_CONFIG)
+    facility = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
+    doc = build_facility(facility, project_name="example")
+    config = {"control_system": {"type": "virtual_accelerator"}}
+    render_simulator_view(
+        _view(lifecycle_repo),
+        ViewInputs(
+            doc=doc,
+            rendered_config=config,
+            facility_dir=facility,
+            served=resolve_served(config, doc),
+            reported=None,
+        ),
+    )
+
+    result = CliRunner().invoke(sim_group, ["list", "--repo", str(lifecycle_repo)])
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    still = lines.index("  still  (logbook: no)")
+    assert lines[still + 1] == "    Every reading serves without drift, couplings or noise."
+
+
 def test_list_loads_no_scenario_apply_code(deployment: Path) -> None:
     code = (
         "import sys\n"
