@@ -1,6 +1,6 @@
 # control-assistant.yml
 # The standard starting point for a facility running a particle accelerator or
-# beamline, on EPICS, the built-in simulator, or a mock backend.
+# beamline, on EPICS or the built-in simulator, served or in process.
 #
 # `osprey init <facility> --preset control-assistant` writes this out as
 # <facility>/profile.yml, at the root of a repo you own. Edit it there; the
@@ -211,6 +211,8 @@ config:
   # system. "doocs" and "tango" reach those control systems in place of
   # Channel Access. Those four are every type `osprey init` will materialize;
   # `osprey config --defaults` lists them too.
+  # `control_system.connector.virtual_accelerator.serving: in_process` runs the
+  # same simulator without containers, but cannot complete a plan.
   # `control_target_set live` moves a session onto the machine authored under
   # `epics:`. The template ships that block unconfigured — author its
   # `gateways` and `probe_channel` first — then the switch probes that target
@@ -382,7 +384,7 @@ config:
   # channel returns about this many points. The agent is told which bin it got.
   archiver.auto_bin_points: 10000
   # Mock archiver: replays history from the build's simulator view, the same
-  # view the mock connector serves; it takes no file setting.
+  # view the simulator serves; it takes no file setting.
   # archiver.type: mock_archiver
   # archiver.settings.sample_rate_hz: 1.0
   # EPICS Archiver Appliance: ships unconfigured on purpose, for the same
