@@ -344,6 +344,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "value-invalid",
         "a step or settle key a measurement kind needs, missing",
     ),
+    (
+        "value_invalid__measurement_shared_corrector_group",
+        "value-invalid",
+        "one group named as both `groups.hcor` and `groups.vcor`",
+    ),
     ("value_invalid__nominal_float", "value-invalid", "coercion refusal: float nominal"),
     ("value_invalid__nominal_bool", "value-invalid", "coercion refusal: bool nominal label"),
     ("value_invalid__nominal_enum", "value-invalid", "coercion refusal: enum nominal index"),
@@ -1227,6 +1232,17 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: value-invalid: measurement SR — kind trm needs `quad_delta`, which the "
             "file does not state; fix: state `quad_delta`, or remove trm from `kinds`"
+        ),
+    ),
+    "value_invalid__measurement_shared_corrector_group": (
+        _deck(
+            put(GROUPS_FILE, [QUAD_GROUP]),
+            put("measurement/SR.yaml", {"kinds": [], "groups": {"hcor": "SR/Q", "vcor": "SR/Q"}}),
+        ),
+        (
+            "facility: value-invalid: measurement SR — `groups.hcor` and `groups.vcor` both name "
+            "group SR/Q; fix: name one group per plane; a corrector steered in both planes is a "
+            "member of both"
         ),
     ),
     "value_invalid__nominal_float": (
