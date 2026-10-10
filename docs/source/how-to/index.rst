@@ -82,6 +82,14 @@ Facility services
 .. grid:: 1 1 2 3
    :gutter: 3
 
+   .. grid-item-card:: Describe Your Facility
+      :link: describe-your-facility
+      :link-type: doc
+
+      The source tree under ``data/facility/`` — records, layers and
+      importers, fixes, limits, seeds, models and measurement — that every
+      facility service is built from.
+
    .. grid-item-card:: Use the Channel Finder
       :link: use-channel-finder
       :link-type: doc
@@ -123,6 +131,7 @@ Facility services
    agent-interfaces/index
    health-and-monitoring/index
    control-systems/index
+   describe-your-facility
    use-channel-finder
    import-mml-export
    run-scenarios
