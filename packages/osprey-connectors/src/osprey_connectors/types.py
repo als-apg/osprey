@@ -185,6 +185,17 @@ TYPE_WRITES_ENABLED_LEAF = "writes_enabled"
 #: whose baseline is one of these has not yet said what its real machine is.
 _SIMULATED_TYPES = (VIRTUAL_ACCELERATOR,)
 
+
+def is_simulated(connector_type: str) -> bool:
+    """Whether a connector type serves the simulator rather than a machine.
+
+    A type predicate: the simulator answers True whether it is served or runs
+    in process. It never says whether a connector dials a network; that is
+    :func:`speaks_channel_access` and :func:`talks_to_network`.
+    """
+    return connector_type in _SIMULATED_TYPES
+
+
 #: Types that serve the live stand-in. Reachable only through the ``standin``
 #: target: a stand-in is a machine in its own right, so it is never a candidate
 #: for a deployment's ``live`` one — not as the baseline the derivation starts
