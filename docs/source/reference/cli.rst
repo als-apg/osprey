@@ -977,6 +977,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    left out and the count per reason (unwired, no width, unsolved, table
    calibration); it does not change the verdict or the exit code:
    ``response check <model>: left out <n> rows (<k> unwired, <j> no width, <u> unsolved, <t> table calibration)``.
+   A device whose stated ``s`` lies outside its periodic model's deck is placed
+   modulo the deck's length, and both ``osprey build`` and this command print
+   one ``facility: place-wrapped: device <id> — …; fix: …`` warning per device
+   on stderr; the exit code is unchanged.
    The check converts a monitor reading to position with one slope, taken at
    the centred beam; that is exact for a straight-line (gain and offset)
    calibration, and a table-calibrated monitor is left out of the check and

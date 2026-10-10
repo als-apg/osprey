@@ -12,8 +12,9 @@ tree the response check runs before the render and prints one line per kept
 response export. When the check left rows out of the comparison, a second line
 for that model follows on stderr, giving the number of rows left out and the
 count per reason (unwired, no width, unsolved, table calibration); it does not
-change the verdict or the exit code. Persona and image renders are checked by ``osprey build``
-alone.
+change the verdict or the exit code. A device whose stated s lies outside its
+periodic model's deck prints one warning on stderr; it does not change the exit
+code. Persona and image renders are checked by ``osprey build`` alone.
 
 ``osprey facility show [--json] [ID]`` builds in memory as ``validate`` does
 and prints what the build holds: the identity, the records per kind and the
@@ -81,7 +82,9 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     left rows out of the comparison, a second line for that model follows on
     stderr, giving the number of rows left out and the count per reason
     (unwired, no width, unsolved, table calibration); it does not change the
-    verdict or the exit code.
+    verdict or the exit code. A device whose stated s lies outside its
+    periodic model's deck prints one warning per device on stderr; it does
+    not change the exit code.
     """
     _build_in_memory(ctx, repo)
 
@@ -122,7 +125,7 @@ def _build_in_memory(
     from osprey.facility.layers.mml.response_check import check_responses
     from osprey.facility.layers.mml.response_check import report as report_responses
     from osprey.facility.render import facility_digest
-    from osprey.facility.validate import report, run_stages
+    from osprey.facility.validate import report, report_warnings, run_stages
 
     from .build_cmd import _render_project, _render_zones, _rendered_config, _SharedRenderInputs
     from .profile_conventions import (
@@ -155,6 +158,7 @@ def _build_in_memory(
     if not result.ok:
         report(result.errors)
         ctx.exit(1)
+    report_warnings(result.validated.warnings)
     document = result.validated.document
     if document is None:
         raise RuntimeError("the stages ran clean without producing the document")
