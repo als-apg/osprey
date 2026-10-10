@@ -235,11 +235,16 @@ for them.
 
 The imperfections a machine starts from are scenario faults. A scenario under
 ``data/facility/scenarios/`` names them in its ``faults`` block, keyed by model
-and then by address, each a value, ``stuck``, or a map of fault fields to
-values; the composite seeds them into its models when the scenario is
-active. ``stuck`` is a fault of the composite's write path rather than of a
-model: a stuck setpoint accepts a write, reads the value written, and forwards
-none of it; its readback shows the model where it was.
+and then by address, each a value or a map of fault fields to values; the
+composite seeds them into its models when the scenario is active. Channel
+faults, named in the scenario's ``channel_faults`` block, are faults of the
+composite's channel layer rather than of a model, and act on wired and
+texture channels alike. A ``stuck`` setpoint accepts a write, reads the value
+written, and forwards none of it; its readback shows the machine where it
+was. A ``frozen`` reading serves the value it served when the scenario became
+active. A ``disconnected`` channel holds writes as ``stuck`` does, and its
+reading serves not-a-number, or for a non-float the value it served when the
+scenario became active, with the ``udf`` condition.
 
 A readout fault never moves the orbit; it changes what a monitor reports.
 ``diff`` is where it becomes visible, as a served reading that has parted from

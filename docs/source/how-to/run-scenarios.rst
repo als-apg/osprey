@@ -101,8 +101,12 @@ name. Every key is optional:
        scenario is active.
    * - ``faults``
      - ``{<model>: {<address or engine variable>: <value>}}``, faults written
-       into a physics model; a value is a scalar, the word ``stuck``, or a map
+       into a physics model; a value is a scalar or a map
        ``{<fault field>: <value>}`` such as ``{polarity: -1}``.
+   * - ``channel_faults``
+     - ``{<address>: stuck | frozen | disconnected}``, faults of the channel
+       itself, on any simulated channel, wired to a model or not; the table
+       below says what each does.
    * - ``archiver``
      - ``[{channel, events}]``, the history each channel's archive shows.
        Each event has a ``shape``, ``step`` (``to``), ``ramp`` (``to``) or
@@ -128,6 +132,42 @@ name. Every key is optional:
      - ``all``, or a list of addresses: while the scenario is active, those
        readings serve without drift, couplings or noise; readout faults still
        apply.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 14 18 18 22 14
+
+   * - Fault
+     - Names
+     - Setpoint read
+     - Setpoint write
+     - Readback or reading read
+     - Severity
+   * - ``stuck``
+     - a setpoint
+     - the value last written, its start value before any write
+     - accepted, held, forwarded to nothing
+     - wired: the model where it was; otherwise its held value, with no echo
+     - none
+   * - ``frozen``
+     - a reading (a readback or a ``none`` channel)
+     - n/a
+     - n/a
+     - the value served when the fault became active; no motion, no model
+       update
+     - none
+   * - ``disconnected``
+     - any channel
+     - the value last written
+     - accepted, held, forwarded to nothing
+     - float: not-a-number; any other type: the value served when the fault
+       became active
+     - ``udf`` on the disconnected reading
+
+A disconnected setpoint's readback is the disconnected reading; a setpoint
+that is its own readback reads its demand and reports ``udf`` itself. A
+channel fault holds in both venues of the simulator; ``offline``, a read that
+never answers, is not one of them.
 
 An entry's ``attachments`` lists its pictures, each ``{path: <picture file>}``
 or ``{plot: <plot spec .json>}``, relative to the folder
