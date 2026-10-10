@@ -30,6 +30,7 @@ from osprey.connectors.control_system.epics_connector import (
     EPICSConnector,
     _ChannelSubscription,
     _configure_pyepics_libca,
+    _keep_shared_ca_context,
 )
 from tests.connectors._epics_fakes import (
     ca_connector as _connector,
@@ -63,11 +64,83 @@ class TestShutdownHook:
         _patch_writes_enabled(monkeypatch, False)
         ca = install_fake_pyepics(monkeypatch)
 
+        ca.libca = object()  # loaded earlier, so connect() clears the cache
+
         connector = EPICSConnector()
         await connector.connect({"gateways": {"read_only": {"address": "ro", "port": 5064}}})
 
         assert ca.AUTO_CLEANUP is False
         assert ca.seen_at_first_libca_use == [False]
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_connect_leaves_libca_unloaded_when_nothing_loaded_it(self, monkeypatch):
+        """Loading libca here would put pyepics on the caller's thread, and onto
+        any CA context aioca already made there; the first CA call loads it."""
+        _patch_writes_enabled(monkeypatch, False)
+        ca = install_fake_pyepics(monkeypatch)
+
+        connector = EPICSConnector()
+        await connector.connect({"gateways": {"read_only": {"address": "ro", "port": 5064}}})
+
+        assert ca.AUTO_CLEANUP is False
+        assert ca.seen_at_first_libca_use == []
+        assert os.environ["EPICS_CA_ADDR_LIST"] == "ro"
+
+
+# ---------------------------------------------------------------------------
+# A CA context shared with aioca
+#
+# aioca destroys, at exit, a CA context it created. When pyepics adopted that
+# context, its cached PVs are garbage-collected after the destroy and segfault
+# clearing their subscriptions. The connector stops aioca destroying it.
+# ---------------------------------------------------------------------------
+
+
+def _fake_aioca(monkeypatch, *, ca_context, should_destroy):
+    context = types.SimpleNamespace(_ca_context=ca_context, _should_destroy=should_destroy)
+    catools = types.ModuleType("aioca._catools")
+    catools._Context = context
+    monkeypatch.setitem(sys.modules, "aioca._catools", catools)
+    return context
+
+
+class TestSharedCaContext:
+    def test_aioca_keeps_a_context_pyepics_adopted(self, monkeypatch):
+        context = _fake_aioca(monkeypatch, ca_context=0x1234, should_destroy=True)
+        epics = types.SimpleNamespace(ca=types.SimpleNamespace(initial_context=0x1234))
+
+        _keep_shared_ca_context(epics)
+
+        assert context._should_destroy is False
+
+    def test_aioca_still_destroys_a_context_pyepics_does_not_use(self, monkeypatch):
+        context = _fake_aioca(monkeypatch, ca_context=0x1234, should_destroy=True)
+        epics = types.SimpleNamespace(ca=types.SimpleNamespace(initial_context=0x5678))
+
+        _keep_shared_ca_context(epics)
+
+        assert context._should_destroy is True
+
+    def test_no_aioca_is_a_no_op(self, monkeypatch):
+        monkeypatch.delitem(sys.modules, "aioca._catools", raising=False)
+        epics = types.SimpleNamespace(ca=types.SimpleNamespace(initial_context=0x1234))
+
+        _keep_shared_ca_context(epics)  # nothing to change, nothing raised
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_connect_applies_it_after_clearing_the_cache(self, monkeypatch):
+        _patch_writes_enabled(monkeypatch, False)
+        ca = install_fake_pyepics(monkeypatch)
+        ca.libca = object()
+        ca.initial_context = 0x1234
+        context = _fake_aioca(monkeypatch, ca_context=0x1234, should_destroy=True)
+
+        connector = EPICSConnector()
+        await connector.connect({"gateways": {"read_only": {"address": "ro", "port": 5064}}})
+
+        assert context._should_destroy is False
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")

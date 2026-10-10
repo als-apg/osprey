@@ -98,19 +98,22 @@ def install_fake_pyepics(monkeypatch) -> types.ModuleType:
     """Put a stand-in ``epics`` package in ``sys.modules`` and return its ``epics.ca``.
 
     ``EPICSConnector.connect()`` sets ``epics.ca.AUTO_CLEANUP``, unregisters
-    ``epics.ca.finalize_libca`` from ``atexit`` and, with a gateway configured,
-    calls ``epics.ca.clear_cache()``, which loads libca into the process. Against
+    ``epics.ca.finalize_libca`` from ``atexit`` and, with a gateway configured
+    and libca already loaded, calls ``epics.ca.clear_cache()``. Against
     the real pyepics none of that is undone, so every later test in the worker
     would inherit a live CA context and a pyepics with its shutdown hook
     removed. The stand-in takes all of it instead; ``monkeypatch`` puts the real
     modules back.
 
-    ``ca.seen_at_first_libca_use`` records ``AUTO_CLEANUP`` each time
-    ``clear_cache`` runs, which is where pyepics would first load libca.
+    ``ca.libca`` starts as ``None``, as in a process that has not loaded libca;
+    a test sets it to model one that has. ``ca.seen_at_first_libca_use``
+    records ``AUTO_CLEANUP`` each time ``clear_cache`` runs.
     ``epics.PV`` builds an :class:`UnreachablePV`.
     """
     ca = types.ModuleType("epics.ca")
     ca.AUTO_CLEANUP = True
+    ca.libca = None
+    ca.initial_context = None
     ca.finalize_libca = lambda: None
     ca.seen_at_first_libca_use = []
 
