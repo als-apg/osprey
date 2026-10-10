@@ -182,8 +182,8 @@ TEMPERATURE_ROUTES = [
 
 class TestTheTemperatureIsSentOnlyWhereTheEndpointTakesIt:
     """The adapter decides per model: OpenAI's reasoning models refuse every temperature
-    but their default, its chat models take the caller's. The ALS-APG gateway's Claude 5
-    models refuse every temperature but 1, so no request to it carries one."""
+    but their default, its chat models take the caller's. The Claude 5 models behind the
+    als-apg provider refuse every temperature but 1, so no request to it carries one."""
 
     @pytest.mark.parametrize(
         ("provider", "model_id", "base_url", "sent"),
