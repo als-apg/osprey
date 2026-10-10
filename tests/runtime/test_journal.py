@@ -261,7 +261,7 @@ def test_the_stale_journal_names_the_dead_run_and_the_remedy(tmp_path: Path) -> 
     pending = PendingJournal("live", 4, "alice", 4242, None, {"A": 1.0, "B": 2.0})
     path = tmp_path / "journal"
 
-    exc = OspreyStaleJournal(pending, path, target="live", generation=5)
+    exc = OspreyStaleJournal(pending, path, target="live", generation=5, approval=True)
 
     assert (exc.target, exc.generation, exc.addresses) == ("live", 4, ("A", "B"))
     assert exc.path == str(path)
