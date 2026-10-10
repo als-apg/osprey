@@ -107,8 +107,7 @@ from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey.utils.dotenv import parse_dotenv_file
 from osprey_connectors.control_context import RECORD_FILENAME
 from osprey_connectors.posture_store import STATE_DIR_NAME
-from tests.e2e._motion_bands import served_settle_bands
-from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
+from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT, repo_view
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -981,7 +980,7 @@ def test_a_raw_client_put_is_refused_while_a_runtime_write_lands(terminal: Termi
     # The baseline target is the only one whose limits make the setpoint writable.
     assert terminal.first_target == "va", terminal.first_target
     _wait_for_switch_to_settle(terminal, "va")
-    band = served_settle_bands(terminal.repo, [WRITE_READBACK])[WRITE_READBACK]
+    band = repo_view(terminal.repo).motion_envelope(WRITE_READBACK)
 
     session = terminal.start_notebook_session(STARTER_NOTEBOOK)
     kernel_id = session["kernel"]["id"]
