@@ -365,10 +365,8 @@ def test_switch_section_does_not_disturb_the_existing_rule_shape():
 # connector-host child — a frozen rule promising a switch the runtime refuses to
 # perform is worse than a rule that never mentions one. The cases below are
 # chosen for the two ways a locally-restated predicate gets it wrong: a doocs
-# deployment (switchable, but named by no epics literal) and a mock deployment
-# carrying a live block (NOT switchable — its baseline never resolves back to
-# its own declared type, so a session on "live" would reach a real machine the
-# config never selected).
+# deployment (switchable, but named by no epics literal) and a simulator
+# deployment carrying a live block (switchable — two configured targets).
 _EPICS_BLOCK = {"gateways": {"read_only": {"address": "gw.example.org"}}}
 _DOOCS_BLOCK = {"facility": "XFEL"}
 _VA_BLOCK = {"gateways": {"read_only": {"address": "localhost"}}}
