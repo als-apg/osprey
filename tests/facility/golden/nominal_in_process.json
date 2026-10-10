@@ -2,7 +2,7 @@
   "_reproduce": "Frozen: no command rewrites this golden; its values are the served nominals pinned by this file.",
   "header": {
     "command": "Frozen: no command rewrites this golden; its values are the served nominals pinned by this file.",
-    "substrate": "mock",
+    "substrate": "in_process",
     "addresses": {
       "source": "src/osprey/services/virtual_accelerator/manifest/channel_manifest.json",
       "count": 2908

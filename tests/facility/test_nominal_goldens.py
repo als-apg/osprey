@@ -1,8 +1,8 @@
-"""The mock's served nominals against the per-address nominal golden, and its served noise against the seeds.
+"""The in-process simulator's served nominals against the per-address nominal golden, and its served noise against the seeds.
 
-``tests/facility/golden/nominal_mock.json`` holds, for every demo address, the
-nominal the mock serves with no scenario active. The mock serves the
-control-assistant build's simulator view through a composite, so these tests
+``tests/facility/golden/nominal_in_process.json`` holds, for every demo
+address, the nominal the simulator served in process serves with no scenario
+active. It serves the control-assistant build's simulator view through a composite, so these tests
 build that composite from the shared build and hold it to the golden to 1e-12
 on every address, except the declared re-baselines:
 
@@ -33,7 +33,7 @@ import pytest
 from tests.facility.conftest import BuiltProject
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-GOLDEN = REPO_ROOT / "tests/facility/golden/nominal_mock.json"
+GOLDEN = REPO_ROOT / "tests/facility/golden/nominal_in_process.json"
 
 #: A served value's tolerance against the golden.
 TOLERANCE = 1e-12
@@ -78,7 +78,7 @@ def close(actual: float, expected: float) -> bool:
 
 
 class Served:
-    """The composite a mock builds from the control-assistant simulator view."""
+    """The composite the in-process simulator builds from the control-assistant simulator view."""
 
     def __init__(self, view: Path) -> None:
         from osprey_connectors.simulation.composite import Composite

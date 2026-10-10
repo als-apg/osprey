@@ -124,12 +124,15 @@ mcp_servers:
 # host port (each service has a fixed slot above `deployment.port_base`).
 config:
   # ── Control system ─────────────────────────────────────────────────────────
-  # Which control system to talk to. "mock" serves the addresses of the built
-  # facility file in-process and refuses any other, with no hardware and no
-  # containers behind it. The control-assistant preset shows the EPICS
-  # connector configuration,
+  # Which control system to talk to. `virtual_accelerator` is the simulator of
+  # the built facility; `serving: in_process` runs it inside this process — the
+  # facility's channels, its seeds and scenarios, no hardware and no containers
+  # — and refuses any address outside the facility. `served` reaches the same
+  # simulator in its container over Channel Access. The control-assistant
+  # preset shows the EPICS connector configuration,
   # and `osprey config --defaults` lists every shipped connector type.
-  control_system.type: mock
+  control_system.type: virtual_accelerator
+  control_system.connector.virtual_accelerator.serving: in_process
   # The FIRST guard in the write-safety chain: while false, every hardware
   # write is refused before the limits check or the approval prompt is even
   # consulted. Set it true, rebuild, and the two hooks below take over.
