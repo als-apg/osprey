@@ -256,6 +256,7 @@ class Composite(LUMEModel):
             Path(log_dir) if log_dir is not None else (_default_log_dir() if model_log else None)
         )
         self._active: list[str] = []
+        self._moving: frozenset[str] = frozenset()
 
         variables = view.document(VARIABLES_FILE)
         self._scenarios: dict[str, Mapping[str, Any]] = {
@@ -455,6 +456,13 @@ class Composite(LUMEModel):
                     continue
                 resolved.setdefault(address, []).append({**term, "drive": drive})
         self._texture.set_motion(resolved, noise)
+        self._moving = frozenset(
+            address
+            for address in self._owner
+            if address in self._variables
+            and self._texture.has_motion(address)
+            and (self._owner[address] == TEXTURE_OWNER or self._is_moving_readback(address))
+        )
         self._texture.set_active(
             {
                 address: value
@@ -507,6 +515,16 @@ class Composite(LUMEModel):
         """The scenarios served: the active set, or ``nominal`` alone when its scenarios overlap."""
         self._refresh()
         return list(self._active)
+
+    def moving(self) -> frozenset[str]:
+        """The served channels whose motion can be non-zero under the active scenarios.
+
+        The texture's own channels, and the physics readbacks the texture moves
+        on their level, each when its seed drift, a held coupling or a non-zero
+        noise term moves it.
+        """
+        self._refresh()
+        return self._moving
 
     def get(self, names: list[str] | str) -> dict[str, Any] | Any:
         """Read channels, each as its variable declares it; a waveform as an array of its shape.

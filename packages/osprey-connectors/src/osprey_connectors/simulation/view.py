@@ -501,17 +501,6 @@ class SimulatorView:
         seed: Mapping[str, Any] | None = self.document(SEEDS_FILE)["seeds"].get(address)
         return seed
 
-    def moving(self) -> tuple[str, ...]:
-        """The addresses whose seed states a ``noise`` or a ``drift``, sorted."""
-        seeds = self.document(SEEDS_FILE)["seeds"]
-        return tuple(
-            sorted(
-                str(address)
-                for address, seed in seeds.items()
-                if seed and (seed.get("noise") or seed.get("drift"))
-            )
-        )
-
     def scenarios(self) -> tuple[Mapping[str, Any], ...]:
         """Every scenario of ``scenarios.json``, sorted by name."""
         scenarios: tuple[Mapping[str, Any], ...] = self.document(SCENARIOS_FILE)["scenarios"]
