@@ -35,7 +35,7 @@ from osprey.deployment.web_terminals.env_production import deploy_issued_credent
 from osprey.deployment.web_terminals.persona_naming import persona_project
 from osprey.deployment.web_terminals.personas import effective_image_source
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
-from osprey.docs_links import installer_remedy
+from osprey.docs_links import setup_remedy
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.dotenv import ENV_LOCAL_FILENAME
 from osprey.utils.log_filter import quiet_logger
@@ -402,8 +402,8 @@ def _canonical_delta_reference(persona_name: str) -> str:
 #: rejected by either one is sent to the same fix.
 PREDATES_DELTA_REMEDY = (
     "A variant build that predates the persona-delta layout has no delta yet. "
-    + installer_remedy(
-        "the installer converts an existing variant into a persona delta over the "
+    + setup_remedy(
+        "the setup converts an existing variant into a persona delta over the "
         "profile this deployment is built from"
     )
 )
@@ -415,7 +415,7 @@ def _persona_delta_remedy(persona_name: str, profile_root: Path) -> str:
     Names both spellings the operator needs — the catalog value to write and the
     file it has to resolve to — from one place, so the several ways an entry can
     be wrong cannot end up recommending different fixes. Ends with
-    :data:`PREDATES_DELTA_REMEDY`, which links the installer's page, because the
+    :data:`PREDATES_DELTA_REMEDY`, which links the guided setup's page, because the
     operator most likely to read this is one whose project predates the
     persona-delta layout: they have a variant build in some older shape and
     need it converted, which is a bigger job than editing one catalog value.

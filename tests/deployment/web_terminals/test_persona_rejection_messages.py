@@ -5,8 +5,8 @@ the deploy path, ``test_lint.py`` for the gate). What these tests pin is the
 remedy, on both paths at once: the operator most likely to hit either
 rejection is one whose variant build predates the persona-delta layout, so
 "set this value to ``personas/<name>.yml``" is advice about a file they do not
-have. Both messages must therefore also link the installer's page
-(``INSTALL_DOCS_URL``), which covers converting an old variant into that file — and they must keep saying
+have. Both messages must therefore also link the guided setup's page
+(``SETUP_DOCS_URL``), which covers converting an old variant into that file — and they must keep saying
 the same thing as each other, since a config can be rejected by whichever path
 the operator happens to reach first.
 """
@@ -20,7 +20,7 @@ import pytest
 from osprey.deployment.web_terminals import persona_images
 from osprey.deployment.web_terminals.lint import lint_web_terminals
 from osprey.deployment.web_terminals.persona_images import PREDATES_DELTA_REMEDY
-from osprey.docs_links import INSTALL_DOCS_URL
+from osprey.docs_links import SETUP_DOCS_URL
 
 #: A pre-delta value: the bundled preset name a facility used to write here.
 _LEGACY_VALUE = "control-assistant"
@@ -69,15 +69,15 @@ def _lint_rejection(tmp_path: Path, build_profile: str) -> str:
 def test_deploy_rejection_links_the_install_page(tmp_path: Path):
     message = _deploy_rejection(tmp_path, _LEGACY_VALUE)
 
-    assert INSTALL_DOCS_URL in message
-    assert "/osprey:install" not in message
+    assert SETUP_DOCS_URL in message
+    assert "/osprey:setup" not in message
 
 
 def test_lint_rejection_links_the_install_page(tmp_path: Path):
     message = _lint_rejection(tmp_path, _LEGACY_VALUE)
 
-    assert INSTALL_DOCS_URL in message
-    assert "/osprey:install" not in message
+    assert SETUP_DOCS_URL in message
+    assert "/osprey:setup" not in message
 
 
 def test_missing_delta_file_also_links_the_install_page(tmp_path: Path):
@@ -89,7 +89,7 @@ def test_missing_delta_file_also_links_the_install_page(tmp_path: Path):
 
     assert "no file exists at" in message
     assert message.endswith(PREDATES_DELTA_REMEDY)
-    assert "/osprey:install" not in message
+    assert "/osprey:setup" not in message
 
 
 @pytest.mark.parametrize(
@@ -111,6 +111,6 @@ def test_both_paths_recommend_the_same_delta_and_the_install_page(
 
     for message in (deploy_message, lint_message):
         assert "personas/ops.yml" in message
-        assert INSTALL_DOCS_URL in message
+        assert SETUP_DOCS_URL in message
         assert message.endswith(PREDATES_DELTA_REMEDY)
-        assert "/osprey:install" not in message
+        assert "/osprey:setup" not in message
