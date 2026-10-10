@@ -82,14 +82,18 @@ STAGES: tuple[str, ...] = (
 )
 
 #: The header of the combined facility file.
-FACILITY_HEADER = "osprey.facility.facility/2"
+FACILITY_HEADER = "osprey.facility.facility/3"
 
 #: The multivalued slots that are sets: compared and written sorted by string form.
 SET_VALUED_SLOTS: frozenset[tuple[str, str]] = frozenset(
     {
+        ("Place", "names"),
+        ("Device", "names"),
+        ("Channel", "names"),
         ("Channel", "tags"),
         ("Channel", "former_addresses"),
         ("Channel", "endpoint_of"),
+        ("Group", "names"),
         ("Group", "members"),
         ("Device", "groups"),
         ("Measurement", "kinds"),

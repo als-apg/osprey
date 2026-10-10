@@ -360,11 +360,26 @@ class TestLayerMerge:
         result = _build(
             tmp_path,
             {
+                "records/channels.yaml": [
+                    {"id": "SR:X", "value_type": "enum", "options": ["b", "a"]}
+                ],
+                "imported/mml/channels.yaml": [
+                    {"id": "SR:X", "value_type": "enum", "options": ["a", "b"]}
+                ],
+            },
+        )
+        assert _one(result.errors).kind == "layer-conflict"
+
+    def test_names_merge_as_a_set(self, tmp_path: Path) -> None:
+        result = _build(
+            tmp_path,
+            {
                 "records/channels.yaml": [{"id": "SR:X", "names": ["b", "a"]}],
                 "imported/mml/channels.yaml": [{"id": "SR:X", "names": ["a", "b"]}],
             },
         )
-        assert _one(result.errors).kind == "layer-conflict"
+        assert result.errors == []
+        assert _record(result, "channels", "SR:X")["names"] == ["a", "b"]
 
     def test_bool_options_default(self, tmp_path: Path) -> None:
         result = _build(

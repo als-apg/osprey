@@ -64,8 +64,10 @@ FIXES_HEADER = "osprey.facility.fixes/1"
 
 #: The slots whose lists are sets: compared and emitted sorted by string form.
 SET_VALUED: dict[str, frozenset[str]] = {
-    "channel": frozenset({"tags", "former_addresses", "endpoint_of"}),
-    "group": frozenset({"members"}),
+    "place": frozenset({"names"}),
+    "device": frozenset({"names"}),
+    "channel": frozenset({"names", "tags", "former_addresses", "endpoint_of"}),
+    "group": frozenset({"names", "members"}),
 }
 
 _OPS = ("set", "add", "drop")

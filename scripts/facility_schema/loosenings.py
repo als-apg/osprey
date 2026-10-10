@@ -75,8 +75,8 @@ FATES: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("canonical_ingest.yaml", "section_id"): ("renamed:id", "a place id is its path"),
     ("canonical_ingest.yaml", "source_name"): (
-        "renamed:names",
-        "the source's own name is the first of the record's names",
+        "renamed:label",
+        "the source's own name for a record is its display label",
     ),
     ("canonical_ingest.yaml", "device_id"): ("renamed:id", "a device id is its facility name"),
     ("canonical_ingest.yaml", "raw_type"): (
