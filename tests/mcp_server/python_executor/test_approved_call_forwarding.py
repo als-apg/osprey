@@ -161,21 +161,52 @@ async def test_the_gate_sequence_hands_the_approved_fields_to_the_launch(
     assert launch.await_args.kwargs["approved_target"] == "va"
 
 
+#: A rendered config whose approval hook is wired and asks about every tool.
+_ASKING_CONFIG: dict[str, Any] = {
+    "control_system": {"type": "epics", "connector": {"epics": {}}},
+    "approval": {"enabled": True, "default_policy": "always", "hook_wired": True},
+}
+
+
+def _approval(**changes: Any) -> dict[str, Any]:
+    return {**_ASKING_CONFIG, "approval": {**_ASKING_CONFIG["approval"], **changes}}
+
+
 def test_only_a_readwrite_sandbox_carries_the_approved_fields() -> None:
     readwrite: dict[str, str] = {}
-    executor._apply_approved_call(readwrite, "readwrite", "ab" * 32, "live")
+    executor._apply_approved_call(
+        readwrite, "readwrite", _ASKING_CONFIG, "execute", "ab" * 32, "live"
+    )
     assert readwrite == {
         "OSPREY_APPROVED_JOURNAL_SHA256": "ab" * 32,
         "OSPREY_APPROVED_TARGET": "live",
     }
 
     readonly: dict[str, str] = {}
-    executor._apply_approved_call(readonly, "readonly", "ab" * 32, "live")
+    executor._apply_approved_call(
+        readonly, "readonly", _ASKING_CONFIG, "execute", "ab" * 32, "live"
+    )
     assert readonly == {}
 
     missing: dict[str, str] = {}
-    executor._apply_approved_call(missing, "readwrite", None, None)
+    executor._apply_approved_call(missing, "readwrite", _ASKING_CONFIG, "execute", None, None)
     assert missing == {}, "a field the call does not carry stays absent"
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(_approval(tools={"execute": "skip"}), id="skip"),
+        pytest.param(_approval(enabled=False), id="approval-disabled"),
+        pytest.param(_approval(hook_wired=False), id="no-hook"),
+        pytest.param({}, id="no-config"),
+    ],
+)
+def test_fields_no_approval_hook_set_never_reach_the_sandbox(config: dict[str, Any]) -> None:
+    """With nobody asked, the fields in the call are the caller's own and are dropped."""
+    sandbox_env: dict[str, str] = {}
+    executor._apply_approved_call(sandbox_env, "readwrite", config, "execute", "ab" * 32, "live")
+    assert sandbox_env == {}
 
 
 def test_a_readonly_wrapper_binds_nothing() -> None:
@@ -190,11 +221,8 @@ class _Sandbox:
         self.root = root
         (root / "build").mkdir(parents=True)
         (root / "profile.yml").write_text("name: probe\n", encoding="utf-8")
-        config = {
-            "control_system": {"type": "epics", "connector": {"epics": {}}},
-            "approval": {"enabled": True, "default_policy": "always"},
-        }
-        (root / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
+        self.config_path = root / "build" / "config.yml"
+        self.write_config(_ASKING_CONFIG)
         self.values_path = root / "values.json"
         self.values_path.write_text(json.dumps(values), encoding="utf-8")
         site = root / "site"
@@ -210,13 +238,16 @@ class _Sandbox:
         self.folder = root / "exec"
         self.folder.mkdir()
 
+    def write_config(self, config: dict[str, Any]) -> None:
+        self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
     def digest(self) -> str:
         return hashlib.sha256(self.journal.read_bytes()).hexdigest()
 
-    def run(self, env_extra: dict[str, str]) -> dict[str, Any]:
+    def run(self, env_extra: dict[str, str], code: str = _PROBE) -> dict[str, Any]:
         script = self.folder / "wrapped_script.py"
         script.write_text(
-            ExecutionWrapper(execution_mode="readwrite").create_wrapper(_PROBE, self.folder),
+            ExecutionWrapper(execution_mode="readwrite").create_wrapper(code, self.folder),
             encoding="utf-8",
         )
         env = os.environ.copy()
@@ -275,6 +306,59 @@ def test_a_changed_journal_stops_the_run_before_user_code(tmp_path: Path) -> Non
     assert metadata["success"] is False
     assert metadata["error_type"] == "OspreyJournalChanged"
     assert "_results" not in metadata, "the user code never started"
+    assert sandbox.values() == {"Q": 9.0, "S": 5.0}
+    assert sandbox.journal.read_bytes() == before
+
+
+#: User code that turns the approval hook off in the config, then takes the run.
+_REWRITE_THEN_LOCK = textwrap.dedent(
+    """
+    import os, yaml
+    from osprey.runtime.guarded_run import lock
+    from osprey_connectors.workspace import reset_config_cache
+
+    with open("build/config.yml", "w") as handle:
+        yaml.safe_dump({"approval": {"enabled": False, "hook_wired": False}}, handle)
+    with open("elsewhere.yml", "w") as handle:
+        yaml.safe_dump({}, handle)
+    os.environ["OSPREY_CONFIG"] = os.path.abspath("elsewhere.yml")
+    reset_config_cache()
+    with lock(None):
+        results = {"ran": True}
+    """
+)
+
+
+def test_code_that_rewrites_the_config_still_needs_the_approved_fields(tmp_path: Path) -> None:
+    """Whether the tool asks was settled before the code started."""
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
+    before = sandbox.journal.read_bytes()
+
+    metadata = sandbox.run({}, _REWRITE_THEN_LOCK)
+
+    assert metadata["success"] is False
+    assert metadata["error_type"] == "OspreyWriteRefused"
+    assert "_results" not in metadata
+    assert sandbox.values() == {"Q": 9.0, "S": 5.0}
+    assert sandbox.journal.read_bytes() == before
+
+
+def test_a_digest_in_a_call_nobody_approved_restores_nothing(tmp_path: Path) -> None:
+    """A sandbox whose tool never asks drops the fields before the code starts."""
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
+    sandbox.write_config(_approval(hook_wired=False))
+    before = sandbox.journal.read_bytes()
+
+    metadata = sandbox.run(
+        {
+            "OSPREY_APPROVED_JOURNAL_SHA256": sandbox.digest(),
+            "OSPREY_APPROVED_TARGET": "live",
+            "OSPREY_CONTROL_TARGET_GENERATION": "5",
+        }
+    )
+
+    assert metadata["success"] is True, metadata.get("traceback")
+    assert metadata["_results"]["seen"] == {"Q": 9.0, "S": 5.0}
     assert sandbox.values() == {"Q": 9.0, "S": 5.0}
     assert sandbox.journal.read_bytes() == before
 

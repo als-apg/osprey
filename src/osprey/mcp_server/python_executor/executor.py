@@ -714,6 +714,8 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
 def _apply_approved_call(
     sandbox_env: dict[str, str],
     execution_mode: str,
+    osprey_config: dict,
+    tool: str,
     approved_journal_sha256: str | None,
     approved_target: str | None,
 ) -> None:
@@ -722,8 +724,18 @@ def _apply_approved_call(
     Called after :func:`_apply_target_stamp`, which removed both names. A
     readonly run never enters the guarded run, so it carries neither; a field
     the call does not carry stays absent, which the sandbox reads as missing.
+
+    Both fields are ordinary tool arguments, and only the approval hook's
+    rewrite of the call makes them an approval. When *osprey_config* says the
+    hook does not put *tool*'s calls to a human — no hook wired, approval
+    disabled, policy ``skip`` — nothing rewrote the call, so whatever it
+    carries is the caller's own and neither field is carried.
     """
     if execution_mode != "readwrite":
+        return
+    from osprey.cli.build_posture_check import asks_in_render
+
+    if not asks_in_render(osprey_config, tool):
         return
     if approved_journal_sha256:
         sandbox_env[ENV_APPROVED_JOURNAL_SHA256] = approved_journal_sha256
@@ -940,7 +952,9 @@ async def _execute_via_local(
             error_message=str(refusal),
             failure_kind=FAILURE_KIND_SWITCH_IN_PROGRESS,
         )
-    _apply_approved_call(sandbox_env, execution_mode, approved_journal_sha256, approved_target)
+    _apply_approved_call(
+        sandbox_env, execution_mode, osprey_config, tool, approved_journal_sha256, approved_target
+    )
     limits_validator = _load_limits_validator(target=control_target)
 
     wrapper = ExecutionWrapper(

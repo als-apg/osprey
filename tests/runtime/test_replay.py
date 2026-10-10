@@ -293,6 +293,58 @@ def test_a_call_whose_tool_never_asks_restores_its_own_generation(
     assert path.read_bytes() == b""
 
 
+def test_whether_the_tool_asks_is_decided_once_when_the_call_is_bound(
+    repo: Path, channels: _Channels, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing code does to the config after it starts changes what its call needed."""
+    path = _plant({"Q": 0.0})
+    before = path.read_bytes()
+    _approve(monkeypatch, None, None)
+
+    _write_config(repo, {**_ASKING, "hook_wired": False})
+    elsewhere = repo / "elsewhere.yml"
+    elsewhere.write_text(yaml.safe_dump({"approval": {"enabled": False}}), encoding="utf-8")
+    monkeypatch.setenv("OSPREY_CONFIG", str(elsewhere))
+    reset_config_cache()
+
+    with pytest.raises(OspreyWriteRefused, match="carries none"), lock(None):
+        pytest.fail("the call still needs the fields its prompt hands it")
+
+    assert channels.writes == []
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "approval",
+    [
+        pytest.param({**_ASKING, "tools": {"execute": "skip"}}, id="skip"),
+        pytest.param({**_ASKING, "enabled": False}, id="approval-disabled"),
+        pytest.param({**_ASKING, "hook_wired": False}, id="no-hook"),
+    ],
+)
+def test_fields_no_approval_hook_set_never_replay_a_journal(
+    repo: Path,
+    channels: _Channels,
+    monkeypatch: pytest.MonkeyPatch,
+    approval: dict[str, Any],
+) -> None:
+    """With nobody asked, a digest and target in the call came from the caller alone."""
+    _write_config(repo, approval)
+    path = _plant({"Q": 0.0}, generation=GENERATION - 1)
+    before = path.read_bytes()
+
+    _approve(monkeypatch, _digest(path), "live")
+
+    assert guarded_run._APPROVED is not None
+    assert guarded_run._APPROVED.journal_sha256 is None
+    assert guarded_run._APPROVED.target is None
+    assert channels.writes == []
+    with pytest.raises(OspreyStaleJournal), lock(None):
+        pytest.fail("another generation's journal is not restored without an approval")
+    assert channels.writes == []
+    assert path.read_bytes() == before
+
+
 def test_a_stale_journal_names_the_approval_remedy_when_the_tool_asks(
     channels: _Channels,
 ) -> None:
