@@ -2,7 +2,8 @@
 
 A project whose ``data/facility/`` holds only two authored channel addresses
 builds a facility file with those two channels and nothing else, each a
-readback by default. A project whose ``data/facility/`` is empty builds one
+readback by default; the same two addresses imported as a header-less channel
+list build the same channels. A project whose ``data/facility/`` is empty builds one
 with no records at all: only the built-in ``texture`` model, no classes, and an
 identity folded from the project name. Both render a simulator view that serves
 texture alone, with no status address. The mock connector serving a minimal
@@ -17,16 +18,19 @@ for the in_context index, so the build stops.
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
-from click.testing import Result
+from click.testing import CliRunner, Result
 
 from osprey.facility import TEXTURE
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from tests.facility.conftest import BuiltProject
 
 Build = Callable[..., tuple["BuiltProject", Result]]
@@ -105,6 +109,49 @@ def test_two_authored_addresses_build_two_readbacks(build_project: Build) -> Non
     for channel in facility["channels"]:
         assert "tags" not in channel
         assert "role" in channel["provenance"]["defaults"]
+
+
+def _import_list(tmp_path: Path, text: str) -> tuple[BuiltProject, Result]:
+    """Init a repo with no ``data/facility/``, import a channel list into it and build."""
+    from osprey.cli.main import cli
+    from tests._builds import init_project, run_build
+    from tests.facility.conftest import BuiltProject
+
+    repo = init_project(tmp_path, "hello-world", "demo")
+    shutil.rmtree(repo / "data" / "facility")
+    listing = tmp_path / "two.csv"
+    listing.write_text(text, encoding="utf-8")
+    imported = CliRunner().invoke(
+        cli, ["facility", "import", "list", str(listing), "--repo", str(repo)]
+    )
+    assert imported.exit_code == 0, imported.output
+    return BuiltProject(repo), run_build(repo)
+
+
+def test_two_listed_addresses_build_the_same_two_readbacks(
+    tmp_path: Path, build_project: Build
+) -> None:
+    authored, authored_result = build_project(TWO_CHANNELS)
+    listed, result = _import_list(tmp_path / "listed", "LAB:TEMP:01\nLAB:TEMP:02\n")
+
+    assert (authored_result.exit_code, result.exit_code) == (0, 0), result.output
+    assert sorted(p.name for p in (listed.facility_dir / "imported" / "list").iterdir()) == [
+        "channels.yaml"
+    ]
+    facility = listed.facility
+    assert (facility["devices"], facility["places"]) == ([], [])
+    for channel in facility["channels"]:
+        assert channel["provenance"]["sources"] == [
+            {"layer": "list", "file": "imported/list/channels.yaml", "fields": []}
+        ]
+    unsourced = [
+        {**channel, "provenance": {**channel["provenance"], "sources": []}}
+        for channel in facility["channels"]
+    ]
+    assert unsourced == [
+        {**channel, "provenance": {**channel["provenance"], "sources": []}}
+        for channel in authored.facility["channels"]
+    ]
 
 
 def test_zero_sources_build_the_texture_model_alone(build_project: Build) -> None:

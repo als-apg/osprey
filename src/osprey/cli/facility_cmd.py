@@ -38,6 +38,11 @@ does not have, and deletes none.
 ``--print-exporter`` prints the MATLAB exporter the layer ships and needs
 neither a repo nor an export.
 
+``osprey facility import list FILE`` writes a CSV channel list as the list
+layer's sources, ``data/facility/imported/list/channels.yaml``, and seeds
+nothing. Every row the layer refuses prints one ``source-invalid`` line on
+stderr, and the verb then writes nothing and exits 1.
+
 Note: the facility package and the build's render are imported inside the
 command body, so ``osprey --help`` does not load them.
 """
@@ -623,3 +628,44 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
             if attached.is_dir():
                 lines.append(f"  rm -r {shlex.quote(_shown(attached, repo_root) + '/')}")
             click.echo("\n".join(lines), err=True)
+
+
+@import_group.command("list")
+@click.argument(
+    "listing",
+    metavar="FILE",
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True, path_type=Path),
+)
+@repo_option
+@click.pass_context
+def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
+    """Write a CSV channel list as sources under data/facility/imported/list/.
+
+    \b
+    FILE is UTF-8 CSV. A header row names its columns, in any order:
+      address      the channel's full address; required
+      role         setpoint, readback or none; empty means readback
+      pair         a setpoint's readback address
+      device       the device the channel belongs to
+      place        the place the channel belongs to
+      unit         free text
+      description  free text
+      tags         separated by ;
+    A file without an address column holds one address per line.
+
+    Seeds no authored file. Exits 1 and writes nothing when a row names both a
+    device and a place, states an unknown role, has no address or repeats one,
+    when the header names an unknown column, or while the profile does not
+    resolve.
+    """
+    from osprey.errors import BuildProfileError
+    from osprey.facility.layers.list import import_list as run_import
+
+    repo_root = find_repo_root(repo)
+    try:
+        facility_dir = _facility_dir(_main_profile(repo_root)[0], repo_root)
+    except (BuildProfileError, ValueError, RuntimeError) as error:
+        fail("The profile does not resolve.", str(error))
+        ctx.exit(1)
+    for path in run_import(listing, facility_dir):
+        report(f"wrote {_shown(path, repo_root)}")
