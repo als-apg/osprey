@@ -1056,13 +1056,22 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    no authored file is seeded. ``FILE`` is UTF-8 CSV whose header row names
    ``address``, required, and any of the optional columns ``role`` (empty
    means readback), ``pair``, ``device``, ``place``, ``unit``,
-   ``description`` and ``tags`` (``;``-separated), in any order. A file whose
-   first row names no ``address`` column holds one address per line. A row
-   that names both a device and a place, states a role other than
-   ``setpoint``, ``readback`` or ``none``, has no address or repeats one, a
-   row with more cells than the header, and an unknown or repeated column
-   each print one ``facility: source-invalid:`` line; the import writes
-   nothing and exits 1.
+   ``description``, ``tags`` (``;``-separated), ``s`` (metres, a number) and
+   ``model`` (the model whose deck ``s`` is measured in), in any order. A file
+   whose first row names no ``address`` column holds one address per line.
+   ``s`` and ``model`` are the position of the row's device: for each device a
+   row states ``s`` for, the import writes ``{id, s}``, plus ``model`` when
+   stated, to ``data/facility/imported/list/devices.yaml``, and no other
+   device field, so the device merges with one another source declares, or is
+   created holding only its position. ``osprey build`` places it by the span
+   of its model containing ``s``. A row that names both a device and a place,
+   states a role other than ``setpoint``, ``readback`` or ``none``, has no
+   address or repeats one, states ``s`` or ``model`` with no device, or
+   states an ``s`` that is not a finite number, a row with more cells than
+   the header, two rows stating different ``s`` or ``model`` for one device, a
+   ``model`` for a device no row states ``s`` for, and an unknown or repeated
+   column each print one ``facility: source-invalid:`` line; the import
+   writes nothing and exits 1.
 
 .. _cli-osprey-sim:
 

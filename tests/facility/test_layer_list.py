@@ -97,7 +97,7 @@ class TestRefusals:
         assert _refused(tmp_path, "address,colour\nQ1:SP,red\n") == [
             "facility: source-invalid: path list.csv — unknown column `colour`; fix: remove "
             "the column; the columns are address, role, pair, device, place, unit, "
-            "description, tags"
+            "description, tags, s, model"
         ]
 
     def test_a_row_without_an_address_is_source_invalid(self, tmp_path: Path) -> None:
@@ -130,6 +130,110 @@ class TestRefusals:
         assert [line.split(" — ")[0] for line in lines] == [
             "facility: source-invalid: channel A",
             "facility: source-invalid: channel B",
+        ]
+
+
+def _devices(facility_dir: Path) -> list[dict[str, Any]]:
+    return yaml.safe_load((facility_dir / LAYER_DIR / "devices.yaml").read_text("utf-8"))
+
+
+class TestPositions:
+    def test_a_stated_s_and_model_write_a_device_record(self, tmp_path: Path) -> None:
+        facility_dir, written = _import(
+            tmp_path,
+            "address,role,device,s,model\n"
+            "G1:SP,setpoint,L/G1,3.5,LINE\n"
+            "G1:RB,,L/G1,3.5,\n"
+            "G2:RB,,L/G2,1,\n"
+            "G3:RB,,L/G3,,\n",
+        )
+
+        assert written == [
+            facility_dir / LAYER_DIR / "channels.yaml",
+            facility_dir / LAYER_DIR / "devices.yaml",
+        ]
+        assert _devices(facility_dir) == [
+            {"id": "L/G1", "s": 3.5, "model": "LINE"},
+            {"id": "L/G2", "s": 1.0},
+        ]
+        assert [channel["on"] for channel in _channels(facility_dir)] == [
+            {"device": "L/G1"},
+            {"device": "L/G1"},
+            {"device": "L/G2"},
+            {"device": "L/G3"},
+        ]
+
+    def test_an_import_stating_no_s_leaves_no_devices_file(self, tmp_path: Path) -> None:
+        facility_dir, _written = _import(tmp_path, "address,device,s\nG1:RB,L/G1,2\n")
+        (tmp_path / "list.csv").write_text("address,device\nG1:RB,L/G1\n", encoding="utf-8")
+
+        written = import_list(tmp_path / "list.csv", facility_dir)
+
+        assert written == [facility_dir / LAYER_DIR / "channels.yaml"]
+        assert not (facility_dir / LAYER_DIR / "devices.yaml").exists()
+
+    def test_s_on_a_row_with_no_device_is_source_invalid(self, tmp_path: Path) -> None:
+        assert _refused(tmp_path, "address,place,s,model\nT:RB,HALL,2,LINE\n") == [
+            "facility: source-invalid: channel T:RB — list.csv row 2 states `s`, `model` with "
+            "no device; a position belongs to a device; fix: fill `device`, or empty `s` "
+            "and `model`"
+        ]
+
+    def test_model_on_a_row_with_no_device_is_source_invalid(self, tmp_path: Path) -> None:
+        assert _refused(tmp_path, "address,model\nT:RB,LINE\n") == [
+            "facility: source-invalid: channel T:RB — list.csv row 2 states `model` with no "
+            "device; a position belongs to a device; fix: fill `device`, or empty `model`"
+        ]
+
+    @pytest.mark.parametrize("value", ["nan", "inf", "-inf", "3.5m"])
+    def test_an_s_that_is_not_a_finite_number_is_source_invalid(
+        self, tmp_path: Path, value: str
+    ) -> None:
+        assert _refused(tmp_path, f"address,device,s\nG1:RB,L/G1,{value}\n") == [
+            f"facility: source-invalid: channel G1:RB — list.csv row 2 states s {value}, "
+            "not a finite number; fix: write `s` in metres as a number"
+        ]
+
+    def test_rows_disagreeing_on_a_devices_s_are_source_invalid(self, tmp_path: Path) -> None:
+        assert _refused(
+            tmp_path, "address,device,s,model\nG1:SP,L/G1,3.5,LINE\nG1:RB,L/G1,4,LINE\n"
+        ) == [
+            "facility: source-invalid: device L/G1 — list.csv rows 2 and 3 state s 3.5 and 4; "
+            "fix: state one `s` for the device"
+        ]
+
+    def test_rows_disagreeing_on_a_devices_model_are_source_invalid(self, tmp_path: Path) -> None:
+        assert _refused(
+            tmp_path, "address,device,s,model\nG1:SP,L/G1,3.5,LINE\nG1:RB,L/G1,3.5,SR\n"
+        ) == [
+            "facility: source-invalid: device L/G1 — list.csv rows 2 and 3 state model LINE "
+            "and SR; fix: state one `model` for the device"
+        ]
+
+    def test_a_model_without_an_s_is_source_invalid(self, tmp_path: Path) -> None:
+        assert _refused(tmp_path, "address,device,model\nG1:RB,L/G1,LINE\n") == [
+            "facility: source-invalid: device L/G1 — list.csv row 2 states model LINE and no "
+            "row states its s; fix: fill `s` on a row of the device, or empty `model`"
+        ]
+
+    def test_a_listed_s_off_the_deck_of_a_wired_device_is_a_place_conflict(
+        self, tmp_path: Path
+    ) -> None:
+        pytest.importorskip("at")
+        from osprey.facility.build import LATER_STAGES
+        from osprey.facility.validate import run_stages
+        from tests.facility._synthetic_trees import deck_tree, write_tree
+
+        facility_dir = write_tree(tmp_path / "facility", deck_tree())
+        listing = _csv(tmp_path, "address,device,s,model\nLQ:RB,LINE/Q1,1.5,LINE\n")
+        import_list(listing, facility_dir)
+
+        result = run_stages(facility_dir, project_name="p", later=LATER_STAGES)
+
+        assert [error.format_message() for error in result.errors] == [
+            "facility: place-conflict: device LINE/Q1 — layer list states s 1.5 in model LINE, "
+            "but the deck puts the device at s 1; fix: drop `s` from the layer, or add a fix "
+            "`set` of the deck's value"
         ]
 
 

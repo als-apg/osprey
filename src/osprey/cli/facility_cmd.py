@@ -39,8 +39,8 @@ does not have, and deletes none.
 neither a repo nor an export.
 
 ``osprey facility import list FILE`` writes a CSV channel list as the list
-layer's sources, ``data/facility/imported/list/channels.yaml``, and seeds
-nothing. Every row the layer refuses prints one ``source-invalid`` line on
+layer's sources, ``data/facility/imported/list/channels.yaml`` and, when a row
+states a device's ``s``, ``devices.yaml`` beside it, and seeds nothing. Every row the layer refuses prints one ``source-invalid`` line on
 stderr, and the verb then writes nothing and exits 1.
 
 Note: the facility package and the build's render are imported inside the
@@ -651,12 +651,17 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
       unit         free text
       description  free text
       tags         separated by ;
+      s            the device's position in metres along model
+      model        the model whose deck s is measured in
     A file without an address column holds one address per line.
 
-    Seeds no authored file. Exits 1 and writes nothing when a row names both a
-    device and a place, states an unknown role, has no address or repeats one,
-    when the header names an unknown column, or while the profile does not
-    resolve.
+    Each device a row states s for is written with its s and model to
+    devices.yaml beside the channels. Seeds no authored file. Exits 1 and
+    writes nothing when a row names both a device and a place, states an
+    unknown role, has no address or repeats one, states s or model with no
+    device or an s that is not a number, when two rows state different
+    positions for one device, when the header names an unknown column, or
+    while the profile does not resolve.
     """
     from osprey.errors import BuildProfileError
     from osprey.facility.layers.list import import_list as run_import
