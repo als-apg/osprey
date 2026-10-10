@@ -165,6 +165,7 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
             "data/facility_facts.md",
             "data/graph/facility.ttl",
             "data/simulator/addresses.json",
+            "data/simulator/decks/LINE.json",
             "data/simulator/decks/SR.json",
             "data/simulator/scenarios/bpm-polarity/plots/corrector_bump_test.png",
             "data/simulator/scenarios/nominal/plots/orbit_rms.json",
