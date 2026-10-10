@@ -36,12 +36,17 @@ import yaml
 
 from osprey.cli.build_posture_check import (
     APPROVAL_HOOK,
+    GUARDED_TOOLS,
     PROFILE_FILENAME,
     REQUIRED_ALWAYS,
     REQUIRED_WITH_APPROVAL_HOOK,
     REQUIRED_WITH_CONTROLS,
+    ask_capable,
+    check_guarded_tool_policies,
+    effective_policy,
     missing_posture_errors,
 )
+from osprey.facility.errors import FacilityBuildError
 
 #: The presets the feature converts, and the ones the floor has to leave alone.
 PRESETS: tuple[str, ...] = (
@@ -254,6 +259,81 @@ class TestWhatCountsAsStated:
         """An emptied-but-quoted value is the same silence as a missing one."""
         rendered = _rendered(control_system={"type": blank})
         assert "control_system.type" in _named_keys(missing_posture_errors(rendered, []))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The guarded tools' approval policies
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _approval(**tools: str) -> dict[str, Any]:
+    """An ``approval`` section prompting for writes, with per-tool *tools*."""
+    return {
+        "enabled": True,
+        "default_policy": "always",
+        "tools": {"channel_write": "always", **tools},
+    }
+
+
+class TestEffectivePolicy:
+    """A tool's own entry, else the deployment's default."""
+
+    def test_the_guarded_tools(self) -> None:
+        assert GUARDED_TOOLS == ("execute", "execute_file", "pyaml_measure")
+
+    def test_a_tool_entry_wins_over_the_default(self) -> None:
+        rendered = _rendered(approval=_approval(execute="selective"))
+        assert effective_policy(rendered, "execute") == "selective"
+
+    def test_an_unlisted_tool_takes_the_default(self) -> None:
+        rendered = _rendered(approval={**_approval(), "default_policy": "skip"})
+        assert effective_policy(rendered, "pyaml_measure") == "skip"
+
+
+class TestAskCapable:
+    """Whether a guarded tool's call is put to a human before it runs."""
+
+    def test_hook_enabled_and_a_prompting_policy_is_ask_capable(self) -> None:
+        assert ask_capable(_rendered(approval=_approval()), [APPROVAL_HOOK], "execute_file")
+
+    def test_a_profile_without_the_approval_hook_is_not_ask_capable(self) -> None:
+        assert not ask_capable(_rendered(approval=_approval()), ["hook-log"], "execute_file")
+
+    def test_approval_disabled_is_not_ask_capable(self) -> None:
+        rendered = _rendered(approval={**_approval(), "enabled": False})
+        assert not ask_capable(rendered, [APPROVAL_HOOK], "execute_file")
+
+    def test_a_skip_policy_is_not_ask_capable(self) -> None:
+        rendered = _rendered(approval=_approval(pyaml_measure="skip"))
+        assert not ask_capable(rendered, [APPROVAL_HOOK], "pyaml_measure")
+
+
+class TestGuardedToolPolicies:
+    """A guarded tool skips approval only when single writes skip it too."""
+
+    def test_prompting_guarded_tools_pass(self) -> None:
+        check_guarded_tool_policies(_rendered(approval=_approval(execute="selective")))
+
+    def test_a_skipped_guarded_tool_stops_naming_both_keys(self) -> None:
+        rendered = _rendered(approval=_approval(pyaml_measure="skip"))
+        with pytest.raises(FacilityBuildError) as stop:
+            check_guarded_tool_policies(rendered)
+        assert stop.value.kind == "profile-invalid"
+        assert stop.value.record_id == "approval.tools.pyaml_measure"
+        assert "approval.tools.channel_write" in stop.value.format_message()
+
+    def test_a_skip_default_names_the_default(self) -> None:
+        rendered = _rendered(approval={**_approval(execute="selective"), "default_policy": "skip"})
+        with pytest.raises(FacilityBuildError) as stop:
+            check_guarded_tool_policies(rendered)
+        assert stop.value.record_id == "approval.default_policy"
+        assert "approval.tools.channel_write" in stop.value.format_message()
+
+    def test_skip_everywhere_passes(self) -> None:
+        rendered = _rendered(
+            approval=_approval(channel_write="skip", execute="skip", pyaml_measure="skip")
+        )
+        check_guarded_tool_policies(rendered)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
