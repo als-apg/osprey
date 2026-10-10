@@ -165,6 +165,7 @@ def _two_channel_scenario_measurement() -> dict[str, Any]:
             "faults": {},
             "logbook": [],
             "still": ["DEMO:TWO"],
+            "channel_faults": {"DEMO:ONE": "frozen"},
         }
     ]
     return document

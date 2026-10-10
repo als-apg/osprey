@@ -187,6 +187,7 @@ def test_scenario_record_shape(core: dict) -> None:
         "description",
         "overrides",
         "faults",
+        "channel_faults",
         "archiver",
         "logbook",
         "drivers",
@@ -196,8 +197,13 @@ def test_scenario_record_shape(core: dict) -> None:
     ]
     faults = scenario["faults"]
     assert faults["range"] == "Any" and not faults.get("multivalued")
-    for part in ("<model>", "<address or engine variable>", "`stuck`", "{<fault field>: <value>}"):
+    for part in ("<model>", "<address or engine variable>", "{<fault field>: <value>}"):
         assert part in faults["description"]
+    assert "stuck" not in faults["description"]
+    channel_faults = scenario["channel_faults"]
+    assert channel_faults["range"] == "Any" and not channel_faults.get("multivalued")
+    for word in ("stuck", "frozen", "disconnected"):
+        assert f"`{word}`" in channel_faults["description"]
 
 
 def test_measurement_block(core: dict) -> None:
