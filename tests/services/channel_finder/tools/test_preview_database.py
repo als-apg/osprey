@@ -418,6 +418,26 @@ class TestPreviewInContext:
         out = _text(console)
         assert "all" in out  # "(all N channels)" title
 
+    def test_a_row_named_by_its_address_prints_verbatim(self, tmp_path: Path):
+        """Colons and brackets in a row are data, never emoji codes or markup."""
+        data = {
+            "schema": CHANNEL_FINDER_SCHEMA,
+            "channels": [
+                {
+                    "channel": "SR:DIAG:BPM:01:POSITION:X",
+                    "address": "SR:DIAG:BPM:01:POSITION:X",
+                    "description": "Horizontal position [mm]",
+                },
+            ],
+        }
+        db = tmp_path / "in_context.json"
+        db.write_text(json.dumps(data, indent=2))
+        console = _capture_console()
+        preview_in_context(str(db), console=console)
+        out = _text(console)
+        assert "SR:DIAG:BPM:01:POSITION:X" in out
+        assert "Horizontal position [mm]" in out
+
 
 # ---------------------------------------------------------------------------
 # preview_database dispatch
