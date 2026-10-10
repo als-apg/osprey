@@ -13,6 +13,8 @@ These functions read a deck -- a lattice file pyAT loads with
 * :func:`build` builds the LUME model that serves the wiring;
 * :func:`response_matrix` steps wired correctors and returns the orbit
   response at the wired monitors;
+* :func:`polynomial_kicks` copies a deck so named kick elements carry their
+  kicks as dipole polynomials;
 * :func:`error_text` gives the one line a failed build or solve reports;
 * :func:`readout` turns solved monitor positions into what each monitor
   reports;
@@ -50,12 +52,15 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ElementStop",
+    "POLYNOMIAL_KICK_LENGTH_M",
+    "PolynomialKicks",
     "Prepared",
     "build",
     "error_text",
     "fault_variables",
     "describe",
     "locate",
+    "polynomial_kicks",
     "prepare",
     "readout",
     "response_matrix",
@@ -1055,6 +1060,158 @@ def response_matrix(
                 setattr(element, binding.attribute, saved if saved.ndim else float(saved))
         matrix[:, column] = (arms[0] - arms[1]) / width
     return [reading.name for reading in monitors], matrix
+
+
+#: The length a zero-length kick element is given in a polynomial-kick copy,
+#: taken from the drift beside it: the kick's centre moves by half of it.
+POLYNOMIAL_KICK_LENGTH_M = 1.0e-6
+
+#: The pass method of an element that applies its ``KickAngle`` and no polynomial.
+_KICK_PASS = "CorrectorPass"
+
+#: The pass method of a field-free drift.
+_DRIFT_PASS = "DriftPass"
+
+#: The attributes a kick element's polynomial replacement does not carry over.
+_KICK_ONLY_ATTRIBUTES = frozenset(
+    {"FamName", "Length", "PassMethod", "KickAngle", "PolynomA", "PolynomB", "MaxOrder"}
+)
+
+
+@dataclass(frozen=True)
+class PolynomialKicks:
+    """A copy of a deck whose kick elements carry their kicks as polynomials.
+
+    Attributes:
+        text: The copy as pyAT's JSON, two-space indented, without pyAT's
+            version key, ending in a newline.
+        refused: The named elements whose kick has no length to be carried
+            over, sorted; each is copied as the deck holds it.
+    """
+
+    text: str
+    refused: tuple[str, ...]
+
+
+def polynomial_kicks(deck: Deck, elements: Iterable[str]) -> PolynomialKicks:
+    """Copy a deck so each named element carries its kick as its dipole polynomials.
+
+    A reader that takes a corrector's strength as ``PolynomB[0]`` (horizontal,
+    the kick's negative) and ``PolynomA[0]`` (vertical) times the element's
+    length reads nothing off an element that kicks by ``KickAngle``. In the
+    copy each named element holding a ``KickAngle`` carries the same
+    integrated kick as polynomials, so stepping them moves the orbit the deck's
+    kick moves:
+
+    * an element that applies its kick alone becomes a multipole of the same
+      length with ``PolynomB = [-KickAngle[0] / L]`` and
+      ``PolynomA = [KickAngle[1] / L]``; one of zero length is given
+      :data:`POLYNOMIAL_KICK_LENGTH_M`, taken from the nearest drift past the
+      zero-length elements after it, else before it, so the copy's length and
+      the place of every element outside that span are the deck's;
+    * an element whose pass applies its polynomials and adds its kick to them
+      (``sin(KickAngle)`` over its length) has the kick folded into
+      ``PolynomB[0]`` and ``PolynomA[0]`` and its ``KickAngle`` zeroed.
+
+    A zero-length element with no such drift, or a zero-length element whose
+    pass applies polynomials, is refused. An element the deck does not hold,
+    or one holding no ``KickAngle``, is copied as it is. The deck's file is
+    never written to.
+
+    Args:
+        deck: The lattice file.
+        elements: The element names whose kick to carry as polynomials.
+
+    Returns:
+        The copy and the elements refused.
+    """
+    import numpy as np
+
+    lattice = _load(deck).lattice.deepcopy()
+    wanted = set(elements)
+    refused: set[str] = set()
+    for index in range(len(lattice)):
+        element = lattice[index]
+        name = str(element.FamName)
+        kick = getattr(element, "KickAngle", None)
+        if name not in wanted or kick is None:
+            continue
+        horizontal, vertical = (float(value) for value in np.ravel(kick)[:2])
+        length = float(element.Length)
+        if element.PassMethod != _KICK_PASS:
+            if length == 0.0:
+                refused.add(name)
+                continue
+            _fold_kick(element, horizontal, vertical, length)
+            continue
+        if length == 0.0:
+            donor = _drift_beside(lattice, index, POLYNOMIAL_KICK_LENGTH_M)
+            if donor is None:
+                refused.add(name)
+                continue
+            lattice[donor].Length = float(lattice[donor].Length) - POLYNOMIAL_KICK_LENGTH_M
+            length = POLYNOMIAL_KICK_LENGTH_M
+        lattice[index] = _polynomial_kick(element, horizontal, vertical, length)
+    return PolynomialKicks(text=_json_text(lattice), refused=tuple(sorted(refused)))
+
+
+def _polynomial_kick(element: Any, horizontal: float, vertical: float, length: float) -> Any:
+    """A multipole of ``length`` applying ``element``'s kick, its other attributes kept."""
+    import at
+
+    kept = {key: value for key, value in vars(element).items() if key not in _KICK_ONLY_ATTRIBUTES}
+    return at.Multipole(
+        element.FamName, length, [vertical / length], [-horizontal / length], **kept
+    )
+
+
+def _fold_kick(element: Any, horizontal: float, vertical: float, length: float) -> None:
+    """Move a multipole's ``KickAngle`` into its dipole polynomial terms, as its pass adds it."""
+    import numpy as np
+
+    for name, term in (
+        ("PolynomB", -math.sin(horizontal) / length),
+        ("PolynomA", math.sin(vertical) / length),
+    ):
+        polynomial = np.array(getattr(element, name, np.zeros(1)), dtype=float, copy=True)
+        if polynomial.size == 0:
+            polynomial = np.zeros(1)
+        polynomial[0] += term
+        setattr(element, name, polynomial)
+    element.KickAngle = np.zeros(2)
+
+
+def _drift_beside(lattice: Any, index: int, length: float) -> int | None:
+    """The nearest drift longer than ``length`` past the zero-length elements beside ``index``.
+
+    The elements after ``index`` are searched first, then those before it.
+    """
+    for step in (1, -1):
+        position = index + step
+        while 0 <= position < len(lattice) and float(lattice[position].Length) == 0.0:
+            position += step
+        if not 0 <= position < len(lattice):
+            continue
+        candidate = lattice[position]
+        if candidate.PassMethod == _DRIFT_PASS and float(candidate.Length) > length:
+            return position
+    return None
+
+
+def _json_text(lattice: Any) -> str:
+    """``lattice`` as pyAT's JSON without its version key, so equal decks give equal text."""
+    import contextlib
+    import io
+    import json
+
+    import at
+
+    rendered = io.StringIO()
+    with contextlib.redirect_stdout(rendered):
+        at.save_json(lattice)
+    document = json.loads(rendered.getvalue())
+    document.pop("at_version", None)
+    return json.dumps(document, indent=2) + "\n"
 
 
 def error_text(exc: BaseException) -> str:
