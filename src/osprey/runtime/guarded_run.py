@@ -744,7 +744,10 @@ def _rewrite_journal(path: Path, raw: bytes, pending: PendingJournal, keep: list
     *raw* is the file's content, whose first line is kept byte for byte; each
     kept address gets its journaled value from *pending*. Written to a
     temporary file in the same directory, synced, and renamed over the journal,
-    so a reader sees the old journal or the new one, never a mix.
+    so a reader sees the old journal or the new one, never a mix. The temporary
+    file is created here under a name nobody can predict and is never an
+    existing file or link: the directory is shared by every identity that runs
+    on the target.
     """
     header = raw.split(b"\n", 1)[0] + b"\n"
     records = b"".join(
@@ -753,15 +756,21 @@ def _rewrite_journal(path: Path, raw: bytes, pending: PendingJournal, keep: list
         )
         for a in keep
     )
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o664)
+    import tempfile
+
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        os.fchmod(fd, 0o664)
-        os.write(fd, header + records)
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    os.replace(temporary, path)
+        try:
+            os.fchmod(fd, 0o664)
+            os.write(fd, header + records)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(temporary, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)
+        raise
     from osprey.runtime.journal import _fsync_directory
 
     _fsync_directory(path.parent)
