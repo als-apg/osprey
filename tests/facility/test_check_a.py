@@ -89,8 +89,9 @@ def _row(values: Sequence[float]) -> tuple[int, ...]:
 class Wiring:
     """One model's wiring, read as the elements each ``DeviceList`` row of a family binds.
 
-    A family is the mapping's: its group of devices in the model, and the
-    engine words the model wires it through. An entry with exactly those words binds its
+    A family is the mapping's: the devices the import's row table records for
+    its export rows in the model, and the engine words the model wires it
+    through. An entry with exactly those words binds its
     element to the device its address sits on; an entry over slices binds each
     slice to the device the slice names, so a supply driving a whole string
     binds every device of the string to its own elements.
@@ -98,21 +99,24 @@ class Wiring:
 
     def __init__(self, built: BuiltModel) -> None:
         from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
+        from osprey.facility.layers.mml.rows import read_rows
 
         self.built = built
         self.mapping = read_mapping(built.facility / MAPPING_FILE)
         (self.model,) = [
             model for model in self.mapping.models.values() if model.name == built.name
         ]
-        self.groups = {
-            str(group["id"]): set(group.get("members", [])) for group in built.document["groups"]
+        table = {
+            family: rows
+            for (model, family), rows in read_rows(built.facility).items()
+            if model == built.name
         }
-        self.rows = {
-            str(device["id"]): _row(device["attributes"]["DeviceList"])
-            for device in built.document["devices"]
-            if device.get("model") == built.name
-            and "DeviceList" in (device.get("attributes") or {})
-        }
+        #: Each family's devices, keyed by the family's mapped token.
+        self.groups: dict[str, set[str]] = {}
+        for family, rows in table.items():
+            self.groups.setdefault(self.mapping.mapped(family), set()).update(rows.values())
+        #: Each device's export row.
+        self.rows = {device: row for rows in table.values() for row, device in rows.items()}
         self.on_device = {
             str(channel["id"]): (channel.get("on") or {}).get("device")
             for channel in built.document["channels"]

@@ -256,9 +256,11 @@ def _ltb_wired(
     """The wiring entry each ``DeviceList`` row of a family carries in ``direction``.
 
     A family's entries are those whose engine block is the one the mapping
-    wires the family through, on a device the family's group holds.
+    wires the family through, on a device the import's row table records for
+    one of the family's export rows.
     """
     from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
+    from osprey.facility.layers.mml.rows import read_rows
 
     mapping = read_mapping(built.facility / MAPPING_FILE)
     (model,) = [model for model in mapping.models.values() if model.name == built.name]
@@ -267,15 +269,9 @@ def _ltb_wired(
         engine_words: dict[str, Any] = {"axis": words.axis}
     else:
         engine_words = {"attribute": words.attribute, "index": int(words.index)}
-    (members,) = [
-        set(group.get("members", []))
-        for group in built.document["groups"]
-        if str(group["id"]) == mapping.mapped(family)
-    ]
     rows = {
-        str(device["id"]): _ltb_row(device["attributes"]["DeviceList"])
-        for device in built.document["devices"]
-        if device.get("model") == built.name and str(device["id"]) in members
+        device: _ltb_row(row)
+        for row, device in read_rows(built.facility).get((built.name, family), {}).items()
     }
     on_device = {
         str(channel["id"]): (channel.get("on") or {}).get("device")

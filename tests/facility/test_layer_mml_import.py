@@ -86,6 +86,7 @@ def test_writes_record_sources_never_a_view(spear3: Path) -> None:
         "groups.yaml",
         "mapping.yaml",
         "models.yaml",
+        "rows.json",
     ]
     assert sorted(p.name for p in (layer / "decks").iterdir()) == ["StorageRing.json"]
     files = [p.relative_to(spear3).as_posix() for p in layer.rglob("*") if p.is_file()]
@@ -101,15 +102,33 @@ def test_each_record_file_is_sorted_by_id(spear3: Path) -> None:
         assert len(ids) == len(set(ids))
 
 
-def test_devices_carry_device_list_and_element_list(spear3: Path) -> None:
+def test_devices_carry_their_common_name_as_label_and_no_attributes(spear3: Path) -> None:
     ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
     devices = _by_id(_rows(spear3, "devices.yaml"))
-    for name, row, element in zip(
-        ao["BPMx"]["CommonNames"], ao["BPMx"]["DeviceList"], ao["BPMx"]["ElementList"], strict=True
-    ):
+    for name in ao["BPMx"]["CommonNames"]:
         device = devices[f"StorageRing/{name}"]
         assert device["class"] == "BeamPositionMonitor"
-        assert device["attributes"] == {"DeviceList": row, "ElementList": element}
+        assert device["label"] == name
+    assert [d["id"] for d in devices.values() if "attributes" in d or "names" in d] == []
+
+
+def test_rows_json_maps_every_export_row_to_its_device(spear3: Path, tmp_path: Path) -> None:
+    from osprey.facility.layers.mml.rows import ROWS_FILE, ROWS_SCHEMA, read_rows
+
+    ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
+    raw = (spear3 / LAYER_DIR / ROWS_FILE).read_bytes()
+    document = json.loads(raw)
+    rows = document["rows"]
+    keys = [(row["model"], row["family"], row["device_list"]) for row in rows]
+
+    assert document["schema"] == ROWS_SCHEMA
+    assert keys == sorted(keys)
+    assert read_rows(spear3)["StorageRing", "BPMx"] == {
+        tuple(row): f"StorageRing/{name}"
+        for name, row in zip(ao["BPMx"]["CommonNames"], ao["BPMx"]["DeviceList"], strict=True)
+    }
+    again = _import(tmp_path, "spear3")
+    assert (again / LAYER_DIR / ROWS_FILE).read_bytes() == raw
 
 
 def test_each_family_is_a_group_of_its_devices(spear3: Path) -> None:

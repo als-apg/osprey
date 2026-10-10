@@ -20,11 +20,11 @@ import pytest
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
-from osprey.facility import response_check
 from osprey.facility.build import build_facility
+from osprey.facility.layers.mml import response_check
 from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
 from osprey.facility.layers.mml.mapping import MAPPING_FILE
-from osprey.facility.response_check import (
+from osprey.facility.layers.mml.response_check import (
     Block,
     Entry,
     LeftOut,
