@@ -45,8 +45,9 @@ one :data:`RESTORE_REPORT_TAG` line.
 ``execute`` and ``execute_file`` hold :func:`lock` over user code and never
 journal. :func:`journaled_run` adds the durable journal and is the only context
 in which :func:`osprey.runtime.journal.guarded_write` writes; it clears the
-journal on every exit it survives, so only a killed run leaves records. A
-readonly run raises before it takes the lock.
+journal on a clean exit and restores what it displaced when an exception
+escapes it, so only a killed run leaves records. A readonly run raises before
+it takes the lock.
 
 A journal is restored without forcing anything: each displaced address is
 written back through ``osprey.runtime.write_channel`` like any other write, so
@@ -920,6 +921,32 @@ def lock(target: str | None) -> Iterator[Path]:
         os.close(fd)
 
 
+def _restore_escaped(durable: DurableJournal, journal: Journal, exc: BaseException) -> None:
+    """Restore what a journaled run displaced before *exc* escaped it.
+
+    Prints the one :data:`RESTORE_REPORT_TAG` line and hangs the report on
+    *exc* as ``restore_report``. The durable journal is cleared when every
+    entry is back and otherwise rewritten to hold exactly the refused and
+    failed entries. Never raises: a restore that cannot finish its bookkeeping
+    leaves the durable journal as it is, for the next run to restore.
+    """
+    try:
+        report = _restore(journal, aborted=True)
+        _print_report(report)
+        with contextlib.suppress(AttributeError, TypeError):
+            exc.restore_report = report  # type: ignore[attr-defined]
+        left = _left_displaced(report)
+        if not left:
+            durable.clear()
+            return
+        raw = durable.path.read_bytes()
+        pending = parse_pending_journal(raw, durable.path)
+        if pending is not None:
+            _rewrite_journal(durable.path, raw, pending, left)
+    except Exception:  # the journal stays for the next run to restore
+        return
+
+
 @contextlib.contextmanager
 def journaled_run(target: str | None) -> Iterator[Journal]:
     """Hold *target*'s run lock with its durable journal open.
@@ -928,9 +955,13 @@ def journaled_run(target: str | None) -> Iterator[Journal]:
     writes. The lock is taken as :func:`lock` takes it, unless this context
     already holds it, and then the run goes on under it. The durable journal
     gets this run's header (target, generation, identity, pid, started) and one
-    fsync'd line per address before that address is first written; it is
-    cleared on every exit this process survives. A journaled run opened inside
-    another one on the same target runs under the outer one.
+    fsync'd line per address before that address is first written. A clean
+    exit clears it. When an exception escapes the run, every journaled address
+    is written back first, one :data:`RESTORE_REPORT_TAG` line is printed, the
+    report rides on the exception as ``restore_report``, and the journal is
+    cleared or, when entries stay displaced, rewritten to hold exactly those;
+    the exception then propagates. A journaled run opened inside another one on
+    the same target runs under the outer one.
 
     Args:
         target: The target the run is for, or ``None`` for the process's own
@@ -941,7 +972,7 @@ def journaled_run(target: str | None) -> Iterator[Journal]:
 
     Raises:
         RuntimeError: A journaled run on another target is open in this context.
-        Exception: Whatever :func:`lock` raises.
+        Exception: Whatever :func:`lock` raises, and whatever escapes the run.
     """
     name = guarded_run_target(target)
     open_run = _OPEN.get()
@@ -967,8 +998,15 @@ def journaled_run(target: str | None) -> Iterator[Journal]:
             pid=os.getpid(),
             started=_utc_now(),
         )
-        stack.callback(durable.clear)
-        journal = stack.enter_context(_journaled_level(Journal(sink=durable.record)))
-        token = _OPEN.set((name, journal))
-        stack.callback(_OPEN.reset, token)
-        yield journal
+        journal = Journal(sink=durable.record)
+        try:
+            with _journaled_level(journal):
+                token = _OPEN.set((name, journal))
+                try:
+                    yield journal
+                finally:
+                    _OPEN.reset(token)
+        except BaseException as exc:
+            _restore_escaped(durable, journal, exc)
+            raise
+        durable.clear()

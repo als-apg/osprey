@@ -33,12 +33,14 @@ from osprey.runtime.guarded_run import (
     OspreyJournalChanged,
     approval_asks,
     guarded_run_dir,
+    journaled_run,
     lock,
 )
 from osprey.runtime.journal import (
     OspreyRestoreIncomplete,
     OspreyStaleJournal,
     OspreyWriteRefused,
+    guarded_write,
     read_pending_journal,
 )
 from osprey_connectors.control_system.limits_validator import (
@@ -421,3 +423,54 @@ def test_a_rewritten_journal_restores_the_rest_on_the_next_approved_run(
 
     assert channels.values == {"Q": 0.0, "S": 4.0}
     assert path.read_bytes() == b""
+
+
+def test_an_exception_escaping_a_journaled_run_restores_and_clears(
+    channels: _Channels, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _journal_path()
+
+    with pytest.raises(ValueError, match="mid-run") as caught, journaled_run("live"):
+        guarded_write(["Q"], lambda: osprey.runtime.write_channel("Q", 9.0), lambda e: e)
+        raise ValueError("mid-run")
+
+    assert channels.values["Q"] == 3.0
+    assert path.read_bytes() == b""
+    (report,) = _reports(capsys.readouterr().err)
+    assert report["restored"] == ["Q"] and report["aborted"] is True
+    assert json.loads(caught.value.restore_report.to_json()) == report
+
+
+def test_an_exception_escaping_a_journaled_run_keeps_what_stayed_displaced(
+    channels: _Channels, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _journal_path()
+    original = channels.write_channel
+
+    with pytest.raises(KeyboardInterrupt), journaled_run("live"):
+        guarded_write(["Q"], lambda: osprey.runtime.write_channel("Q", 9.0), lambda e: e)
+        guarded_write(["S"], lambda: osprey.runtime.write_channel("S", 6.0), lambda e: e)
+
+        def refuse_q(address: str, value: Any, **kwargs: Any) -> None:
+            if address == "Q":
+                raise ChannelLimitsViolationError(address, value, "MAX_VALUE", "outside the band")
+            original(address, value, **kwargs)
+
+        monkeypatch.setattr(osprey.runtime, "write_channel", refuse_q)
+        raise KeyboardInterrupt
+
+    assert channels.values == {"Q": 9.0, "S": 5.0}
+    pending = read_pending_journal(path)
+    assert pending is not None
+    assert pending.values == {"Q": 3.0}
+
+
+def test_a_clean_journaled_run_clears_and_prints_no_report(
+    channels: _Channels, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with journaled_run("live"):
+        guarded_write(["Q"], lambda: osprey.runtime.write_channel("Q", 9.0), lambda e: e)
+
+    assert channels.values["Q"] == 9.0
+    assert _journal_path().read_bytes() == b""
+    assert _reports(capsys.readouterr().err) == []
