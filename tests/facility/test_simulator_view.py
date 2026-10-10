@@ -141,7 +141,7 @@ def test_render_writes_are_sorted_and_deterministic(
         ).read_bytes()
 
 
-def test_two_mock_personas_differing_only_in_the_key_render_different_lists(
+def test_two_in_process_personas_differing_only_in_the_key_render_different_lists(
     tmp_path: Path, built_control_assistant: BuiltProject
 ) -> None:
     from osprey.cli.build_profile_archiver import _expand_dotted
@@ -150,7 +150,9 @@ def test_two_mock_personas_differing_only_in_the_key_render_different_lists(
     repo = tmp_path / "repo"
     (repo / "data").mkdir(parents=True)
     (repo / "profile.yml").write_text(
-        "name: demo\ndata: data\nconfig:\n  control_system.type: mock\n  simulation.models: null\n"
+        "name: demo\ndata: data\nconfig:\n  control_system.type: virtual_accelerator\n"
+        "  control_system.connector.virtual_accelerator.serving: in_process\n"
+        "  simulation.models: null\n"
     )
     (repo / "personas").mkdir()
     for name, models in (("physics", "[SR]"), ("plain", "[texture]")):
@@ -162,7 +164,7 @@ def test_two_mock_personas_differing_only_in_the_key_render_different_lists(
     for name in ("physics", "plain"):
         document = load_profile_document(repo / "personas" / f"{name}.yml")
         config = _expand_dotted(document.profile.config)
-        assert config["control_system"]["type"] == "mock"
+        assert config["control_system"]["type"] == "virtual_accelerator"
         render_dir = _render(tmp_path, built_control_assistant, config, name)
         rendered[name] = (render_dir / SERVED).read_bytes()
 
@@ -481,9 +483,14 @@ def test_a_per_type_limits_block_decides_for_the_simulated_target(
 ) -> None:
     config = {
         "control_system": {
-            "type": "mock",
+            "type": "virtual_accelerator",
             "limits_checking": {"enabled": True, "mode": "optional"},
-            "connector": {"mock": {"limits_checking": {"enabled": True, "mode": "exclusive"}}},
+            "connector": {
+                "virtual_accelerator": {
+                    "serving": "in_process",
+                    "limits_checking": {"enabled": True, "mode": "exclusive"},
+                }
+            },
         }
     }
     render_dir = _render(tmp_path, built_control_assistant, config)

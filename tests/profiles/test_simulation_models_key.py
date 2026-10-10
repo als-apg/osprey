@@ -79,11 +79,20 @@ def test_every_preset_spells_the_key_as_null(preset: str) -> None:
     assert config["simulation"]["models"] is None
 
 
+#: The ``connector`` a test names to mean the simulator served in process.
+IN_PROCESS = "in_process"
+
+
 def _repo(tmp_path: Path, connector: str, personas: dict[str, str]) -> Path:
     (tmp_path / "data").mkdir()
+    control_system = (
+        "  control_system.type: virtual_accelerator\n"
+        "  control_system.connector.virtual_accelerator.serving: in_process\n"
+        if connector == IN_PROCESS
+        else f"  control_system.type: {connector}\n"
+    )
     (tmp_path / "profile.yml").write_text(
-        f"name: demo\ndata: data\nconfig:\n  control_system.type: {connector}\n"
-        "  simulation.models: null\n"
+        f"name: demo\ndata: data\nconfig:\n{control_system}  simulation.models: null\n"
     )
     (tmp_path / "personas").mkdir()
     for name, body in personas.items():
@@ -96,12 +105,12 @@ def _served_for(delta: Path, facility: dict[str, Any]) -> list[str]:
     return resolve_served(config, facility)
 
 
-def test_two_mock_personas_differing_only_in_the_key_resolve_different_lists(
+def test_two_in_process_personas_differing_only_in_the_key_resolve_different_lists(
     tmp_path: Path, demo: dict[str, Any]
 ) -> None:
     repo = _repo(
         tmp_path,
-        "mock",
+        IN_PROCESS,
         {
             "physics": "config:\n  simulation.models: [SR]\n",
             "plain": "config:\n  simulation.models: [texture]\n",
@@ -133,10 +142,12 @@ def test_a_persona_setting_the_key_on_a_va_baseline_stops(
 def test_a_persona_that_moves_itself_onto_a_va_baseline_stops(tmp_path: Path) -> None:
     repo = _repo(
         tmp_path,
-        "mock",
+        IN_PROCESS,
         {
             "reader": (
-                "config:\n  control_system.type: virtual_accelerator\n  simulation.models: [SR]\n"
+                "config:\n"
+                "  control_system.connector.virtual_accelerator.serving: served\n"
+                "  simulation.models: [SR]\n"
             )
         },
     )

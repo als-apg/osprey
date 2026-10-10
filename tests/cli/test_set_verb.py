@@ -278,7 +278,7 @@ def test_dotted_config_key_replaces_the_literal_entry(runner, lifecycle_repo):
     assert result.exit_code == 0, result.output
     after = _profile_text(lifecycle_repo)
     assert "control_system.type: epics" in after
-    assert "control_system.type: mock" not in after
+    assert "control_system.type: virtual_accelerator" not in after
     # The rest of the config: block is untouched — including the nested
     # web-terminals module a whole-subtree write would have flattened away.
     assert "claude_code.servers.health.enabled: true" in after
@@ -321,12 +321,18 @@ def test_build_config_is_never_touched(runner, lifecycle_repo):
     """Goal 6: the generated config.yml is not what `set` edits."""
     rendered = lifecycle_repo / "build" / "config.yml"
     rendered.parent.mkdir(parents=True, exist_ok=True)
-    rendered.write_text("control_system:\n  type: mock\n", encoding="utf-8")
+    rendered.write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+        encoding="utf-8",
+    )
 
     result = _invoke(runner, lifecycle_repo, "connector=epics")
 
     assert result.exit_code == 0, result.output
-    assert rendered.read_text(encoding="utf-8") == "control_system:\n  type: mock\n"
+    assert (
+        rendered.read_text(encoding="utf-8")
+        == "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
 
 
 # --- shorthand keys ---------------------------------------------------------
@@ -570,7 +576,7 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: in_context\n"
         "config:\n"
-        "  control_system.type: mock\n"
+        "  control_system.type: epics\n"
         "  archiver.type: mock_archiver\n"
         "  approval.enabled: true\n"
         "  approval.default_policy: always\n"
@@ -613,7 +619,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         # The refusal reaches the operator through the logger, and the Rich
         # handler wraps rendered lines — read the records, which carry the
         # message whole (the repo-wide CliRunner convention).
-        assert "mock" in caplog.text
+        assert "mock_archiver" in caplog.text
 
     def test_va_with_only_the_shipped_mock_archive_is_refused(self, runner, tmp_path, caplog):
         """The pairing is judged on the value, not on who typed it.
@@ -669,10 +675,16 @@ class TestASetPairingIsJudgedAtTheNextBuild:
 
         assert result.exit_code == 0, result.output
 
-    def test_mock_onto_the_mock_archiver_builds(self, runner, tmp_path):
-        """Mock-on-mock claims nothing is real, so nothing lies."""
+    def test_the_simulator_in_process_onto_the_mock_archiver_builds(self, runner, tmp_path):
+        """The simulator in process has no recorder, so its synthesized archive lies about nothing."""
         repo = _honesty_repo(tmp_path)
-        assert _invoke(runner, repo, "connector=mock").exit_code == 0
+        wrote = _invoke(
+            runner,
+            repo,
+            "connector=virtual_accelerator",
+            "config.control_system.connector.virtual_accelerator.serving=in_process",
+        )
+        assert wrote.exit_code == 0, wrote.output
 
         result = _build(runner, repo)
 

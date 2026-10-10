@@ -587,7 +587,7 @@ class ControlSystemContext:
         ``control_system:`` section does not name.
         """
         from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
-        from osprey.connectors.types import MOCK, MONGODB_ARCHIVER, resolve_control_system_type
+        from osprey.connectors.types import MONGODB_ARCHIVER, resolve_control_system_type
 
         pairing = pairing_in_rendered_config(self.config.raw)
         if not pairing.is_invented_history:
@@ -605,9 +605,9 @@ class ControlSystemContext:
             f"reads a store this deployment actually writes (a project built from the "
             f"control-assistant preset deploys one, and its type reads "
             f"{MONGODB_ARCHIVER!r}); or, if this deployment is meant to be a "
-            f"simulation nothing is real in, set the `type:` under `control_system:` "
-            f"to {MOCK!r} — a mock machine with a mock archive claims nothing it "
-            f"cannot back up."
+            f"simulation nothing is real in, serve the simulator in process "
+            f"(`control_system.connector.virtual_accelerator.serving: in_process`), "
+            f"whose synthesized archive claims nothing it cannot back up."
         )
 
     async def shutdown(self) -> None:
