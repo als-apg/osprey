@@ -284,15 +284,75 @@ class TestEngineeringUnit:
         con = duckdb.connect(out)
         try:
             rows = con.execute(
-                "SELECT device_index, sector, device, common_name "
+                "SELECT device_index, place, place_index, device, common_name "
                 "FROM device_map ORDER BY device_index"
             ).fetchall()
         finally:
             con.close()
-        assert rows == [(0, 1, 1, "BPM1"), (1, 1, 2, "BPM2")]
+        assert rows == [(0, None, 1, 1, "BPM1"), (1, None, 1, 2, "BPM2")]
+
+    def test_device_map_lists_each_device_s_place(self, mml_json: str, tmp_path: Path):
+        data = json.loads(Path(mml_json).read_text())
+        data["SR"]["BPM"]["setup"]["PlaceList"] = ["SR/A", None]
+        Path(mml_json).write_text(json.dumps(data))
+        out = str(tmp_path / "out.duckdb")
+        dimp.import_to_duckdb(mml_json, out)
+
+        con = duckdb.connect(out)
+        try:
+            rows = con.execute(
+                "SELECT place, place_index, device FROM device_map ORDER BY device_index"
+            ).fetchall()
+        finally:
+            con.close()
+        assert rows == [("SR/A", 1, 1), (None, 1, 2)]
 
 
 class TestIdempotency:
+    def test_reimport_replaces_a_device_map_of_another_column_set(
+        self, mml_json: str, tmp_path: Path
+    ):
+        out = str(tmp_path / "out.duckdb")
+        dimp.import_to_duckdb(mml_json, out)
+        con = duckdb.connect(out)
+        try:
+            con.execute("DROP TABLE device_map")
+            con.execute(
+                "CREATE TABLE device_map (system TEXT NOT NULL, family TEXT NOT NULL, "
+                "device_index INTEGER NOT NULL, sector INTEGER, device INTEGER, "
+                "common_name TEXT DEFAULT '', PRIMARY KEY (system, family, device_index))"
+            )
+            con.execute("INSERT INTO device_map VALUES ('SR', 'BPM', 0, 1, 1, 'BPM1')")
+            con.execute(
+                "INSERT INTO channels (channel_name, system, family, source) "
+                "VALUES ('SR01:RUNTIME:1', 'SR', 'BPM', 'runtime')"
+            )
+        finally:
+            con.close()
+
+        dimp.import_to_duckdb(mml_json, out)
+
+        con = duckdb.connect(out)
+        try:
+            columns = [row[0] for row in con.execute("DESCRIBE device_map").fetchall()]
+            rows = con.execute("SELECT count(*) FROM device_map").fetchone()
+            (runtime_count,) = con.execute(
+                "SELECT COUNT(*) FROM channels WHERE source = 'runtime'"
+            ).fetchone()
+        finally:
+            con.close()
+        assert columns == [
+            "system",
+            "family",
+            "device_index",
+            "place",
+            "place_index",
+            "device",
+            "common_name",
+        ]
+        assert rows == (2,)
+        assert runtime_count == 1
+
     def test_reimport_preserves_runtime_rows(self, mml_json: str, tmp_path: Path):
         out = str(tmp_path / "out.duckdb")
         dimp.import_to_duckdb(mml_json, out)

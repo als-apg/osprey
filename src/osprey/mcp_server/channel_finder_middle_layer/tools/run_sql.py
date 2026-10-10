@@ -43,7 +43,10 @@ def run_sql(sql: str) -> str:
     Columns: system, name, description.  PK: (system, name).
 
     **device_map** — Physical device layout.
-    Columns: system, family, device_index, sector, device, common_name.
+    Columns: system, family, device_index, place, place_index, device,
+    common_name. place_index numbers a device's place among its sibling
+    places (0: none); place is the place id, NULL when the database states
+    none.
 
     **Full-text search** is available on channels. Example:
         SELECT channel_name, description,

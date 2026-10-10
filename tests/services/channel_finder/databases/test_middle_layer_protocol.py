@@ -3,7 +3,8 @@
 ``ChannelNames`` lists Channel Access names (protocol ``ca``) and
 ``TangoNames`` lists Tango device attributes (protocol ``tango``). The channel
 map records which, ``inspect_fields`` labels a field by the key it carries, and
-``list_channel_names`` answers either key on request.
+``list_channel_names`` answers either key on request, and narrows either by
+place and device ordinal.
 """
 
 from __future__ import annotations
@@ -186,3 +187,93 @@ class TestListChannelNamesProtocol:
         """A seventh positional argument does not bind ``protocol``."""
         with pytest.raises(TypeError):
             dual.list_channel_names("RING", "KICK", "Voltage", None, None, None, "tango")
+
+
+PLACED = {
+    "R": {
+        "Q": {
+            "Current": {"ChannelNames": ["Q1:I", "Q2:I", "Q3:I", "Q4:I"]},
+            "setup": {
+                "CommonNames": ["Q1", "Q2", "Q3", "Q4"],
+                "DeviceList": [[0, 1], [1, 1], [1, 2], [0, 2]],
+                "PlaceList": ["R", "R/A", "R/A", "R"],
+            },
+        },
+        "K": {
+            "Current": {"ChannelNames": ["K1:I", "K2:I", "K3:I"]},
+            "setup": {"DeviceList": [[1, 1], [2, 1], [1, 2]]},
+        },
+    }
+}
+
+
+@pytest.fixture
+def placed(tmp_path):
+    return MiddleLayerDatabase(str(_write(tmp_path, PLACED)))
+
+
+class TestPlaceFilter:
+    """``place`` narrows a field to a place and everything below it."""
+
+    def test_a_place_id_selects_its_own_devices(self, placed):
+        assert placed.list_channel_names("R", "Q", "Current", place="R/A") == ["Q2:I", "Q3:I"]
+
+    def test_a_place_selects_every_place_below_it(self, placed):
+        assert placed.list_channel_names("R", "Q", "Current", place="R") == [
+            "Q1:I",
+            "Q2:I",
+            "Q3:I",
+            "Q4:I",
+        ]
+
+    def test_a_place_id_is_not_a_text_prefix(self, tmp_path):
+        body = json.loads(json.dumps(PLACED))
+        body["R"]["Q"]["setup"]["PlaceList"] = ["R/A1", "R/A", "R/A/G", "R/A10"]
+        database = MiddleLayerDatabase(str(_write(tmp_path, body)))
+
+        assert database.list_channel_names("R", "Q", "Current", place="R/A") == ["Q2:I", "Q3:I"]
+
+    def test_a_device_ordinal_spans_places(self, placed):
+        assert placed.list_channel_names("R", "Q", "Current", devices=[2]) == ["Q3:I", "Q4:I"]
+
+    def test_place_and_ordinal_narrow_together(self, placed):
+        assert placed.list_channel_names("R", "Q", "Current", place="R/A", devices=[2]) == ["Q3:I"]
+
+    def test_a_place_no_device_sits_in_is_refused(self, placed):
+        with pytest.raises(ValueError, match="place: R/Z"):
+            placed.list_channel_names("R", "Q", "Current", place="R/Z")
+
+    def test_a_placed_family_does_not_take_a_bare_index(self, placed):
+        with pytest.raises(ValueError, match="place: 1"):
+            placed.list_channel_names("R", "Q", "Current", place="1")
+
+    def test_a_family_with_no_place_list_takes_the_bare_index(self, placed):
+        assert placed.list_channel_names("R", "K", "Current", place="1") == ["K1:I", "K3:I"]
+
+    def test_a_place_list_of_another_length_is_refused(self, tmp_path):
+        body = json.loads(json.dumps(PLACED))
+        body["R"]["Q"]["setup"]["PlaceList"] = ["R"]
+        database = MiddleLayerDatabase(str(_write(tmp_path, body)))
+
+        with pytest.raises(ValueError, match="PlaceList length"):
+            database.list_channel_names("R", "Q", "Current", place="R")
+
+
+class TestDeviceInfo:
+    """``get_device_info`` hands the explorer a family's rows and places."""
+
+    def test_a_placed_family_lists_its_places(self, placed):
+        assert placed.get_device_info("R", "Q") == {
+            "common_names": ["Q1", "Q2", "Q3", "Q4"],
+            "device_list": [[0, 1], [1, 1], [1, 2], [0, 2]],
+            "place_list": ["R", "R/A", "R/A", "R"],
+            "total_devices": 4,
+        }
+
+    def test_a_family_with_no_place_list_has_none(self, placed):
+        assert placed.get_device_info("R", "K") == {
+            "common_names": None,
+            "device_list": [[1, 1], [2, 1], [1, 2]],
+            "place_list": None,
+            "total_devices": 3,
+        }

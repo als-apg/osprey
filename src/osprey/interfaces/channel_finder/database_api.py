@@ -1121,7 +1121,7 @@ async def explore_channels(
     family: str,
     field: str,
     subfield: str | None = None,
-    sectors: str | None = None,
+    place: str | None = None,
     devices: str | None = None,
     protocol: Literal["ca", "tango"] | None = None,
 ):
@@ -1133,26 +1133,26 @@ async def explore_channels(
         family: Family name.
         field: Field name (e.g., "Monitor", "Setpoint").
         subfield: Optional subfield name.
-        sectors: Optional JSON-encoded list of sector numbers.
-        devices: Optional JSON-encoded list of device numbers.
+        place: Optional place id or path prefix: that place and every place
+            below it.
+        devices: Optional JSON-encoded list of device ordinals.
         protocol: Optional channel protocol, ``ca`` or ``tango``. Absent, the
             field's first listed names are returned.
     """
     db = _get_middle_layer_database(request)
 
     try:
-        parsed_sectors = json.loads(sectors) if sectors else None
         parsed_devices = json.loads(devices) if devices else None
         extra = {} if protocol is None else {"protocol": protocol}
         channels = db.list_channel_names(
-            system, family, field, subfield, parsed_sectors, parsed_devices, **extra
+            system, family, field, subfield, place, parsed_devices, **extra
         )
         return {"channels": channels, "total": len(channels)}
 
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=422,
-            detail=f"Invalid JSON in sectors or devices parameter: {exc}",
+            detail=f"Invalid JSON in devices parameter: {exc}",
         ) from exc
     except Exception as exc:
         logger.exception("Failed to list channels")
