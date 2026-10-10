@@ -138,6 +138,38 @@ def raw_client_write_message(address: str) -> str:
     )
 
 
+class ClientLibraryRefusedError(RuntimeError):
+    """Raised when a process that may hold no control-system client loads one.
+
+    reason is "RAW_CLIENT_IMPORT": user code imported a control-system client
+    package, or loaded a client shared library, in a process whose only route
+    to the machine is ``osprey.runtime``. Nothing was loaded and no channel was
+    touched. ``package`` names the refused top-level package and ``library``
+    the refused shared library; one of the two is set.
+
+    A ``RuntimeError`` rather than an ``ImportError``: code that treats a
+    missing optional client as absent (``except ImportError``) must not read a
+    refusal as "not installed" and carry on down another route.
+    """
+
+    #: Shared substring of every client refusal message.
+    MARKER = "control-system client refused"
+
+    def __init__(self, *, package: str | None = None, library: str | None = None):
+        self.package = package
+        self.library = library
+        self.reason = "RAW_CLIENT_IMPORT"
+        if library is not None:
+            what = f"loading '{library}' refused: it is a control-system client library"
+        else:
+            what = f"'{package}' is not loaded in a notebook kernel"
+        super().__init__(
+            f"{self.MARKER}: {what}. A kernel reaches the machine only through "
+            "osprey.runtime, which follows the control target: read_channel(address), "
+            "write_channel(address, value), write_channels({address: value, ...})."
+        )
+
+
 class ChannelWriteFailedError(Exception):
     """Raised when a channel write was attempted but was not confirmed.
 
