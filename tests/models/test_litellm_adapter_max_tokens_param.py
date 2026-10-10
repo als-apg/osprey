@@ -171,7 +171,10 @@ TEMPERATURE_ROUTES = [
     ("openai", "gpt-7-nova", "https://api.openai.com/v1", False),
     ("anthropic", "claude-haiku-4-5-20251001", None, True),
     ("google", "gemini-2.5-flash", None, True),
-    ("als-apg", "claude-haiku-4-5-20251001", GATEWAY_URL, True),
+    ("als-apg", "claude-haiku-4-5-20251001", GATEWAY_URL, False),
+    ("als-apg", "claude-haiku-5-5", GATEWAY_URL, False),
+    ("als-apg", "claude-sonnet-5", GATEWAY_URL, False),
+    ("als-apg", "claude-opus-5-5", GATEWAY_URL, False),
     ("cborg", "gpt-6-astra", GATEWAY_URL, True),
     ("vllm", "m", "http://localhost:8000/v1", True),
 ]
@@ -179,7 +182,8 @@ TEMPERATURE_ROUTES = [
 
 class TestTheTemperatureIsSentOnlyWhereTheEndpointTakesIt:
     """The adapter decides per model: OpenAI's reasoning models refuse every temperature
-    but their default, its chat models take the caller's."""
+    but their default, its chat models take the caller's. The ALS-APG gateway's Claude 5
+    models refuse every temperature but 1, so no request to it carries one."""
 
     @pytest.mark.parametrize(
         ("provider", "model_id", "base_url", "sent"),

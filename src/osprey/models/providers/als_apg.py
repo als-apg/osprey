@@ -64,4 +64,20 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     # so structured-output support is auto-detected via litellm.supports_response_schema()
     # on the resolved openai/<model> id, which is what the proxy actually serves.
 
+    @classmethod
+    def accepts_temperature(cls, model_id: str) -> bool:
+        """Whether a request for *model_id* carries the caller's temperature.
+
+        The gateway's Claude 5 models refuse every temperature but 1, and the
+        gateway may front a new model before this adapter knows its rules, so
+        no request to it carries one and every model samples at its default.
+
+        Args:
+            model_id: The bare model identifier the gateway serves.
+
+        Returns:
+            False for every model.
+        """
+        return False
+
     # execute_completion / check_health inherited from LiteLLMDelegatingProvider.
