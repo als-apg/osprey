@@ -342,8 +342,8 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
     return pairs[:count]
 
 
-def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, str, str]:
-    """Derive the ``(model, setpoint, readback)`` P5 faults from the repo's own
+def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, str]:
+    """Derive the ``(setpoint, readback)`` P5 faults from the repo's own
     facility tree -- no hardcoded preset channel.
 
     A candidate is a corrector setpoint of a physics model whose paired readback
@@ -379,17 +379,16 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
                 and "min_value" in entry
                 and "max_value" in entry
             ):
-                candidates.append((setpoint, str(model["name"]), readback_of[setpoint]))
+                candidates.append((setpoint, readback_of[setpoint]))
     if not candidates:
         raise AssertionError(
             "the deployed project's facility tree has no limited corrector setpoint whose "
             "paired readback its physics model wires"
         )
-    setpoint, model_name, readback = sorted(candidates)[0]
-    return model_name, setpoint, readback
+    return sorted(candidates)[0]
 
 
-def _author_stuck_scenario(repo: Path, model: str, setpoint: str) -> None:
+def _author_stuck_scenario(repo: Path, setpoint: str) -> None:
     """Write the scenario that holds ``setpoint`` stuck into the repo's tree.
 
     The suite's own throwaway tree, written before the build so the render
@@ -397,7 +396,7 @@ def _author_stuck_scenario(repo: Path, model: str, setpoint: str) -> None:
     """
     scenario = {
         "description": "One corrector setpoint takes writes and forwards none to the model.",
-        "faults": {model: {setpoint: "stuck"}},
+        "channel_faults": {setpoint: "stuck"},
     }
     path = repo / "data" / "facility" / "scenarios" / f"{P5_STUCK_SCENARIO}.yaml"
     path.write_text(yaml.safe_dump(scenario, sort_keys=False), encoding="utf-8")
@@ -543,8 +542,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     sp3, sp4 = _select_sp_echo_pairs(repo, count=2)
     _author_sp_echo_records(repo, [sp3[0], sp4[0]])
     limits = _orm_stack.channel_limits(repo)
-    p5_model, p5_sp, p5_rb = _select_stuck_corrector(repo, limits)
-    _author_stuck_scenario(repo, p5_model, p5_sp)
+    p5_sp, p5_rb = _select_stuck_corrector(repo, limits)
+    _author_stuck_scenario(repo, p5_sp)
     pairs = {"p3": sp3, "p4": sp4, "p5": (p5_sp, p5_rb)}
 
     build = _run(

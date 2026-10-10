@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import os
 import subprocess
 import sys
@@ -256,6 +257,62 @@ class TestVAInProcessConnector:
         assert reading.value == 2
         assert reading.metadata.enum_label == "PULSED"
         assert reading.metadata.enum_labels == ["OFF", "CW", "PULSED"]
+
+        await connector.disconnect()
+
+    @staticmethod
+    def _fault(view, channel_faults):
+        """Activate one scenario holding ``channel_faults`` on the rendered ``view``."""
+        from osprey.connectors.control_system.va_in_process_connector import (
+            simulation_state_dir,
+        )
+
+        scenarios = json.loads((view / "scenarios.json").read_text(encoding="utf-8"))
+        scenarios["scenarios"] = [{"name": "cut", "channel_faults": channel_faults}]
+        (view / "scenarios.json").write_text(json.dumps(scenarios), encoding="utf-8")
+        state = simulation_state_dir(view)
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "active_scenarios").write_text("cut\n", encoding="utf-8")
+
+    @pytest.mark.asyncio
+    async def test_a_write_to_a_stuck_texture_setpoint_confirms(self, tmp_path, monkeypatch):
+        """A held write confirms on the setpoint, and its readback does not follow."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
+        self._fault(view, {"MAGNET:CURRENT:SP": "stuck"})
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
+
+        result = await connector.write_channel("MAGNET:CURRENT:SP", 7.0)
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert (await connector.read_channel("MAGNET:CURRENT:SP")).value == pytest.approx(7.0)
+        assert (await connector.read_channel("MAGNET:CURRENT:RB")).value == pytest.approx(0.0)
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_a_disconnected_reading_carries_the_udf_alarm(self, tmp_path):
+        """A disconnected float reading reads not-a-number with the UDF alarm."""
+        view = served_tree(
+            tmp_path,
+            readings=["BEAM:CUT", "BEAM:LIVE"],
+            channels={
+                "BEAM:CUT": {"simulation": {"nominal": 1.0}},
+                "BEAM:LIVE": {"simulation": {"nominal": 2.0}},
+            },
+        )
+        self._fault(view, {"BEAM:CUT": "disconnected"})
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
+
+        cut = await connector.read_channel("BEAM:CUT")
+        live = await connector.read_channel("BEAM:LIVE")
+
+        assert math.isnan(cut.value)
+        assert (cut.metadata.alarm_severity, cut.metadata.alarm_status) == (3, "UDF")
+        assert live.value == pytest.approx(2.0)
+        assert live.metadata.alarm_severity is None
 
         await connector.disconnect()
 

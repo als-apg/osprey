@@ -29,8 +29,18 @@ waveform as an array of the variable's dtype and shape.
 ``value_type``, then sets the physics children in name order and the texture
 last. When any child refuses, every earlier child gets its previous inputs back
 and the refusal is raised as a ``ValueError`` carrying the child's text. A
-setpoint the active scenarios mark ``stuck`` accepts a write, reads the value
-written, and forwards none of it; its readback shows the model where it was.
+setpoint the active scenarios hold (``stuck`` or ``disconnected`` in
+``channel_faults``) accepts a write, reads the value written, and forwards none
+of it; its readback shows the model where it was.
+
+**Channel faults.** A ``frozen`` reading reads the value it served when its
+scenario became active. A ``disconnected`` reading reads not-a-number when it
+is a float, else the value it served when its scenario became active; a
+disconnected setpoint's readback is that reading, and a setpoint that is its
+own readback reads its demand. :meth:`Composite.output_severity` names every
+disconnected reading with the ``udf`` condition. A channel fault acts on live
+reads, writes and severity only; :meth:`Composite.readings` serves history
+without it.
 
 **A failed child.** A child whose engine raises while it is built or read is
 failed, with the engine's error text as its status (``ok`` otherwise), capped
@@ -76,6 +86,7 @@ from lume.variables import NDVariable, StrVariable, Variable
 from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
+from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     composed_set,
@@ -100,7 +111,6 @@ __all__ = [
     "LOG_RECORD_MAX_BYTES",
     "STATUS_MAX_BYTES",
     "STATUS_OK",
-    "STUCK",
     "UDF",
     "Composite",
     "cap_status",
@@ -123,9 +133,6 @@ STATUS_MAX_BYTES = 1023
 
 #: Every model log record, newline included, is shorter than this many bytes.
 LOG_RECORD_MAX_BYTES = 4096
-
-#: The fault value that makes a setpoint accept writes without forwarding them.
-STUCK = "stuck"
 
 #: The condition :meth:`Composite.output_severity` names for a failed child's channel.
 UDF = "udf"
@@ -210,7 +217,6 @@ class _Child:
     model: LUMEModel | None = None
     status: str = STATUS_OK
     active: dict[str, Any] = field(default_factory=dict)
-    stuck: frozenset[str] = frozenset()
     inputs: dict[str, Any] = field(default_factory=dict)
     last_good: dict[str, Any] = field(default_factory=dict)
     starts: dict[str, Any] = field(default_factory=dict)
@@ -262,6 +268,11 @@ class Composite(LUMEModel):
         )
         self._active: list[str] = []
         self._moving: frozenset[str] = frozenset()
+        self._held_writes: frozenset[str] = frozenset()
+        self._faulted: dict[str, ChannelFault] = {}
+        self._fault_severity: dict[str, str] = {}
+        self._snapshot: dict[str, Any] = {}
+        self._texture_demands: dict[str, Any] = {}
 
         variables = view.document(VARIABLES_FILE)
         self._scenarios: dict[str, Mapping[str, Any]] = {
@@ -443,6 +454,7 @@ class Composite(LUMEModel):
         noise: dict[str, Mapping[str, Any]] = {}
         still: set[str] = set()
         still_all = False
+        channel_faults: dict[str, str] = {}
         for name in active:
             scenario = self._scenarios.get(name, {})
             overrides.update(scenario.get("overrides") or {})
@@ -458,6 +470,7 @@ class Composite(LUMEModel):
                 still_all = True
             elif stilled and not isinstance(stilled, str):
                 still.update(str(address) for address in stilled)
+            channel_faults.update(scenario.get("channel_faults") or {})
 
         resolved: dict[str, list[Mapping[str, Any]]] = {}
         for address, terms in couple.items():
@@ -485,30 +498,69 @@ class Composite(LUMEModel):
         )
 
         for child in self._children.values():
-            child.active, child.stuck = self._child_active(child, overrides, faults)
+            child.active = self._child_active(child, overrides, faults)
             child.last_good = {}
             self._build(child)
+        self._apply_channel_faults(channel_faults)
 
     def _child_active(
         self,
         child: _Child,
         overrides: Mapping[str, Any],
         faults: Mapping[str, Mapping[str, Any]],
-    ) -> tuple[dict[str, Any], frozenset[str]]:
-        """A child's active writes and fault seeds, and the setpoints it holds stuck."""
+    ) -> dict[str, Any]:
+        """A child's active writes and fault seeds."""
         active = {
             address: value for address, value in overrides.items() if address in child.setpoints
         }
-        stuck: set[str] = set()
         for key, value in (faults.get(child.name) or {}).items():
             if isinstance(value, Mapping):
                 for name, seed in value.items():
                     active[f"{key}{_FAULT_SEPARATOR}{name}"] = seed
-            elif value == STUCK:
-                stuck.add(str(key))
             else:
                 active[str(key)] = value
-        return dict(sorted(active.items())), frozenset(stuck)
+        return dict(sorted(active.items()))
+
+    def _apply_channel_faults(self, channel_faults: Mapping[str, str]) -> None:
+        """Hold the active channel faults and the values their readings served at activation.
+
+        A setpoint whose fault holds writes joins the held-write set; a
+        disconnected setpoint faults its readback, or, read back by itself,
+        reports the condition on itself. The snapshot is each faulted reading
+        as served, unfaulted, at this instant.
+        """
+        held: set[str] = set()
+        faulted: dict[str, ChannelFault] = {}
+        derived: dict[str, ChannelFault] = {}
+        severity: dict[str, str] = {}
+        for address, word in sorted(channel_faults.items()):
+            fault = CHANNEL_FAULTS.get(str(word))
+            channel = self._channels.get(str(address))
+            if fault is None or channel is None:
+                logger.warning(f"Ignoring channel fault {word!r} on {address!r}")
+                continue
+            if channel.get("role") != _SETPOINT:
+                faulted[str(address)] = fault
+                continue
+            if fault.write:
+                held.add(str(address))
+            pair = str(channel.get("pair") or address)
+            if fault.read is None:
+                continue
+            if pair != address and pair in self._channels:
+                derived[pair] = fault
+            elif fault.severity is not None:
+                severity[str(address)] = fault.severity
+        faulted = {**derived, **faulted}
+        severity.update(
+            {address: fault.severity for address, fault in faulted.items() if fault.severity}
+        )
+        self._held_writes = frozenset(held)
+        self._faulted = dict(sorted(faulted.items()))
+        self._fault_severity = severity
+        self._moving = self._moving - frozenset(faulted)
+        self._snapshot = self._served(list(self._faulted), float(self._clock()))
+        self._texture_demands = {}
 
     # -- the LUME contract ---------------------------------------------------
 
@@ -532,8 +584,9 @@ class Composite(LUMEModel):
         """The served channels whose motion can be non-zero under the active scenarios.
 
         The texture's own channels, and the physics readbacks the texture moves
-        on their level, each when no active scenario stills it and its seed
-        drift, a held coupling or a non-zero noise term moves it.
+        on their level, each when no active scenario stills, freezes or
+        disconnects it and its seed drift, a held coupling or a non-zero noise
+        term moves it.
         """
         self._refresh()
         return self._moving
@@ -582,7 +635,18 @@ class Composite(LUMEModel):
 
     def _get(self, names: list[str]) -> dict[str, Any]:
         self._refresh()
-        t_s = float(self._clock())
+        outputs = self._served(names, float(self._clock()))
+        outputs.update(self._held_demands(names))
+        for name in names:
+            fault = self._faulted.get(name)
+            if fault is not None and fault.read is not None:
+                outputs[name] = fault.read(
+                    channel_value_type(self._channels[name]), self._snapshot.get(name)
+                )
+        return {name: outputs[name] for name in names}
+
+    def _served(self, names: list[str], t_s: float) -> dict[str, Any]:
+        """The channels as served at ``t_s`` without the channel faults."""
         outputs, texture, physics = self._partition(names)
         if texture:
             outputs.update(
@@ -616,17 +680,25 @@ class Composite(LUMEModel):
         )
         for address in readbacks:
             truth[address] = float(moved[address][0])
-        truth.update(self._stuck_demands(child, names))
         return {name: truth[name] for name in names}
 
-    @staticmethod
-    def _stuck_demands(child: _Child, names: Sequence[str]) -> dict[str, Any]:
-        """The value last written to each of ``names`` the child holds stuck."""
-        return {
-            name: child.inputs[name]
-            for name in names
-            if name in child.stuck and name in child.inputs
-        }
+    def _held_demands(self, names: Sequence[str]) -> dict[str, Any]:
+        """The value last written to each of ``names`` the active scenarios hold.
+
+        A physics setpoint's demand is its child's input; a texture setpoint's
+        is the value the composite kept for it, absent until a write.
+        """
+        demands: dict[str, Any] = {}
+        for name in names:
+            if name not in self._held_writes:
+                continue
+            owner = self._owner[name]
+            if owner == TEXTURE_OWNER:
+                if name in self._texture_demands:
+                    demands[name] = self._texture_demands[name]
+            elif name in (inputs := self._children[owner].inputs):
+                demands[name] = inputs[name]
+        return demands
 
     def _moving_readbacks(
         self, child: _Child, levels: Mapping[str, np.ndarray], times: np.ndarray
@@ -766,8 +838,9 @@ class Composite(LUMEModel):
         """Each channel's held value: no motion, no readout, no clamp.
 
         A texture channel returns the value the texture holds; a physics
-        channel its child's plain read, a stuck setpoint the value last
-        written to it; a status address its status.
+        channel its child's plain read; a setpoint the active scenarios hold
+        the value last written to it; a faulted reading its unfaulted value;
+        a status address its status.
 
         Args:
             names: Channel or status addresses.
@@ -790,27 +863,29 @@ class Composite(LUMEModel):
                 outputs.update(self._failed_values(child, owned))
             else:
                 outputs.update(read)
-                outputs.update(self._stuck_demands(child, owned))
+        outputs.update(self._held_demands(wanted))
         return {name: outputs[name] for name in wanted}
 
     def output_severity(self, names: Sequence[str]) -> dict[str, dict[str, str]]:
-        """The condition of each named channel whose child failed.
+        """The condition of each named channel whose child failed or whose fault reports one.
 
         Args:
             names: Channel or status addresses.
 
         Returns:
             ``{name: {"condition": "udf"}}`` for each name a failed child
-            owns; a name of a serving child, of the texture or of a status
-            address is absent.
+            owns, else ``{name: {"condition": <condition>}}`` for each name
+            whose channel fault reports one; any other name is absent.
         """
         self._refresh()
-        return {
-            name: {"condition": UDF}
-            for name in names
-            if (child := self._children.get(self._owner.get(name, TEXTURE_OWNER))) is not None
-            and child.model is None
-        }
+        severities: dict[str, dict[str, str]] = {}
+        for name in names:
+            child = self._children.get(self._owner.get(name, TEXTURE_OWNER))
+            if child is not None and child.model is None:
+                severities[name] = {"condition": UDF}
+            elif name in self._fault_severity:
+                severities[name] = {"condition": self._fault_severity[name]}
+        return severities
 
     def status(self, model: str) -> str:
         """A served physics model's status: ``ok`` or its engine's capped error text.
@@ -862,16 +937,18 @@ class Composite(LUMEModel):
         for name, value in values_by_name.items():
             batches.setdefault(self._owner[name], {})[name] = value
         restores: list[Callable[[], None]] = []
+        texture = batches.get(TEXTURE_OWNER) or {}
+        demands = {name: value for name, value in texture.items() if name in self._held_writes}
         try:
             for model, child in self._children.items():
                 if model in batches:
                     restores.append(self._set_child(child, batches[model]))
-            texture = batches.get(TEXTURE_OWNER)
-            if texture:
+            forward = {name: value for name, value in texture.items() if name not in demands}
+            if forward:
                 self._texture.set(
                     {
                         name: _for_variable(self._texture.supported_variables[name], value)
-                        for name, value in texture.items()
+                        for name, value in forward.items()
                     }
                 )
         except Exception as exc:
@@ -880,14 +957,15 @@ class Composite(LUMEModel):
             if isinstance(exc, ValueError | ReadOnlyError):
                 raise
             raise ValueError(str(exc) or type(exc).__name__) from exc
+        self._texture_demands.update(demands)
 
     def _set_child(self, child: _Child, batch: Mapping[str, Any]) -> Callable[[], None]:
         """Write one child's batch; returns what puts its previous inputs back.
 
-        Every name of the batch lands in the child's inputs; only the names it
-        does not hold stuck reach the model.
+        Every name of the batch lands in the child's inputs; only the names the
+        active scenarios do not hold reach the model.
         """
-        forward = {name: value for name, value in batch.items() if name not in child.stuck}
+        forward = {name: value for name, value in batch.items() if name not in self._held_writes}
         previous = {name: child.inputs[name] for name in batch if name in child.inputs}
         model = child.model
         if model is not None and forward:
@@ -919,7 +997,9 @@ class Composite(LUMEModel):
         """Return every child to its start state; a failed child is rebuilt.
 
         Setpoints return to their active writes or defaults, the texture to its
-        nominals and active writes; session writes are dropped.
+        nominals and active writes; session writes are dropped, the ones a
+        channel fault holds among them. A faulted reading keeps the value it
+        served when its fault became active.
         """
         self._refresh()
         for child in self._children.values():
@@ -933,6 +1013,7 @@ class Composite(LUMEModel):
                 continue
             child.inputs = self._start_inputs(child)
         self._texture.reset()
+        self._texture_demands = {}
 
     # -- the children's own variables ----------------------------------------
 
