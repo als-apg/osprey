@@ -8,7 +8,8 @@ A stage runs only when every earlier stage is clean::
     S3 schema      the combined file against the generated model
     S4 references  every id a record names exists; device classes and
                    signal roles are known
-    S5 records     pair, value, limits and seed rules
+    S5 records     pair (stated, or derived by the build), value, limits
+                   and seed rules
     S6 compute     spans, places, wiring, engines          (later stages)
     S7 views       the views the profile asks for          (later stages)
 
@@ -960,6 +961,8 @@ def _provenance_defaults(record: Mapping[str, Any]) -> list[str]:
 def check_records(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     """Check the pair, value, limits and seed rules (stage S5).
 
+    The pair is the one a source states, or the one the build derived.
+
     Runs only on a file whose references resolve. The stops are
     ``pair-invalid``, ``value-invalid``, ``limit-invalid`` and ``seed-invalid``
     (all but the nominal band, which needs the computed operating point).
@@ -1314,7 +1317,11 @@ class _Records:
                 address,
                 files,
                 f"`pair` names {target_role} channel {pair}",
-                "name a readback, or remove `pair` to pair the setpoint with itself",
+                _pair_remedy(
+                    address,
+                    channel,
+                    "name a readback, or remove `pair` to pair the setpoint with itself",
+                ),
             )
             return
         differing = [
@@ -1329,7 +1336,11 @@ class _Records:
                 address,
                 files,
                 f"setpoint and pair {pair} differ in {quoted_slots(differing)}",
-                f"give {address} and {pair} the same {quoted_slots(differing)}",
+                _pair_remedy(
+                    address,
+                    channel,
+                    f"give {address} and {pair} the same {quoted_slots(differing)}",
+                ),
             )
             return
         own = self.index.wired.get(address, set())
@@ -1342,7 +1353,7 @@ class _Records:
                 files,
                 f"model {', '.join(sorted(own))} wires the setpoint and model "
                 f"{', '.join(sorted(theirs))} its pair {pair}",
-                "wire the setpoint and its pair in the same model",
+                _pair_remedy(address, channel, "wire the setpoint and its pair in the same model"),
             )
             return
         yield from self._paired_seed(address, pair)
@@ -1376,6 +1387,7 @@ class _Records:
                 setpoint,
                 theirs,
                 self._seed_files(self.index.channels[readback]),
+                derived=_derived_pair(self.index.channels[setpoint]),
             )
 
     # --- tolerance -----------------------------------------------------------------
@@ -1848,7 +1860,13 @@ def _locked(record: Mapping[str, Any]) -> bool:
 
 
 def paired_nominal_error(
-    readback: str, nominal: Any, setpoint: str, theirs: Any, files: Sequence[str]
+    readback: str,
+    nominal: Any,
+    setpoint: str,
+    theirs: Any,
+    files: Sequence[str],
+    *,
+    derived: bool = False,
 ) -> FacilityBuildError:
     """The stop for a paired readback whose ``nominal`` is not its setpoint's value.
 
@@ -1858,18 +1876,39 @@ def paired_nominal_error(
         setpoint: The address of the setpoint it pairs with.
         theirs: The setpoint's start value.
         files: The files that state the readback's seed.
+        derived: True when the build derived the pair, so the remedy also names
+            the explicit way out.
 
     Returns:
         A ``seed-invalid`` line naming the readback.
     """
+    remedy = f"remove `nominal` from {readback}; a paired readback starts at its setpoint's value"
+    if derived:
+        remedy += _UNPAIR.format(address=setpoint)
     return FacilityBuildError(
         "seed-invalid",
         readback,
         files,
-        f"remove `nominal` from {readback}; a paired readback starts at its setpoint's value",
+        remedy,
         record_kind="channel",
         detail=f"`nominal` {nominal} differs from its setpoint {setpoint}'s {theirs}",
     )
+
+
+#: The remedy's tail for a pair the build derived: the explicit way out.
+_UNPAIR = "; or state `pair: {address}` on {address} to leave it unpaired"
+
+
+def _derived_pair(channel: Mapping[str, Any]) -> bool:
+    """True when the build derived a setpoint's ``pair``."""
+    provenance = channel.get("provenance")
+    defaults = provenance.get("defaults", []) if isinstance(provenance, dict) else []
+    return "pair" in defaults
+
+
+def _pair_remedy(address: str, channel: Mapping[str, Any], remedy: str) -> str:
+    """A pair stop's remedy, naming the explicit way out when the pair is derived."""
+    return remedy + _UNPAIR.format(address=address) if _derived_pair(channel) else remedy
 
 
 def _single_pass(model: Mapping[str, Any]) -> bool:
