@@ -5,7 +5,7 @@ Osprey Framework Documentation
 
 The **Osprey Framework** is an agentic interface and harness for scientific facilities managing complex technical infrastructure, such as particle accelerators. It runs Claude Code as its agent and wraps it in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer. The model behind the agent is a configuration choice, and the code specific to Claude Code sits in :ref:`one adapter package <extending-agent-harness>`. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.
 
-Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, :doc:`protocol-agnostic integration with control stacks </how-to/control-systems/use-connectors>` (EPICS, DOOCS, TANGO, and Mock ship in-tree; LabVIEW and other stacks are supported via custom connectors), :doc:`logbook search <how-to/ariel/index>` across facility electronic logbooks, and mandatory human oversight for safety-critical operations.
+Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, :doc:`protocol-agnostic integration with control stacks </how-to/control-systems/use-connectors>` (EPICS, DOOCS, TANGO and the built-in simulator ship in-tree; LabVIEW and other stacks are supported via custom connectors), :doc:`logbook search <how-to/ariel/index>` across facility electronic logbooks, and mandatory human oversight for safety-critical operations.
 
 A short demo of the operator workstation:
 

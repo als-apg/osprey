@@ -8,7 +8,7 @@ operators think in terms of *devices and physics* — "the booster's defocusing
 quadrupole" — not PV strings; they need to search the electronic logbook, pull
 historical trends, and produce shift reports. This tutorial builds the
 **control-assistant** agent, which adds those capabilities on top of the same
-mock control system and the same safety model.
+simulator, now served from its container, and the same safety model.
 
 By the end you'll have an agent that finds channels from natural-language
 descriptions, searches a seeded operations logbook, plots archived data, and runs
@@ -29,7 +29,7 @@ control-room operator skills.
    **Recommended:**
 
    - Finish the :doc:`Hello World Tutorial <hello-world-tutorial>` first. This
-     tutorial assumes you already understand the mock connector, the safety
+     tutorial assumes you already understand the simulator in process, the safety
      limits system, and the human-approval flow, and it does **not** re-teach
      them.
 
