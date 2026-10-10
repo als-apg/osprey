@@ -181,9 +181,8 @@ simulator view. `DATA_ROOT` is a render's data root, `<project>/build/data`;
 the script refuses one without `simulator/served_models.json`. With no
 `DATA_ROOT` it renders the demo view from the packaged example facility,
 `src/osprey/templates/facilities/example`, the way `osprey build` does. Either
-way it serves a copy of the view with the declared motion removed from the two
-monitor readings it measures, so a served reading is the model's reading and
-nothing else. Before asserting anything it runs an identity handshake, so the
+way it serves a copy of the view under the `still` scenario, so a served
+reading is the model's reading and nothing else. Before asserting anything it runs an identity handshake, so the
 steps below measure its own container and not another one holding the port.
 Then it asserts eight steps:
 

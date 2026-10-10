@@ -17,11 +17,10 @@
 # assertions (steps 2, 3, 5, 6, 7) hold only for a view whose served models
 # include one wiring the channels named below.
 #
-# Either way the gate serves a COPY of the view with the declared motion
-# (drift and noise seeds) removed from the two monitor readings it measures.
+# Either way the gate serves a COPY of the view under the `still` scenario.
 # Steps 5 and 7 compare a served reading with the model's truth and with
-# itself, and a reading carrying motion moves between any two reads; with the
-# motion removed a served reading is the model's reading and nothing else.
+# itself, and a reading carrying motion moves between any two reads; under
+# `still` a served reading is the model's reading and nothing else.
 #
 # Before asserting anything, the gate proves it is measuring its OWN container:
 # every Channel Access step below runs from the host, and a host client is
@@ -259,14 +258,14 @@ fi
 # rendered the way `osprey build` renders it from the preset's facility file.
 echo "--- Staging the served view at ${SERVED_ROOT}/simulator ---"
 "${VENV_PY}" - "${DATA_ROOT}" "${PRESET_FACILITY}" "${SERVED_ROOT}/simulator" \
-    "${GATE_PV}" "${GATE_PV_2}" <<'PY'
+    "${SERVED_ROOT}/state" <<'PY'
 import json
 import shutil
 import sys
 from pathlib import Path
 
 source, facility, view = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
-measured = sys.argv[4:]
+state = Path(sys.argv[4])
 
 if source:
     shutil.copytree(Path(source) / "simulator", view)
@@ -295,18 +294,14 @@ else:
         ),
     )
 
-# The seed keys that move a reading on its own: slow drift and noise.
-seeds_path = view / "seeds.json"
-seeds = json.loads(seeds_path.read_text(encoding="utf-8"))
-stilled = []
-for address in measured:
-    seed = seeds["seeds"].get(address) or {}
-    if any([seed.pop("drift", None), seed.pop("noise", None)]):
-        stilled.append(address)
-seeds_path.write_text(json.dumps(seeds, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+scenarios = json.loads((view / "scenarios.json").read_text(encoding="utf-8"))["scenarios"]
+if "still" not in {scenario["name"] for scenario in scenarios}:
+    sys.exit("the view lists no `still` scenario: rebuild the render")
+state.mkdir(parents=True, exist_ok=True)
+(state / "active_scenarios").write_text("still\n", encoding="utf-8")
 served = json.loads((view / "served_models.json").read_text(encoding="utf-8"))["models"]
 print(f"  served models: {', '.join(served)}")
-print(f"  motion removed from: {', '.join(stilled) or 'nothing (none declared)'}")
+print("  active scenarios: still")
 PY
 
 # The credential the model RPC checks before a write, minted per run. It is a
@@ -331,6 +326,8 @@ echo "--- Starting ${CONTAINER} (data root: ${SERVED_ROOT}; VA_INSTANCE=${VA_INS
     -p "127.0.0.1:${CA_PORT}:${CA_PORT}/tcp" \
     -p "127.0.0.1:${PVA_PORT}:${PVA_PORT}/tcp" \
     -v "${SERVED_ROOT}:/data:ro" \
+    -v "${SERVED_ROOT}/state:/state/simulation:ro" \
+    -e VA_STATE_DIR=/state/simulation \
     "${IMAGE}" >/dev/null
 
 # What the container calls itself, which is the host half of the endpoint
@@ -744,7 +741,7 @@ echo "--- [5/8] The model RPC from the host: status, info, a refused write, an a
 #   - served and truth must AGREE before the accepted write and disagree by
 #     exactly the offset after it, so neither half can be satisfied by a
 #     divergence that was already there. Both are exact because the gate
-#     removed the declared motion from ${GATE_PV} when it staged the view.
+#     serves the view under the `still` scenario, so ${GATE_PV} has no motion.
 #
 # The fault to write is not named here. The view's own variables.json says
 # which model owns ${GATE_PV}, and that model declares the reading's offset as
