@@ -12,9 +12,13 @@ for a periodic model, the tune and chromaticity response matrices of its design
 optics. The lattice is the deck with each corrector the view drives carrying its
 kick as the dipole polynomials pyAML reads, so a corrector step in pyAML's design
 mode moves the orbit the served deck's kick moves; a zero-length corrector takes
-a micrometre from the drift beside it, and one with no drift beside it is left
-out of the view and named in a note. Magnets are named after their setpoint addresses, BPMs and
-arrays after their device and group ids. A served model without a view is named
+a micrometre from the drift beside it, else from the nearest thick element,
+whose integrated field strengths are kept. An engine that cannot carry the
+kicks as polynomials (no `polynomial_kicks()`) stops the build of a periodic
+model whose view drives correctors (`engine-invalid`). Magnets are named after
+their setpoint addresses, BPMs and arrays after their device and group ids; one
+group named as both `hcor` and `vcor` is two arrays, its name followed by `_h`
+and `_v`. A served model without a view is named
 in a note on stderr. `data/pyaml/` is written by the build only; a profile's
 `project/` mirror may not carry it.
 
@@ -24,10 +28,9 @@ and instrument `tune`; `crm` needs group `sext` and instruments `tune` and `rf`;
 `chromaticity_monitor` needs instruments `tune` and `rf`. A member the file does
 not name or the model does not wire, or any kind but `orm` on a `single_pass`
 model, stops the build (`reference-missing`); a step or settle key the kind's
-tool takes, missing, stops it (`value-invalid`), as does one group named as
-both `hcor` and `vcor`. Group `hcor` stands for the setpoints its model steers
-horizontally and `vcor` for those it steers vertically, so a corrector steered
-in both planes, a member of both groups, is split between them.
+tool takes, missing, stops it (`value-invalid`). Group `hcor` stands for the
+setpoints its model steers horizontally and `vcor` for those it steers
+vertically, so one group named for both planes is split into two plane arrays.
 
 `data/facility_facts.json` records each pyAML view the render wrote under
 `measurement_models` (the configuration's path and digest, and the digest of
