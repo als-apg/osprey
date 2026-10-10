@@ -150,7 +150,7 @@
   color: var(--text-muted);
 }
 
-/* The field itself is the focus surface (the terminal's convention): no ring,
+/* The field itself is the focus surface (the terminal's convention): no halo,
    no outline — the border goes accent. */
 .input:focus {
   border-color: var(--color-accent);
@@ -1328,9 +1328,9 @@ textarea.input {
   background-color: var(--color-accent-light);
 }
 
-/* The real control is the visually-hidden checkbox, so the accent focus ring
+/* The real control is the visually-hidden checkbox, so the accent focus outline
    base.css gives every other control has to be forwarded onto the track by
-   hand. :focus-visible, not :focus — a pointer click shouldn't ring it. */
+   hand. :focus-visible, not :focus — a pointer click shouldn't outline it. */
 .toggle-switch input:focus-visible + .toggle-slider {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;

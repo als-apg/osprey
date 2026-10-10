@@ -758,7 +758,7 @@ osprey-display-menu .display-menu-logout-icon {
    machine, success on a simulator; off is the neutral resting position (a
    toggle's off must read as resting, not as a warning). Locked keeps the
    switch on screen, disabled, with the reason on hover. While the turn-on
-   confirm is up the knob parks mid-track behind a dashed ring
+   confirm is up the knob parks mid-track behind a dashed outline
    (`data-pending`): a switch implies "now", and nothing has been applied
    yet. */
 .ctc-switchwrap {

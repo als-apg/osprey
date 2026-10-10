@@ -77,9 +77,9 @@ export function showSpinner(name) {
   if (plotEl.querySelector('.figure-spinner')) return;
   const spinner = document.createElement('div');
   spinner.className = 'figure-spinner';
-  const ring = document.createElement('div');
-  ring.className = 'spinner-ring';
-  spinner.appendChild(ring);
+  const arc = document.createElement('div');
+  arc.className = 'spinner-arc';
+  spinner.appendChild(arc);
   plotEl.appendChild(spinner);
 }
 

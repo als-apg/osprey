@@ -798,7 +798,7 @@ body.drag-active .figure-plot {
   z-index: 5;
 }
 
-.spinner-ring {
+.spinner-arc {
   width: 28px;
   height: 28px;
   border: 2px solid var(--border-default);
