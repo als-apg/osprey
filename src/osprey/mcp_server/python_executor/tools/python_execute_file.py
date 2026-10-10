@@ -22,6 +22,8 @@ async def execute_file(
     execution_mode: str = "readonly",
     script_args: list[str] | None = None,
     save_output: bool = True,
+    approved_journal_sha256: str | None = None,
+    approved_target: str | None = None,
 ) -> str:
     """Execute an existing Python file with the same safety pipeline as ``execute``.
 
@@ -42,6 +44,10 @@ async def execute_file(
         script_args: Optional command-line arguments for the script
                      (populates ``sys.argv[1:]``).
         save_output: If True, save the code and output to a workspace data file.
+        approved_journal_sha256: Set by the approval hook; a value you pass is
+                                 overwritten.
+        approved_target: Set by the approval hook; a value you pass is
+                         overwritten.
 
     Returns:
         JSON with a compact summary (truncated stdout/stderr) and a data file path.
@@ -140,6 +146,8 @@ async def execute_file(
         execution_mode=execution_mode,
         project_root=project_root,
         notify=notify_agent_activity_async,
+        approved_journal_sha256=approved_journal_sha256,
+        approved_target=approved_target,
     )
 
     # Build response using original code (not augmented) for metadata/notebook
