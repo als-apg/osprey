@@ -29,12 +29,15 @@ channel's ``label``, else its address:
 
    {
      "schema": "osprey.facility.channel_finder/1",
+     "count": 1,
      "channels": [
        {"channel": "TerminalVoltageReadBack",
         "address": "TerminalVoltageReadBack",
         "description": "Actual value of the terminal potential"}
      ]
    }
+
+``count`` is the number of rows.
 
 .. _channel-finder-db-hierarchical:
 
@@ -111,6 +114,14 @@ database can describe a facility that runs both. The ``list_channels`` tool
 takes a ``protocol`` argument to pick between them; without one it returns the
 ``ChannelNames`` list, and asking for a protocol the field does not carry is an
 error naming the keys it does.
+
+**The row count.** Every index ``osprey build`` writes states ``count`` beside
+``schema``: the rows of an in-context index, the leaves of a hierarchical
+tree, the distinct addresses listed under the fields of a middle-layer index
+(a channel of no family is not counted). ``osprey channel-finder benchmark``
+records it as the run's ``channel_count`` and refuses an index that does not
+state it; in graph mode the number is the store's channel count. A
+middle-layer System cannot be named ``schema`` or ``count``.
 
 .. _channel-finder-db-graph:
 
