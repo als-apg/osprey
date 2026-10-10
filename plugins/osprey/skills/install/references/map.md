@@ -63,13 +63,14 @@ under `## Porting map (locked)`, below the word `none`.
 MAP ends with three facts. Ask only for the ones the inventory did not yield, and say
 where each one came from when it did:
 
-- **Facility name**, for `facility.name`.
+- **Facility name**, written as `name:` in `data/facility/identity.yaml`.
 - **Timezone**, as an IANA name for `system.timezone`.
 - **Project name**, which becomes the repo directory, and which the web container
   names are built from.
 
 Only the last is an `osprey init` argument. `osprey init <project name>` takes no other
-fact; the other two are `osprey set` keys applied to the emitted profile afterwards.
+fact; only the timezone is an `osprey set` key, applied to the emitted profile
+afterwards.
 
 ## The feature checklist
 
@@ -89,10 +90,10 @@ The areas, and where each one's components are read from at run time:
 | Area | Source it consumes | Components, read from `control-assistant.yml` |
 | --- | --- | --- |
 | LOGBOOK | a facility logbook | `# ── ARIEL logbook search` and `# ── Logbook composition` key groups; `services.postgresql.*`; `ariel` in `web_panels`; agent `logbook-deep-research`; persona `logbook`; `data/ariel/vocabulary.yml` |
-| KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; persona `knowledge`; `data/facility/knowledge/`; a TTL corpus |
-| CHANNEL FINDER | a channel list, CSV, IOC database, or an MML export | `channel_finder_mode` (`in_context`, `hierarchical` and `middle_layer` read a channel database under `data/channel_databases/`, `graph` reads the graph store; an MML export emits for `middle_layer` and `graph` both), `tier`, `# ── Channel finder` group; agent `channel-finder` |
+| KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; persona `knowledge`; `data/facility/knowledge/`; the build's graph view |
+| CHANNEL FINDER | a channel list, CSV, IOC database, or an MML export | `channel_finder_mode` (`in_context`, `hierarchical` and `middle_layer` read the view the build writes under `data/channel_finder/`, `graph` reads the graph store; the build writes each from the facility file), `# ── Channel finder` group; agent `channel-finder` |
 | WEB TERMINALS | named operator roles | `# ── Web terminal` and `# ── Multi-user web terminals` groups (`modules.web_terminals`, `deploy.fqdn`, the floor keys); personas; the login wall |
-| SIMULATION | a simulator or lattice the facility runs | `virtual_accelerator:`, `bluesky:`, `bluesky_web:`, `va_archiver:` blocks; agent `pyat-specialist`; skills `bluesky-*`; `osprey sim apply` for scenarios; `lattice` panel; `data/simulation/lattice.json` and `data/simulation/va_bindings.json` (both emitted from an MML 2.0 export), `data/lattice/` |
+| SIMULATION | a simulator or lattice the facility runs | `virtual_accelerator:`, `bluesky:`, `bluesky_web:`, `va_archiver:` blocks; agent `pyat-specialist`; skills `bluesky-*`; `osprey sim apply` for scenarios; `lattice` panel; `data/facility/models.yaml`, `data/facility/decks/`, `data/facility/measurement/` and `data/facility/scenarios/` (written by `osprey facility import mml`, or authored) |
 | EVENT DISPATCH | a trigger source (facility events) | `dispatch:` block; `events` panel; `dispatch.triggers` |
 | TELEMETRY | nothing external | `services.openobserve.*`; `claude_code.telemetry.*` |
 | DEPLOYMENT | a CI platform and a deploy host | `deploy:` block; `osprey scaffold ci` |
@@ -257,12 +258,15 @@ reference example's own copy — never pull it.
   `example_server` entry under `mcp_servers:` in `profile.yml` and the
   `mcp_servers/example_server/` directory together. One without the other costs every
   session a 20 second wait for a server that cannot start.
-- **`data/facility/limits.yaml`**, written already populated with demo channels and
-  their `min_value` / `max_value` bounds. The build renders it into the limits
-  database, and the limits hook checks every write against that. `keep` is honest only
-  once the facility's own channels are the ones in the file, which they never are on a
-  fresh build; otherwise empty it to `records: []`, or replace its records with the
-  facility's own. A profile's own `channel_limits.json` stops the build. The states are
+- **`data/facility/limits.yaml`**, written already populated with three records for
+  the demo facility's channels: two setpoints with `min_value` / `max_value` bounds and
+  one channel marked `writable: false`. The build renders the records into the limits
+  database, `build/data/channel_limits.json`, and every write is checked against
+  that; a channel with no record follows `control_system.limits_checking.mode`
+  (`optional` on this base). `keep` is honest only once the facility's own channels
+  are the ones in the file, which they never are on a fresh build; otherwise empty it
+  to `records: []`, or replace its records with the facility's own. A profile's own
+  `channel_limits.json` stops the build. The states are
   `references/knowledge-starter.md` §5.
 
 ## Hand-off to the devil's advocate
