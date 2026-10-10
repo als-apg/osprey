@@ -794,6 +794,8 @@ async def run_gated_execution(
     project_root: Path | None = None,
     record_code: str | None = None,
     notify: Callable[..., Awaitable[Any]] | None = None,
+    approved_journal_sha256: str | None = None,
+    approved_target: str | None = None,
 ) -> tuple[ExecutionResult, dict]:
     """Run *code* through every executor gate, launch it, and report the run.
 
@@ -840,6 +842,10 @@ async def run_gated_execution(
         notify: The write-activity reporter. A tool passes its own module-level
             reference so the seam a caller patches is the tool's; ``None``
             reports through this module's.
+        approved_journal_sha256: The pending-journal digest the approval hook
+            put into the call, handed to the launch.
+        approved_target: The control target the approval hook put into the
+            call, handed to the launch.
 
     Returns:
         ``(exec_result, patterns)`` — the backend's result and the pattern
@@ -941,6 +947,9 @@ async def run_gated_execution(
         code=code,
         execution_mode=execution_mode,
         description=description,
+        tool=tool,
+        approved_journal_sha256=approved_journal_sha256,
+        approved_target=approved_target,
     )
 
     detail = write_activity_detail(bool(patterns.get("has_writes")), execution_mode)

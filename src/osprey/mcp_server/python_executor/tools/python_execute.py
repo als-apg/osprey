@@ -18,6 +18,8 @@ async def execute(
     description: str,
     execution_mode: str = "readonly",
     save_output: bool = True,
+    approved_journal_sha256: str | None = None,
+    approved_target: str | None = None,
 ) -> str:
     """Execute Python code with process isolation, limits enforcement, and timeout.
 
@@ -69,6 +71,10 @@ async def execute(
                         after human approval, and still refuses raw client
                         puts. Any other value is rejected.
         save_output: If True, save the code and output to a workspace data file.
+        approved_journal_sha256: Set by the approval hook; a value you pass is
+                                 overwritten.
+        approved_target: Set by the approval hook; a value you pass is
+                         overwritten.
 
     Returns:
         JSON with a compact summary (truncated stdout/stderr) and a data file path.
@@ -89,6 +95,8 @@ async def execute(
         description=description,
         execution_mode=execution_mode,
         notify=notify_agent_activity_async,
+        approved_journal_sha256=approved_journal_sha256,
+        approved_target=approved_target,
     )
 
     from osprey.mcp_server.python_executor.tools._response_builder import build_execution_response

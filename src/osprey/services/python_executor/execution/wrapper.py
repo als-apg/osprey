@@ -189,6 +189,7 @@ class ExecutionWrapper:
         permitted_roots: Iterable[str | Path] = (),
         perimeter_denied_ports: Iterable[int] = (),
         secret_roots: Iterable[str | Path] = (),
+        tool: str = "execute",
     ):
         """
         Initialize the wrapper.
@@ -240,6 +241,10 @@ class ExecutionWrapper:
                 (:meth:`_get_net_guard`); a non-empty set puts the guard in
                 front of user code in **every** execution mode, because the
                 perimeter is orthogonal to the write posture.
+            tool: The guarded tool the run is for, as ``approval.tools`` keys
+                it. A readwrite run binds it, with the approved journal digest
+                and target the executor put into the environment, before user
+                code runs (:meth:`_get_approved_call`).
         """
         self.limits_validator = limits_validator
         self.execution_mode = execution_mode
@@ -247,6 +252,7 @@ class ExecutionWrapper:
         self.permitted_roots = tuple(str(root) for root in permitted_roots)
         self.secret_roots = tuple(str(root) for root in secret_roots)
         self.perimeter_denied_ports = tuple(perimeter_denied_ports)
+        self.tool = tool
 
     def create_wrapper(self, user_code: str, execution_folder: Path | None = None) -> str:
         """
@@ -1250,6 +1256,36 @@ if not _execution_dir.exists():
         """
         ).strip()
 
+    def _get_approved_call(self) -> str:
+        """Bind a readwrite run to the call the approval hook passed; empty when readonly.
+
+        Runs first inside the user-code ``try``, so whatever it raises is the
+        run's recorded failure and the user code never starts.
+        :func:`osprey.runtime.guarded_run._open_approved_call` takes the
+        approved journal digest and target out of the environment and keeps
+        them, with :attr:`tool`, for every guarded run the code takes; when the
+        call carries a digest it restores the approved journal now, whether or
+        not the code takes a guarded run. An interpreter that cannot import
+        ``osprey.runtime`` cannot take a guarded run either, and binds nothing.
+        """
+        if self.execution_mode != "readwrite":
+            return ""
+        return textwrap.indent(
+            textwrap.dedent(
+                f"""
+                # The approval hook's binding of this call, read before user code.
+                try:
+                    from osprey.runtime.guarded_run import _open_approved_call as _osprey_bind
+                except ImportError:
+                    _osprey_bind = None
+                if _osprey_bind is not None:
+                    _osprey_bind({self.tool!r})
+                del _osprey_bind
+                """
+            ).strip(),
+            "        ",
+        )
+
     def _wrap_user_code(self, user_code: str) -> str:
         """Execute user code directly (synchronous).
 
@@ -1264,6 +1300,7 @@ if not _execution_dir.exists():
         return f"""
     # Execute user code
     try:
+{self._get_approved_call()}
 {indented_code}
 
         # The script is done: an interrupt from here on has nothing to stop.

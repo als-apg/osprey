@@ -125,6 +125,15 @@ ENV_CONTROL_TARGET_GENERATION = "OSPREY_CONTROL_TARGET_GENERATION"
 #: the stamp names are; the same test pins the two equal.
 ENV_EXECUTION_DEADLINE = "OSPREY_EXECUTION_DEADLINE"
 
+#: The journal digest and control target the approval hook put into a guarded
+#: tool's call, carried into a readwrite sandbox only. The sandbox wrapper
+#: hands them to :mod:`osprey.runtime.guarded_run` before user code runs, and a
+#: guarded run replays a pending journal only under them. Spelled again there
+#: for the reason the stamp names are; ``tests/runtime/test_replay.py`` pins
+#: the spellings equal.
+ENV_APPROVED_JOURNAL_SHA256 = "OSPREY_APPROVED_JOURNAL_SHA256"
+ENV_APPROVED_TARGET = "OSPREY_APPROVED_TARGET"
+
 #: Every name the stamp occupies. Cleared together on every launch, stamped or
 #: not, so no inherited name survives into a sandbox that did not earn it.
 #: :data:`ENV_LAUNCH_POSTURE` is deliberately NOT a member: it is stamped on
@@ -132,6 +141,8 @@ ENV_EXECUTION_DEADLINE = "OSPREY_EXECUTION_DEADLINE"
 _STAMP_ENV_NAMES = (
     ENV_CONTROL_TARGET,
     ENV_CONTROL_TARGET_GENERATION,
+    ENV_APPROVED_JOURNAL_SHA256,
+    ENV_APPROVED_TARGET,
 )
 
 #: The per-target write posture the run was LAUNCHED under, stamped into the
@@ -696,6 +707,26 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     return target
 
 
+def _apply_approved_call(
+    sandbox_env: dict[str, str],
+    execution_mode: str,
+    approved_journal_sha256: str | None,
+    approved_target: str | None,
+) -> None:
+    """Carry the call's approved journal digest and target into a readwrite sandbox.
+
+    Called after :func:`_apply_target_stamp`, which removed both names. A
+    readonly run never enters the guarded run, so it carries neither; a field
+    the call does not carry stays absent, which the sandbox reads as missing.
+    """
+    if execution_mode != "readwrite":
+        return
+    if approved_journal_sha256:
+        sandbox_env[ENV_APPROVED_JOURNAL_SHA256] = approved_journal_sha256
+    if approved_target:
+        sandbox_env[ENV_APPROVED_TARGET] = approved_target
+
+
 @contextlib.contextmanager
 def _in_flight_marker(control_target: str, launch_posture: str | None = None):
     """Record that an execution is running, for as long as it runs.
@@ -844,8 +875,17 @@ async def _execute_via_local(
     execution_mode: str,
     config: dict,
     execution_folder: Path,
+    *,
+    tool: str = "execute",
+    approved_journal_sha256: str | None = None,
+    approved_target: str | None = None,
 ) -> ExecutionResult:
-    """Execute code in a host subprocess with the ExecutionWrapper."""
+    """Execute code in a host subprocess with the ExecutionWrapper.
+
+    *tool* names the guarded tool the run is for; with the approved journal
+    digest and target it binds a readwrite run's guarded runs to the call the
+    approval hook passed (:func:`_apply_approved_call`).
+    """
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
     from osprey.utils.workspace import load_osprey_config
 
@@ -896,11 +936,13 @@ async def _execute_via_local(
             error_message=str(refusal),
             failure_kind=FAILURE_KIND_SWITCH_IN_PROGRESS,
         )
+    _apply_approved_call(sandbox_env, execution_mode, approved_journal_sha256, approved_target)
     limits_validator = _load_limits_validator(target=control_target)
 
     wrapper = ExecutionWrapper(
         limits_validator=limits_validator,
         execution_mode=execution_mode,
+        tool=tool,
         protected_roots=resolve_protected_roots(project_root, osprey_config),
         permitted_roots=resolve_permitted_roots(project_root, osprey_config),
         secret_roots=resolve_secret_roots(project_root),
@@ -1356,6 +1398,10 @@ async def execute_code(
     code: str,
     execution_mode: str,
     description: str,  # noqa: ARG001 - mirrors the execute tools' parameter; the description is recorded by the tool layer
+    *,
+    tool: str = "execute",
+    approved_journal_sha256: str | None = None,
+    approved_target: str | None = None,
 ) -> ExecutionResult:
     """Execute Python code in a host subprocess.
 
@@ -1370,6 +1416,12 @@ async def execute_code(
         code: Python source code to execute.
         execution_mode: ``"readonly"`` or ``"readwrite"``.
         description: Human-readable description of what the code does.
+        tool: The tool the run is for, as ``approval.tools`` keys it.
+        approved_journal_sha256: The pending-journal digest the approval hook
+            put into the call (``none`` when it listed none); ``None`` when the
+            call carries none.
+        approved_target: The control target the approval hook put into the
+            call; ``None`` when the call carries none.
 
     Returns:
         :class:`ExecutionResult` with stdout, stderr, success status, figures,
@@ -1379,7 +1431,15 @@ async def execute_code(
         config = _read_config()
         execution_folder = _create_execution_folder()
 
-        return await _execute_via_local(code, execution_mode, config, execution_folder)
+        return await _execute_via_local(
+            code,
+            execution_mode,
+            config,
+            execution_folder,
+            tool=tool,
+            approved_journal_sha256=approved_journal_sha256,
+            approved_target=approved_target,
+        )
     except Exception as exc:
         logger.error(
             "Execution setup failed (%s: %s)",
