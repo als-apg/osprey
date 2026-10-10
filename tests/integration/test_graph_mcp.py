@@ -910,7 +910,9 @@ def test_search_by_device_name_returns_only_that_device(demo_read: Any) -> None:
 
     assert row["total"] > 0, row
     assert row["rows"], row
-    assert {hit["device"] for hit in row["rows"]} == {"BPM01"}, row["rows"]
+    assert {hit["device"] for hit in row["rows"]} == {"BR/BPM01", "BTS/BPM01", "SR/BPM01"}, row[
+        "rows"
+    ]
 
 
 def test_search_by_class_rolls_a_parent_up_to_its_subclasses(demo_read: Any) -> None:

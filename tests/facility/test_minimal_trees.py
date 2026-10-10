@@ -10,8 +10,8 @@ tree serves exactly the facility file's addresses, spelled as authored, and
 refuses any other. Under a profile with a mock control
 system and a ``bluesky:`` block the render carries the Bluesky devices view and
 stages no copy of it. The empty tree under a profile that selects the
-channel-finder agent with ``channel_finder_mode: in_context`` has no tagged
-channel for the in_context index, so the build stops.
+channel-finder agent with ``channel_finder_mode: in_context`` has no channel
+for the in_context index, so the build stops.
 """
 
 from __future__ import annotations
@@ -185,8 +185,8 @@ def test_zero_sources_under_in_context_stop_with_view_unsupported(build_project:
     assert result.exit_code == 1, result.output
     assert result.stderr == (
         "facility: view-unsupported: path channel_finder.pipeline_mode — selects in_context "
-        "and no channel is tagged `in_context`; fix: tag at least one channel `in_context`, "
-        "or select another channel_finder_mode\n"
+        "and the facility has no channel; fix: add a channel, or select another "
+        "channel_finder_mode\n"
     )
 
 

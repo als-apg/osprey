@@ -179,7 +179,7 @@ class TestSeedFromTTLSynthetic:
 
         stubs = {s.resource: s for s in seed_from_ttl(mini_ttl)}
         qf1 = stubs[_QF1]
-        assert qf1.title == "SEC:QF1 (Quadrupole)"
+        assert qf1.title == "SEC:SEC/QF1 (Quadrupole)"
 
     def test_channels_sorted_by_name(self, mini_ttl):
         _require_rdflib()

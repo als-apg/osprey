@@ -98,6 +98,15 @@ def update(rel: str, index: int, **slots: Any) -> Edit:
     return edit
 
 
+def drop_file(rel: str) -> Edit:
+    """Remove one file from the tree."""
+
+    def edit(tree: Tree) -> None:
+        del tree[rel]
+
+    return edit
+
+
 def drop_slot(rel: str, index: int, slot: str) -> Edit:
     """Remove one slot from one row of a list file."""
 
@@ -561,9 +570,9 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "a facility channel equals a status address",
     ),
     (
-        "view_unsupported__in_context_no_tagged_channel",
+        "view_unsupported__in_context_no_channel",
         "view-unsupported",
-        "an in_context selection with zero tagged channels",
+        "an in_context selection with no channel",
     ),
     (
         "view_unsupported__hierarchical_meta_key",
@@ -2106,12 +2115,12 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "address itself"
         ),
     ),
-    "view_unsupported__in_context_no_tagged_channel": (
-        _plain(),
+    "view_unsupported__in_context_no_channel": (
+        _plain(drop_file("records/channels.yaml")),
         (
             "facility: view-unsupported: path channel_finder.pipeline_mode — selects in_context "
-            "and no channel is tagged `in_context`; fix: tag at least one channel `in_context`, "
-            "or select another channel_finder_mode"
+            "and the facility has no channel; fix: add a channel, or select another "
+            "channel_finder_mode"
         ),
     ),
     "view_unsupported__hierarchical_meta_key": (
@@ -2419,6 +2428,15 @@ def _probe(address: str) -> Callable[[Path], None]:
     return edit
 
 
+def _select_in_context_unprobed(repo: Path) -> None:
+    """Select in_context for a tree with no channel, which no probe can name."""
+    _select_in_context(repo)
+    profile = repo / "profile.yml"
+    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    del data["config"][VA_PROBE_KEY]
+    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
 def _ship_limits(repo: Path) -> None:
     (repo / "data" / "channel_limits.json").write_text('{"_version": "4.0"}\n', encoding="utf-8")
 
@@ -2437,7 +2455,7 @@ def _persona_serves_models(repo: Path) -> None:
 
 #: The profile edit a case makes beside a clean tree.
 PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
-    "view_unsupported__in_context_no_tagged_channel": _select_in_context,
+    "view_unsupported__in_context_no_channel": _select_in_context_unprobed,
     "view_unsupported__hierarchical_meta_key": _select_hierarchical,
     "view_unsupported__hierarchical_two_level_words": _select_hierarchical,
     "view_unsupported__middle_layer_no_groups": _select_middle_layer,

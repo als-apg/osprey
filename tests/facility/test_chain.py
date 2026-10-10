@@ -100,8 +100,9 @@ VIEW_FILES: dict[str, tuple[str, ...]] = {
     "graph": ("graph/facility.ttl",),
 }
 
-#: The one view this tree cannot carry: it tags no channel ``in_context``.
-UNSUPPORTED_VIEW = "in_context"
+#: The view rendered on its own: the in_context index, which holds every
+#: channel of this tree because it tags none ``in_context``.
+IN_CONTEXT_VIEW = "in_context"
 
 
 # ===================================================================
@@ -319,7 +320,7 @@ class TestTheViews:
         """Every view the build has is one this module accounts for."""
         from osprey.facility import views
 
-        assert sorted(view.name for view in views.VIEWS) == sorted([*VIEW_FILES, UNSUPPORTED_VIEW])
+        assert sorted(view.name for view in views.VIEWS) == sorted([*VIEW_FILES, IN_CONTEXT_VIEW])
 
     def test_every_view_of_the_render_is_written(self, chain: Chain) -> None:
         """The chain's render holds the facility file and each of its views, no more."""
@@ -335,20 +336,21 @@ class TestTheViews:
 
         assert set(_files(middle_layer, middle_layer)) == {"facility.json", *expected}
 
-    def test_the_in_context_index_stops_on_a_tree_that_tags_no_channel(
+    def test_the_in_context_index_holds_every_channel_of_a_tree_that_tags_none(
         self, chain: Chain, tmp_path: Path
     ) -> None:
-        """The one view this tree cannot carry is refused, not written empty."""
-        from osprey.facility.errors import FacilityBuildError
+        """A tree that tags no channel ``in_context`` indexes every channel."""
         from osprey.facility.render import render_facility_outputs
 
         assert not any("in_context" in (c.get("tags") or []) for c in chain.document["channels"])
 
-        with pytest.raises(FacilityBuildError, match="view-unsupported") as stop:
-            render_facility_outputs(tmp_path, chain.document, IN_CONTEXT, chain.facility)
+        render_facility_outputs(tmp_path, chain.document, IN_CONTEXT, chain.facility)
 
-        assert "in_context" in str(stop.value)
-        assert not (tmp_path / "data" / "channel_finder").exists()
+        index = tmp_path / "data" / "channel_finder" / "in_context.json"
+        rows = json.loads(index.read_text(encoding="utf-8"))["channels"]
+        assert [row["address"] for row in rows] == sorted(
+            str(channel["id"]) for channel in chain.document["channels"]
+        )
 
     def test_a_second_pass_changes_no_view_byte(self, chain: Chain) -> None:
         first, second = chain.passes

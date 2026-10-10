@@ -5,7 +5,10 @@
 skips, and one System per top place. A Family is a group, named by its id
 less a leading ``<System>/``; its Fields list one channel per
 member, in ``CommonNames`` order, so ``ChannelNames`` aligns with
-``DeviceList``. The DuckDB copy ``run_sql`` queries is written beside it.
+``DeviceList``. ``_setup`` is derived from the members: ``CommonNames`` from
+each label, ``DeviceList`` from each member's place among its sibling places,
+``ElementList`` from the member order. The DuckDB copy ``run_sql`` queries is
+written beside it.
 """
 
 from __future__ import annotations
@@ -53,7 +56,7 @@ SYNTHETIC: dict[str, Any] = {
     "places": [
         {"id": "M", "level": "machine", "description": "the machine"},
         {"id": "M/S1", "level": "sector"},
-        {"id": "N", "level": "machine", "names": ["the other machine"]},
+        {"id": "N", "level": "machine", "description": "the other machine"},
     ],
     "devices": [
         {
@@ -61,23 +64,20 @@ SYNTHETIC: dict[str, Any] = {
             "class": "Quadrupole",
             "place": "M/S1",
             "s": 2.0,
-            "names": ["Q2", "Quad 2"],
-            "attributes": {"DeviceList": [1, 2], "ElementList": 2},
+            "label": "Quad 2",
         },
         {
             "id": "M/Q1",
             "class": "Quadrupole",
             "place": "M/S1",
             "s": 1.0,
-            "names": ["Q1", "Quad 1"],
-            "attributes": {"DeviceList": [1, 1], "ElementList": 1},
+            "label": "Quad 1",
         },
         {
             "id": "N/Q1",
             "class": "Quadrupole",
             "place": "N",
-            "names": ["Quad N1"],
-            "attributes": {"DeviceList": [1, 1]},
+            "label": "Quad N1",
         },
         {"id": "M/G1", "class": "Gauge", "place": "M"},
     ],
@@ -138,28 +138,29 @@ def test_a_field_lists_one_channel_per_member_in_common_name_order() -> None:
 
     assert family["_setup"] == {
         "CommonNames": ["Quad 1", "Quad 2"],
-        "DeviceList": [[1, 1], [1, 2]],
+        "DeviceList": [[1, 1], [2, 1]],
         "ElementList": [1, 2],
     }
     assert _fields(family)["CURRENT/SP"]["ChannelNames"] == ["M:Q1:CURRENT:SP", "M:Q2:CURRENT:SP"]
     assert _fields(family)["temperature"]["ChannelNames"] == ["M:Q1:TEMP", "M:Q2:TEMP"]
 
 
-def test_setup_lists_an_attribute_only_when_every_member_states_it() -> None:
+def test_setup_always_lists_all_three() -> None:
     document, _left_out, _by_address = _document(SYNTHETIC)
 
     assert document["N"]["M/QUAD"]["_setup"] == {
         "CommonNames": ["Quad N1"],
         "DeviceList": [[1, 1]],
+        "ElementList": [1],
     }
 
 
-def test_a_common_name_is_the_last_names_entry_else_the_id() -> None:
+def test_a_common_name_is_the_label_else_the_id() -> None:
     doc = {
         "places": [{"id": "M", "level": "machine"}],
         "devices": [
-            {"id": "M/A", "place": "M", "s": 1.0, "names": ["a", "b"]},
-            {"id": "M/C", "place": "M", "s": 2.0},
+            {"id": "M/A", "place": "M", "s": 1.0, "label": "b", "names": ["a", "z"]},
+            {"id": "M/C", "place": "M", "s": 2.0, "names": ["c"]},
         ],
         "groups": [{"id": "M/F", "members": ["M/A", "M/C"]}],
         "channels": [],
@@ -168,6 +169,100 @@ def test_a_common_name_is_the_last_names_entry_else_the_id() -> None:
     document, _left_out, _by_address = _document(doc)
 
     assert document["M"]["F"]["_setup"]["CommonNames"] == ["b", "M/C"]
+
+
+def _sectors(*sectors: tuple[str, list[tuple[str, float | None]]]) -> dict[str, Any]:
+    """A machine ``M`` whose sectors hold quadrupoles at the given ``s``, all in group ``M/Q``."""
+    places = [{"id": "M", "level": "machine"}]
+    devices = []
+    for sector, members in sectors:
+        places.append({"id": f"M/{sector}", "level": "sector"})
+        for device_id, position in members:
+            device: dict[str, Any] = {
+                "id": device_id,
+                "class": "Quadrupole",
+                "place": f"M/{sector}",
+            }
+            if position is not None:
+                device["s"] = position
+            devices.append(device)
+    return {
+        "places": places,
+        "devices": devices,
+        "groups": [{"id": "M/Q", "members": [device["id"] for device in devices]}],
+        "channels": [],
+    }
+
+
+def test_sibling_sectors_are_ordered_by_their_devices_s_not_by_id() -> None:
+    doc = _sectors(("S2", [("M/B", 20.0)]), ("S10", [("M/A", 5.0)]))
+
+    document, _left_out, _by_address = _document(doc)
+
+    assert document["M"]["Q"]["_setup"] == {
+        "CommonNames": ["M/A", "M/B"],
+        "DeviceList": [[1, 1], [2, 1]],
+        "ElementList": [1, 2],
+    }
+
+
+def test_sibling_sectors_with_no_positioned_device_follow_in_natural_id_order() -> None:
+    doc = _sectors(("S10", [("M/C", None)]), ("S2", [("M/B", None)]), ("S3", [("M/A", 1.0)]))
+
+    document, _left_out, _by_address = _document(doc)
+
+    setup = document["M"]["Q"]["_setup"]
+    assert setup["CommonNames"] == ["M/A", "M/B", "M/C"]
+    assert setup["DeviceList"] == [[1, 1], [2, 1], [3, 1]]
+
+
+def test_a_member_placed_at_its_system_gets_its_position_and_one() -> None:
+    doc = _sectors(("S1", [("M/A", 1.0)]), ("S2", [("M/B", 3.0)]))
+    doc["devices"].append({"id": "M/C", "class": "Quadrupole", "place": "M", "s": 2.0})
+    doc["groups"][0]["members"].append("M/C")
+
+    document, _left_out, _by_address = _document(doc)
+
+    setup = document["M"]["Q"]["_setup"]
+    assert setup["CommonNames"] == ["M/A", "M/C", "M/B"]
+    assert setup["DeviceList"] == [[1, 1], [2, 1], [2, 1]]
+
+
+def test_an_unpositioned_member_takes_its_place_index_and_orders_after_positioned_ones() -> None:
+    doc = _sectors(("S1", [("M/A", 1.0), ("M/Z", None)]), ("S2", [("M/B", 3.0)]))
+
+    document, _left_out, _by_address = _document(doc)
+
+    setup = document["M"]["Q"]["_setup"]
+    assert setup["CommonNames"] == ["M/A", "M/B", "M/Z"]
+    assert setup["DeviceList"] == [[1, 1], [2, 1], [1, 2]]
+
+
+def test_a_mixed_class_family_gets_distinct_sector_ordinals() -> None:
+    doc = _sectors(("S1", [("M/A", 1.0), ("M/B", 2.0)]), ("S2", [("M/C", 3.0)]))
+    doc["devices"][1]["class"] = "Sextupole"
+
+    document, _left_out, _by_address = _document(doc)
+
+    setup = document["M"]["Q"]["_setup"]
+    assert setup["DeviceList"] == [[1, 1], [1, 2], [2, 1]]
+
+
+def test_a_system_and_a_family_are_described_only_by_description_or_label() -> None:
+    doc = _sectors(("S1", [("M/A", 1.0)]))
+    doc["places"][0]["names"] = ["the machine"]
+    doc["groups"] = [
+        {"id": "M/Q", "names": ["quads"], "members": ["M/A"]},
+        {"id": "M/L", "label": "the labelled", "members": ["M/A"]},
+        {"id": "M/D", "label": "the labelled", "description": "the described", "members": ["M/A"]},
+    ]
+
+    document, _left_out, _by_address = _document(doc)
+
+    assert "_description" not in document["M"]
+    assert "_description" not in document["M"]["Q"]
+    assert document["M"]["L"]["_description"] == "the labelled"
+    assert document["M"]["D"]["_description"] == "the described"
 
 
 def test_a_field_takes_the_sentence_under_the_longest_key_every_address_ends_with() -> None:
@@ -198,8 +293,8 @@ def test_a_channel_in_no_family_is_left_out_and_counted() -> None:
 def test_a_field_a_member_lacks_or_repeats_is_keyed_by_address() -> None:
     doc = {
         "devices": [
-            {"id": "A", "place": "M", "names": ["a"]},
-            {"id": "B", "place": "M", "names": ["b"]},
+            {"id": "A", "place": "M", "label": "a"},
+            {"id": "B", "place": "M", "label": "b"},
         ],
         "groups": [{"id": "M/F", "members": ["A", "B"], "signals": {"X": "x"}}],
         "channels": [
@@ -228,8 +323,8 @@ def test_a_field_a_member_lacks_or_repeats_is_keyed_by_address() -> None:
 def test_a_group_without_signals_is_a_family_keyed_by_signal_else_address() -> None:
     doc = {
         "devices": [
-            {"id": "A", "place": "M", "names": ["a"], "s": 1.0},
-            {"id": "B", "place": "M", "names": ["b"], "s": 2.0},
+            {"id": "A", "place": "M", "label": "a", "s": 1.0},
+            {"id": "B", "place": "M", "label": "b", "s": 2.0},
         ],
         "groups": [{"id": "M/F", "description": "the family", "members": ["A", "B"]}],
         "channels": [
@@ -265,8 +360,8 @@ def test_an_umbrella_group_is_its_own_family_beside_its_members_groups() -> None
 def test_a_shared_endpoint_is_listed_once_per_device_it_ends() -> None:
     doc = {
         "devices": [
-            {"id": "A", "place": "M", "names": ["a"], "s": 1.0},
-            {"id": "B", "place": "M", "names": ["b"], "s": 2.0},
+            {"id": "A", "place": "M", "label": "a", "s": 1.0},
+            {"id": "B", "place": "M", "label": "b", "s": 2.0},
         ],
         "groups": [{"id": "M/F", "members": ["B", "A"], "signals": {"SP": "setpoint"}}],
         "channels": [{"id": "BUS:SP", "endpoint_of": ["A", "B"]}],
@@ -280,7 +375,7 @@ def test_a_shared_endpoint_is_listed_once_per_device_it_ends() -> None:
 
 def test_a_member_with_no_place_sits_under_system_none() -> None:
     doc = {
-        "devices": [{"id": "A", "names": ["a"]}],
+        "devices": [{"id": "A", "label": "a"}],
         "groups": [{"id": "F", "members": ["A"], "signals": {"X": "x"}}],
         "channels": [{"id": "A:X", "on": {"device": "A"}}],
     }
@@ -294,7 +389,7 @@ def test_a_member_with_no_place_sits_under_system_none() -> None:
 def _one_family(place: str, group: str) -> dict[str, Any]:
     return {
         "places": [{"id": place}],
-        "devices": [{"id": "A", "place": place, "names": ["a"]}],
+        "devices": [{"id": "A", "place": place, "label": "a"}],
         "groups": [{"id": group, "members": ["A"], "signals": {"X": "x"}}],
         "channels": [{"id": "A:X", "on": {"device": "A"}}],
     }
@@ -361,7 +456,7 @@ def test_the_loader_reads_the_index_back_and_skips_its_schema(tmp_path: Path) ->
         "N:Q1:CURRENT:SP",
     ]
     assert [system["name"] for system in loaded.list_systems()] == ["M", "N"]
-    assert loaded.list_channel_names("M", "QUAD", "CURRENT/SP", sectors=[1]) == [
+    assert loaded.list_channel_names("M", "QUAD", "CURRENT/SP", sectors=[1, 2]) == [
         "M:Q1:CURRENT:SP",
         "M:Q2:CURRENT:SP",
     ]
@@ -395,8 +490,13 @@ def test_the_writer_writes_the_index_and_its_duckdb_database(tmp_path: Path) -> 
             "SELECT count(*), count(DISTINCT channel_name) FROM channels"
         ).fetchone() == (10, 6)
         assert con.execute(
-            "SELECT common_name FROM device_map WHERE system = 'M' ORDER BY device_index"
-        ).fetchall() == [("Quad 1",), ("Quad 2",)]
+            "SELECT common_name, sector, device FROM device_map "
+            "WHERE system = 'M' AND family = 'QUAD' ORDER BY device_index"
+        ).fetchall() == [("Quad 1", 1, 1), ("Quad 2", 2, 1)]
+        assert con.execute(
+            "SELECT common_name FROM device_map WHERE system = 'M' AND family = 'ALL' "
+            "ORDER BY device_index"
+        ).fetchall() == [("Quad 1",), ("Quad 2",), ("M/G1",)]
     finally:
         con.close()
 
@@ -459,7 +559,7 @@ def test_a_facility_whose_every_channel_is_filed_prints_no_note(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     doc = {
-        "devices": [{"id": "A", "place": "M", "names": ["a"]}],
+        "devices": [{"id": "A", "place": "M", "label": "a"}],
         "groups": [{"id": "F", "members": ["A"], "signals": {"X": "x"}}],
         "channels": [{"id": "A:X", "on": {"device": "A"}}],
     }
@@ -604,6 +704,53 @@ def test_every_demo_group_is_a_family(
 
 
 @pytest.mark.slow
+def test_every_sector_device_s_device_list_names_its_sector(
+    built_control_assistant: BuiltProject, tmp_path: Path
+) -> None:
+    import re
+
+    from osprey.facility.views.channel_finder import _families_by_system, middle_layer_document
+    from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
+
+    facility = built_control_assistant.facility
+    devices = {str(device["id"]): device for device in facility["devices"]}
+    on = {str(c["id"]): (c.get("on") or {}).get("device") for c in facility["channels"]}
+    sector = re.compile(r"SR/SECT(\d+)")
+    document, _left_out, _by_address = middle_layer_document(facility)
+
+    checked = 0
+    for _group, name, members in _families_by_system(facility)["SR"]:
+        rows = [tuple(row) for row in document["SR"][name]["_setup"]["DeviceList"]]
+        assert len(rows) == len(set(rows)), name
+        for member, row in zip(members, rows, strict=True):
+            match = sector.fullmatch(str(member.get("place") or ""))
+            if match:
+                assert row[0] == int(match.group(1)), (name, member["id"], row)
+                checked += 1
+    assert checked > 800
+    assert not [device["id"] for device in facility["devices"] if "attributes" in device]
+
+    index = tmp_path / "middle_layer.json"
+    index.write_text(json.dumps(document), encoding="utf-8")
+    database = MiddleLayerDatabase(str(index))
+    bpm = document["SR"]["BPM"]
+    members = len(bpm["_setup"]["CommonNames"])
+    field = next(
+        key for key, value in _fields(bpm).items() if len(value["ChannelNames"]) == members
+    )
+    in_sector_3 = [
+        address
+        for address in bpm[field]["ChannelNames"]
+        if devices[str(on[address])].get("place") == "SR/SECT3"
+    ]
+    assert len(in_sector_3) == 6
+    assert database.list_channel_names("SR", "BPM", field, sectors=[3]) == in_sector_3
+    assert {str(on[address]) for address in in_sector_3} == {
+        f"SR/BPM{number}" for number in range(13, 19)
+    }
+
+
+@pytest.mark.slow
 def test_the_demo_bpm_family_has_one_field_per_today_s_leaf(
     built_control_assistant: BuiltProject,
 ) -> None:
@@ -619,7 +766,7 @@ def test_the_demo_bpm_family_has_one_field_per_today_s_leaf(
 
     assert sorted(_fields(bpm)) == leaves
     assert all(len(field["ChannelNames"]) == members for field in _fields(bpm).values())
-    assert bpm["_setup"] == golden["SR"]["BPM"]["_setup"]
+    assert bpm["_setup"]["CommonNames"] == golden["SR"]["BPM"]["_setup"]["CommonNames"]
 
 
 @pytest.mark.slow

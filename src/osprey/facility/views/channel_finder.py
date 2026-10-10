@@ -10,11 +10,12 @@ The in_context index is written to ``<render>/data/channel_finder/in_context.jso
       ]
     }
 
-One row per channel tagged ``in_context``, sorted by address. A row's
-``channel`` is the channel's first ``names`` entry, else its address; its
-``description`` is the channel's own. A render carries the index when its
-``channel_finder.pipeline_mode`` is ``in_context``; a facility with no tagged
-channel then stops the build with ``view-unsupported``.
+One row per channel, sorted by address; a facility that tags channels
+``in_context`` narrows the index to those channels. A row's ``channel`` is the
+channel's ``label``, else its address; its ``description`` is the channel's
+own. A render carries the index when its ``channel_finder.pipeline_mode`` is
+``in_context``; a facility with no channel then stops the build with
+``view-unsupported``.
 
 The hierarchical index is written to
 ``<render>/data/channel_finder/hierarchical.json``::
@@ -79,12 +80,16 @@ one channel with that field, so ``ChannelNames`` aligns with ``DeviceList``; a
 channel whose field some member lacks or holds twice, or that has no field, is
 its own Field keyed by its address. A Field's ``_description`` is the family's
 ``signals`` sentence under the longest key every one of its addresses ends
-with; a group without ``signals`` writes no Field sentence. ``_setup`` holds
-each member's last name (its common name) and its ``DeviceList`` and
-``ElementList`` attributes, each list only when every member states it: a
-device's common name is its last names entry; its first is its source name,
-which the graph view reads; a device with no names is named by its id. A
-channel of no family is left out; the build names how many channels it left
+with; a group without ``signals`` writes no Field sentence. ``_setup`` is
+derived from the members, never read from them: ``CommonNames`` is each
+member's ``label``, else its id; ``DeviceList`` is ``[index, k]`` for a member
+whose place has siblings (places of one parent and level, ordered by the
+lowest ``s`` below each, then in natural id order), ``k`` its ordinal among the
+family's members in that place, else ``[n, 1]`` by member order; ``ElementList``
+is each member's position in member order. No record carries a
+``DeviceList``, an ``ElementList`` or a positional name. A System is
+described by its place's description, a Family by its group's description,
+else its label. A channel of no family is left out; the build names how many channels it left
 out and how many it keyed by address in one note. A render
 carries the index when its ``channel_finder.pipeline_mode`` is
 ``middle_layer``; a facility with no group stops the build with
@@ -153,9 +158,11 @@ _ALNUM_RUN = re.compile(r"[A-Za-z0-9]+")
 
 def _row(channel: Mapping[str, Any]) -> dict[str, Any]:
     address = str(channel["id"])
-    names = channel.get("names")
-    name = names[0] if isinstance(names, list) and names else address
-    return {"channel": name, "address": address, "description": channel.get("description")}
+    return {
+        "channel": channel.get("label") or address,
+        "address": address,
+        "description": channel.get("description"),
+    }
 
 
 def in_context_document(doc: Mapping[str, Any]) -> dict[str, Any]:
@@ -165,13 +172,12 @@ def in_context_document(doc: Mapping[str, Any]) -> dict[str, Any]:
         doc: The facility file.
 
     Returns:
-        ``{schema, channels}``, one row per tagged channel, sorted by address.
+        ``{schema, channels}``, one row per channel tagged ``in_context`` when
+        any is, else one per channel, sorted by address.
     """
-    rows = [
-        _row(channel)
-        for channel in doc.get("channels", [])
-        if IN_CONTEXT_TAG in (channel.get("tags") or [])
-    ]
+    channels = list(doc.get("channels", []))
+    tagged = [channel for channel in channels if IN_CONTEXT_TAG in (channel.get("tags") or [])]
+    rows = [_row(channel) for channel in tagged or channels]
     rows.sort(key=lambda row: row["address"])
     return {"schema": CHANNEL_FINDER_SCHEMA, "channels": rows}
 
@@ -222,16 +228,16 @@ def write_in_context(root: Path, inputs: ViewInputs) -> list[Path]:
         The file written.
 
     Raises:
-        FacilityBuildError: ``view-unsupported`` when no channel is tagged
-            ``in_context``.
+        FacilityBuildError: ``view-unsupported`` when the facility has no
+            channel.
     """
     from osprey.facility.views import view_bytes
 
     document = in_context_document(inputs.doc)
     if not document["channels"]:
         raise _mode_unsupported(
-            f"selects {IN_CONTEXT_MODE} and no channel is tagged `{IN_CONTEXT_TAG}`",
-            f"tag at least one channel `{IN_CONTEXT_TAG}`, or select another channel_finder_mode",
+            f"selects {IN_CONTEXT_MODE} and the facility has no channel",
+            "add a channel, or select another channel_finder_mode",
         )
     root.mkdir(parents=True, exist_ok=True)
     target = root / IN_CONTEXT_FILE
@@ -600,10 +606,6 @@ def write_hierarchical(root: Path, inputs: ViewInputs) -> list[Path]:
 # --- the middle-layer index --------------------------------------------------------
 
 
-#: The device attributes ``_setup`` carries, one entry per member, in this order.
-SETUP_ATTRIBUTES: tuple[str, ...] = ("DeviceList", "ElementList")
-
-
 def middle_layer_selected(inputs: ViewInputs) -> bool:
     """Whether the render selects the middle-layer pipeline.
 
@@ -730,19 +732,86 @@ def middle_layer_families(doc: Mapping[str, Any]) -> dict[str, list[tuple[str, s
     return {name: sorted(pairs) for name, pairs in sorted(out.items())}
 
 
-def _setup(members: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """A family's ``_setup``: each member's common name and the attributes every member states.
+#: A run of digits, which natural order compares as a number.
+_DIGITS = re.compile(r"(\d+)")
 
-    A device's common name is its last names entry; its first is its source
-    name, which the graph view reads; a device with no names is named by its id.
+
+def _natural(text: str) -> tuple[tuple[int, int | str], ...]:
+    """``text`` as natural-order parts: digit runs compare as numbers."""
+    return tuple(
+        (0, int(part)) if part.isdigit() else (1, part) for part in _DIGITS.split(text) if part
+    )
+
+
+def _place_indices(doc: Mapping[str, Any]) -> dict[str, int]:
+    """Each place's 1-based index among its siblings, for a place that has siblings.
+
+    The siblings of a place are the places with the same parent and the same
+    level; a top place is a System and is never indexed. Siblings are ordered
+    by the lowest ``s`` of any device placed in the place or below it; those
+    with no positioned device follow in natural id order.
     """
-    names = [str((member.get("names") or [member["id"]])[-1]) for member in members]
-    setup: dict[str, Any] = {"CommonNames": names}
-    for attribute in SETUP_ATTRIBUTES:
-        values = [(member.get("attributes") or {}).get(attribute) for member in members]
-        if all(value is not None for value in values):
-            setup[attribute] = values
-    return setup
+    lowest: dict[str, float] = {}
+    for device in doc.get("devices", []):
+        place, position = device.get("place"), device.get("s")
+        if not place or position is None:
+            continue
+        segments = str(place).split("/")
+        for depth in range(1, len(segments) + 1):
+            ancestor = "/".join(segments[:depth])
+            if ancestor not in lowest or float(position) < lowest[ancestor]:
+                lowest[ancestor] = float(position)
+    siblings: dict[tuple[str, str | None], list[str]] = defaultdict(list)
+    for place in doc.get("places", []):
+        place_id = str(place["id"])
+        if "/" not in place_id:
+            continue
+        level = place.get("level")
+        siblings[(place_id.rsplit("/", 1)[0], None if level is None else str(level))].append(
+            place_id
+        )
+    indices: dict[str, int] = {}
+    for ids in siblings.values():
+        if len(ids) < 2:
+            continue
+        ordered = sorted(
+            ids,
+            key=lambda place_id: (
+                place_id not in lowest,
+                lowest.get(place_id, 0.0),
+                _natural(place_id),
+            ),
+        )
+        for index, place_id in enumerate(ordered, start=1):
+            indices[place_id] = index
+    return indices
+
+
+def _setup(members: Sequence[Mapping[str, Any]], indices: Mapping[str, int]) -> dict[str, Any]:
+    """A family's ``_setup``, derived from its members in member order.
+
+    ``CommonNames`` holds each member's ``label``, else its id. ``DeviceList``
+    holds ``[index, k]`` for a member whose place has an index among its
+    siblings, ``k`` its 1-based position among the family's members in that
+    place; any other member gets ``[n, 1]``, ``n`` its 1-based position among
+    all members. ``ElementList`` holds each member's 1-based position.
+    """
+    names = [str(member.get("label") or member["id"]) for member in members]
+    seen: Counter[str] = Counter()
+    device_list: list[list[int]] = []
+    for position, member in enumerate(members, start=1):
+        place = member.get("place")
+        index = indices.get(str(place)) if place else None
+        if index is None:
+            device_list.append([position, 1])
+            continue
+        seen[str(place)] += 1
+        device_list.append([index, seen[str(place)]])
+    return {
+        "CommonNames": names,
+        "DeviceList": device_list,
+        "ElementList": list(range(1, len(members) + 1)),
+    }
 
 
 def _family_fields(
@@ -826,6 +895,7 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
             begins with ``_``, or a System key is ``schema``.
     """
     places = {str(place["id"]): place for place in doc.get("places", [])}
+    indices = _place_indices(doc)
 
     channels_of: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for channel in doc.get("channels", []):
@@ -843,18 +913,16 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
         node: dict[str, Any] = {}
         if system == ABSENT:
             node["_description"] = "no place"
-        elif place is not None:
-            description = place.get("description") or next(iter(place.get("names") or []), None)
-            if description:
-                node["_description"] = description
+        elif place is not None and place.get("description"):
+            node["_description"] = place["description"]
         for group, name, members in entries:
             _checked_key(name, group, "group", _MIDDLE_LAYER_INDEX)
             for member in members:
                 in_family.update(str(c["id"]) for c in channels_of.get(str(member["id"]), ()))
             fields, keyed = _family_fields(members, channels_of, group.get("signals") or {})
             by_address += keyed
-            family: dict[str, Any] = {"_setup": _setup(members), **fields}
-            description = group.get("description") or next(iter(group.get("names") or []), None)
+            family: dict[str, Any] = {"_setup": _setup(members, indices), **fields}
+            description = group.get("description") or group.get("label")
             if description:
                 family["_description"] = description
             node[name] = family

@@ -12,7 +12,7 @@ Nodes and their ``narad_p:`` predicates:
 - a device, typed by its class: ``deviceId``, ``facility`` (the identity
   ``code``), ``rawType`` (the class name), ``system`` (the top place of its
   place path), ``placePath`` and ``sectionCode`` of its place, ``sourceName``
-  (its first name), ``familyDescription`` (the description of the smallest
+  (its id), ``familyDescription`` (the description of the smallest
   described group naming it), ``systemDescription`` (the top place's
   description), ``sPositionM``, ``lengthM``, ``ordinalInPlace`` and
   ``ordinalInModel`` (each only when the facility file carries it), and one
@@ -257,9 +257,7 @@ def _device_triples(
             top_description = places.get(top, {}).get("description")
             if top_description:
                 _add(subjects, subject, _p(P_SYSTEM_DESCRIPTION), _text(top_description))
-        names = device.get("names") or []
-        if names:
-            _add(subjects, subject, _p(P_SOURCE_NAME), _text(names[0]))
+        _add(subjects, subject, _p(P_SOURCE_NAME), _text(device_id))
         if device_id in families:
             _add(subjects, subject, _p(P_FAMILY_DESCRIPTION), _text(families[device_id]))
         if "s" in device:
