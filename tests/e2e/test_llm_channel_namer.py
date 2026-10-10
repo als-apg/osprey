@@ -41,7 +41,7 @@ def get_available_providers() -> dict[str, dict]:
     providers_to_check = []
     if als_apg_base_url:
         providers_to_check.append(
-            ("als-apg", ["ALS_APG_API_KEY"], als_apg_base_url, "claude-haiku-4-5-20251001")
+            ("als-apg", ["ALS_APG_API_KEY"], als_apg_base_url, "claude-haiku-5-5")
         )
     providers_to_check += [
         (
@@ -56,7 +56,7 @@ def get_available_providers() -> dict[str, dict]:
             gateway_base_url("amsc-i2", "AMSC_I2_BASE_URL"),
             "claude-haiku",
         ),
-        ("anthropic", ["ANTHROPIC_API_KEY"], None, "claude-haiku-4-5-20251001"),
+        ("anthropic", ["ANTHROPIC_API_KEY"], None, "claude-haiku-5-5"),
     ]
 
     for provider_name, env_vars, default_base_url, default_model in providers_to_check:

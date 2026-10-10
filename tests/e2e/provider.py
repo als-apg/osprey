@@ -108,7 +108,7 @@ def build_provider(pinned: str) -> str:
 #: provider's catalog entry gives a deployment. The id is the one the
 #: ``als-apg`` gateway serves, and direct Anthropic answers to it as well.
 #: ``OSPREY_E2E_FORCE_MODEL`` still replaces it at run time.
-E2E_MODEL = "claude-haiku-4-5-20251001"
+E2E_MODEL = "claude-haiku-5-5"
 
 
 def build_model(pinned: str | None) -> str:

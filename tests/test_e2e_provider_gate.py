@@ -112,7 +112,7 @@ def test_build_model_keeps_what_the_call_site_pinned() -> None:
 
 
 def test_a_call_site_that_names_no_model_builds_with_haiku() -> None:
-    assert build_model(None) == "claude-haiku-4-5-20251001"
+    assert build_model(None) == "claude-haiku-5-5"
 
 
 def test_the_provider_ci_names_serves_the_lane_model() -> None:

@@ -575,7 +575,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--set",
             "provider=als-apg",
             "--set",
-            "model=claude-haiku-4-5-20251001",
+            "model=claude-haiku-5-5",
             # The Channel Access port PORT_BASE cannot move (see VA_CA_PORT).
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",

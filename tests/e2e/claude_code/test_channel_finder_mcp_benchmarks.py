@@ -77,7 +77,7 @@ F1_THRESHOLD = 0.75
 PERFECT_THRESHOLD = 0.80
 # One judge model for every lane and every run, so a score moves with the
 # agent and never with the judge. It is an id the lane's provider serves.
-JUDGE_MODEL = "claude-sonnet-5"
+JUDGE_MODEL = "claude-haiku-5-5"
 
 #: Channel bindings in the shipped demo corpus — what ``osprey knowledge
 #: seed-graph`` puts in the store and what the graph lane's census must find.
@@ -189,7 +189,7 @@ def _run_slice(render: Path, output_root: Path) -> BenchmarkRun:
     indices = _slice_indices(_resolve_dataset_path(render))
     runner = BenchmarkRunner(
         render,
-        model="als-apg/claude-haiku-4-5-20251001",
+        model="als-apg/claude-haiku-5-5",
         max_concurrent=3,
         max_budget_per_query=0.20,
         use_llm_judge=True,
@@ -735,7 +735,7 @@ def test_graph_lane_fails_loud_when_the_store_is_gone(
     )
     (tmp_path / "queries.json").write_text("[]", encoding="utf-8")
 
-    runner = BenchmarkRunner(tmp_path, model="als-apg/claude-haiku-4-5-20251001")
+    runner = BenchmarkRunner(tmp_path, model="als-apg/claude-haiku-5-5")
 
     with pytest.raises(Exception) as raised:
         asyncio.run(runner.run_queries(query_indices=[]))

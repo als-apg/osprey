@@ -129,7 +129,7 @@ class LLMJudge:
     using an LLM to make flexible, context-aware judgments.
 
     Example:
-        >>> judge = LLMJudge(provider="als-apg", model="claude-haiku-4-5-20251001")
+        >>> judge = LLMJudge(provider="als-apg", model="claude-haiku-5-5")
         >>> evaluation = await judge.evaluate(
         ...     result=workflow_result,
         ...     expectations="Should generate two plots and complete without errors"
@@ -158,7 +158,7 @@ class LLMJudge:
         self.provider = provider
         # Model overridable via env so a redirected provider (e.g. cborg) can use
         # a valid model id. Explicit arg wins; unset env -> unchanged default.
-        self.model = model or os.environ.get("OSPREY_E2E_JUDGE_MODEL", "claude-haiku-4-5-20251001")
+        self.model = model or os.environ.get("OSPREY_E2E_JUDGE_MODEL", "claude-haiku-5-5")
         self.verbose = verbose
         self.provider_config = provider_config or _default_provider_config(provider)
 
