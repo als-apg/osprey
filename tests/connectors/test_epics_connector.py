@@ -635,6 +635,18 @@ class TestConfirmingRead:
         assert connector._fresh_reads is expected
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env", "fake_pyepics")
+    async def test_fresh_reads_refuses_text_that_spells_neither_on_nor_off(self, monkeypatch):
+        """A typo must not read as off: the IOC would be answered from a stale cache."""
+        _patch_writes_enabled(monkeypatch, False)
+        connector = EPICSConnector()
+
+        with pytest.raises(ValueError, match=r"control_system\.connector\.epics\.fresh_reads"):
+            await connector.connect(
+                {"fresh_reads": "ture", "gateways": {"read_only": {"address": "ro", "port": 5064}}}
+            )
+
+    @pytest.mark.asyncio
     async def test_a_confirming_put_waits_for_the_ioc_callback(self):
         """Put-callback is the protocol's acknowledgement that the put landed."""
         connector = _write_connector(observed=5.0)
