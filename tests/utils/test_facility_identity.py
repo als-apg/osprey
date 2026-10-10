@@ -9,12 +9,13 @@ from pathlib import Path
 
 import pytest
 
+from osprey.facility.validate import FACILITY_HEADER
 from osprey.utils.facility import FacilityFileError, facility_identity, facility_name
 
 
 def _write_facility_file(render_root: Path, identity: object) -> None:
     render_root.mkdir(parents=True, exist_ok=True)
-    document = {"schema": "osprey.facility.facility/1", "identity": identity}
+    document = {"schema": FACILITY_HEADER, "identity": identity}
     (render_root / "facility.json").write_text(json.dumps(document), encoding="utf-8")
 
 

@@ -14,6 +14,7 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.facility.schema import core
 from osprey.facility.sources import load_sources
 from osprey.facility.validate import (
+    FACILITY_HEADER,
     SET_VALUED_SLOTS,
     STAGES,
     StageReport,
@@ -239,7 +240,7 @@ class TestSchemaStage:
         result = _run(tmp_path, _tree())
         document = result.validated.document
         assert list(document)[:2] == ["schema", "identity"]
-        assert document["schema"] == "osprey.facility.facility/1"
+        assert document["schema"] == FACILITY_HEADER
         assert document["identity"] == {"code": "my_proj", "name": "my proj"}
 
     def test_identity_yaml_supplies_the_identity(self, tmp_path: Path) -> None:

@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.facility.validate import FACILITY_HEADER
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -33,7 +35,7 @@ def _mini_facility() -> dict:
     end of an address would give both rows one name.
     """
     return {
-        "schema": "osprey.facility.facility/1",
+        "schema": FACILITY_HEADER,
         "identity": {"code": "tst"},
         "places": [{"id": "SEC", "level": "sector"}],
         "devices": [

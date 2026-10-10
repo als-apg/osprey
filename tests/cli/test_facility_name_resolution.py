@@ -14,6 +14,7 @@ import pytest
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+from osprey.facility.validate import FACILITY_HEADER
 from osprey.utils.facility import facility_identity
 from tests._preset_data import bundle_data_root
 
@@ -55,7 +56,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
 
 def _write_facility_file(render_root: Path, identity: dict) -> None:
-    document = {"schema": "osprey.facility.facility/1", "identity": identity}
+    document = {"schema": FACILITY_HEADER, "identity": identity}
     (render_root / "facility.json").write_text(json.dumps(document), encoding="utf-8")
 
 
@@ -188,6 +189,6 @@ def test_the_first_render_without_a_handed_name_carries_the_project_name(tmp_pat
 def test_the_build_names_the_facility_from_its_in_memory_identity(identity, expected):
     from osprey.cli.build_cmd import _facility_display_name
 
-    facility = {"schema": "osprey.facility.facility/1", "identity": identity}
+    facility = {"schema": FACILITY_HEADER, "identity": identity}
 
     assert _facility_display_name(facility, "my-project") == expected

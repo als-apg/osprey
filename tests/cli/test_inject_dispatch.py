@@ -18,6 +18,7 @@ from ruamel.yaml import YAML
 from osprey.cli.build_cmd import _inject_dispatch
 from osprey.cli.build_profile import DispatchConfig
 from osprey.errors import BuildProfileError
+from osprey.facility.validate import FACILITY_HEADER
 
 
 def _write_config(project_path: Path, *, facility: dict | None = None) -> None:
@@ -320,7 +321,7 @@ def _inject_facility_name(
     profile_dir.mkdir()
     _write_config(project_path, facility=facility)
     if identity is not None:
-        document = {"schema": "osprey.facility.facility/1", "identity": identity}
+        document = {"schema": FACILITY_HEADER, "identity": identity}
         (project_path / "facility.json").write_text(json.dumps(document), encoding="utf-8")
 
     _inject_dispatch(

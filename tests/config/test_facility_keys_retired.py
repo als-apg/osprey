@@ -21,6 +21,7 @@ from osprey.cli.build_cmd import _inject_dispatch
 from osprey.cli.build_profile_load import _parse_profile
 from osprey.cli.build_profile_schema import DispatchConfig
 from osprey.errors import BuildProfileError
+from osprey.facility.validate import FACILITY_HEADER
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
@@ -100,7 +101,7 @@ def _rendered_dispatcher_name(tmp_path: Path, *, identity: dict | None, project_
     with open(project_path / "config.yml", "w") as fh:
         YAML().dump({"project_name": project_name, "deployed_services": []}, fh)
     if identity is not None:
-        document = {"schema": "osprey.facility.facility/1", "identity": identity}
+        document = {"schema": FACILITY_HEADER, "identity": identity}
         (project_path / "facility.json").write_text(json.dumps(document), encoding="utf-8")
 
     _inject_dispatch(

@@ -28,6 +28,7 @@ from osprey.deployment.web_terminals.artifacts import (
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
 from osprey.deployment.web_terminals.render import AUTH_ENV_DIGEST_LABEL, PROXY_ENV_NAMES
+from osprey.facility.validate import FACILITY_HEADER
 
 
 def _config(users):
@@ -86,7 +87,7 @@ def test_the_written_landing_page_is_titled_with_the_builds_facility_name(tmp_pa
     """The config's own `facility.name` names nothing; the build's identity does."""
     build = tmp_path / "build"
     build.mkdir()
-    document = {"schema": "osprey.facility.facility/1", "identity": {"code": "erf", "name": "ERF"}}
+    document = {"schema": FACILITY_HEADER, "identity": {"code": "erf", "name": "ERF"}}
     (build / "facility.json").write_text(json.dumps(document), encoding="utf-8")
     config = _config(["alice"])
     config["facility"]["name"] = "Config Name"
