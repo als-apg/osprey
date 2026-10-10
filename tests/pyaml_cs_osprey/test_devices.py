@@ -25,7 +25,7 @@ from osprey_connectors.control_system.limits_validator import (
 )
 from osprey_connectors.types import LIMITS_MODE_EXCLUSIVE
 from pyaml_cs_osprey.catalog import parse_reference
-from pyaml_cs_osprey.device import OspreyDevice
+from pyaml_cs_osprey.device import OUTSIDE_A_RUN, OspreyDevice
 from pyaml_cs_osprey.devices import OspreyDeviceList
 from pyaml_cs_osprey.errors import OspreyReadFailed, OspreyWriteFailed, OspreyWriteRefused
 from tests.pyaml_cs_osprey.conftest import DictConnector
@@ -150,6 +150,17 @@ def test_set_and_wait_confirms(runtime: _Runtime) -> None:
 def test_set_refuses_a_wrong_length_before_any_call(runtime: _Runtime) -> None:
     with pytest.raises(ValueError):
         _list().set([1.0, 2.0])
+    assert runtime.calls == []
+
+
+def test_a_set_outside_a_run_is_refused_as_a_pyaml_error_with_nothing_read(
+    runtime: _Runtime,
+) -> None:
+    with pytest.raises(OspreyWriteRefused) as info:
+        _list().set([10.0, 20.0, 30.0])
+    assert isinstance(info.value, PyAMLException)
+    assert info.value.reason == OUTSIDE_A_RUN
+    assert info.value.channel_address == SETS[0]
     assert runtime.calls == []
 
 
