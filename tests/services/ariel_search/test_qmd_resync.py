@@ -558,9 +558,9 @@ class TestQmdResyncCommand:
     def test_help_names_every_bypassing_mutation_path(self) -> None:
         """The docstring is the operator's map of what this command covers."""
         help_text = ariel_group.commands["qmd-resync"].help or ""
-        assert "interfaces/ariel/api/routes.py:395" in help_text
-        assert "interfaces/ariel/api/routes.py:533" in help_text
-        assert "services/ariel_search/service.py:431 and :439" in help_text
+        assert "creating a local entry in the ARIEL web interface" in help_text
+        assert "re-upserting an entry when an attachment is uploaded" in help_text
+        assert "entry_create upserts from the logbook write service" in help_text
 
     def test_runs_the_pass_and_reports_counts(self, monkeypatch) -> None:
         seen: list[dict] = []
