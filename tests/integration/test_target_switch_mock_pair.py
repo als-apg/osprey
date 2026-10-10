@@ -716,3 +716,101 @@ class TestSandboxEndpointMatchesTheDerivation:
         # The stamp, the record and the pin agree, which is what lets this
         # sandbox write at all.
         sandbox._assert_target_pin()
+
+
+# ----------------------------------------- the simulator in process as baseline
+
+#: What the simulator in process holds on the shared channel: its seed's nominal,
+#: distinct from the live connector's constant, so a read names its server.
+IN_PROCESS_SEED = 7.0
+
+
+class TestTheSimulatorInProcessIsTheBaseline:
+    """A deployment on the simulator in process switches to its real machine and back.
+
+    The baseline is the real in-process composite over a built view, served by a
+    real host child; ``live`` is the pair's dotted connector. Nothing registers a
+    fixture class under ``virtual_accelerator`` here, so the ``va`` child builds
+    the connector the factory chooses from the serving leaf.
+    """
+
+    @pytest.fixture(autouse=True)
+    def child_environment(self, monkeypatch):
+        """Children see the repo and no project config, and no fixture registration."""
+        monkeypatch.setenv("PYTHONPATH", os.pathsep.join(REPO_PATHS))
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+
+    @pytest.fixture
+    def section(self, tmp_path) -> dict[str, Any]:
+        """The simulator in process with the pair's live connector beside it."""
+        from tests.facility.served_tree import in_process_config, served_tree
+
+        view = served_tree(
+            tmp_path / "served",
+            readings=[SHARED_CHANNEL, VA_PROBE],
+            channels={SHARED_CHANNEL: {"simulation": {"nominal": IN_PROCESS_SEED}}},
+        )
+        return {
+            "type": "virtual_accelerator",
+            "writes_enabled": True,
+            "connector": {
+                "virtual_accelerator": in_process_config(
+                    view, response_delay_ms=0, probe_channel=VA_PROBE
+                ),
+                LIVE_TYPE: {"probe_channel": LIVE_PROBE},
+            },
+        }
+
+    @pytest.fixture
+    async def deployment(self, section, tmp_path, monkeypatch):
+        """A record left unswitched on ``live``, then this deployment's server start."""
+        raw = {"control_system": section, "archiver": {"type": "mongodb_archiver"}}
+        config_path = tmp_path / "config.yml"
+        config_path.write_text(yaml.dump(raw), encoding="utf-8")
+        control_context.write_record(control_context.ControlContext(target="live", generation=0))
+        control_context.invalidate_cache()
+
+        manager = ConnectorHostManager(
+            MCPServerConfig(raw=raw, config_path=config_path),
+            drain_timeout_s=1.0,
+            probe_timeout_s=CALL_TIMEOUT_S,
+            spawn_timeout_s=SPAWN_TIMEOUT_S,
+            terminate_grace_s=2.0,
+        )
+        manager.reset_state()
+        context = context_for(manager)
+        monkeypatch.setattr(server_context, "_registry", context)
+
+        yield Pair(manager=manager, context=context)
+
+        with contextlib.suppress(Exception):
+            await manager.shutdown()
+
+    async def test_va_to_live_and_back_routes_by_value(self, deployment):
+        """The unswitched record starts on ``va``, and each read names the child serving it."""
+        from tests.fixtures.control_context import move_the_deployment
+
+        assert deployment.context.switch_capable is True
+        claimed = control_context.read_record()
+        assert claimed is not None
+        assert (claimed.target, claimed.generation) == ("va", 0)
+        assert deployment.manager.active_target() == "va"
+
+        on_va = await read_through_the_tool(SHARED_CHANNEL)
+        assert value_read(on_va, SHARED_CHANNEL) == pytest.approx(IN_PROCESS_SEED)
+        connector = await deployment.context.control_system()
+        assert isinstance(connector, ConnectorHostProxy)
+        assert isinstance(
+            await connector.read_channel(VA_PROBE, timeout=CALL_TIMEOUT_S), ChannelValue
+        )
+
+        await move_the_deployment(deployment.manager, "live")
+        on_live = await read_through_the_tool(SHARED_CHANNEL)
+        assert value_read(on_live, SHARED_CHANNEL) == LIVE_SEED
+
+        await move_the_deployment(deployment.manager, "va")
+        back = await read_through_the_tool(SHARED_CHANNEL)
+        assert value_read(back, SHARED_CHANNEL) == pytest.approx(IN_PROCESS_SEED)
+        connector = await deployment.context.control_system()
+        with pytest.raises(ConnectionError):
+            await connector.read_channel(LIVE_PROBE, timeout=CALL_TIMEOUT_S)
