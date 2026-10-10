@@ -12,9 +12,9 @@ the tool interface, and **pluggable connectors** for protocol-agnostic hardware 
 
    Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
 
-Six pages break that picture down — how a tool call is guarded, how a write
-travels, how reading differs from writing, and the three subsystems with
-architecture of their own:
+Seven pages break that picture down — how a tool call is guarded, how a write
+travels, how reading differs from writing, how one facility description feeds
+every service, and the subsystems with architecture of their own:
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -64,6 +64,15 @@ architecture of their own:
       readonly/readwrite execution modes, and the zones executed code may
       not touch.
 
+   .. grid-item-card:: Facility File and Its Views
+      :link: facility-file
+      :link-type: doc
+      :shadow: md
+
+      One description of the facility under ``data/facility/``, the facility
+      file the build makes of it, the view each service reads, the schema
+      behind it and the simulation models.
+
    .. grid-item-card:: Virtual Accelerator
       :link: virtual-accelerator
       :link-type: doc
@@ -89,4 +98,5 @@ architecture of their own:
    retrieval-paths
    mcp-servers
    python-executor
+   facility-file
    virtual-accelerator
