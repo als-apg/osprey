@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -191,8 +192,6 @@ def test_the_approved_fields_leave_the_environment_once_bound(
     channels: _Channels, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _approve(monkeypatch, APPROVED_NO_JOURNAL, "live")
-
-    import os
 
     assert ENV_APPROVED_JOURNAL_SHA256 not in os.environ
     assert ENV_APPROVED_TARGET not in os.environ
@@ -388,6 +387,34 @@ def test_an_incomplete_replay_keeps_exactly_the_entries_left_displaced(
     assert pending is not None
     assert pending.values == {"Q": 0.0, "T": 7.0}
     assert channels.writes == [("S", 4.0)]
+
+
+def test_a_rewrite_never_follows_a_link_planted_in_the_journal_directory(
+    tmp_path: Path, channels: _Channels, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rewrite goes through a file it created itself, never one that was waiting."""
+    path = _plant({"Q": 0.0, "S": 4.0})
+    victim = tmp_path / "victim"
+    victim.write_text("untouched", encoding="utf-8")
+    planted = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    planted.symlink_to(victim)
+
+    def refuse_q(address: str, value: Any, **kwargs: Any) -> None:
+        if address == "Q":
+            raise ChannelLimitsViolationError(address, value, "MAX_VALUE", "outside the band")
+        channels.write_channel(address, value, **kwargs)
+
+    monkeypatch.setattr(osprey.runtime, "write_channel", refuse_q)
+    with pytest.raises(OspreyRestoreIncomplete):
+        _approve(monkeypatch, _digest(path), "live")
+
+    assert victim.read_text(encoding="utf-8") == "untouched"
+    assert planted.is_symlink()
+    assert not path.is_symlink()
+    pending = read_pending_journal(path)
+    assert pending is not None and pending.values == {"Q": 0.0}
+    leftovers = sorted(p.name for p in path.parent.iterdir() if p.name.endswith(".tmp"))
+    assert leftovers == [planted.name]
 
 
 def test_a_rewritten_journal_restores_the_rest_on_the_next_approved_run(
