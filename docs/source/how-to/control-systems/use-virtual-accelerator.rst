@@ -379,7 +379,8 @@ file; the in-container engine polls it and, within about a second, composed
 channel values reflect the new scenario. One behavioral difference between the
 venues: served, a scenario switch only refreshes the engine-composed channels —
 setpoints you wrote during the session live in the IOC's own records and
-**survive** the switch. (In process, written values are reset.)
+**survive** the switch. (In process, written values are reset.) ``osprey sim
+apply still`` serves every reading without drift, couplings or noise.
 
 The served simulator's container mounts two directories: the render's data root
 (``build/data``, read-only, holding the simulator view the build writes, rebuilt
