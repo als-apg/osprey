@@ -92,8 +92,12 @@ roster in its ``setup`` block:
      }
    }
 
-``DeviceList`` holds ``[place index, ordinal]`` pairs derived from each member's
-place among its sibling places, or ``[n, 1]`` where the place has no sibling.
+``DeviceList`` holds ``[place index, ordinal]`` pairs: the device's place
+numbered among its sibling places at the same level, by beam position, and the
+device's ordinal inside that place. A device whose place has no sibling places
+— one at the machine itself, or with no place — has place index 0, and those
+devices are numbered together, so no two rows of a family are equal.
+``PlaceList``, when present, holds each device's place beside its row.
 It is parallel to ``CommonNames``, which is each device's label, else its id.
 An existing MML export keeps its metadata keys (``Units``, ``DataType``,
 ``Description``, …) — the pipeline skips them during navigation rather than
