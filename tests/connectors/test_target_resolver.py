@@ -39,6 +39,7 @@ from osprey_connectors.types import (
     VIRTUAL_ACCELERATOR,
     baseline_target,
     connector_transport,
+    is_simulated,
     resolve_control_system_type,
     resolve_target,
 )
@@ -388,3 +389,19 @@ def test_resolving_a_target_does_not_mutate_the_section():
     resolve_target(section, TARGET_VA)
 
     assert section == before
+
+
+@pytest.mark.parametrize(
+    ("section", "simulated"),
+    [
+        (_section(VIRTUAL_ACCELERATOR), True),
+        (_in_process(), True),
+        (None, True),
+        (_section(EPICS), False),
+        (_section(DOOCS), False),
+        (_section(LIVE_STANDIN), False),
+    ],
+    ids=["served-simulator", "in-process-simulator", "no-section", "epics", "doocs", "standin"],
+)
+def test_is_simulated_answers_for_the_type_a_section_selects(section: Any, simulated: bool):
+    assert is_simulated(resolve_control_system_type(section)) is simulated
