@@ -213,6 +213,7 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/facility/knowledge/subsystems/transport-delivery.md",
     "data/facility/knowledge/subsystems/vacuum.md",
     "data/facility/limits.yaml",
+    "data/facility/measurement/LINE.yaml",
     "data/facility/measurement/SR.yaml",
     "data/facility/models.yaml",
     "data/facility/records/channels.yaml",

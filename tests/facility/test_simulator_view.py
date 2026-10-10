@@ -38,6 +38,7 @@ pytestmark = [pytest.mark.slow]
 SERVED = "data/simulator/served_models.json"
 ADDRESSES = "data/simulator/addresses.json"
 DECK = "data/simulator/decks/SR.json"
+LINE_DECK = "data/simulator/decks/LINE.json"
 VARIABLES = "data/simulator/variables.json"
 SEEDS = "data/simulator/seeds.json"
 SCENARIOS = "data/simulator/scenarios.json"
@@ -71,6 +72,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
                 FACILITY_FILE,
                 ADDRESSES,
                 DECK,
+                LINE_DECK,
                 SCENARIOS,
                 *SCENARIO_FILES,
                 SEEDS,
@@ -93,13 +95,16 @@ def test_addresses_are_the_facility_file_channels_and_the_served_status(
 
     assert addresses["schema"] == "osprey.facility.addresses/1"
     assert addresses["channels"] == sorted(channel["id"] for channel in facility["channels"])
-    assert addresses["status"] == ["ca:SIM:SR:STATUS"]
+    assert addresses["status"] == ["ca:SIM:LINE:STATUS", "ca:SIM:SR:STATUS"]
 
 
-def test_the_demo_serves_sr_then_texture(built_control_assistant: BuiltProject) -> None:
+def test_the_demo_serves_line_and_sr_then_texture(built_control_assistant: BuiltProject) -> None:
     served = json.loads((built_control_assistant.build_dir / SERVED).read_bytes())
 
-    assert served == {"schema": "osprey.facility.served_models/1", "models": ["SR", TEXTURE]}
+    assert served == {
+        "schema": "osprey.facility.served_models/1",
+        "models": ["LINE", "SR", TEXTURE],
+    }
 
 
 def test_the_deck_is_a_byte_copy_that_pyat_loads(built_control_assistant: BuiltProject) -> None:
@@ -351,11 +356,11 @@ def test_a_description_contradicting_the_facility_stops_the_build(
 
     stop = _render_stop(tmp_path, built_control_assistant)
 
-    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "SR", "model")
+    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "LINE", "model")
     first_write = next(
         record["address"]
         for model in built_control_assistant.facility["models"]
-        if model["name"] == "SR"
+        if model["name"] == "LINE"
         for record in model["wiring"]
         if record["direction"] == "write"
     )
@@ -372,7 +377,7 @@ def test_an_engine_without_describe_stops_the_build(
 
     stop = _render_stop(tmp_path, built_control_assistant)
 
-    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "SR", "model")
+    assert (stop.kind, stop.record_id, stop.record_kind) == ("engine-invalid", "LINE", "model")
     assert stop.remedy == "add describe() to the engine plug-in"
 
 
@@ -410,7 +415,7 @@ def test_channel_owner_is_the_wiring_model_else_texture(
 
     for channel in variables["channels"]:
         assert channel["owner"] == wired.get(channel["address"], TEXTURE), channel["address"]
-    assert {channel["owner"] for channel in variables["channels"]} == {"SR", TEXTURE}
+    assert {channel["owner"] for channel in variables["channels"]} == {"LINE", "SR", TEXTURE}
 
 
 def test_channel_on_is_the_facility_records_on(built_control_assistant: BuiltProject) -> None:

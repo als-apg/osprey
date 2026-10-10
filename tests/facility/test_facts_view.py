@@ -106,6 +106,7 @@ def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject)
     assert facts["measurement_models"] == {}
     assert facts["snapshot"] is None
     assert facts["models"] == [
+        {"name": "LINE", "engine": "pyat", "served": True, "solve": "single_pass"},
         {"name": "SR", "engine": "pyat", "served": True, "solve": "periodic"},
         {"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": None},
     ]
@@ -138,6 +139,7 @@ def test_each_device_class_carries_its_count_aliases_and_families(
         "BR/DIAG",
         "BTS/BPM",
         "BTS/DIAG",
+        "LINE/BPM",
         "SR/BPM",
         "SR/DIAG",
     ]
@@ -165,8 +167,8 @@ def test_two_renders_differing_in_served_models_write_different_facts(
         served[name] = {model["name"]: model["served"] for model in facts["models"]}
 
     assert served == {
-        "all": {"SR": True, TEXTURE: True},
-        "none": {"SR": False, TEXTURE: True},
+        "all": {"LINE": True, "SR": True, TEXTURE: True},
+        "none": {"LINE": False, "SR": False, TEXTURE: True},
     }
 
 
