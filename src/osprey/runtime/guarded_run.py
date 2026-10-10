@@ -180,11 +180,16 @@ class _ApprovedCall:
         journal_sha256: The approved journal digest, :data:`APPROVED_NO_JOURNAL`
             when the prompt listed none, ``None`` when the call carries none.
         target: The approved control target, ``None`` when the call carries none.
+        asks: Whether the approval hook puts this tool's calls to a human, as
+            the rendered config said when the call was bound. When it does
+            not, no hook set the digest or the target, and both are ``None``
+            whatever the call carried.
     """
 
     tool: str
     journal_sha256: str | None
     target: str | None
+    asks: bool
 
 
 #: The call bound by :func:`_open_approved_call`; ``None`` in a process no
@@ -678,9 +683,13 @@ def _open_approved_call(tool: str) -> None:
     The approved digest and target are taken out of the environment
     (:data:`ENV_APPROVED_JOURNAL_SHA256`, :data:`ENV_APPROVED_TARGET`) and kept
     in this module, so nothing user code later sets in the environment changes
-    them. When the call carries an approved digest the target's lock is taken
-    and released once, which restores the approved journal whether or not the
-    code itself takes the guarded run.
+    them. Whether the tool's calls are put to a human (:func:`approval_asks`)
+    is read here too, once: the config and the variables that locate it are
+    within user code's reach from its first statement on. A digest and target
+    are the approval hook's only when the hook asked about the call, so with
+    nobody asked both are dropped. When the call carries an approved digest
+    the target's lock is taken and released once, which restores the approved
+    journal whether or not the code itself takes the guarded run.
 
     Args:
         tool: The guarded tool's short name.
@@ -694,7 +703,10 @@ def _open_approved_call(tool: str) -> None:
         raise RuntimeError("a guarded tool call is already bound to this process")
     digest = os.environ.pop(ENV_APPROVED_JOURNAL_SHA256, "").strip() or None
     target = os.environ.pop(ENV_APPROVED_TARGET, "").strip() or None
-    _APPROVED = _ApprovedCall(tool=tool, journal_sha256=digest, target=target)
+    asks = approval_asks(tool)
+    if not asks:
+        digest = target = None
+    _APPROVED = _ApprovedCall(tool=tool, journal_sha256=digest, target=target, asks=asks)
     if digest is not None:
         with lock(None):
             pass
@@ -705,8 +717,9 @@ def _check_approved_call(target: str) -> None:
 
     A process no guarded tool started has nothing to check. A call carrying
     the approved digest and target is checked against the run's target. A call
-    missing either refuses when its tool's approval policy asks: the comparison
-    is never skipped for a tool whose calls are put to a human.
+    missing either refuses when its tool's approval policy asked as the call
+    was bound: the comparison is never skipped for a tool whose calls are put
+    to a human, and nothing the code changed since moves that answer.
 
     Raises:
         OspreyWriteRefused: The approved target is not the run's, or the call
@@ -716,7 +729,7 @@ def _check_approved_call(target: str) -> None:
     if call is None:
         return
     if call.journal_sha256 is None or call.target is None:
-        if approval_asks(call.tool):
+        if call.asks:
             raise OspreyWriteRefused(
                 f"a guarded run of `{call.tool}` needs the journal digest and target its "
                 "approval prompt hands the call, and this call carries none"
@@ -817,7 +830,7 @@ def _replay_dead_run(path: Path, target: str) -> None:
                 path,
                 target=target,
                 generation=generation,
-                approval=approval_asks(None if call is None else call.tool),
+                approval=approval_asks(None) if call is None else call.asks,
             )
     journal = Journal()
     journal.record(list(pending.values), list(pending.values.values()))
