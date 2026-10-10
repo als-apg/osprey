@@ -18,8 +18,8 @@ expensive framework/deps install:
   delta, COPYed via the guaranteed-sibling idiom) before purging the toolchain,
   and
 - a separate **wheel layer** that optionally overlays a locally-built wheel via
-  the ``COPY .dockerignore *.wh[l]`` idiom, force-reinstalls it ``--no-deps`` and
-  runs ``pip check``,
+  the ``COPY .osprey-layer-anchor *.wh[l]`` idiom, force-reinstalls it
+  ``--no-deps`` and runs ``pip check``,
 
 followed by a metadata-only ``ARG OSPREY_PROJECT_NAME`` / ``LABEL
 com.osprey.project`` pair kept last so a per-project value never invalidates the
@@ -41,6 +41,7 @@ import subprocess
 import pytest
 
 import osprey
+from tests.deployment._cache_mounts import assert_build_caches_mounted
 from tests.deployment._pip_probe import primer_pip_argv
 from tests.deployment._proxy_idiom import (
     assert_apt_runs_carry_proxy_idiom,
@@ -127,11 +128,11 @@ PRIMER_SPEC = {
 }
 SERVICES = sorted(PRIMER_SPEC)
 
-# The dev-staged local-dependency manifest: COPYed next to .dockerignore (the
-# guaranteed sibling keeps the glob matching when absent) and installed inside
-# the deps RUN while the C toolchain is still available.
-MANIFEST_COPY = "COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/"
-MANIFEST_INSTALL = "pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt"
+# The dev-staged local-dependency manifest: COPYed next to .osprey-layer-anchor
+# (the guaranteed sibling keeps the glob matching when absent) and installed
+# inside the deps RUN while the C toolchain is still available.
+MANIFEST_COPY = "COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/"
+MANIFEST_INSTALL = "pip install -r /tmp/deps-ctx/osprey-local-requirements.txt"
 
 
 def _dockerfile(service: str) -> str:
@@ -141,7 +142,7 @@ def _dockerfile(service: str) -> str:
 def _run_bodies(text: str) -> list[str]:
     """Every RUN instruction's shell body, line-continuations joined."""
     joined = re.sub(r"\\\n", " ", text)
-    return re.findall(r"^RUN (.+)$", joined, flags=re.MULTILINE)
+    return re.findall(r"^RUN (?:--\S+\s+)*(.+)$", joined, flags=re.MULTILINE)
 
 
 def _instructions(text: str) -> list[tuple[str, str]]:
@@ -183,7 +184,7 @@ class TestLayerSplit:
 
     def test_wheel_copy_idiom(self, service):
         text = _dockerfile(service)
-        assert "COPY .dockerignore *.wh[l] /tmp/ctx/" in text, (
+        assert "COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/" in text, (
             f"{service}: missing the guaranteed-sibling wheel COPY idiom"
         )
 
@@ -192,10 +193,10 @@ class TestLayerSplit:
         if service == "virtual_accelerator":
             # VA's first (deps-resolving) install carries the extra so a dev
             # wheel that changes the extra's deps picks them up.
-            assert 'pip install --no-cache-dir "${whl}[virtual-accelerator]"' in wheel
+            assert 'pip install "${whl}[virtual-accelerator]"' in wheel
         else:
-            assert "pip install --no-cache-dir /tmp/ctx/*.whl" in wheel
-        assert "pip install --no-cache-dir --no-deps --force-reinstall /tmp/ctx/*.whl" in wheel
+            assert "pip install /tmp/ctx/*.whl" in wheel
+        assert "pip install --no-deps --force-reinstall /tmp/ctx/*.whl" in wheel
         assert "pip check" in wheel
         # Always clean up the staged context regardless of whether a wheel was
         # present (so a no-op wheel layer still leaves no /tmp/ctx behind).
@@ -204,7 +205,7 @@ class TestLayerSplit:
     def test_pinned_primer_spec_present(self, service):
         deps = _deps_body(service)
         spec = PRIMER_SPEC[service]
-        assert f'pip install --no-cache-dir ${{OSPREY_PIP_PRE:+--pre}} "{spec}"' in deps, (
+        assert f'uv pip install ${{OSPREY_PIP_PRE:+--prerelease=allow}} "{spec}"' in deps, (
             f"{service}: pinned primer spec {spec!r} missing from deps layer"
         )
 
@@ -296,9 +297,7 @@ class TestLayerSplit:
         assert deps.index(MANIFEST_INSTALL) < deps.index("apt-get purge -y build-essential"), (
             f"{service}: manifest install must precede the toolchain purge"
         )
-        assert "rm -rf /var/lib/apt/lists/* /tmp/deps-ctx" in deps, (
-            f"{service}: deps RUN must clean up /tmp/deps-ctx with the apt cleanup"
-        )
+        assert "rm -rf /tmp/deps-ctx" in deps, f"{service}: deps RUN must clean up /tmp/deps-ctx"
 
     def test_deps_layer_propagates_manifest_install_failure(self, service, tmp_path):
         """Empirical probe: with a manifest staged and its `pip install -r`
@@ -398,7 +397,7 @@ class TestPrereleasePin:
             tmp_path,
             {"OSPREY_VERSION": "2026.9.0b2", "OSPREY_PIP_PRE": "1"},
         )
-        assert "--pre" in argv, argv
+        assert "--prerelease=allow" in argv, argv
         assert any(a.endswith("==2026.9.0b2") for a in argv), argv
 
     def test_primer_stays_strict_for_a_stable_pin(self, dockerfile, tmp_path):
@@ -407,7 +406,7 @@ class TestPrereleasePin:
             tmp_path,
             {"OSPREY_VERSION": "2026.9.0", "OSPREY_PIP_PRE": ""},
         )
-        assert "--pre" not in argv, argv
+        assert "--prerelease=allow" not in argv, argv
 
 
 def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
@@ -431,6 +430,7 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
     for name, script in (
         ("apt-get", "#!/bin/sh\nexit 0\n"),
         ("pip", '#!/bin/sh\ncase " $* " in *" -r "*) exit 1 ;; *) exit 0 ;; esac\n'),
+        ("uv", '#!/bin/sh\n[ "$1" = pip ] && shift\nexec "$(dirname "$0")/pip" "$@"\n'),
     ):
         stub = stub_bin / name
         stub.write_text(script)
@@ -480,7 +480,6 @@ def test_event_dispatcher_node_comes_from_the_base_image_distro():
     # inside the continuation, so they are only reachable in the comment-
     # stripped body above — a naive join would leave them commented out.
     assert "npm install -g @anthropic-ai/claude-code@" in node
-    assert "rm -rf /var/lib/apt/lists/*" in node
 
 
 def test_event_dispatcher_has_no_third_party_node_apt_repo():
@@ -515,7 +514,7 @@ def test_virtual_accelerator_wheel_extra_placement():
     deps = _deps_body("virtual_accelerator")
     wheel = _wheel_body("virtual_accelerator")
     assert "[virtual-accelerator]" in deps
-    assert 'pip install --no-cache-dir "${whl}[virtual-accelerator]"' in wheel
+    assert 'pip install "${whl}[virtual-accelerator]"' in wheel
     first_install, _, after_force_reinstall = wheel.partition("--force-reinstall")
     assert "[virtual-accelerator]" in first_install
     assert "[virtual-accelerator]" not in after_force_reinstall
@@ -537,6 +536,115 @@ def test_every_service_ships_non_self_excluding_dockerignore():
         }
         offenders = {e for e in entries if e.strip("/") == ".dockerignore"}
         assert not offenders, f"{d.name}: .dockerignore self-excludes: {offenders}"
+
+
+# ── Shared deps layer ────────────────────────────────────────────────────────
+#
+# A deploy builds several of these images at once, and the framework install is
+# by far the slowest step in each. BuildKit runs a step once and shares the
+# layer only when everything up to and including it is identical: the same
+# instructions, the same build args, and the same bytes in every file a COPY
+# reads. These pin both halves of that for the Python service recipes.
+
+LAYER_ANCHOR = ".osprey-layer-anchor"
+
+#: Python service recipes that legitimately diverge before the deps layer. The
+#: virtual accelerator pins its base to linux/amd64 and refuses any other
+#: architecture ahead of the install, because no pcaspy wheel exists elsewhere.
+_OWN_DEPS_LAYER = {"services/virtual_accelerator"}
+
+SHARED_DEPS_IDS = [
+    label
+    for label, path in zip(SHIPPED_DOCKERFILE_IDS, SHIPPED_DOCKERFILES, strict=True)
+    if "FROM python:" in path.read_text(encoding="utf-8") and label not in _OWN_DEPS_LAYER
+]
+
+
+def _shared_prefix(dockerfile: pathlib.Path) -> list[str]:
+    """The instructions from FROM through the deps RUN, as Docker reads them."""
+    prefix: list[str] = []
+    for _keyword, line in _instructions(dockerfile.read_text(encoding="utf-8")):
+        prefix.append(line)
+        if line.startswith("RUN ") and MANIFEST_INSTALL in line:
+            return prefix
+    raise AssertionError(f"{dockerfile}: no deps RUN installing the manifest")
+
+
+def test_every_build_context_ships_the_same_layer_anchor():
+    """Each recipe's context carries the anchor, byte-identical to every other.
+
+    The recipes COPY it beside their optional globs, so its content is part of
+    every cache key from the site-CA layer down. A copy that drifted would cost
+    nothing visible and quietly give that image its own framework install.
+    """
+    anchors = {
+        label: path.parent / LAYER_ANCHOR
+        for label, path in zip(SHIPPED_DOCKERFILE_IDS, SHIPPED_DOCKERFILES, strict=True)
+    }
+    missing = sorted(label for label, anchor in anchors.items() if not anchor.is_file())
+    assert not missing, f"no {LAYER_ANCHOR} beside: {missing}"
+    contents = {anchor.read_bytes() for anchor in anchors.values()}
+    assert len(contents) == 1, f"{LAYER_ANCHOR} copies differ between build contexts"
+
+
+@pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
+def test_no_context_ignores_the_layer_anchor(dockerfile):
+    """The anchor reaches the build: a context that ignored it would fail every COPY."""
+    ignore = dockerfile.parent / ".dockerignore"
+    entries = {
+        line.strip().strip("/")
+        for line in ignore.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    }
+    assert not entries & {LAYER_ANCHOR, ".*", "*"}, f"{ignore} excludes {LAYER_ANCHOR}"
+
+
+@pytest.mark.parametrize("label", SHARED_DEPS_IDS)
+def test_python_services_share_one_deps_layer(label):
+    """Every Python service recipe is identical from FROM through the deps RUN.
+
+    Whatever one image needs beyond the framework (an extra, the queueserver
+    pin, Node) belongs in a layer after it; one differing instruction above it
+    gives that image a framework install of its own, which on a slow index is
+    most of a deploy's build time.
+    """
+    reference = TEMPLATES_DIR / "services" / "bluesky_web" / "Dockerfile"
+    dockerfile = TEMPLATES_DIR / label / "Dockerfile"
+    assert _shared_prefix(dockerfile) == _shared_prefix(reference), (
+        f"{label}: diverges from bluesky_web before the end of the deps layer"
+    )
+
+
+def test_shared_deps_layer_covers_the_compose_built_services():
+    """Floor on the discovery: the services a deploy builds together are in it."""
+    assert {
+        "modules/web_terminals/auth_sidecar",
+        "services/bluesky",
+        "services/bluesky_web",
+        "services/event_dispatcher",
+    } <= set(SHARED_DEPS_IDS)
+
+
+#: Shipped recipes that install with pip, and so fetch through the build caches.
+#: The qmd sidecar installs with npm on a Node base and is not one of them.
+PIP_INSTALLING = [p for p in SHIPPED_DOCKERFILES if "pip install" in p.read_text(encoding="utf-8")]
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    PIP_INSTALLING,
+    ids=[str(p.parent.relative_to(TEMPLATES_DIR)) for p in PIP_INSTALLING],
+)
+def test_installs_fetch_through_the_shared_build_caches(dockerfile):
+    """Every pip and apt install mounts the caches the deploy's images share.
+
+    The rule is spelled once, in :mod:`tests.deployment._cache_mounts`, and
+    applied to the rendered project template too.
+    """
+    assert_build_caches_mounted(
+        dockerfile.read_text(encoding="utf-8"),
+        str(dockerfile.parent.relative_to(TEMPLATES_DIR)),
+    )
 
 
 # ── Proxy delivery ───────────────────────────────────────────────────────────

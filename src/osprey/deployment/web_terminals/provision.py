@@ -778,13 +778,15 @@ AUTH_SERVICE_NAME = "auth"
 AUTH_BUILD_CONTEXT = Path("build") / "services" / "auth_sidecar"
 
 #: Files copied out of the bundled template package to form that context. The
-#: ``.dockerignore`` is not optional: the Dockerfile COPYs it as the guaranteed
-#: sibling that keeps its optional ``*.wh[l]`` and ``*.cr[t]``/``*.pe[m]`` globs
-#: matching. Two more files can land in the context beside these, neither of
-#: them bundled: the ``--dev`` wheel, and the site CA
-#: :func:`osprey.deployment.container_lifecycle.site_image_build_args` stages
-#: there from ``images.site_ca``.
-_AUTH_CONTEXT_FILES = ("Dockerfile", ".dockerignore")
+#: ``.osprey-layer-anchor`` is not optional: the Dockerfile COPYs it as the
+#: guaranteed sibling that keeps its optional ``*.wh[l]`` and
+#: ``*.cr[t]``/``*.pe[m]`` globs matching, and it is the same bytes as every
+#: service context's copy, which is what lets this image reuse the deps layer
+#: the compose-built services already produced. Two more files can land in the
+#: context beside these, neither of them bundled: the ``--dev`` wheel, and the
+#: site CA :func:`osprey.deployment.container_lifecycle.site_image_build_args`
+#: stages there from ``images.site_ca``.
+_AUTH_CONTEXT_FILES = ("Dockerfile", ".dockerignore", ".osprey-layer-anchor")
 
 #: Package-relative location of those bundled files. Resolved through
 #: importlib.resources rather than ``Path(__file__)`` so it works from an

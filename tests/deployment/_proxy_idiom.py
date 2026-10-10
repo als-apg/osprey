@@ -32,6 +32,11 @@ from __future__ import annotations
 
 import re
 
+#: The ``RUN`` flags a recipe may open with (``--mount=type=cache,...``). They
+#: are BuildKit's, not the shell's, so every reconstruction drops them and reads
+#: the body the way the shell receives it.
+RUN_FLAGS = re.compile(r"^RUN (?:--\S+\s+)+", flags=re.MULTILINE)
+
 #: The canonical bridge, keyed on its first assignment. An apt-using RUN opens
 #: with this and may follow it with further exports (see :data:`_ARG_EXPORT`).
 PROXY_EXPORT_BRIDGE = 'export http_proxy="${http_proxy:-${HTTP_PROXY:-}}"'
@@ -57,8 +62,14 @@ def run_instructions(text: str) -> list[str]:
     is dropped rather than folded into the body — which is how Docker treats
     it, and the difference matters: a naive join turns everything after such a
     comment into inert shell comment text, hiding the commands that actually
-    run.
+    run. Leading ``RUN`` flags are dropped too (see :data:`RUN_FLAGS`);
+    :func:`raw_run_instructions` keeps them.
     """
+    return [RUN_FLAGS.sub("RUN ", instruction) for instruction in raw_run_instructions(text)]
+
+
+def raw_run_instructions(text: str) -> list[str]:
+    """:func:`run_instructions`, keeping each instruction's ``--mount`` flags."""
     blocks: list[list[str]] = []
     current: list[str] | None = None
     for line in text.splitlines():
@@ -121,9 +132,9 @@ def assert_apt_runs_carry_proxy_idiom(text: str, label: str) -> None:
 
 #: The site-CA staging idiom, as the recipes spell it. ``COPY`` cannot reach
 #: outside the build context, so the CA is staged into it and named by the
-#: build arg; the ``.dockerignore`` sibling is the guaranteed match that keeps
-#: the two optional globs from failing the COPY when nothing is staged.
-SITE_CA_COPY = "COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/"
+#: build arg; the ``.osprey-layer-anchor`` sibling is the guaranteed match that
+#: keeps the two optional globs from failing the COPY when nothing is staged.
+SITE_CA_COPY = "COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/"
 
 #: The merged Debian bundle ``update-ca-certificates`` writes, and the only
 #: path a trust variable may name: one pointing at a file the image does not

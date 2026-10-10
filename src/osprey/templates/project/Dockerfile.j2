@@ -31,8 +31,9 @@
 #                       is unreleased and fails to install, fall back to the
 #                       latest published osprey-framework instead of failing.
 #   OSPREY_PIP_PRE      "1" when OSPREY_PIP_SPEC pins a pre-release: the deps
-#                       layer then resolves with --pre, since the framework's
-#                       paired osprey-connectors beta is admitted no other way.
+#                       layer then resolves with --prerelease=allow, since
+#                       the framework's paired osprey-connectors beta is
+#                       admitted no other way.
 #   CLAUDE_CLI_VERSION  Claude Code CLI version to pin (default: this
 #                       project's claude_code.cli_version). Bump deliberately
 #                       — an unpinned upstream release could silently change
@@ -54,9 +55,10 @@ FROM python:3.12-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
 ARG OSPREY_DEV=""
 # OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
-# connectors ship as a pair from one tag, and pip never picks a pre-release
-# for a requirement that names none (the framework's own connectors
-# requirement), so the deps layer then resolves as a whole with --pre.
+# connectors ship as a pair from one tag, and an installer prefers a stable
+# release for a requirement that names none (the framework's own connectors
+# requirement), so the deps layer then resolves as a whole with
+# --prerelease=allow.
 ARG OSPREY_PIP_PRE=""
 ARG CLAUDE_CLI_VERSION={{ claude_code_cli_version }}
 ARG PIP_NO_PROXY=""
@@ -104,10 +106,17 @@ ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt \
 # HTTPS just above, and apt keeps no https entry in its config tree unless one
 # is written, so relying on a fallback from the http key is how this would
 # quietly become a no-op.
+#
+# The base image's docker-clean hook deletes every downloaded .deb after each
+# install, which keeps a plain layer small but would empty the apt cache mount
+# the installing RUNs below share across builds, so it is removed here. Every
+# RUN that installs packages mounts /var/cache/apt and /var/lib/apt/lists as
+# caches, so neither the archives nor the lists land in a layer.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
- && printf 'Acquire::Retries "5";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-osprey-retries
+ && printf 'Acquire::Retries "5";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-osprey-retries \
+ && rm -f /etc/apt/apt.conf.d/docker-clean
 
 # Tools the agent's shell reaches for at runtime (curl, git, procps) and Node
 # for the Claude Code CLI installed below. Node comes from the base image's own
@@ -126,10 +135,11 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # serves: a privilege-drop tool added to the tail of the file would re-run apt
 # on every render change. Without it the entrypoint refuses to start, which is
 # the intended failure: the alternative is running the agent as root.
-RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     apt-get update \
- && apt-get install -y --no-install-recommends curl git procps ca-certificates gosu nodejs npm \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get install -y --no-install-recommends curl git procps ca-certificates gosu nodejs npm
 
 # Claude Code CLI, pinned via CLAUDE_CLI_VERSION (npm global install) so an
 # upstream release cannot silently change agent behavior between image
@@ -179,27 +189,55 @@ COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # which pip discards along with every other empty configuration value before it
 # parses one, so an unconfigured build resolves from PyPI exactly as it did
 # before these args existed.
-RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+#
+# pip and apt fetch through BuildKit cache mounts, so a deps layer that does
+# rebuild (a new pin, a changed manifest) downloads only what changed, and
+# images building side by side draw on one cache. The apt mounts are locked:
+# apt keeps its own lock files in both directories, so two builds cannot use
+# them at once, and podman's builder accepts no private sharing mode. The lock
+# lasts the whole RUN, so two different deps layers building together take
+# turns; the service recipes share one deps layer, which builds only once.
+#
+# The installs here run under uv rather than pip: uv resolves without pip's
+# one-candidate-at-a-time metadata crawl and downloads in parallel, which on a
+# slow index is most of this layer's time. It is installed with pip from the
+# same index (so a site mirror still applies), handed pip's settings (the
+# constraint file for runtime and build dependencies, the site indexes with
+# pip's consider-every-index strategy, bytecode compilation), and uninstalled
+# before the RUN ends, so no image ships it. Later layers install with pip.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
     printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_BUILD_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 \
+              UV_INDEX_STRATEGY=unsafe-best-match \
+    && { [ -z "$PIP_INDEX_URL" ] || export UV_DEFAULT_INDEX="$PIP_INDEX_URL"; } \
+    && { [ -z "$PIP_EXTRA_INDEX_URL" ] || export UV_INDEX="$PIP_EXTRA_INDEX_URL"; } \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
+    && pip install "uv==0.12.21" \
     && { case "$OSPREY_PIP_SPEC" in \
-           git+*) pip install --no-cache-dir "osprey-connectors @ ${OSPREY_PIP_SPEC}#subdirectory=packages/osprey-connectors" \
+           git+*) uv pip install "osprey-connectors @ ${OSPREY_PIP_SPEC}#subdirectory=packages/osprey-connectors" \
                   || echo "WARNING: could not pre-install osprey-connectors from the git spec; resolving from PyPI" ;; \
          esac; } \
-    && { pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
+    && { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
          || if [ "$OSPREY_DEV" = "1" ]; then \
                 echo "WARNING: pin unreleased, priming with latest" \
-                && pip install --no-cache-dir osprey-framework {{ pip_dependency_args | default("") }}; \
+                && uv pip install osprey-framework {{ pip_dependency_args | default("") }}; \
             else exit 1; fi; } \
     && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
-           pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt; \
+           uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt; \
        fi \
+    && pip uninstall -y uv \
     && apt-get purge -y build-essential python3-dev \
     && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
+    && rm -rf /tmp/deps-ctx
 
 # Dev wheel drop (wheel layer). `osprey up --dev` stages a locally-built
 # wheel in the build context; when present, reinstall osprey from it (deps
@@ -209,9 +247,10 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # `.dockerignore` sibling in the COPY glob guarantees the COPY always matches at
 # least one file, so it never fails when no wheel exists.
 COPY .dockerignore *.wh[l] /tmp/ctx/
-RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
-        pip install --no-cache-dir /tmp/ctx/*.whl \
-        && pip install --no-cache-dir --no-deps --force-reinstall /tmp/ctx/*.whl \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
+        pip install /tmp/ctx/*.whl \
+        && pip install --no-deps --force-reinstall /tmp/ctx/*.whl \
         && pip check; \
     fi \
     && rm -rf /tmp/ctx

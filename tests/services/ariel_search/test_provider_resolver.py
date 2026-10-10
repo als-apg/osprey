@@ -70,6 +70,12 @@ def _register(monkeypatch, **classes: type) -> None:
     monkeypatch.setattr(ProviderRegistry, "get_provider", get_provider)
 
 
+def _cached_entries() -> list[str]:
+    """The URLs the local-server cache holds right now."""
+    with _local_server._cache_lock:
+        return list(_local_server._cache.values())
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -399,9 +405,9 @@ class TestResolveReachableBaseUrl:
         assert resolve_reachable_base_url(cls, configured, deadline_s=0.05) == configured
 
         deadline = time.monotonic() + 5
-        while len(probes.calls) < 2 and time.monotonic() < deadline:
-            time.sleep(0.05)
-        time.sleep(0.5)
+        while not _cached_entries() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert _cached_entries() == [f"http://host.docker.internal:{port}"]
         walked = len(probes.calls)
 
         assert resolve_reachable_base_url(cls, configured) == (

@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,36 @@ async def test_a_real_child_that_exits_on_its_own_reports_its_own_exit_code():
     await terminate(process, 0.5)
 
     assert process.returncode == 3
+
+
+@posix_only
+async def test_a_child_that_exited_after_closing_its_stream_keeps_its_exit_code():
+    """A supervisor puts a child down as soon as its stream ends, and such a
+    child has usually exited already. The blocked loop holds that window open:
+    the child has exited and the loop has not yet seen it when it is put down.
+    """
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import os, time; os.close(1); time.sleep(0.05); os._exit(3)",
+        stdout=asyncio.subprocess.PIPE,
+    )
+    assert await process.stdout.read() == b""
+    time.sleep(0.5)
+    assert process.returncode is None
+
+    assert await terminate(process, 5.0) == 3
+
+    assert process.returncode == 3
+
+
+async def test_a_child_the_loop_already_collected_is_left_alone():
+    process = await asyncio.create_subprocess_exec(sys.executable, "-c", "import os; os._exit(4)")
+    assert await process.wait() == 4
+
+    assert await terminate(process, 0.5) == 4
+
+    assert process.returncode == 4
 
 
 @posix_only
