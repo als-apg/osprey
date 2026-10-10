@@ -315,8 +315,9 @@ _IN_SECTION = ExampleQuery(
     title="Every address in one section of the machine",
     description=(
         "Lists the addresses of every device sitting in a single section — a "
-        "transfer line, a ring, a sector — with the device and its concrete "
-        "class on each row. Sections are how operators partition the machine "
+        "sector, a transfer line, a whole sub-machine: the last segment of a "
+        "device's place path — with the device and its concrete class on each "
+        "row. Sections are how operators partition the machine "
         "when they talk about a region of it, so this is the bounded set to "
         "hand back when the phrase named a place rather than a thing.\n"
         "\n"
