@@ -1,12 +1,13 @@
 """The graph view the control-assistant build writes.
 
 A corpus that nobody counts can drift silently: a change to the facility or to
-the view's writer would quietly seed a different graph. The census below (512
-devices, 2912 bindings, 396 written and 2512 read signals) is the demo facility
-as the build renders it, and the 396 writes are exactly its `:SP` addresses.
-The prose census sits beside it: a description on every binding, a family and
-a system description plus the SYSTEM token on every device, and none of the
-three descriptions on a semantic signal.
+the view's writer would quietly seed a different graph. The census below (532
+devices, 2952 bindings, 412 written and 2536 read signals) is the demo facility
+as the build renders it, and the 412 writes are exactly its `:SP` addresses.
+The prose census sits beside it: a description on every binding, a system
+description plus the SYSTEM token on every device, a family description on
+every device a described group names, and none of the three descriptions on a
+semantic signal.
 
 The uppercase check guards the other half of the pipeline. neosemantics imports
 a predicate IRI under the local name it finds, so `narad_p:hasBinding` becomes
@@ -32,22 +33,29 @@ NARAD_SEMANTICS = "https://narad.example.org/schema/shared_semantics/"
 NON_DEVICE_CLASSES = {"ChannelBinding", "SemanticSignal"}
 
 #: The demo facility's census, as the build renders it: the tier-3 channel
-#: database's 2908 device channels plus the four tune and chromaticity channels
-#: the top place carries itself.
-EXPECTED_DEVICES = 512
-EXPECTED_BINDINGS = 2912
-EXPECTED_WRITES = 396
-EXPECTED_READS = 2512
+#: database's 2908 device channels, the four tune and chromaticity channels
+#: the top place carries itself, and the transfer line's 40 channels.
+EXPECTED_DEVICES = 532
+EXPECTED_BINDINGS = 2952
+EXPECTED_WRITES = 412
+EXPECTED_READS = 2536
+
+#: Devices a described group names, each carrying its family's description;
+#: the transfer line's eight quadrupoles are in no group.
+EXPECTED_FAMILY_DESCRIBED = 524
 
 #: Prose predicates carried once by every ``narad_sem:ChannelBinding``: the
 #: channel's own sentence.
 BINDING_DESCRIPTION_PREDICATES = ("description",)
 
-#: Prose predicates carried once by every device node, from its family and its
-#: system, plus the SYSTEM token itself — the one token the device IRI does not
-#: spell, so it ships as data a query can filter on.
-DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription")
+#: Prose predicates carried once by every device node, from its system, plus
+#: the SYSTEM token itself — the one token the device IRI does not spell, so it
+#: ships as data a query can filter on.
+DEVICE_DESCRIPTION_PREDICATES = ("systemDescription",)
 DEVICE_TOKEN_PREDICATES = ("system",)
+
+#: Prose predicates carried once by every device a described group names.
+FAMILY_DESCRIPTION_PREDICATES = ("familyDescription",)
 
 #: n10s' uppercase spellings of the three relationship types the shipped
 #: example queries use. Any of these in the corpus means the queries miss.
@@ -90,7 +98,7 @@ def test_prose_census(graph) -> None:
     """Every binding and every device carries its prose, exactly once.
 
     The subject counts are what make this a census rather than a spot check: a
-    predicate appearing 2,912 times spread over 40 bindings would satisfy a
+    predicate appearing 2,952 times spread over 40 bindings would satisfy a
     triple count and import into a graph where most channels have no text at
     all. neosemantics keeps one value per property unless told otherwise, so a
     doubled predicate is also silent data loss at seed time.
@@ -115,6 +123,13 @@ def test_prose_census(graph) -> None:
         )
         assert len(subjects(predicate)) == EXPECTED_DEVICES
 
+    for predicate in FAMILY_DESCRIPTION_PREDICATES:
+        assert triples(predicate) == EXPECTED_FAMILY_DESCRIBED, (
+            f"narad_p:{predicate} appears {triples(predicate)} times, "
+            f"not {EXPECTED_FAMILY_DESCRIBED}."
+        )
+        assert len(subjects(predicate)) == EXPECTED_FAMILY_DESCRIBED
+
 
 def test_semantic_signals_carry_no_description(graph) -> None:
     """No prose predicate lands on a ``narad_sem:SemanticSignal``.
@@ -128,7 +143,11 @@ def test_semantic_signals_carry_no_description(graph) -> None:
     signals = set(graph.subjects(RDF.type, URIRef(NARAD_SEMANTICS + "SemanticSignal")))
     assert signals, "The corpus declares no semantic signals at all"
 
-    for predicate in BINDING_DESCRIPTION_PREDICATES + DEVICE_DESCRIPTION_PREDICATES:
+    for predicate in (
+        BINDING_DESCRIPTION_PREDICATES
+        + DEVICE_DESCRIPTION_PREDICATES
+        + FAMILY_DESCRIPTION_PREDICATES
+    ):
         described = signals & set(graph.subjects(URIRef(NARAD_PROPERTY + predicate), None))
         assert not described, f"narad_p:{predicate} is on {len(described)} semantic signals."
 

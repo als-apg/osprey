@@ -86,7 +86,7 @@ def write_facility_file(
 def write_demo_facility_file(render: Path | str) -> Path:
     """Write the facility file of the tree the control-assistant preset ships.
 
-    2912 channels: 396 setpoints, each paired with a readback, and 2516
+    2952 channels: 412 setpoints, each paired with a readback, and 2540
     readbacks.
 
     Args:
