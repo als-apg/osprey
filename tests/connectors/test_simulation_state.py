@@ -11,6 +11,8 @@ from osprey_connectors.simulation.state import (
     Overlap,
     composed_set,
     parse_active_state,
+    scenario_targets,
+    validate_composition,
     write_active_state,
 )
 
@@ -39,6 +41,65 @@ def test_a_set_writing_one_target_twice_is_served_as_nominal_alone() -> None:
 def test_an_unknown_name_is_refused() -> None:
     with pytest.raises(ValueError, match="Unknown scenarios \\['nope'\\]"):
         composed_set(VIEW, ["nominal", "nope"])
+
+
+# -- still -------------------------------------------------------------------------
+
+
+def _targets(**scenarios: dict) -> dict[str, set[str]]:
+    return {name: scenario_targets(scenario) for name, scenario in scenarios.items()}
+
+
+def test_still_composes_with_overrides_and_faults_on_the_same_address() -> None:
+    view = _targets(
+        quiet={"still": ["SR:BPM1:X"]},
+        pinned={"overrides": {"SR:BPM1:X": 1.0}},
+        faulted={"faults": {"optics": {"writes": {"SR:BPM1:X": {"offset": 1e-4}}}}},
+        logged={"archiver": [{"channel": "SR:BPM1:X", "events": []}]},
+    )
+
+    assert validate_composition(view, ["quiet", "pinned"]) == []
+    assert validate_composition(view, ["quiet", "faulted"]) == []
+    assert validate_composition(view, ["quiet", "logged"]) == []
+
+
+def test_still_all_overlaps_a_noise_scenario() -> None:
+    view = _targets(
+        quiet={"still": "all"},
+        loud={"noise": {"SR:BPM1:X": {"absolute": 0.1}, "SR:BPM2:X": {"absolute": 0.1}}},
+    )
+
+    overlaps = validate_composition(view, ["nominal", "quiet", "loud"])
+
+    assert overlaps == [
+        Overlap(target="SR:BPM1:X", first="quiet", second="loud", motion=True),
+        Overlap(target="SR:BPM2:X", first="quiet", second="loud", motion=True),
+    ]
+    assert str(overlaps[0]) == (
+        "Scenarios 'quiet' and 'loud' both set the motion of 'SR:BPM1:X'; active scenarios must not"
+    )
+
+
+def test_a_listed_still_overlaps_a_couple_on_that_address_only() -> None:
+    view = _targets(
+        quiet={"still": ["SR:BPM1:X"]},
+        thermal={
+            "couple": {
+                "SR:BPM1:X": [{"driver": "hall", "gain": 1.0}],
+                "SR:BPM2:X": [{"driver": "hall", "gain": 1.0}],
+            }
+        },
+    )
+
+    assert validate_composition(view, ["thermal", "quiet"]) == [
+        Overlap(target="SR:BPM1:X", first="thermal", second="quiet", motion=True)
+    ]
+
+
+def test_two_stills_on_one_reading_compose() -> None:
+    view = _targets(a={"still": ["SR:BPM1:X"]}, b={"still": "all"}, c={"still": ["SR:BPM1:X"]})
+
+    assert validate_composition(view, ["nominal", "a", "b", "c"]) == []
 
 
 # -- the writer ----------------------------------------------------------------
