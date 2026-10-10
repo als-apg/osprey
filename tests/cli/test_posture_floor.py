@@ -25,9 +25,11 @@ built at most once per session.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -362,7 +364,9 @@ class TestGuardedToolPolicies:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+def _run_cli(
+    args: list[str], cwd: Path, env: Mapping[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     """Run one ``osprey`` command under the running interpreter.
 
     Invoked as ``[sys.executable, "-m", "osprey", …]`` rather than a bare
@@ -372,6 +376,7 @@ def _run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     Args:
         args: Arguments after ``osprey``.
         cwd: Working directory for the command.
+        env: Additions to the environment the command runs under.
 
     Returns:
         The completed process, output captured, a non-zero exit not raised.
@@ -379,6 +384,7 @@ def _run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "osprey", *args],
         cwd=cwd,
+        env={**os.environ, **(env or {})},
         capture_output=True,
         text=True,
         check=False,
@@ -391,11 +397,14 @@ def _output(result: subprocess.CompletedProcess[str]) -> str:
 
 
 @pytest.fixture(scope="session")
-def built_preset(tmp_path_factory: pytest.TempPathFactory) -> Any:
+def built_preset(
+    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
+) -> Any:
     """Build a preset once per session and hand back its repo.
 
     Args:
         tmp_path_factory: Pytest's session-scoped directory factory.
+        offline_build_env: Environment additions each build's install runs under.
 
     Returns:
         A callable taking a preset name and returning the built repo directory.
@@ -411,7 +420,7 @@ def built_preset(tmp_path_factory: pytest.TempPathFactory) -> Any:
         init = _run_cli(["init", PROJECT_NAME, "--preset", preset, "--no-git"], workspace)
         assert init.returncode == 0, f"osprey init {preset} failed:\n{_output(init)}"
         repo = workspace / PROJECT_NAME
-        build = _run_cli(["build"], repo)
+        build = _run_cli(["build"], repo, offline_build_env)
         assert build.returncode == 0, f"osprey build ({preset}) failed:\n{_output(build)}"
         built[preset] = repo
         return repo
@@ -471,7 +480,7 @@ def test_standalone_without_controls_is_not_asked_for_a_control_system_type(
 @pytest.mark.slow
 @pytest.mark.parametrize("key", FLOOR_KEYS)
 def test_removing_a_required_key_is_refused_naming_it(
-    key: str, built_preset: Any, tmp_path: Path
+    key: str, built_preset: Any, offline_build_env: dict[str, str], tmp_path: Path
 ) -> None:
     """A built repo, one line deleted from its profile, refuses to rebuild.
 
@@ -491,7 +500,7 @@ def test_removing_a_required_key_is_refused_naming_it(
     assert len(kept) == len(lines) - 1, f"expected exactly one `  {key}:` line in {profile}"
     profile.write_text("".join(kept))
 
-    result = _run_cli(["build"], repo)
+    result = _run_cli(["build"], repo, offline_build_env)
     output = _output(result)
     assert result.returncode != 0, f"build should have refused a profile with no {key}:\n{output}"
     assert f"{key} is not stated" in output

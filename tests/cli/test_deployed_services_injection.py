@@ -158,7 +158,9 @@ def _service_leaves(document: dict[str, Any]) -> list[str]:
 
 
 @pytest.fixture(scope="session")
-def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def built_project(
+    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
+) -> Path:
     """One real ``osprey init`` + ``osprey build`` of the cell, shared by the session.
 
     Invoked exactly as the fixture freeze invoked it — same verbs, same fixed
@@ -191,7 +193,7 @@ def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     assert result.returncode == 0, f"osprey init refused the cell:\n{_failure_reason(result)}"
 
     project: Path = scratch / PROJECT_NAME
-    result = _run_cli(["build"], cwd=project, env=env)
+    result = _run_cli(["build"], cwd=project, env={**env, **offline_build_env})
     assert result.returncode == 0, f"osprey build refused the cell:\n{_failure_reason(result)}"
     return project
 
@@ -214,7 +216,9 @@ def _persona_render_dir(built_project: Path, persona: str) -> Path:
 
 
 @pytest.fixture(scope="session")
-def external_store_render(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+def external_store_render(
+    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
+) -> dict[str, Any]:
     """An attached project naming an external graph store nothing here deploys.
 
     ``channel-finder-standalone`` deploys no store of its own
@@ -250,7 +254,7 @@ def external_store_render(tmp_path_factory: pytest.TempPathFactory) -> dict[str,
     assert result.returncode == 0, f"osprey init refused the profile:\n{_failure_reason(result)}"
 
     project: Path = scratch / PROJECT_NAME
-    result = _run_cli(["build"], cwd=project, env=env)
+    result = _run_cli(["build"], cwd=project, env={**env, **offline_build_env})
     assert result.returncode == 0, (
         "osprey build refused an attached profile that names an external graph store:\n"
         f"{_failure_reason(result)}"
