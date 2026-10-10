@@ -176,7 +176,8 @@ def seed_once(
     """Write each seed-once file that does not exist yet.
 
     Runs after the layer's records are written: the wired addresses are read
-    from the layer's ``models.yaml``.
+    from the layer's ``models.yaml``, and the group each family token names
+    from its ``groups.yaml``.
 
     Args:
         exports: What the import read.
@@ -189,6 +190,7 @@ def seed_once(
         The files written and the lines to print.
     """
     models = _load(facility_dir / LAYER_DIR / "models.yaml") or []
+    group_of = _group_of(_load(facility_dir / LAYER_DIR / "groups.yaml") or [])
     wired = {str(record["address"]) for model in models for record in model.get("wiring") or ()}
     claims = _claims(views, mapping)
     seeded = Seeded()
@@ -220,7 +222,9 @@ def seed_once(
         path = facility_dir / MEASUREMENT_DIR / f"{entry.get('name')}.yaml"
         if model is None or not entry.get("wiring") or path.exists():
             continue
-        document, lines = _measurement(model, entry, mapping, carried.get(model.raw, set()), claims)
+        document, lines = _measurement(
+            model, entry, mapping, carried.get(model.raw, set()), claims, group_of
+        )
         seeded.written.append(_write(path, document))
         seeded.lines.extend(lines)
 
@@ -418,12 +422,23 @@ def _golden(claims: dict[str, _Claim], exports: Exports) -> dict[str, float]:
 # -- measurement --------------------------------------------------------------
 
 
+def _group_of(groups: list[dict[str, Any]]) -> dict[str, str]:
+    """Each family token's group id: its own where a group has it, else the group naming it."""
+    out: dict[str, str] = {}
+    for group in groups:
+        for name in group.get("names") or ():
+            out.setdefault(str(name), str(group["id"]))
+    out.update({str(group["id"]): str(group["id"]) for group in groups})
+    return out
+
+
 def _measurement(
     model: Model,
     entry: dict[str, Any],
     mapping: Mapping,
     carried: set[str],
     claims: dict[str, _Claim],
+    group_of: dict[str, str],
 ) -> tuple[dict[str, Any], list[str]]:
     """One wired model's measurement file, and a line per group role several families fill.
 
@@ -435,7 +450,9 @@ def _measurement(
     ``kinds`` lists the measurements those resolve: the orbit response needs
     the monitors and both corrector planes, and dispersion, on a model that
     is not solved in a single pass, the ``rf`` instrument too; the tune
-    response needs the quadrupoles and the ``tune`` instrument.
+    response needs the quadrupoles and the ``tune`` instrument. A group role
+    names the group that holds the family, which is a fold of plane twins
+    where the import folded them.
     """
     groups: dict[str, str] = {}
     monitors: dict[str, str] = {}
@@ -446,10 +463,10 @@ def _measurement(
         engine = wired.engine
         token = mapping.mapped(raw)
         if engine.axis is not None:
-            monitors.setdefault(engine.axis, token)
+            monitors.setdefault(engine.axis, group_of.get(token, token))
         for role, block in _GROUP_ENGINES:
             if (engine.attribute, engine.index) == block:
-                groups.setdefault(role, token)
+                groups.setdefault(role, group_of.get(token, token))
                 filling.setdefault(role, []).append(token)
     lines = [
         f"measurement {model.name}: {role} seeded from {tokens[0]}; "

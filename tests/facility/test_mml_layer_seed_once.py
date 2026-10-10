@@ -461,7 +461,7 @@ def test_a_single_pass_model_measures_orbit_response_at_most(tmp_path: Path) -> 
     facility = import_tree(tmp_path, "nsls2")
     document = _load(facility / "measurement" / "LTB.yaml")
     assert document["kinds"] == ["orm"]
-    assert document["groups"] == {"bpm": "BPMx", "hcor": "HCM", "vcor": "VCM", "quad": "Q"}
+    assert document["groups"] == {"bpm": "BPM", "hcor": "HCM", "vcor": "VCM", "quad": "Q"}
     assert "instruments" not in document
 
 

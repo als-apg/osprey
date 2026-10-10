@@ -169,7 +169,9 @@ def test_an_address_a_write_field_names_is_a_setpoint_whichever_field_named_it_f
     described = yaml.safe_load((spear3 / MAPPING_FILE).read_text(encoding="utf-8"))
     fields = described["families"]["RF"]["fields"]
     assert fields["Setpoint"]["description"] != fields["Monitor"]["description"]
-    assert channel["description"] == fields["Setpoint"]["description"]
+    owner = _by_id(_rows(spear3, "devices.yaml"))[channel["on"]["device"]]
+    label = owner.get("label", owner["id"])
+    assert channel["description"] == f"{label}: {fields['Setpoint']['description']}"
     assert channel["unit"] == family["Setpoint"]["HWUnits"]
 
 
@@ -262,7 +264,7 @@ def test_nsls2_imports_both_trees_into_one_facility(tmp_path: Path) -> None:
     facility = _import(tmp_path, "nsls2")
 
     groups = _by_id(_rows(facility, "groups.yaml"))
-    bpms = groups["BPMx"]["members"]
+    bpms = groups["BPM"]["members"]
     assert any(m.startswith("LTB/") for m in bpms)
     assert any(m.startswith("StorageRing/") for m in bpms)
     assert bpms == sorted(set(bpms))
@@ -398,23 +400,55 @@ def test_a_mapping_that_fails_its_check_stops_the_import_before_anything_is_writ
     assert sorted(path.name for path in facility.iterdir()) == ["imported"]
 
 
-def test_a_field_s_signal_role_lands_on_its_channels_and_keys_its_group_sentence(
-    spear3: Path,
-) -> None:
+def test_a_field_s_signal_role_lands_on_its_channels(spear3: Path) -> None:
     channels = _by_id(_rows(spear3, "channels.yaml"))
     groups = _by_id(_rows(spear3, "groups.yaml"))
     assert channels["01G-BPM1:U"]["signal"] == "position_x_readback"
     assert channels["MS1-BD:CurrSetpt"]["signal"] == "current_setpoint"
-    assert set(groups["BPMx"]["signals"]) == {"position_x_readback"}
-    unroled = [group for group in groups.values() if "signals" not in group]
-    assert unroled
-    for group in groups.values():
-        assert set(group.get("signals", {})) <= {
-            "current_setpoint",
-            "current_readback",
-            "position_x_readback",
-            "position_y_readback",
-        }
+    assert all("signals" not in group for group in groups.values())
+
+
+def test_plane_twins_are_one_group(spear3: Path) -> None:
+    groups = _by_id(_rows(spear3, "groups.yaml"))
+    mapping = yaml.safe_load((spear3 / MAPPING_FILE).read_text(encoding="utf-8"))["families"]
+    twins = ["BPMx", "BPMy", "BTSBPMx", "BTSBPMy", "KickerAmp", "KickerDelay"]
+    twins += ["BLErr", "BLOpen", "BLSum"]
+
+    assert {"BPM", "BTSBPM", "Kicker", "BL"} <= set(groups)
+    assert set(twins).isdisjoint(groups)
+    assert {"BPMx", "BPMy"} <= set(groups["BPM"]["names"])
+    for twin in ("BPMx", "BPMy"):
+        assert mapping[twin]["description"] in groups["BPM"]["description"]
+    assert len(groups) == 38
+
+
+def test_two_folds_with_one_stem_keep_both_groups() -> None:
+    from osprey.facility.layers.mml.importer import _physical_groups
+
+    def group(token: str, members: list[str]) -> dict[str, Any]:
+        return {"id": token, "members": members}
+
+    groups = {
+        "BPMa": group("BPMa", ["A1", "A2"]),
+        "BPMb": group("BPMb", ["A1", "A2"]),
+        "BPMx": group("BPMx", ["X1", "X2"]),
+        "BPMy": group("BPMy", ["X1", "X2"]),
+    }
+
+    folded = _physical_groups(groups)
+
+    assert sorted(folded) == ["BPMa", "BPMx"]
+    assert folded["BPMa"]["members"] == ["A1", "A2"]
+    assert folded["BPMx"]["members"] == ["X1", "X2"]
+
+
+def test_a_channel_is_described_by_its_device_and_its_field_sentence(spear3: Path) -> None:
+    channel = _by_id(_rows(spear3, "channels.yaml"))["01G-BPM1:U"]
+    device = _by_id(_rows(spear3, "devices.yaml"))[channel["on"]["device"]]
+    mapping = yaml.safe_load((spear3 / MAPPING_FILE).read_text(encoding="utf-8"))["families"]
+    sentence = mapping["BPMx"]["fields"]["Monitor"]["description"]
+
+    assert channel["description"] == f"{device['label']}: {sentence}"
 
 
 def test_a_readback_several_setpoints_share_pairs_none_of_them(tmp_path: Path) -> None:
