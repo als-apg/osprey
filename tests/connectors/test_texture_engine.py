@@ -385,6 +385,58 @@ def test_a_coupled_served_channel_moves_by_its_coupling():
     assert moved == pytest.approx(seed_only + 1.5 * _driver_at(T0))
 
 
+_COUPLING = [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]
+
+
+@pytest.mark.parametrize(
+    ("value_type", "seed", "couple", "noise", "expected"),
+    [
+        ("int", {"nominal": 1, "noise": 0.5}, _COUPLING, {}, False),
+        ("float", {"nominal": 1.0}, None, {}, False),
+        ("float", {"nominal": 1.0, "drift": {"amplitude": 1.0, "period_s": 600}}, None, {}, True),
+        ("float", {"nominal": 1.0}, _COUPLING, {}, True),
+        ("float", {"nominal": 1.0, "noise": 0.5}, None, {}, True),
+        ("float", {"nominal": 1.0, "noise": 0.5}, None, {"noise": 0.0, "noise_abs": 0.0}, False),
+        ("float", {"nominal": 1.0}, None, {"noise_abs": 0.2}, True),
+    ],
+    ids=[
+        "non-float",
+        "still",
+        "drift-only",
+        "coupling-only",
+        "seed-noise-only",
+        "zero-replacement-over-noisy-seed",
+        "replacement-noise",
+    ],
+)
+def test_has_motion_mirrors_motion(value_type, seed, couple, noise, expected):
+    variables, seeds = _view()
+    variables["channels"].append(_channel("T:X", value_type=value_type))
+    seeds["seeds"]["T:X"] = seed
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+    model.set_motion({"T:X": couple} if couple else {}, {"T:X": noise} if noise else {})
+    times = T0 + np.arange(0.0, 50.0, 0.37)
+
+    moved = bool(np.any(model.motion("T:X", times, base=1.0) != 0.0))
+
+    assert model.has_motion("T:X") is expected
+    assert moved is expected
+
+
+def test_has_motion_follows_set_motion():
+    model = _coupled_model({})
+    assert model.has_motion("T:A") is False
+    assert model.has_motion("T:NOISY") is True
+
+    model.set_motion({"T:A": _COUPLING}, {"T:NOISY": {"noise": 0.0, "noise_abs": 0.0}})
+    assert model.has_motion("T:A") is True
+    assert model.has_motion("T:NOISY") is True  # its seed drift still moves it
+
+    model.set_motion({}, {"T:CLAMPED": {"noise": 0.0}})
+    assert model.has_motion("T:A") is False
+    assert model.has_motion("T:CLAMPED") is False
+
+
 def test_active_writes_are_the_start_state_a_reset_returns_to():
     model = _model()
     model.set({"T:LONE:SP": 4.0})

@@ -344,14 +344,9 @@ class TextureModel(LUMEModel):
         for coupling in self._couple.get(address, ()):
             total = total + self._coupling(address, coupling, flat)
         counters_ms = np.rint(flat * _MS_PER_S).astype(np.int64)
-        replacement = self._noise.get(address)
-        if replacement is None:
-            sigma = seed.get("noise")
-            if sigma:
-                total = total + float(sigma) * series.keyed_normals(key, counters_ms)
-            return total.reshape(times.shape)
-        relative = float(replacement.get("noise") or 0.0)
-        absolute = float(replacement.get("noise_abs") or 0.0)
+        sigma, relative, absolute = self._noise_terms(address)
+        if sigma:
+            total = total + sigma * series.keyed_normals(key, counters_ms)
         if relative:
             scaled = np.asarray(base, dtype=np.float64).reshape(-1) + total
             total = total + scaled * relative * series.keyed_normals(
@@ -362,6 +357,36 @@ class TextureModel(LUMEModel):
                 key + _ABSOLUTE_NOISE_SUBKEY, counters_ms
             )
         return total.reshape(times.shape)
+
+    def has_motion(self, address: str) -> bool:
+        """Whether :meth:`motion` can be non-zero for *address*.
+
+        True exactly for a float channel with seed drift, a held coupling, or
+        a non-zero noise term under the held motion.
+        """
+        channel = self._channels.get(address)
+        if channel is None or not is_float_channel(channel):
+            return False
+        seed = self._seeds.get(address) or {}
+        return bool(
+            seed.get("drift") or self._couple.get(address) or any(self._noise_terms(address))
+        )
+
+    def _noise_terms(self, address: str) -> tuple[float, float, float]:
+        """The noise acting on *address*: ``(seed sigma, relative, absolute)``.
+
+        The held replacement, when there is one, stands in for the seed's
+        noise entirely; a key it lacks is zero.
+        """
+        replacement = self._noise.get(address)
+        if replacement is None:
+            seed = self._seeds.get(address) or {}
+            return float(seed.get("noise") or 0.0), 0.0, 0.0
+        return (
+            0.0,
+            float(replacement.get("noise") or 0.0),
+            float(replacement.get("noise_abs") or 0.0),
+        )
 
     @staticmethod
     def _coupling(address: str, coupling: Mapping[str, Any], times: np.ndarray) -> np.ndarray:
