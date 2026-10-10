@@ -19,7 +19,6 @@ from tests.facility._pyaml_trees import (
     LINE_GROUPS,
     SR_GROUPS,
     measured_tree,
-    with_chromaticity,
     with_correctors,
     with_rf,
     write_view,
@@ -137,7 +136,7 @@ def test_the_chromaticity_monitor_steps_the_momentum_by_the_compaction(tmp_path:
 
 
 def test_the_chromaticity_response_tool_reads_a_chromaticity_monitor(tmp_path: Path) -> None:
-    tree = with_chromaticity(with_rf(measured_tree()))
+    tree = with_rf(measured_tree())
     tree["records/devices.yaml"].append({"id": "SR/SX", "class": "Sextupole"})
     tree["records/channels.yaml"].append(
         {"id": "SX:SP", "role": "setpoint", "on": {"device": "SR/SX"}}
