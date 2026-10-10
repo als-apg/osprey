@@ -170,7 +170,7 @@ def test_set_writes_the_setpoint(runtime: _Runtime) -> None:
 
 def test_set_outside_a_journaled_run_is_refused(runtime: _Runtime) -> None:
     """Outside a journaled guarded run a write is refused, reading and writing nothing."""
-    with pytest.raises(RuntimeOspreyWriteRefused, match="journaled guarded run"):
+    with pytest.raises(RuntimeOspreyWriteRefused, match="only inside pyaml_measure"):
         _device(RW).set(3.0)
     assert runtime.calls == []
 
@@ -179,7 +179,7 @@ def test_set_under_a_pushed_journal_alone_is_refused(runtime: _Runtime) -> None:
     """A journal pushed without the run lock does not open the guarded run."""
     journal = push_journal()
     try:
-        with pytest.raises(RuntimeOspreyWriteRefused, match="journaled guarded run"):
+        with pytest.raises(RuntimeOspreyWriteRefused, match="only inside pyaml_measure"):
             _device(RW).set(3.0)
     finally:
         pop_journal(journal)

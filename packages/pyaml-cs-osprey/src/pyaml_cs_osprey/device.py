@@ -3,8 +3,8 @@
 Every read and write goes through :mod:`osprey.runtime`, so limits, write gates and
 the control-target check apply exactly as they do to any other OSPREY write. A write
 runs only inside a journaled guarded run (:func:`osprey.runtime.guarded_run.journaled_run`),
-which journals it before it happens; anywhere else it is refused and nothing is read or
-written. Connector exceptions surface as the pyAML exceptions of :mod:`pyaml_cs_osprey.errors`. The
+which journals it before it happens; anywhere else, ``execute`` included, it is refused
+as :data:`OUTSIDE_A_RUN` and nothing is read or written. Connector exceptions surface as the pyAML exceptions of :mod:`pyaml_cs_osprey.errors`. The
 write-only reference refuses reads; every other reference is read and written.
 
 Values cross this device in SI: reads and ranges are scaled from the reference's unit
@@ -25,16 +25,21 @@ from pyaml.common.exception import PyAMLException
 from pyaml.control.deviceaccess import DeviceAccess
 
 import osprey.runtime
+from osprey.runtime import journal as runtime_journal
 from osprey.runtime.journal import guarded_write
 from pyaml_cs_osprey.catalog import ChannelReference
 from pyaml_cs_osprey.errors import (
     OspreyReadFailed,
+    OspreyWriteRefused,
     map_read_error,
     map_write_error,
 )
 from pyaml_cs_osprey.units import UnitError, si_unit, to_native, to_si
 
-__all__ = ["OspreyDevice", "indexed_element", "unknown_unit"]
+__all__ = ["OUTSIDE_A_RUN", "OspreyDevice", "indexed_element", "unknown_unit"]
+
+#: Why a device write outside a journaled guarded run is refused.
+OUTSIDE_A_RUN = "pyAML writes run only inside pyaml_measure"
 
 
 class OspreyDevice(DeviceAccess):
@@ -99,7 +104,8 @@ class OspreyDevice(DeviceAccess):
         """Write the SI ``value`` to the setpoint address in the reference's native unit.
 
         The prior (native) setpoint is journaled into every active guard level first.
-        Outside a journaled guarded run the write is refused and nothing is read.
+        Outside a journaled guarded run the write is refused as :data:`OUTSIDE_A_RUN`
+        and nothing is read.
 
         Args:
             value: The value to write, in SI.
@@ -110,19 +116,26 @@ class OspreyDevice(DeviceAccess):
             PyAMLException: The reference is indexed (read-only), or the suffix has no
                 known SI factor; nothing was journaled or written.
             OspreyReadFailed: The prior setpoint could not be read; nothing was written.
-            OspreyWriteRefused: The write was refused; nothing was written.
+            OspreyWriteRefused: The write was refused, or no journaled guarded run
+                is open; nothing was written.
             OspreyWriteFailed: The write was attempted and not confirmed.
         """
         self._require_writable()
         address = self._reference.address
         native = self._to_native(value)
-        guarded_write(
-            [address],
-            lambda **kwargs: osprey.runtime.write_channel(address, native, **kwargs),
-            lambda exc: map_write_error(exc, address),
-            map_read=map_read_error,
-            confirm=confirm,
-        )
+        try:
+            guarded_write(
+                [address],
+                lambda **kwargs: osprey.runtime.write_channel(address, native, **kwargs),
+                lambda exc: map_write_error(exc, address),
+                map_read=map_read_error,
+                confirm=confirm,
+            )
+        except OspreyWriteRefused:
+            raise
+        except runtime_journal.OspreyWriteRefused as exc:
+            # The runtime's own refusal, raised before any read: no run is open.
+            raise OspreyWriteRefused(OUTSIDE_A_RUN, address) from exc
 
     def set_and_wait(self, value: Any) -> None:
         """Write ``value`` and confirm the channel holds it (``set(value, confirm=True)``)."""
