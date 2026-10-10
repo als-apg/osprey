@@ -39,9 +39,9 @@ nothing and returns zero rows rather than an error.
 
 Properties worth knowing:
 
-- **On a device:** `sourceName`, `sectionCode`, `placePath`, `system`,
-  `rawType`, `sPositionM`, `ordinalInPlace`, plus the free text
-  `familyDescription`, `systemDescription`
+- **On a device:** `deviceId` (the device's id), `placePath`, `sectionCode`,
+  `system`, `rawType`, `sPositionM`, `ordinalInPlace`, `sourceName`, plus the
+  free text `systemDescription`
 - **On a place:** `placePath`, `sectionCode`, and a `HASBINDING` edge to each
   channel that sits on the place itself. A query that means devices keeps
   `d.rawType IS NOT NULL`
@@ -60,8 +60,7 @@ with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`, never with `=`.
 `ChannelBinding.fullPv` is the address, whole and already formatted for the
 control system. Return it verbatim: never assemble an address out of
 `sectionCode`, `sourceName` and a signal name, and never adjust one you were
-given. Two devices can share a `sourceName` in different sections, so a device
-is identified by `sourceName` **and** `sectionCode` together.
+given. A device is identified by `deviceId`.
 
 ### Terminology Mapping
 

@@ -70,11 +70,10 @@ When descriptions are ABSENT (empty strings):
 {# PROMPT-PROVIDER: section=channel_finding_hierarchical
    Future: source from FrameworkPromptProvider.get_hierarchical_prompt_builder()
      - get_facility_description() → Navigation Process section
-     - get_matching_rules() → Branching Behavior, Optional Levels sections
+     - get_matching_rules() → Branching Behavior, `-` options sections
    Also: get_channel_finding_orchestration_prompt_builder().get_orchestrator_guide()
      → Step-by-step navigation instructions
-   Facility-customizable: hierarchy level names, tree vs instance examples,
-   naming pattern description, branching/optional level behavior #}
+   Facility-customizable: level names, the `-` option #}
 ## Navigation Process
 
 The database uses a hierarchical naming scheme. Start by checking for prior examples,
@@ -94,8 +93,6 @@ If no examples match, proceed with full exploration.
 
 {% if channel_finder_hierarchy %}
 - **hierarchy_levels**: {{ channel_finder_hierarchy.hierarchy_levels }}
-- **hierarchy_config**: {{ channel_finder_hierarchy.hierarchy_config }}
-- **naming_pattern**: `{{ channel_finder_hierarchy.naming_pattern }}`
 {% else %}
 Call `get_options()` at the first level to discover the hierarchy structure.
 {% endif %}
@@ -107,24 +104,23 @@ For each level in the hierarchy:
 2. Select the option(s) that match the user's query
 3. Add your selection to the selections dict and move to the next level
 
-**Tree levels** (categorical): Select from named categories
-**Instance levels** (numbered): Select specific instances or ranges
+Every level is a choice among named options.
 
 ### Step 3: Build channel names
 
 Once all relevant levels have selections:
-- Call `build_channels(selections)` to construct the full channel addresses
-- The tool uses the naming pattern to combine your selections into valid channel addresses
+- Call `build_channels(selections)` to collect the channel addresses
+- The tool returns the address each selected leaf holds
 
 ### Branching Behavior
 
 If you select multiple options at a tree level, each will be explored separately
 with its own subtree. This is important when different options have different structures.
 
-### Optional Levels
+### `-` options
 
-Some hierarchy levels are optional. If the query doesn't relate to an optional level,
-skip it — the channel name will be constructed without that component.
+A `-` option holds what has no place, class or device at that level; select it
+when the question names none.
 
 ### Verification
 
@@ -174,8 +170,8 @@ as captured or as framework defaults. When it does, go straight to Step 3; Steps
 `search_channels(query=..., section=..., system=..., class_uri=..., signal=...,
 direction=...)` looks a phrase up in the search index. It returns the matching
 addresses with their device, section, system and direction, and it needs neither
-Cypher nor the schema. Start here whenever the question is words: a device
-family, a section, a signal, a direction, or the phrase the operator used.
+Cypher nor the schema. Start here whenever the question is words: a kind of
+device, a place, a signal, a direction, or the phrase the operator used.
 
 Every result also carries facet counts — the sections, systems, classes, signals
 and directions present in the matches. Read them, then re-run with the value
@@ -214,7 +210,7 @@ result says whether more matched. A truncated or timed-out answer means narrow
 the query — add a filter, bound the traversal, aggregate — not retry it
 unchanged. Give every query its own `LIMIT`, sized to what was asked: a question
 about one signal should not drag back a device's whole binding list, and a
-question about a whole family must not come back cut short.
+question about a whole class must not come back cut short.
 
 Reads only. Nothing you can call here modifies the graph.
 
@@ -226,13 +222,15 @@ nothing matched.
 **By description.** Where the corpus carries free text, search it first — it is
 written in the operator's language rather than in naming-convention tokens. On a
 binding, `description` describes the individual signal. On a device,
-`familyDescription` and `systemDescription` describe what kind of thing it is
-and where it lives. Match case-insensitively, e.g.
+`systemDescription` describes the top place it sits in; `example_queries`
+carries the route through the description of a group a device belongs to.
+Match case-insensitively, e.g.
 `WHERE toLower(b.description) CONTAINS $term`.
 
-**By name and class.** `sourceName` and `sectionCode` identify a device
-together, `system` names the accelerator system it belongs to, and the ontology
-carries the synonyms: match a `(:Class)` on its `altLabel` list, then take every
+**By name and class.** `deviceId` identifies a device; `sourceName` is the name
+the device's source gave it (on a facility built by OSPREY, its id), `system`
+the top place it sits in and `sectionCode` the last part of its place. The
+ontology carries the synonyms: match a `(:Class)` on its `altLabel` list, then take every
 device typed as that class or any subclass —
 `(d:Resource)-[:TYPE]->(:Class)-[:SUBCLASSOF*0..]->(c)`. `altLabel` is a list,
 so match it with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`.
@@ -257,8 +255,7 @@ Finding the right device is only half the answer. Report the addresses that
 satisfy the question — all of them, and nothing besides.
 
 - Every word in the question is a FILTER, not a hint. A named system, ring,
-  section, family, device number, field, subfield or kind of signal narrows the
-  result; whatever it excludes does not belong in the answer
+  section, class, group, device number or kind of signal narrows the result; whatever it excludes does not belong in the answer
 - A question that names a KIND of signal — a readback, a setpoint, an alarm, a
   position — selects only the bindings of that kind. A device usually exposes
   many more: status flags, interlocks, limits, calibration and reference values.

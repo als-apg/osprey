@@ -3,34 +3,44 @@
 
 ### Database Profile
 
-This is a **flat / in-context** channel database — all channels are loaded into
-memory and matched by name patterns and descriptions. There is no hierarchy to
-navigate; instead you search, filter, and match against channel names directly.
+This is a **flat / in-context** channel database: one row per channel, holding
+its name, its address and its description. `ask_channels` matches the question
+against every row in one inner call. There is no hierarchy, and no device or
+place column.
 
 ### Terminology Mapping
 
 Operators use domain language.
 {% if facility_facts.device_classes %}
-The device rows below are read from this facility's build: each device class it
-holds, the words operators use for it and the families its devices belong to.
-{% else %}
+The rows below are read from this facility's build: each device class it holds
+and the words operators use for it.
+{%- else %}
 This facility's build holds no device class.
-The table below carries only navigation guidance: match on names and
-descriptions in the database and verify with a lookup rather than guessing.
-{% endif %}
-| Operator Language | Channel Name Patterns |
+Match on names and descriptions in the database and verify with a lookup
+rather than guessing.
+{%- endif %}
+{%- if facility_facts.device_classes or facility_facts.vocabulary.roles %}
+
+| Operator Language | Channel Rows |
 |---|---|
 {%- for name, entry in facility_facts.device_classes | dictsort(case_sensitive=true) %}
-| {{ ('"' ~ (entry.aliases | join('", "')) ~ '"') if entry.aliases else name }} | {% if entry.families %}Channels of {{ '`' ~ (entry.families | join('`, `')) ~ '`' }} (class {{ name }}){% else %}Class {{ name }}: no family holds its devices; match on names and descriptions{% endif %} |
+| {{ ('"' ~ (entry.aliases | join('", "')) ~ '"') if entry.aliases else name }} | channels of {{ name }} devices ({{ entry.count }}); their names and descriptions name the device |
 {%- endfor %}
-| "readback" / "monitor" | Channels with `RB`, `ReadBack`, `Monitor` in name |
-| "setpoint" / "control" | Channels with `SP`, `Set`, `Setpoint`, `Control` in name |
+{%- for place in facility_facts.places if place.names %}
+| "{{ place.names | join('", "') }}" | the place `{{ place.id }}`{% if place.level %} ({{ place.level }}){% endif %}; match its id or names in channel names and descriptions |
+{%- endfor %}
+{%- set role_words = {
+  "readback": '"readback" / "monitor" / "measured"',
+  "setpoint": '"setpoint" / "control" / "set"',
+  "none": '"status" / "neither read back nor set"',
+} %}
+{%- for role in facility_facts.vocabulary.roles | dictsort(case_sensitive=true) | map("first") %}
+{%- set signals = facility_facts.vocabulary.signals | dictsort(case_sensitive=true) | selectattr("1.roles." ~ role, "defined") | map("first") | list %}
+| {{ role_words.get(role, '"' ~ role ~ '"') }} | a {{ role }} channel{% if signals %}; this facility's {{ role }} signals are {{ '`' ~ (signals | join('`, `')) ~ '`' }} — put the signal's words in the question{% endif %} |
+{%- endfor %}
+{%- endif %}
 
-### Channel Naming Conventions
+### Rows
 
-- Channel names in flat databases are often **descriptive identifiers**
-  (e.g., `StorageRing_BeamCurrent_ReadBack`)
-- The actual channel address may differ from the descriptive name — the one subagent
-  tool (`ask_channels`) resolves addresses and returns the final answer
-- When descriptions are available, prefer matching on description content over name
-  patterns — descriptions use more natural language
+- Descriptions use more natural language than names: prefer matching on them
+- `ask_channels` resolves addresses and returns the final answer

@@ -1,7 +1,7 @@
 """The hierarchy a build embeds in the channel-finder agent, and its failure log.
 
 ``resolve_hierarchy_context`` reads the deployment's channel database at render
-time and embeds its levels and naming pattern in the agent's prompt, so the
+time and embeds its levels in the agent's prompt, so the
 agent needs no ``hierarchy_info()`` round trip to know the shape of the
 facility. The shortcut is optional by design — a database that will not open
 costs the agent a shortcut, not the build — and that is exactly what makes it
@@ -118,7 +118,7 @@ class TestUnreadableDatabaseIsReportedNotDumped:
 class TestTheReferenceDeploymentEmbedsItsHierarchy:
     """The positive property, against a real build of the exemplar repo."""
 
-    def test_the_rendered_agent_carries_the_naming_pattern(
+    def test_the_rendered_agent_carries_the_hierarchy_levels(
         self, runner: CliRunner, lifecycle_repo: Path
     ) -> None:
         """The index the build writes has to load, or the prompt is poorer.
@@ -138,8 +138,8 @@ class TestTheReferenceDeploymentEmbedsItsHierarchy:
         prompt = (build_dir / ".claude" / "agents" / "channel-finder.md").read_text(
             encoding="utf-8"
         )
-        assert "naming_pattern" in prompt
-        assert index["hierarchy"]["naming_pattern"] in prompt
+        levels = [level["name"] for level in index["hierarchy"]["levels"]]
+        assert f"- **hierarchy_levels**: {levels}" in prompt
 
     def test_the_build_log_holds_no_traceback(
         self, runner: CliRunner, lifecycle_repo: Path, caplog: pytest.LogCaptureFixture
