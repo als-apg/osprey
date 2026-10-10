@@ -119,7 +119,7 @@ The ten skills
      - Walks a maintainer through a CalVer release: the release-notes PR, the
        tag, and verifying the automated PyPI publish.
    * - ``/osprey:install``
-     - The installer, as a conversation: installs Osprey if it is missing,
+     - The guided setup, as a conversation: installs Osprey if it is missing,
        inventories what exists, and sets up or migrates a deployment for an
        accelerator, beamline, or detector one confirmed card at a time.
    * - ``/osprey:upstream-scout``

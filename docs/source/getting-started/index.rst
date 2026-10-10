@@ -6,7 +6,7 @@ Welcome to Osprey Framework! This comprehensive guide will take you from zero to
 .. tip::
 
    The fastest path to a deployment for your own facility is the **guided
-   installer** — a conversation with your coding agent that inventories what
+   setup** — a conversation with your coding agent that inventories what
    you have and builds the project with you: :doc:`osprey-install`. The
    step-by-step tutorials cover the same ground and remain the best way to
    learn the concepts.
