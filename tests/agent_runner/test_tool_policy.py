@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from osprey.agent_runner import tool_policy
 from osprey.agent_runner.tool_policy import (
     DELEGATION_TOOLS,
     PASSTHROUGH_TOOLS,
@@ -33,6 +34,18 @@ SURFACES = {
     "wild": None,  # declared, but no explicit tools: list -> non-delegable
 }
 DENIED = ["Bash", "WebFetch", "mcp__plugin_playwright_playwright__*"]
+
+
+# A stand-in for a tool the CLI lets an agent use without an allow rule. The
+# shipped pass-through set is empty, so the tests that exercise the pass-through
+# branch install this name for their own duration.
+STAND_IN_PASSTHROUGH = "ProgressNote"
+
+
+@pytest.fixture
+def passthrough_tool(monkeypatch):
+    monkeypatch.setattr(tool_policy, "PASSTHROUGH_TOOLS", frozenset({STAND_IN_PASSTHROUGH}))
+    return STAND_IN_PASSTHROUGH
 
 
 def _hook(trigger=TRIGGER_TOOLS, surfaces=SURFACES, denied=DENIED):
@@ -165,12 +178,12 @@ class TestPretooluseHookDenylist:
         # Assert
         assert _decision(result) == "deny"
 
-    async def test_hook_denylist_beats_passthrough(self):
+    async def test_hook_denylist_beats_passthrough(self, passthrough_tool):
         # Arrange — a passthrough name placed on the denylist stays denied
-        hook = make_pretooluse_hook(TRIGGER_TOOLS, SURFACES, ["TaskCreate"])
+        hook = make_pretooluse_hook(TRIGGER_TOOLS, SURFACES, [passthrough_tool])
 
         # Act
-        result = await hook(_main_input("TaskCreate"), "t1", None)
+        result = await hook(_main_input(passthrough_tool), "t1", None)
 
         # Assert
         assert _decision(result) == "deny"
@@ -178,10 +191,13 @@ class TestPretooluseHookDenylist:
 
 class TestPretooluseHookPassthrough:
     async def test_hook_passthrough_set_is_exactly_pinned(self):
-        # Assert — permission-free task-list tools only; Read/Glob/Grep excluded
-        assert PASSTHROUGH_TOOLS == frozenset({"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"})
+        # Assert — the dispatch build lists no permission-free tool to let through
+        assert PASSTHROUGH_TOOLS == frozenset()
 
-    @pytest.mark.parametrize("tool", ["TodoWrite", "WaitForMcpServers"])
+    @pytest.mark.parametrize(
+        "tool",
+        ["TodoWrite", "WaitForMcpServers", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate"],
+    )
     async def test_hook_denies_names_outside_the_passthrough_set(self, tool):
         # Arrange — neither name passes without a trigger allow rule
         hook = _hook()
@@ -200,7 +216,7 @@ class TestPretooluseHookPassthrough:
         assert not PASSTHROUGH_TOOLS & (DISPATCH_DENIED_TOOLS | set(DELEGATION_TOOLS))
         assert {"TaskOutput", "TaskStop"}.isdisjoint(PASSTHROUGH_TOOLS)
 
-    async def test_hook_floor_beats_passthrough_under_the_server_denylist(self):
+    async def test_hook_floor_beats_passthrough_under_the_server_denylist(self, passthrough_tool):
         # Arrange — built the way a real dispatch run is wired
         from osprey.agent_runner import tool_names
 
@@ -210,20 +226,19 @@ class TestPretooluseHookPassthrough:
 
         # Act
         floored = await hook(_main_input("TaskOutput"), "t1", None)
-        passed = await hook(_main_input("TaskCreate"), "t2", None)
+        passed = await hook(_main_input(passthrough_tool), "t2", None)
 
         # Assert
         assert _decision(floored) == "deny"
         assert passed == {}
 
-    @pytest.mark.parametrize("tool", sorted(PASSTHROUGH_TOOLS))
-    async def test_hook_allows_passthrough_in_both_contexts(self, tool):
+    async def test_hook_allows_passthrough_in_both_contexts(self, passthrough_tool):
         # Arrange
         hook = _hook()
 
         # Act
-        main = await hook(_main_input(tool), "t1", None)
-        sub = await hook(_subagent_input(tool), "t2", None)
+        main = await hook(_main_input(passthrough_tool), "t1", None)
+        sub = await hook(_subagent_input(passthrough_tool), "t2", None)
 
         # Assert
         assert main == {}
@@ -383,13 +398,13 @@ class TestBackstop:
         # Assert
         assert _is_deny(result)
 
-    async def test_backstop_allows_passthrough_tools(self):
+    async def test_backstop_allows_passthrough_tools(self, passthrough_tool):
         # Arrange
         backstop = make_backstop(TRIGGER_TOOLS, SURFACES, DENIED)
 
         # Act
-        main = await backstop("TaskList", {}, _ctx())
-        sub = await backstop("TaskUpdate", {}, _ctx(agent_id="a"))
+        main = await backstop(passthrough_tool, {}, _ctx())
+        sub = await backstop(passthrough_tool, {}, _ctx(agent_id="a"))
 
         # Assert
         assert _is_allow(main)

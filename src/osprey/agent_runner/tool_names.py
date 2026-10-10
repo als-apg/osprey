@@ -136,8 +136,9 @@ DISPATCH_DENIED_TOOLS: frozenset[str] = frozenset(
         # Arbitrary shell access from a headless, unattended run is never warranted —
         # the safety story is the per-trigger allowlist + MCP tools, not a raw shell.
         # ``Bash`` runs commands; ``TaskOutput`` reads a background command's output;
-        # ``TaskStop`` stops one. Deny all three. Every name here is a tool the pinned
-        # CLI builds list, which tests/agent_runner/test_tool_name_conformance.py checks.
+        # ``TaskStop`` stops one. Deny all three. Every name here is a tool a pinned
+        # CLI build lists, which tests/agent_runner/test_tool_name_conformance.py
+        # checks; ``TaskOutput`` stays denied for the build that still has it.
         "Bash",
         "TaskOutput",
         "TaskStop",

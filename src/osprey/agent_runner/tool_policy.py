@@ -45,14 +45,14 @@ except ImportError:  # pragma: no cover - exercised only without the SDK
 
 logger = logging.getLogger(__name__)
 
-# The CLI's task-list tools. The CLI lets an agent use them without an allow
-# rule, and a strict deny-only hook would otherwise starve a job's progress
-# tracking. Every name is a tool the SDK-bundled CLI build lists -- the build
-# dispatch runs -- which tests/agent_runner/test_tool_name_conformance.py
-# checks. Deliberately NOT included: TaskOutput/TaskStop (background commands),
-# Task (delegation), and Read/Glob/Grep, because main-thread file access would
+# Tools a dispatch job may use without an allow rule. The set is empty: the
+# SDK-bundled CLI build -- the build dispatch runs -- lists no task-list tool,
+# and an entry the build lacks grants nothing. Every name added here must be a
+# tool that build lists, which tests/agent_runner/test_tool_name_conformance.py
+# checks. Deliberately never included: TaskStop (background commands), Task
+# (delegation), and Read/Glob/Grep, because main-thread file access would
 # expose e.g. config.yml provider settings. Denylist entries still beat this set.
-PASSTHROUGH_TOOLS = frozenset({"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"})
+PASSTHROUGH_TOOLS: frozenset[str] = frozenset()
 
 # Both names the CLI has used for the subagent-delegation tool.
 DELEGATION_TOOLS = ("Task", "Agent")

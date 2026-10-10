@@ -87,11 +87,25 @@ def test_only_pinned_builds_have_an_inventory():
     assert stems == set(PINNED_BUILDS.values()), f"stale or missing inventories; run {REMEDY}"
 
 
+#: Denied names one pinned build lists and the other dropped. The entry stays in
+#: its deny list for the build that has the tool, and is named here for the build
+#: that does not, so every other missing name still fails the check.
+DENIED_IN_ANOTHER_BUILD = {"npm-pinned": frozenset(), "sdk-bundled": frozenset({"TaskOutput"})}
+
+
+@pytest.mark.parametrize("build", sorted(PINNED_BUILDS))
+def test_a_name_denied_for_another_build_is_one_this_build_lacks(build):
+    others = [PINNED_BUILDS[b] for b in PINNED_BUILDS if b != build]
+    for name in DENIED_IN_ANOTHER_BUILD[build]:
+        assert name not in _inventory(PINNED_BUILDS[build])
+        assert any(name in _inventory(v) for v in others), f"no pinned build lists {name}"
+
+
 @pytest.mark.parametrize("build", sorted(PINNED_BUILDS))
 @pytest.mark.parametrize("list_name", list(DENY_LISTS))
 def test_denied_names_exist_in_the_build(list_name, build):
     version = PINNED_BUILDS[build]
-    unknown = _unknown(DENY_LISTS[list_name], _inventory(version))
+    unknown = _unknown(DENY_LISTS[list_name], _inventory(version) | DENIED_IN_ANOTHER_BUILD[build])
     assert unknown == [], (
         f"{list_name} names tools the {build} build {version} does not have: {unknown}. "
         "A CLI that renamed a tool may still honour the old spelling as a deny alias, "
@@ -128,7 +142,7 @@ def test_passthrough_names_exist_in_the_dispatch_build():
 
 
 def test_retired_passthrough_names_are_not_dispatch_inventory_names():
-    retired = ["TodoWrite", "WaitForMcpServers"]
+    retired = ["TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "TodoWrite", "WaitForMcpServers"]
     assert _unknown(retired, _offline_core(PINNED_BUILDS[DISPATCH_BUILD])) == retired
 
 
