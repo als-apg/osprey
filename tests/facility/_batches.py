@@ -25,13 +25,13 @@ BATCHES: tuple[str, ...] = (
     "7d",
     "7d2",
     "7e",
+    "11b",
     "8",
     "9",
     "10",
     "11a",
-    "11b",
     "11c",
     "12",
 )
 
-CURRENT_BATCH: int = BATCHES.index("7e")
+CURRENT_BATCH: int = BATCHES.index("11b")
