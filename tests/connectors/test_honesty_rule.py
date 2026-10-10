@@ -57,6 +57,13 @@ def _flat(control_system: str | None = None, archiver: Any = ...) -> dict[str, A
     return config
 
 
+def _in_process(archiver: Any = ...) -> dict[str, Any]:
+    """The simulator served in process, nested, as a rendered ``config.yml`` carries it."""
+    config = _nested(VA, archiver)
+    config["control_system"]["connector"] = {VA: {"serving": "in_process"}}
+    return config
+
+
 def _nested(control_system: str | None = None, archiver: Any = ...) -> dict[str, Any]:
     """The nested spelling — the only live one in a rendered ``config.yml``."""
     config: dict[str, Any] = {}
@@ -162,18 +169,21 @@ def test_a_flat_only_archiver_line_is_not_an_archiver() -> None:
 
 def test_a_flat_control_system_line_cannot_excuse_a_nested_virtual_accelerator() -> None:
     """BYPASS REGRESSION, the same hole on the other key: the live control system
-    is the nested one, so a flat 'mock' line does not make this deployment a
-    simulation that claims nothing."""
-    config = _nested(VA, MOCK_ARCHIVER) | {"control_system.type": "mock"}
+    is the nested one, so a flat in-process line does not make this deployment
+    a simulation that claims nothing."""
+    config = _nested(VA, MOCK_ARCHIVER) | {
+        "control_system.type": VA,
+        "control_system.connector.virtual_accelerator.serving": "in_process",
+    }
 
     assert pairing_in_rendered_config(config).is_invented_history
 
 
 def test_a_flat_only_control_system_is_not_a_virtual_accelerator() -> None:
     """The mirror of the rule, and not a bypass: with no `control_system:`
-    section the factory falls back to the mock, so this deployment is a mock
-    machine with a mock archive — the honest storeless pairing, whatever the
-    inert line says."""
+    section the factory falls back to the simulator in process, which has no
+    recorder, beside a synthesized archive — the honest storeless pairing,
+    whatever the inert line says."""
     assert not pairing_in_rendered_config(_flat(VA, MOCK_ARCHIVER)).is_invented_history
 
 
@@ -186,7 +196,7 @@ def test_a_flat_only_control_system_is_not_a_virtual_accelerator() -> None:
 @pytest.mark.parametrize(
     "config",
     [
-        pytest.param(_nested("mock", MOCK_ARCHIVER), id="mock-with-mock"),
+        pytest.param(_in_process(MOCK_ARCHIVER), id="in-process-with-mock"),
         pytest.param(_nested("epics", MOCK_ARCHIVER), id="epics-with-mock"),
         pytest.param(_nested("epics", "epics_archiver"), id="hardware"),
         pytest.param({}, id="says-nothing"),
@@ -309,3 +319,42 @@ def test_a_live_target_with_no_derivable_machine_propagates_the_refusal() -> Non
     missing rather than a verdict about it."""
     with pytest.raises(ValueError, match="has no control system"):
         pairing_for_target(_nested(VA, "mongodb_archiver"), "live")
+
+
+# ---------------------------------------------------------------------------
+# The venue: the simulator in process has no recorder, so it invents nothing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("judge", [pairing_in_profile, pairing_in_rendered_config])
+def test_the_simulator_in_process_beside_the_mock_archiver_is_allowed(judge: Any) -> None:
+    assert not judge(_in_process(MOCK_ARCHIVER)).is_invented_history
+
+
+@pytest.mark.parametrize("judge", [pairing_in_profile, pairing_in_rendered_config])
+def test_the_simulator_served_by_default_beside_the_mock_archiver_is_refused(judge: Any) -> None:
+    assert judge(_nested(VA, MOCK_ARCHIVER)).is_invented_history
+
+
+@pytest.mark.parametrize("judge", [pairing_in_profile, pairing_in_rendered_config])
+def test_no_type_beside_the_mock_archiver_is_allowed(judge: Any) -> None:
+    assert not judge({"archiver": {"type": MOCK_ARCHIVER}}).is_invented_history
+
+
+def test_a_profile_whose_serving_spellings_disagree_fails_closed() -> None:
+    """Either spelling may be the one that lands, so a served one refuses."""
+    config = {
+        "control_system": {"type": VA, "connector": {VA: {"serving": "in_process"}}},
+        "control_system.connector.virtual_accelerator.serving": "served",
+        "archiver.type": MOCK_ARCHIVER,
+    }
+    assert pairing_in_profile(config).is_invented_history
+
+
+def test_a_va_target_on_a_live_deployment_is_the_served_container() -> None:
+    """The deployment's own type is a real machine, so ``va`` is served and refused."""
+    config = {
+        "control_system": {"type": "epics", "connector": {"epics": {}, VA: {}}},
+        "archiver": {"type": MOCK_ARCHIVER},
+    }
+    assert pairing_for_target(config, "va").is_invented_history

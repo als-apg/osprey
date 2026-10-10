@@ -58,6 +58,12 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+#: The leaf that serves the simulator from its container. The profiles below
+#: extend hello-world, which serves it in process, so a profile about the served
+#: simulator states the venue.
+_SERVING = "control_system.connector.virtual_accelerator.serving"
+
+
 def _write_profile(tmp_path: Path, va_archiver: Any, **profile_keys: Any) -> Path:
     body: dict[str, Any] = {"name": "Facility", "extends": "hello-world", "data": "data"}
     body.update(profile_keys)
@@ -499,7 +505,14 @@ def test_saying_nothing_about_the_archiver_is_saying_mock(config: dict[str, Any]
         pytest.param(
             {"control_system.type": _VA, "archiver.type": "epics_archiver"}, id="facility"
         ),
-        pytest.param({"control_system.type": "mock", "archiver.type": "mock_archiver"}, id="mock"),
+        pytest.param(
+            {
+                "control_system.type": "virtual_accelerator",
+                "control_system.connector.virtual_accelerator.serving": "in_process",
+                "archiver.type": "mock_archiver",
+            },
+            id="mock",
+        ),
         pytest.param(
             {"control_system.type": "epics", "archiver.type": "mock_archiver"}, id="epics"
         ),
@@ -583,7 +596,10 @@ def test_the_pairing_is_reported_with_the_profiles_other_problems(
 ) -> None:
     """Accumulated into validate()'s one report, like every other profile rule."""
     path = _write_profile(
-        tmp_path, None, config={"control_system.type": _VA}, channel_finder_mode="in-context"
+        tmp_path,
+        None,
+        config={"control_system.type": _VA, _SERVING: "served"},
+        channel_finder_mode="in-context",
     )
     result = runner.invoke(profile, ["validate", str(path)])
 
@@ -598,7 +614,9 @@ def test_declaring_the_block_alone_does_not_lift_the_refusal(
     """The block says where an archive lives; `archiver.type` says which archiver
     the deployment reads. A profile that declares the store and then leaves the
     connector on the mock deploys a store nothing reads."""
-    path = _write_profile(tmp_path, {"retention_days": 2}, config={"control_system.type": _VA})
+    path = _write_profile(
+        tmp_path, {"retention_days": 2}, config={"control_system.type": _VA, _SERVING: "served"}
+    )
     result = runner.invoke(profile, ["validate", str(path)])
 
     assert result.exit_code != 0
@@ -609,7 +627,11 @@ def test_a_profile_that_pairs_honestly_validates(runner: CliRunner, tmp_path: Pa
     path = _write_profile(
         tmp_path,
         {"retention_days": 2, "hot_span_hours": 2},
-        config={"control_system.type": _VA, "archiver.type": "mongodb_archiver"},
+        config={
+            "control_system.type": _VA,
+            _SERVING: "served",
+            "archiver.type": "mongodb_archiver",
+        },
     )
     result = runner.invoke(profile, ["validate", str(path)])
 
@@ -634,7 +656,8 @@ def _render_overrides(tmp_path: Path, overrides: dict[str, Any]) -> dict[str, An
     project = tmp_path / "project"
     project.mkdir(parents=True, exist_ok=True)
     (project / "config.yml").write_text(
-        "control_system:\n  type: mock\narchiver:\n  type: mock_archiver\n", encoding="utf-8"
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\narchiver:\n  type: mock_archiver\n",
+        encoding="utf-8",
     )
     _apply_config_overrides(project, overrides)
     return yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))

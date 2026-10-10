@@ -1,18 +1,20 @@
 """The one connector pairing a deployment may not have: invented history.
 
-A virtual accelerator serves channels that move for modelled reasons — a
-corrector is stepped, the orbit responds, and the numbers a tool reads back are
-answers to what the deployment actually did. The live stand-in makes the same
+A virtual accelerator served from its container serves channels that move for
+modelled reasons — a corrector is stepped, the orbit responds, and the numbers a
+tool reads back are answers to what the deployment actually did — and its
+recorder writes that history as it happens. The live stand-in makes the same
 kind of claim from a soft IOC the deployment runs for itself. Neither machine
 existed before this deployment stood it up, so neither has a past anybody
-recorded — they are the
-:data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`, and every question
-below is asked of that whole set rather than of the virtual accelerator alone.
-The mock archiver answers a history query the other way round: it synthesizes a
-plausible-looking series at read time, for questions nobody recorded the answer
-to. Configured together they produce an agent whose past is fiction and whose
-present is not, with nothing connecting the two — so the fiction can never be
-caught by disagreeing with the machine it claims to describe.
+recorded beyond what its own recorder keeps — they are the
+:data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`, reached over a
+network, and every question below is asked of that whole set rather than of the
+virtual accelerator alone. The mock archiver answers a history query the other
+way round: it synthesizes a plausible-looking series at read time, for
+questions nobody recorded the answer to. Configured together they produce an
+agent whose past is fiction and whose present is not, with nothing connecting
+the two — so the fiction can never be caught by disagreeing with the machine it
+claims to describe.
 
 Refused at every moment a deployment can acquire the pairing: ``osprey build``
 writes the config, ``osprey up`` stands the services up, the MCP server reads
@@ -39,10 +41,22 @@ guards resolves it — otherwise the divergence *is* the bypass.**
   message rather than silently reading as "unset", because someone who typed it
   deserves to be told why it did nothing.
 
-Both readers fall back to the mock when their key is absent or blank (see the
-factory's ``… is not set; defaulting to …`` warnings), so *unset counts as mock*
-at every site. That is the fallback the rule is really about: the common way
-into the pairing is not naming the mock, it is naming nothing.
+Both readers fall back to the mock archiver when ``archiver.type`` is absent or
+blank (see the factory's ``… is not set; defaulting to …`` warnings), so *unset
+counts as the mock archiver* at every site. That is the fallback the rule is
+really about: the common way into the pairing is not naming the mock archiver,
+it is naming nothing.
+
+The venue is part of the question. The simulator served from its container
+has a recorder that writes its real history, so a synthesized archive beside
+it is fiction. The simulator served in process has no recorder, so a
+synthesized archive is the only archive it can have, and the chip says
+"Simulator": that pairing claims nothing it cannot back up and is not refused.
+:func:`_invents_history` asks it through
+:func:`~osprey_connectors.types.talks_to_network`, the same wire fact every
+other check reads, so the type and the ``serving`` leaf are judged together and
+never the type word alone. A control system that states no type is the
+simulator in process, so it invents nothing either.
 
 The run-time question is the same question asked one step early. A session that
 asks to be pointed at the virtual accelerator, or at the stand-in, has not
@@ -54,11 +68,10 @@ still comes from the config, because the switch changes the machine and leaves
 the archive exactly where it was. The target is resolved through that shared
 resolver and never here: a guard that translates ``va`` privately is guarding a
 deployment other than the one the switch will produce, which is the same
-divergence-is-the-bypass this module refuses on the config keys.
-
-Deliberately *not* a refusal of every mock archiver: a mock control system paired
-with the mock archiver is the honest storeless deployment, and it is the app
-template's default. Nothing is claimed to be real there, so nothing lies.
+divergence-is-the-bypass this module refuses on the config keys. A
+target is judged as the section it builds from — the deployment's own, with
+its type replaced by the target's — so on a deployment whose own type is a
+real machine, ``va`` is the served container and is judged served.
 """
 
 from __future__ import annotations
@@ -69,9 +82,13 @@ from typing import Any
 from .types import (
     INVENTED_HISTORY_TYPES,
     MOCK_ARCHIVER,
+    SERVING_KEY,
+    SERVING_LEAF,
+    VIRTUAL_ACCELERATOR,
     resolve_archiver_type,
     resolve_control_system_type,
     resolve_target,
+    talks_to_network,
 )
 
 #: Why the pairing is refused, in one sentence pair every site shares so the
@@ -86,6 +103,29 @@ VA_MOCK_ARCHIVER_WHY = (
 
 _CONTROL_SYSTEM_TYPE = "control_system.type"
 _ARCHIVER_TYPE = "archiver.type"
+
+
+def _invents_history(control_system_section: Any) -> bool:
+    """Whether the machine *control_system_section* selects has no recorded past.
+
+    A type in :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES` that is
+    reached over a network: the simulator served from its container and the
+    live stand-in. The simulator served in process dials nothing and has no
+    recorder, so it is not one. A ``serving`` value no reader accepts is judged
+    served, the refusing side; the build names that value on its own.
+    """
+    if resolve_control_system_type(control_system_section) not in INVENTED_HISTORY_TYPES:
+        return False
+    try:
+        return talks_to_network(control_system_section)
+    except ValueError:
+        return True
+
+
+def _target_section(control_system_section: Any, connector_type: str) -> dict[str, Any]:
+    """The section a target builds from: the deployment's own, with its type replaced."""
+    section = control_system_section if isinstance(control_system_section, dict) else {}
+    return {**section, "type": connector_type}
 
 
 class _Absent:
@@ -132,15 +172,17 @@ def pairing_in_profile(config: Any) -> ArchiverPairing:
         The verdict and the phrase naming its archiver.
     """
     control_system = _spellings(config, _CONTROL_SYSTEM_TYPE, nested_only=False)
+    serving = _spellings(config, SERVING_KEY, nested_only=False)
     archiver = _spellings(config, _ARCHIVER_TYPE, nested_only=False)
 
-    # Each candidate is resolved through the factory's own resolver, as the
-    # one-key section that spelling would render into. When two spellings both
-    # exist, either may be the one that lands, so either being the mock is
-    # enough to refuse.
+    # Each (type, serving) combination is judged as the section those spellings
+    # would render into. When two spellings of one key both exist, either may be
+    # the one that lands, so any combination inventing history is enough to
+    # refuse.
     invents_history = any(
-        resolve_control_system_type({"type": value}) in INVENTED_HISTORY_TYPES
-        for value in control_system
+        _invents_history(_profile_section(type_value, serving_value))
+        for type_value in control_system or [_ABSENT]
+        for serving_value in serving or [_ABSENT]
     )
     is_mock = not archiver or any(
         resolve_archiver_type({"type": value}) == MOCK_ARCHIVER for value in archiver
@@ -172,7 +214,7 @@ def pairing_in_rendered_config(config: Any) -> ArchiverPairing:
     # ``raw.get(section)``), resolved by the factory's own functions. There is no
     # second opinion to diverge from: this *is* what the deployment will build.
     control_system = _sections(config).get("control_system")
-    return _rendered_pairing(config, resolve_control_system_type(control_system))
+    return _rendered_pairing(config, _invents_history(control_system))
 
 
 def pairing_for_target(config: Any, target: str) -> ArchiverPairing:
@@ -211,7 +253,8 @@ def pairing_for_target(config: Any, target: str) -> ArchiverPairing:
             target exists before asking whether it may be used.
     """
     control_system = _sections(config).get("control_system")
-    return _rendered_pairing(config, resolve_target(control_system, target))
+    target_section = _target_section(control_system, resolve_target(control_system, target))
+    return _rendered_pairing(config, _invents_history(target_section))
 
 
 def _sections(config: Any) -> dict[Any, Any]:
@@ -219,15 +262,24 @@ def _sections(config: Any) -> dict[Any, Any]:
     return config if isinstance(config, dict) else {}
 
 
-def _rendered_pairing(config: Any, control_system_type: str) -> ArchiverPairing:
-    """The verdict on a rendered config, given the control system to judge it
-    against — the one it selects, or the one a target would select."""
+def _profile_section(type_value: Any, serving_value: Any) -> dict[str, Any]:
+    """The one-key ``control_system:`` section a profile's spellings render to."""
+    section: dict[str, Any] = {}
+    if type_value is not _ABSENT:
+        section["type"] = type_value
+    if serving_value is not _ABSENT:
+        section["connector"] = {VIRTUAL_ACCELERATOR: {SERVING_LEAF: serving_value}}
+    return section
+
+
+def _rendered_pairing(config: Any, invents_history: bool) -> ArchiverPairing:
+    """The verdict on a rendered config, given whether the control system to
+    judge it against — the one it selects, or the one a target would select —
+    has no recorded past."""
     archiver_type = resolve_archiver_type(_sections(config).get("archiver"))
 
     return ArchiverPairing(
-        is_invented_history=(
-            control_system_type in INVENTED_HISTORY_TYPES and archiver_type == MOCK_ARCHIVER
-        ),
+        is_invented_history=invents_history and archiver_type == MOCK_ARCHIVER,
         archiver_phrase=_rendered_phrase(
             _spellings(config, _ARCHIVER_TYPE, nested_only=True),
             _flat_value(config, _ARCHIVER_TYPE),
@@ -261,11 +313,12 @@ def _flat_value(config: Any, dotted: str) -> Any:
 
 def _nested_value(config: Any, dotted: str) -> Any:
     """The value of *dotted* walked as nested sections."""
-    section, _, leaf = dotted.partition(".")
-    subtree = config.get(section) if isinstance(config, dict) else None
-    if not isinstance(subtree, dict) or leaf not in subtree:
-        return _ABSENT
-    return subtree[leaf]
+    node = config
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return _ABSENT
+        node = node[part]
+    return node
 
 
 def _stated(values: list[Any]) -> list[str]:
