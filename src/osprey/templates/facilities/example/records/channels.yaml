@@ -217,6 +217,8 @@
 - id: BR:MAG:DIPOLE:01:CURRENT:SP
   role: setpoint
   pair: BR:MAG:DIPOLE:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/DIPOLE01
   signal: current_setpoint
@@ -251,6 +253,8 @@
 - id: BR:MAG:DIPOLE:02:CURRENT:SP
   role: setpoint
   pair: BR:MAG:DIPOLE:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/DIPOLE02
   signal: current_setpoint
@@ -285,6 +289,8 @@
 - id: BR:MAG:DIPOLE:03:CURRENT:SP
   role: setpoint
   pair: BR:MAG:DIPOLE:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/DIPOLE03
   signal: current_setpoint
@@ -319,6 +325,8 @@
 - id: BR:MAG:DIPOLE:04:CURRENT:SP
   role: setpoint
   pair: BR:MAG:DIPOLE:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/DIPOLE04
   signal: current_setpoint
@@ -353,6 +361,8 @@
 - id: BR:MAG:DIPOLE:05:CURRENT:SP
   role: setpoint
   pair: BR:MAG:DIPOLE:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/DIPOLE05
   signal: current_setpoint
@@ -387,6 +397,8 @@
 - id: BR:MAG:DIPOLE:06:CURRENT:SP
   role: setpoint
   pair: BR:MAG:DIPOLE:06:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/DIPOLE06
   signal: current_setpoint
@@ -421,6 +433,8 @@
 - id: BR:MAG:DIPOLE:07:CURRENT:SP
   role: setpoint
   pair: BR:MAG:DIPOLE:07:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/DIPOLE07
   signal: current_setpoint
@@ -455,6 +469,8 @@
 - id: BR:MAG:DIPOLE:08:CURRENT:SP
   role: setpoint
   pair: BR:MAG:DIPOLE:08:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/DIPOLE08
   signal: current_setpoint
@@ -489,6 +505,8 @@
 - id: BR:MAG:QD:01:CURRENT:SP
   role: setpoint
   pair: BR:MAG:QD:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/QD01
   signal: current_setpoint
@@ -523,6 +541,8 @@
 - id: BR:MAG:QD:02:CURRENT:SP
   role: setpoint
   pair: BR:MAG:QD:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/QD02
   signal: current_setpoint
@@ -557,6 +577,8 @@
 - id: BR:MAG:QD:03:CURRENT:SP
   role: setpoint
   pair: BR:MAG:QD:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/QD03
   signal: current_setpoint
@@ -591,6 +613,8 @@
 - id: BR:MAG:QD:04:CURRENT:SP
   role: setpoint
   pair: BR:MAG:QD:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/QD04
   signal: current_setpoint
@@ -625,6 +649,8 @@
 - id: BR:MAG:QF:01:CURRENT:SP
   role: setpoint
   pair: BR:MAG:QF:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/QF01
   signal: current_setpoint
@@ -659,6 +685,8 @@
 - id: BR:MAG:QF:02:CURRENT:SP
   role: setpoint
   pair: BR:MAG:QF:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/QF02
   signal: current_setpoint
@@ -693,6 +721,8 @@
 - id: BR:MAG:QF:03:CURRENT:SP
   role: setpoint
   pair: BR:MAG:QF:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/QF03
   signal: current_setpoint
@@ -727,6 +757,8 @@
 - id: BR:MAG:QF:04:CURRENT:SP
   role: setpoint
   pair: BR:MAG:QF:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BR/QF04
   signal: current_setpoint
@@ -905,6 +937,8 @@
 - id: BTS:MAG:HCM:01:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:HCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/HCM01
   signal: current_setpoint
@@ -931,6 +965,8 @@
 - id: BTS:MAG:HCM:02:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:HCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/HCM02
   signal: current_setpoint
@@ -957,6 +993,8 @@
 - id: BTS:MAG:HCM:03:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:HCM:03:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/HCM03
   signal: current_setpoint
@@ -983,6 +1021,8 @@
 - id: BTS:MAG:HCM:04:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:HCM:04:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/HCM04
   signal: current_setpoint
@@ -1009,6 +1049,8 @@
 - id: BTS:MAG:HCM:05:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:HCM:05:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/HCM05
   signal: current_setpoint
@@ -1035,6 +1077,8 @@
 - id: BTS:MAG:HCM:06:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:HCM:06:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/HCM06
   signal: current_setpoint
@@ -1061,6 +1105,8 @@
 - id: BTS:MAG:QF:01:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:QF:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BTS/QF01
   signal: current_setpoint
@@ -1087,6 +1133,8 @@
 - id: BTS:MAG:QF:02:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:QF:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BTS/QF02
   signal: current_setpoint
@@ -1113,6 +1161,8 @@
 - id: BTS:MAG:QF:03:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:QF:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BTS/QF03
   signal: current_setpoint
@@ -1139,6 +1189,8 @@
 - id: BTS:MAG:QF:04:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:QF:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BTS/QF04
   signal: current_setpoint
@@ -1165,6 +1217,8 @@
 - id: BTS:MAG:QF:05:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:QF:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BTS/QF05
   signal: current_setpoint
@@ -1191,6 +1245,8 @@
 - id: BTS:MAG:QF:06:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:QF:06:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: BTS/QF06
   signal: current_setpoint
@@ -1217,6 +1273,8 @@
 - id: BTS:MAG:VCM:01:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:VCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/VCM01
   signal: current_setpoint
@@ -1243,6 +1301,8 @@
 - id: BTS:MAG:VCM:02:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:VCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/VCM02
   signal: current_setpoint
@@ -1269,6 +1329,8 @@
 - id: BTS:MAG:VCM:03:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:VCM:03:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/VCM03
   signal: current_setpoint
@@ -1295,6 +1357,8 @@
 - id: BTS:MAG:VCM:04:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:VCM:04:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/VCM04
   signal: current_setpoint
@@ -1321,6 +1385,8 @@
 - id: BTS:MAG:VCM:05:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:VCM:05:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/VCM05
   signal: current_setpoint
@@ -1347,6 +1413,8 @@
 - id: BTS:MAG:VCM:06:CURRENT:SP
   role: setpoint
   pair: BTS:MAG:VCM:06:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: BTS/VCM06
   signal: current_setpoint
@@ -6641,6 +6709,8 @@
 - id: SR:MAG:DIPOLE:01:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE01
   signal: current_setpoint
@@ -6695,6 +6765,8 @@
 - id: SR:MAG:DIPOLE:02:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE02
   signal: current_setpoint
@@ -6749,6 +6821,8 @@
 - id: SR:MAG:DIPOLE:03:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE03
   signal: current_setpoint
@@ -6803,6 +6877,8 @@
 - id: SR:MAG:DIPOLE:04:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE04
   signal: current_setpoint
@@ -6857,6 +6933,8 @@
 - id: SR:MAG:DIPOLE:05:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE05
   signal: current_setpoint
@@ -6911,6 +6989,8 @@
 - id: SR:MAG:DIPOLE:06:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:06:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE06
   signal: current_setpoint
@@ -6965,6 +7045,8 @@
 - id: SR:MAG:DIPOLE:07:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:07:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE07
   signal: current_setpoint
@@ -7019,6 +7101,8 @@
 - id: SR:MAG:DIPOLE:08:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:08:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE08
   signal: current_setpoint
@@ -7073,6 +7157,8 @@
 - id: SR:MAG:DIPOLE:09:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:09:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE09
   signal: current_setpoint
@@ -7127,6 +7213,8 @@
 - id: SR:MAG:DIPOLE:10:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:10:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE10
   signal: current_setpoint
@@ -7181,6 +7269,8 @@
 - id: SR:MAG:DIPOLE:11:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:11:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE11
   signal: current_setpoint
@@ -7235,6 +7325,8 @@
 - id: SR:MAG:DIPOLE:12:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:12:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE12
   signal: current_setpoint
@@ -7289,6 +7381,8 @@
 - id: SR:MAG:DIPOLE:13:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:13:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE13
   signal: current_setpoint
@@ -7343,6 +7437,8 @@
 - id: SR:MAG:DIPOLE:14:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:14:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE14
   signal: current_setpoint
@@ -7397,6 +7493,8 @@
 - id: SR:MAG:DIPOLE:15:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:15:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE15
   signal: current_setpoint
@@ -7451,6 +7549,8 @@
 - id: SR:MAG:DIPOLE:16:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:16:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE16
   signal: current_setpoint
@@ -7505,6 +7605,8 @@
 - id: SR:MAG:DIPOLE:17:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:17:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE17
   signal: current_setpoint
@@ -7559,6 +7661,8 @@
 - id: SR:MAG:DIPOLE:18:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:18:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE18
   signal: current_setpoint
@@ -7613,6 +7717,8 @@
 - id: SR:MAG:DIPOLE:19:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:19:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE19
   signal: current_setpoint
@@ -7667,6 +7773,8 @@
 - id: SR:MAG:DIPOLE:20:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:20:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE20
   signal: current_setpoint
@@ -7721,6 +7829,8 @@
 - id: SR:MAG:DIPOLE:21:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:21:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE21
   signal: current_setpoint
@@ -7775,6 +7885,8 @@
 - id: SR:MAG:DIPOLE:22:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:22:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE22
   signal: current_setpoint
@@ -7829,6 +7941,8 @@
 - id: SR:MAG:DIPOLE:23:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:23:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE23
   signal: current_setpoint
@@ -7883,6 +7997,8 @@
 - id: SR:MAG:DIPOLE:24:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:24:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE24
   signal: current_setpoint
@@ -7937,6 +8053,8 @@
 - id: SR:MAG:DIPOLE:25:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:25:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE25
   signal: current_setpoint
@@ -7991,6 +8109,8 @@
 - id: SR:MAG:DIPOLE:26:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:26:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE26
   signal: current_setpoint
@@ -8045,6 +8165,8 @@
 - id: SR:MAG:DIPOLE:27:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:27:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE27
   signal: current_setpoint
@@ -8099,6 +8221,8 @@
 - id: SR:MAG:DIPOLE:28:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:28:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE28
   signal: current_setpoint
@@ -8153,6 +8277,8 @@
 - id: SR:MAG:DIPOLE:29:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:29:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE29
   signal: current_setpoint
@@ -8207,6 +8333,8 @@
 - id: SR:MAG:DIPOLE:30:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:30:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE30
   signal: current_setpoint
@@ -8261,6 +8389,8 @@
 - id: SR:MAG:DIPOLE:31:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:31:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE31
   signal: current_setpoint
@@ -8315,6 +8445,8 @@
 - id: SR:MAG:DIPOLE:32:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:32:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE32
   signal: current_setpoint
@@ -8369,6 +8501,8 @@
 - id: SR:MAG:DIPOLE:33:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:33:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE33
   signal: current_setpoint
@@ -8423,6 +8557,8 @@
 - id: SR:MAG:DIPOLE:34:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:34:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE34
   signal: current_setpoint
@@ -8477,6 +8613,8 @@
 - id: SR:MAG:DIPOLE:35:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:35:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE35
   signal: current_setpoint
@@ -8531,6 +8669,8 @@
 - id: SR:MAG:DIPOLE:36:CURRENT:SP
   role: setpoint
   pair: SR:MAG:DIPOLE:36:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/DIPOLE36
   signal: current_setpoint
@@ -8585,6 +8725,8 @@
 - id: SR:MAG:HCM:01:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM01
   signal: current_setpoint
@@ -8631,6 +8773,8 @@
 - id: SR:MAG:HCM:02:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM02
   signal: current_setpoint
@@ -8677,6 +8821,8 @@
 - id: SR:MAG:HCM:03:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:03:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM03
   signal: current_setpoint
@@ -8723,6 +8869,8 @@
 - id: SR:MAG:HCM:04:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:04:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM04
   signal: current_setpoint
@@ -8769,6 +8917,8 @@
 - id: SR:MAG:HCM:05:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:05:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM05
   signal: current_setpoint
@@ -8815,6 +8965,8 @@
 - id: SR:MAG:HCM:06:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:06:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM06
   signal: current_setpoint
@@ -8861,6 +9013,8 @@
 - id: SR:MAG:HCM:07:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:07:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM07
   signal: current_setpoint
@@ -8907,6 +9061,8 @@
 - id: SR:MAG:HCM:08:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:08:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM08
   signal: current_setpoint
@@ -8953,6 +9109,8 @@
 - id: SR:MAG:HCM:09:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:09:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM09
   signal: current_setpoint
@@ -8999,6 +9157,8 @@
 - id: SR:MAG:HCM:10:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:10:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM10
   signal: current_setpoint
@@ -9045,6 +9205,8 @@
 - id: SR:MAG:HCM:11:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:11:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM11
   signal: current_setpoint
@@ -9091,6 +9253,8 @@
 - id: SR:MAG:HCM:12:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:12:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM12
   signal: current_setpoint
@@ -9137,6 +9301,8 @@
 - id: SR:MAG:HCM:13:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:13:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM13
   signal: current_setpoint
@@ -9183,6 +9349,8 @@
 - id: SR:MAG:HCM:14:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:14:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM14
   signal: current_setpoint
@@ -9229,6 +9397,8 @@
 - id: SR:MAG:HCM:15:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:15:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM15
   signal: current_setpoint
@@ -9275,6 +9445,8 @@
 - id: SR:MAG:HCM:16:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:16:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM16
   signal: current_setpoint
@@ -9321,6 +9493,8 @@
 - id: SR:MAG:HCM:17:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:17:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM17
   signal: current_setpoint
@@ -9367,6 +9541,8 @@
 - id: SR:MAG:HCM:18:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:18:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM18
   signal: current_setpoint
@@ -9413,6 +9589,8 @@
 - id: SR:MAG:HCM:19:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:19:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM19
   signal: current_setpoint
@@ -9459,6 +9637,8 @@
 - id: SR:MAG:HCM:20:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:20:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM20
   signal: current_setpoint
@@ -9505,6 +9685,8 @@
 - id: SR:MAG:HCM:21:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:21:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM21
   signal: current_setpoint
@@ -9551,6 +9733,8 @@
 - id: SR:MAG:HCM:22:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:22:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM22
   signal: current_setpoint
@@ -9597,6 +9781,8 @@
 - id: SR:MAG:HCM:23:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:23:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM23
   signal: current_setpoint
@@ -9643,6 +9829,8 @@
 - id: SR:MAG:HCM:24:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:24:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM24
   signal: current_setpoint
@@ -9689,6 +9877,8 @@
 - id: SR:MAG:HCM:25:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:25:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM25
   signal: current_setpoint
@@ -9735,6 +9925,8 @@
 - id: SR:MAG:HCM:26:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:26:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM26
   signal: current_setpoint
@@ -9781,6 +9973,8 @@
 - id: SR:MAG:HCM:27:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:27:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM27
   signal: current_setpoint
@@ -9827,6 +10021,8 @@
 - id: SR:MAG:HCM:28:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:28:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM28
   signal: current_setpoint
@@ -9873,6 +10069,8 @@
 - id: SR:MAG:HCM:29:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:29:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM29
   signal: current_setpoint
@@ -9919,6 +10117,8 @@
 - id: SR:MAG:HCM:30:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:30:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM30
   signal: current_setpoint
@@ -9965,6 +10165,8 @@
 - id: SR:MAG:HCM:31:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:31:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM31
   signal: current_setpoint
@@ -10011,6 +10213,8 @@
 - id: SR:MAG:HCM:32:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:32:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM32
   signal: current_setpoint
@@ -10057,6 +10261,8 @@
 - id: SR:MAG:HCM:33:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:33:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM33
   signal: current_setpoint
@@ -10103,6 +10309,8 @@
 - id: SR:MAG:HCM:34:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:34:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM34
   signal: current_setpoint
@@ -10149,6 +10357,8 @@
 - id: SR:MAG:HCM:35:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:35:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM35
   signal: current_setpoint
@@ -10195,6 +10405,8 @@
 - id: SR:MAG:HCM:36:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:36:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM36
   signal: current_setpoint
@@ -10241,6 +10453,8 @@
 - id: SR:MAG:HCM:37:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:37:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM37
   signal: current_setpoint
@@ -10287,6 +10501,8 @@
 - id: SR:MAG:HCM:38:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:38:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM38
   signal: current_setpoint
@@ -10333,6 +10549,8 @@
 - id: SR:MAG:HCM:39:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:39:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM39
   signal: current_setpoint
@@ -10379,6 +10597,8 @@
 - id: SR:MAG:HCM:40:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:40:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM40
   signal: current_setpoint
@@ -10425,6 +10645,8 @@
 - id: SR:MAG:HCM:41:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:41:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM41
   signal: current_setpoint
@@ -10471,6 +10693,8 @@
 - id: SR:MAG:HCM:42:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:42:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM42
   signal: current_setpoint
@@ -10517,6 +10741,8 @@
 - id: SR:MAG:HCM:43:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:43:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM43
   signal: current_setpoint
@@ -10563,6 +10789,8 @@
 - id: SR:MAG:HCM:44:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:44:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM44
   signal: current_setpoint
@@ -10609,6 +10837,8 @@
 - id: SR:MAG:HCM:45:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:45:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM45
   signal: current_setpoint
@@ -10655,6 +10885,8 @@
 - id: SR:MAG:HCM:46:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:46:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM46
   signal: current_setpoint
@@ -10701,6 +10933,8 @@
 - id: SR:MAG:HCM:47:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:47:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM47
   signal: current_setpoint
@@ -10747,6 +10981,8 @@
 - id: SR:MAG:HCM:48:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:48:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM48
   signal: current_setpoint
@@ -10793,6 +11029,8 @@
 - id: SR:MAG:HCM:49:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:49:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM49
   signal: current_setpoint
@@ -10839,6 +11077,8 @@
 - id: SR:MAG:HCM:50:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:50:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM50
   signal: current_setpoint
@@ -10885,6 +11125,8 @@
 - id: SR:MAG:HCM:51:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:51:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM51
   signal: current_setpoint
@@ -10931,6 +11173,8 @@
 - id: SR:MAG:HCM:52:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:52:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM52
   signal: current_setpoint
@@ -10977,6 +11221,8 @@
 - id: SR:MAG:HCM:53:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:53:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM53
   signal: current_setpoint
@@ -11023,6 +11269,8 @@
 - id: SR:MAG:HCM:54:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:54:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM54
   signal: current_setpoint
@@ -11069,6 +11317,8 @@
 - id: SR:MAG:HCM:55:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:55:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM55
   signal: current_setpoint
@@ -11115,6 +11365,8 @@
 - id: SR:MAG:HCM:56:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:56:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM56
   signal: current_setpoint
@@ -11161,6 +11413,8 @@
 - id: SR:MAG:HCM:57:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:57:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM57
   signal: current_setpoint
@@ -11207,6 +11461,8 @@
 - id: SR:MAG:HCM:58:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:58:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM58
   signal: current_setpoint
@@ -11253,6 +11509,8 @@
 - id: SR:MAG:HCM:59:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:59:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM59
   signal: current_setpoint
@@ -11299,6 +11557,8 @@
 - id: SR:MAG:HCM:60:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:60:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM60
   signal: current_setpoint
@@ -11345,6 +11605,8 @@
 - id: SR:MAG:HCM:61:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:61:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM61
   signal: current_setpoint
@@ -11391,6 +11653,8 @@
 - id: SR:MAG:HCM:62:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:62:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM62
   signal: current_setpoint
@@ -11437,6 +11701,8 @@
 - id: SR:MAG:HCM:63:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:63:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM63
   signal: current_setpoint
@@ -11483,6 +11749,8 @@
 - id: SR:MAG:HCM:64:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:64:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM64
   signal: current_setpoint
@@ -11529,6 +11797,8 @@
 - id: SR:MAG:HCM:65:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:65:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM65
   signal: current_setpoint
@@ -11575,6 +11845,8 @@
 - id: SR:MAG:HCM:66:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:66:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM66
   signal: current_setpoint
@@ -11621,6 +11893,8 @@
 - id: SR:MAG:HCM:67:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:67:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM67
   signal: current_setpoint
@@ -11667,6 +11941,8 @@
 - id: SR:MAG:HCM:68:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:68:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM68
   signal: current_setpoint
@@ -11713,6 +11989,8 @@
 - id: SR:MAG:HCM:69:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:69:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM69
   signal: current_setpoint
@@ -11759,6 +12037,8 @@
 - id: SR:MAG:HCM:70:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:70:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM70
   signal: current_setpoint
@@ -11805,6 +12085,8 @@
 - id: SR:MAG:HCM:71:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:71:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM71
   signal: current_setpoint
@@ -11851,6 +12133,8 @@
 - id: SR:MAG:HCM:72:CURRENT:SP
   role: setpoint
   pair: SR:MAG:HCM:72:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/HCM72
   signal: current_setpoint
@@ -11895,6 +12179,8 @@
 - id: SR:MAG:QD:01:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD01
   signal: current_setpoint
@@ -11945,6 +12231,8 @@
 - id: SR:MAG:QD:02:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD02
   signal: current_setpoint
@@ -11995,6 +12283,8 @@
 - id: SR:MAG:QD:03:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD03
   signal: current_setpoint
@@ -12045,6 +12335,8 @@
 - id: SR:MAG:QD:04:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD04
   signal: current_setpoint
@@ -12095,6 +12387,8 @@
 - id: SR:MAG:QD:05:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD05
   signal: current_setpoint
@@ -12145,6 +12439,8 @@
 - id: SR:MAG:QD:06:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:06:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD06
   signal: current_setpoint
@@ -12195,6 +12491,8 @@
 - id: SR:MAG:QD:07:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:07:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD07
   signal: current_setpoint
@@ -12245,6 +12543,8 @@
 - id: SR:MAG:QD:08:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:08:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD08
   signal: current_setpoint
@@ -12295,6 +12595,8 @@
 - id: SR:MAG:QD:09:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:09:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD09
   signal: current_setpoint
@@ -12345,6 +12647,8 @@
 - id: SR:MAG:QD:10:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:10:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD10
   signal: current_setpoint
@@ -12395,6 +12699,8 @@
 - id: SR:MAG:QD:11:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:11:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD11
   signal: current_setpoint
@@ -12445,6 +12751,8 @@
 - id: SR:MAG:QD:12:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:12:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD12
   signal: current_setpoint
@@ -12495,6 +12803,8 @@
 - id: SR:MAG:QD:13:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:13:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD13
   signal: current_setpoint
@@ -12545,6 +12855,8 @@
 - id: SR:MAG:QD:14:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:14:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD14
   signal: current_setpoint
@@ -12595,6 +12907,8 @@
 - id: SR:MAG:QD:15:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:15:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD15
   signal: current_setpoint
@@ -12645,6 +12959,8 @@
 - id: SR:MAG:QD:16:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:16:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD16
   signal: current_setpoint
@@ -12695,6 +13011,8 @@
 - id: SR:MAG:QD:17:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:17:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD17
   signal: current_setpoint
@@ -12745,6 +13063,8 @@
 - id: SR:MAG:QD:18:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:18:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD18
   signal: current_setpoint
@@ -12795,6 +13115,8 @@
 - id: SR:MAG:QD:19:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:19:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD19
   signal: current_setpoint
@@ -12845,6 +13167,8 @@
 - id: SR:MAG:QD:20:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:20:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD20
   signal: current_setpoint
@@ -12895,6 +13219,8 @@
 - id: SR:MAG:QD:21:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:21:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD21
   signal: current_setpoint
@@ -12945,6 +13271,8 @@
 - id: SR:MAG:QD:22:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:22:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD22
   signal: current_setpoint
@@ -12995,6 +13323,8 @@
 - id: SR:MAG:QD:23:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:23:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD23
   signal: current_setpoint
@@ -13045,6 +13375,8 @@
 - id: SR:MAG:QD:24:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QD:24:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QD24
   signal: current_setpoint
@@ -13097,6 +13429,8 @@
 - id: SR:MAG:QF:01:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF01
   signal: current_setpoint
@@ -13151,6 +13485,8 @@
 - id: SR:MAG:QF:02:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF02
   signal: current_setpoint
@@ -13205,6 +13541,8 @@
 - id: SR:MAG:QF:03:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF03
   signal: current_setpoint
@@ -13259,6 +13597,8 @@
 - id: SR:MAG:QF:04:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF04
   signal: current_setpoint
@@ -13313,6 +13653,8 @@
 - id: SR:MAG:QF:05:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF05
   signal: current_setpoint
@@ -13367,6 +13709,8 @@
 - id: SR:MAG:QF:06:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:06:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF06
   signal: current_setpoint
@@ -13421,6 +13765,8 @@
 - id: SR:MAG:QF:07:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:07:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF07
   signal: current_setpoint
@@ -13475,6 +13821,8 @@
 - id: SR:MAG:QF:08:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:08:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF08
   signal: current_setpoint
@@ -13529,6 +13877,8 @@
 - id: SR:MAG:QF:09:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:09:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF09
   signal: current_setpoint
@@ -13583,6 +13933,8 @@
 - id: SR:MAG:QF:10:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:10:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF10
   signal: current_setpoint
@@ -13637,6 +13989,8 @@
 - id: SR:MAG:QF:11:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:11:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF11
   signal: current_setpoint
@@ -13691,6 +14045,8 @@
 - id: SR:MAG:QF:12:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:12:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF12
   signal: current_setpoint
@@ -13745,6 +14101,8 @@
 - id: SR:MAG:QF:13:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:13:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF13
   signal: current_setpoint
@@ -13799,6 +14157,8 @@
 - id: SR:MAG:QF:14:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:14:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF14
   signal: current_setpoint
@@ -13853,6 +14213,8 @@
 - id: SR:MAG:QF:15:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:15:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF15
   signal: current_setpoint
@@ -13907,6 +14269,8 @@
 - id: SR:MAG:QF:16:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:16:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF16
   signal: current_setpoint
@@ -13961,6 +14325,8 @@
 - id: SR:MAG:QF:17:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:17:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF17
   signal: current_setpoint
@@ -14015,6 +14381,8 @@
 - id: SR:MAG:QF:18:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:18:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF18
   signal: current_setpoint
@@ -14069,6 +14437,8 @@
 - id: SR:MAG:QF:19:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:19:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF19
   signal: current_setpoint
@@ -14123,6 +14493,8 @@
 - id: SR:MAG:QF:20:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:20:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF20
   signal: current_setpoint
@@ -14177,6 +14549,8 @@
 - id: SR:MAG:QF:21:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:21:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF21
   signal: current_setpoint
@@ -14231,6 +14605,8 @@
 - id: SR:MAG:QF:22:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:22:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF22
   signal: current_setpoint
@@ -14285,6 +14661,8 @@
 - id: SR:MAG:QF:23:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:23:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF23
   signal: current_setpoint
@@ -14339,6 +14717,8 @@
 - id: SR:MAG:QF:24:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:24:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QF24
   signal: current_setpoint
@@ -14391,6 +14771,8 @@
 - id: SR:MAG:QFA:01:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA01
   signal: current_setpoint
@@ -14441,6 +14823,8 @@
 - id: SR:MAG:QFA:02:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA02
   signal: current_setpoint
@@ -14491,6 +14875,8 @@
 - id: SR:MAG:QFA:03:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA03
   signal: current_setpoint
@@ -14541,6 +14927,8 @@
 - id: SR:MAG:QFA:04:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA04
   signal: current_setpoint
@@ -14591,6 +14979,8 @@
 - id: SR:MAG:QFA:05:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA05
   signal: current_setpoint
@@ -14641,6 +15031,8 @@
 - id: SR:MAG:QFA:06:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:06:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA06
   signal: current_setpoint
@@ -14691,6 +15083,8 @@
 - id: SR:MAG:QFA:07:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:07:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA07
   signal: current_setpoint
@@ -14741,6 +15135,8 @@
 - id: SR:MAG:QFA:08:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:08:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA08
   signal: current_setpoint
@@ -14791,6 +15187,8 @@
 - id: SR:MAG:QFA:09:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:09:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA09
   signal: current_setpoint
@@ -14841,6 +15239,8 @@
 - id: SR:MAG:QFA:10:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:10:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA10
   signal: current_setpoint
@@ -14891,6 +15291,8 @@
 - id: SR:MAG:QFA:11:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:11:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA11
   signal: current_setpoint
@@ -14941,6 +15343,8 @@
 - id: SR:MAG:QFA:12:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:12:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA12
   signal: current_setpoint
@@ -14991,6 +15395,8 @@
 - id: SR:MAG:QFA:13:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:13:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA13
   signal: current_setpoint
@@ -15041,6 +15447,8 @@
 - id: SR:MAG:QFA:14:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:14:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA14
   signal: current_setpoint
@@ -15091,6 +15499,8 @@
 - id: SR:MAG:QFA:15:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:15:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA15
   signal: current_setpoint
@@ -15141,6 +15551,8 @@
 - id: SR:MAG:QFA:16:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:16:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA16
   signal: current_setpoint
@@ -15191,6 +15603,8 @@
 - id: SR:MAG:QFA:17:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:17:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA17
   signal: current_setpoint
@@ -15241,6 +15655,8 @@
 - id: SR:MAG:QFA:18:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:18:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA18
   signal: current_setpoint
@@ -15291,6 +15707,8 @@
 - id: SR:MAG:QFA:19:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:19:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA19
   signal: current_setpoint
@@ -15341,6 +15759,8 @@
 - id: SR:MAG:QFA:20:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:20:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA20
   signal: current_setpoint
@@ -15391,6 +15811,8 @@
 - id: SR:MAG:QFA:21:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:21:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA21
   signal: current_setpoint
@@ -15441,6 +15863,8 @@
 - id: SR:MAG:QFA:22:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:22:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA22
   signal: current_setpoint
@@ -15491,6 +15915,8 @@
 - id: SR:MAG:QFA:23:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:23:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA23
   signal: current_setpoint
@@ -15541,6 +15967,8 @@
 - id: SR:MAG:QFA:24:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QFA:24:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/QFA24
   signal: current_setpoint
@@ -15591,6 +16019,8 @@
 - id: SR:MAG:SD:01:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD01
   signal: current_setpoint
@@ -15641,6 +16071,8 @@
 - id: SR:MAG:SD:02:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD02
   signal: current_setpoint
@@ -15691,6 +16123,8 @@
 - id: SR:MAG:SD:03:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD03
   signal: current_setpoint
@@ -15741,6 +16175,8 @@
 - id: SR:MAG:SD:04:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD04
   signal: current_setpoint
@@ -15791,6 +16227,8 @@
 - id: SR:MAG:SD:05:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD05
   signal: current_setpoint
@@ -15841,6 +16279,8 @@
 - id: SR:MAG:SD:06:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:06:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD06
   signal: current_setpoint
@@ -15891,6 +16331,8 @@
 - id: SR:MAG:SD:07:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:07:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD07
   signal: current_setpoint
@@ -15941,6 +16383,8 @@
 - id: SR:MAG:SD:08:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:08:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD08
   signal: current_setpoint
@@ -15991,6 +16435,8 @@
 - id: SR:MAG:SD:09:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:09:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD09
   signal: current_setpoint
@@ -16041,6 +16487,8 @@
 - id: SR:MAG:SD:10:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:10:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD10
   signal: current_setpoint
@@ -16091,6 +16539,8 @@
 - id: SR:MAG:SD:11:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:11:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD11
   signal: current_setpoint
@@ -16141,6 +16591,8 @@
 - id: SR:MAG:SD:12:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:12:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD12
   signal: current_setpoint
@@ -16191,6 +16643,8 @@
 - id: SR:MAG:SD:13:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:13:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD13
   signal: current_setpoint
@@ -16241,6 +16695,8 @@
 - id: SR:MAG:SD:14:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:14:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD14
   signal: current_setpoint
@@ -16291,6 +16747,8 @@
 - id: SR:MAG:SD:15:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:15:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD15
   signal: current_setpoint
@@ -16341,6 +16799,8 @@
 - id: SR:MAG:SD:16:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:16:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD16
   signal: current_setpoint
@@ -16391,6 +16851,8 @@
 - id: SR:MAG:SD:17:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:17:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD17
   signal: current_setpoint
@@ -16441,6 +16903,8 @@
 - id: SR:MAG:SD:18:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:18:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD18
   signal: current_setpoint
@@ -16491,6 +16955,8 @@
 - id: SR:MAG:SD:19:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:19:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD19
   signal: current_setpoint
@@ -16541,6 +17007,8 @@
 - id: SR:MAG:SD:20:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:20:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD20
   signal: current_setpoint
@@ -16591,6 +17059,8 @@
 - id: SR:MAG:SD:21:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:21:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD21
   signal: current_setpoint
@@ -16641,6 +17111,8 @@
 - id: SR:MAG:SD:22:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:22:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD22
   signal: current_setpoint
@@ -16691,6 +17163,8 @@
 - id: SR:MAG:SD:23:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:23:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD23
   signal: current_setpoint
@@ -16741,6 +17215,8 @@
 - id: SR:MAG:SD:24:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SD:24:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SD24
   signal: current_setpoint
@@ -16791,6 +17267,8 @@
 - id: SR:MAG:SF:01:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF01
   signal: current_setpoint
@@ -16841,6 +17319,8 @@
 - id: SR:MAG:SF:02:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF02
   signal: current_setpoint
@@ -16891,6 +17371,8 @@
 - id: SR:MAG:SF:03:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF03
   signal: current_setpoint
@@ -16941,6 +17423,8 @@
 - id: SR:MAG:SF:04:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF04
   signal: current_setpoint
@@ -16991,6 +17475,8 @@
 - id: SR:MAG:SF:05:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF05
   signal: current_setpoint
@@ -17041,6 +17527,8 @@
 - id: SR:MAG:SF:06:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:06:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF06
   signal: current_setpoint
@@ -17091,6 +17579,8 @@
 - id: SR:MAG:SF:07:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:07:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF07
   signal: current_setpoint
@@ -17141,6 +17631,8 @@
 - id: SR:MAG:SF:08:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:08:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF08
   signal: current_setpoint
@@ -17191,6 +17683,8 @@
 - id: SR:MAG:SF:09:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:09:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF09
   signal: current_setpoint
@@ -17241,6 +17735,8 @@
 - id: SR:MAG:SF:10:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:10:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF10
   signal: current_setpoint
@@ -17291,6 +17787,8 @@
 - id: SR:MAG:SF:11:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:11:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF11
   signal: current_setpoint
@@ -17341,6 +17839,8 @@
 - id: SR:MAG:SF:12:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:12:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF12
   signal: current_setpoint
@@ -17391,6 +17891,8 @@
 - id: SR:MAG:SF:13:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:13:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF13
   signal: current_setpoint
@@ -17441,6 +17943,8 @@
 - id: SR:MAG:SF:14:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:14:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF14
   signal: current_setpoint
@@ -17491,6 +17995,8 @@
 - id: SR:MAG:SF:15:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:15:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF15
   signal: current_setpoint
@@ -17541,6 +18047,8 @@
 - id: SR:MAG:SF:16:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:16:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF16
   signal: current_setpoint
@@ -17591,6 +18099,8 @@
 - id: SR:MAG:SF:17:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:17:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF17
   signal: current_setpoint
@@ -17641,6 +18151,8 @@
 - id: SR:MAG:SF:18:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:18:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF18
   signal: current_setpoint
@@ -17691,6 +18203,8 @@
 - id: SR:MAG:SF:19:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:19:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF19
   signal: current_setpoint
@@ -17741,6 +18255,8 @@
 - id: SR:MAG:SF:20:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:20:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF20
   signal: current_setpoint
@@ -17791,6 +18307,8 @@
 - id: SR:MAG:SF:21:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:21:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF21
   signal: current_setpoint
@@ -17841,6 +18359,8 @@
 - id: SR:MAG:SF:22:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:22:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF22
   signal: current_setpoint
@@ -17891,6 +18411,8 @@
 - id: SR:MAG:SF:23:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:23:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF23
   signal: current_setpoint
@@ -17941,6 +18463,8 @@
 - id: SR:MAG:SF:24:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SF:24:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SF24
   signal: current_setpoint
@@ -17991,6 +18515,8 @@
 - id: SR:MAG:SHD:01:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD01
   signal: current_setpoint
@@ -18041,6 +18567,8 @@
 - id: SR:MAG:SHD:02:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD02
   signal: current_setpoint
@@ -18091,6 +18619,8 @@
 - id: SR:MAG:SHD:03:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD03
   signal: current_setpoint
@@ -18141,6 +18671,8 @@
 - id: SR:MAG:SHD:04:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD04
   signal: current_setpoint
@@ -18191,6 +18723,8 @@
 - id: SR:MAG:SHD:05:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD05
   signal: current_setpoint
@@ -18241,6 +18775,8 @@
 - id: SR:MAG:SHD:06:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:06:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD06
   signal: current_setpoint
@@ -18291,6 +18827,8 @@
 - id: SR:MAG:SHD:07:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:07:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD07
   signal: current_setpoint
@@ -18341,6 +18879,8 @@
 - id: SR:MAG:SHD:08:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:08:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD08
   signal: current_setpoint
@@ -18391,6 +18931,8 @@
 - id: SR:MAG:SHD:09:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:09:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD09
   signal: current_setpoint
@@ -18441,6 +18983,8 @@
 - id: SR:MAG:SHD:10:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:10:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD10
   signal: current_setpoint
@@ -18491,6 +19035,8 @@
 - id: SR:MAG:SHD:11:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:11:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD11
   signal: current_setpoint
@@ -18541,6 +19087,8 @@
 - id: SR:MAG:SHD:12:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:12:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD12
   signal: current_setpoint
@@ -18591,6 +19139,8 @@
 - id: SR:MAG:SHD:13:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:13:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD13
   signal: current_setpoint
@@ -18641,6 +19191,8 @@
 - id: SR:MAG:SHD:14:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:14:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD14
   signal: current_setpoint
@@ -18691,6 +19243,8 @@
 - id: SR:MAG:SHD:15:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:15:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD15
   signal: current_setpoint
@@ -18741,6 +19295,8 @@
 - id: SR:MAG:SHD:16:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:16:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD16
   signal: current_setpoint
@@ -18791,6 +19347,8 @@
 - id: SR:MAG:SHD:17:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:17:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD17
   signal: current_setpoint
@@ -18841,6 +19399,8 @@
 - id: SR:MAG:SHD:18:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:18:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD18
   signal: current_setpoint
@@ -18891,6 +19451,8 @@
 - id: SR:MAG:SHD:19:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:19:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD19
   signal: current_setpoint
@@ -18941,6 +19503,8 @@
 - id: SR:MAG:SHD:20:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:20:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD20
   signal: current_setpoint
@@ -18991,6 +19555,8 @@
 - id: SR:MAG:SHD:21:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:21:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD21
   signal: current_setpoint
@@ -19041,6 +19607,8 @@
 - id: SR:MAG:SHD:22:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:22:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD22
   signal: current_setpoint
@@ -19091,6 +19659,8 @@
 - id: SR:MAG:SHD:23:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:23:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD23
   signal: current_setpoint
@@ -19141,6 +19711,8 @@
 - id: SR:MAG:SHD:24:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHD:24:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHD24
   signal: current_setpoint
@@ -19191,6 +19763,8 @@
 - id: SR:MAG:SHF:01:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF01
   signal: current_setpoint
@@ -19241,6 +19815,8 @@
 - id: SR:MAG:SHF:02:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:02:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF02
   signal: current_setpoint
@@ -19291,6 +19867,8 @@
 - id: SR:MAG:SHF:03:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:03:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF03
   signal: current_setpoint
@@ -19341,6 +19919,8 @@
 - id: SR:MAG:SHF:04:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:04:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF04
   signal: current_setpoint
@@ -19391,6 +19971,8 @@
 - id: SR:MAG:SHF:05:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:05:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF05
   signal: current_setpoint
@@ -19441,6 +20023,8 @@
 - id: SR:MAG:SHF:06:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:06:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF06
   signal: current_setpoint
@@ -19491,6 +20075,8 @@
 - id: SR:MAG:SHF:07:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:07:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF07
   signal: current_setpoint
@@ -19541,6 +20127,8 @@
 - id: SR:MAG:SHF:08:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:08:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF08
   signal: current_setpoint
@@ -19591,6 +20179,8 @@
 - id: SR:MAG:SHF:09:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:09:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF09
   signal: current_setpoint
@@ -19641,6 +20231,8 @@
 - id: SR:MAG:SHF:10:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:10:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF10
   signal: current_setpoint
@@ -19691,6 +20283,8 @@
 - id: SR:MAG:SHF:11:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:11:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF11
   signal: current_setpoint
@@ -19741,6 +20335,8 @@
 - id: SR:MAG:SHF:12:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:12:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF12
   signal: current_setpoint
@@ -19791,6 +20387,8 @@
 - id: SR:MAG:SHF:13:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:13:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF13
   signal: current_setpoint
@@ -19841,6 +20439,8 @@
 - id: SR:MAG:SHF:14:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:14:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF14
   signal: current_setpoint
@@ -19891,6 +20491,8 @@
 - id: SR:MAG:SHF:15:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:15:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF15
   signal: current_setpoint
@@ -19941,6 +20543,8 @@
 - id: SR:MAG:SHF:16:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:16:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF16
   signal: current_setpoint
@@ -19991,6 +20595,8 @@
 - id: SR:MAG:SHF:17:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:17:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF17
   signal: current_setpoint
@@ -20041,6 +20647,8 @@
 - id: SR:MAG:SHF:18:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:18:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF18
   signal: current_setpoint
@@ -20091,6 +20699,8 @@
 - id: SR:MAG:SHF:19:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:19:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF19
   signal: current_setpoint
@@ -20141,6 +20751,8 @@
 - id: SR:MAG:SHF:20:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:20:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF20
   signal: current_setpoint
@@ -20191,6 +20803,8 @@
 - id: SR:MAG:SHF:21:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:21:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF21
   signal: current_setpoint
@@ -20241,6 +20855,8 @@
 - id: SR:MAG:SHF:22:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:22:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF22
   signal: current_setpoint
@@ -20291,6 +20907,8 @@
 - id: SR:MAG:SHF:23:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:23:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF23
   signal: current_setpoint
@@ -20341,6 +20959,8 @@
 - id: SR:MAG:SHF:24:CURRENT:SP
   role: setpoint
   pair: SR:MAG:SHF:24:CURRENT:RB
+  tolerance:
+    absolute: 0.05
   'on':
     device: SR/SHF24
   signal: current_setpoint
@@ -20393,6 +21013,8 @@
 - id: SR:MAG:VCM:01:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM01
   signal: current_setpoint
@@ -20439,6 +21061,8 @@
 - id: SR:MAG:VCM:02:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM02
   signal: current_setpoint
@@ -20485,6 +21109,8 @@
 - id: SR:MAG:VCM:03:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:03:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM03
   signal: current_setpoint
@@ -20531,6 +21157,8 @@
 - id: SR:MAG:VCM:04:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:04:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM04
   signal: current_setpoint
@@ -20577,6 +21205,8 @@
 - id: SR:MAG:VCM:05:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:05:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM05
   signal: current_setpoint
@@ -20623,6 +21253,8 @@
 - id: SR:MAG:VCM:06:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:06:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM06
   signal: current_setpoint
@@ -20669,6 +21301,8 @@
 - id: SR:MAG:VCM:07:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:07:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM07
   signal: current_setpoint
@@ -20715,6 +21349,8 @@
 - id: SR:MAG:VCM:08:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:08:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM08
   signal: current_setpoint
@@ -20761,6 +21397,8 @@
 - id: SR:MAG:VCM:09:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:09:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM09
   signal: current_setpoint
@@ -20807,6 +21445,8 @@
 - id: SR:MAG:VCM:10:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:10:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM10
   signal: current_setpoint
@@ -20853,6 +21493,8 @@
 - id: SR:MAG:VCM:11:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:11:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM11
   signal: current_setpoint
@@ -20899,6 +21541,8 @@
 - id: SR:MAG:VCM:12:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:12:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM12
   signal: current_setpoint
@@ -20945,6 +21589,8 @@
 - id: SR:MAG:VCM:13:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:13:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM13
   signal: current_setpoint
@@ -20991,6 +21637,8 @@
 - id: SR:MAG:VCM:14:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:14:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM14
   signal: current_setpoint
@@ -21037,6 +21685,8 @@
 - id: SR:MAG:VCM:15:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:15:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM15
   signal: current_setpoint
@@ -21083,6 +21733,8 @@
 - id: SR:MAG:VCM:16:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:16:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM16
   signal: current_setpoint
@@ -21129,6 +21781,8 @@
 - id: SR:MAG:VCM:17:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:17:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM17
   signal: current_setpoint
@@ -21175,6 +21829,8 @@
 - id: SR:MAG:VCM:18:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:18:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM18
   signal: current_setpoint
@@ -21221,6 +21877,8 @@
 - id: SR:MAG:VCM:19:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:19:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM19
   signal: current_setpoint
@@ -21267,6 +21925,8 @@
 - id: SR:MAG:VCM:20:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:20:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM20
   signal: current_setpoint
@@ -21313,6 +21973,8 @@
 - id: SR:MAG:VCM:21:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:21:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM21
   signal: current_setpoint
@@ -21359,6 +22021,8 @@
 - id: SR:MAG:VCM:22:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:22:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM22
   signal: current_setpoint
@@ -21405,6 +22069,8 @@
 - id: SR:MAG:VCM:23:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:23:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM23
   signal: current_setpoint
@@ -21451,6 +22117,8 @@
 - id: SR:MAG:VCM:24:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:24:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM24
   signal: current_setpoint
@@ -21497,6 +22165,8 @@
 - id: SR:MAG:VCM:25:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:25:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM25
   signal: current_setpoint
@@ -21543,6 +22213,8 @@
 - id: SR:MAG:VCM:26:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:26:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM26
   signal: current_setpoint
@@ -21589,6 +22261,8 @@
 - id: SR:MAG:VCM:27:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:27:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM27
   signal: current_setpoint
@@ -21635,6 +22309,8 @@
 - id: SR:MAG:VCM:28:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:28:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM28
   signal: current_setpoint
@@ -21681,6 +22357,8 @@
 - id: SR:MAG:VCM:29:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:29:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM29
   signal: current_setpoint
@@ -21727,6 +22405,8 @@
 - id: SR:MAG:VCM:30:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:30:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM30
   signal: current_setpoint
@@ -21773,6 +22453,8 @@
 - id: SR:MAG:VCM:31:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:31:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM31
   signal: current_setpoint
@@ -21819,6 +22501,8 @@
 - id: SR:MAG:VCM:32:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:32:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM32
   signal: current_setpoint
@@ -21865,6 +22549,8 @@
 - id: SR:MAG:VCM:33:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:33:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM33
   signal: current_setpoint
@@ -21911,6 +22597,8 @@
 - id: SR:MAG:VCM:34:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:34:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM34
   signal: current_setpoint
@@ -21957,6 +22645,8 @@
 - id: SR:MAG:VCM:35:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:35:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM35
   signal: current_setpoint
@@ -22003,6 +22693,8 @@
 - id: SR:MAG:VCM:36:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:36:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM36
   signal: current_setpoint
@@ -22049,6 +22741,8 @@
 - id: SR:MAG:VCM:37:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:37:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM37
   signal: current_setpoint
@@ -22095,6 +22789,8 @@
 - id: SR:MAG:VCM:38:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:38:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM38
   signal: current_setpoint
@@ -22141,6 +22837,8 @@
 - id: SR:MAG:VCM:39:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:39:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM39
   signal: current_setpoint
@@ -22187,6 +22885,8 @@
 - id: SR:MAG:VCM:40:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:40:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM40
   signal: current_setpoint
@@ -22233,6 +22933,8 @@
 - id: SR:MAG:VCM:41:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:41:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM41
   signal: current_setpoint
@@ -22279,6 +22981,8 @@
 - id: SR:MAG:VCM:42:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:42:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM42
   signal: current_setpoint
@@ -22325,6 +23029,8 @@
 - id: SR:MAG:VCM:43:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:43:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM43
   signal: current_setpoint
@@ -22371,6 +23077,8 @@
 - id: SR:MAG:VCM:44:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:44:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM44
   signal: current_setpoint
@@ -22417,6 +23125,8 @@
 - id: SR:MAG:VCM:45:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:45:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM45
   signal: current_setpoint
@@ -22463,6 +23173,8 @@
 - id: SR:MAG:VCM:46:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:46:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM46
   signal: current_setpoint
@@ -22509,6 +23221,8 @@
 - id: SR:MAG:VCM:47:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:47:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM47
   signal: current_setpoint
@@ -22555,6 +23269,8 @@
 - id: SR:MAG:VCM:48:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:48:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM48
   signal: current_setpoint
@@ -22601,6 +23317,8 @@
 - id: SR:MAG:VCM:49:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:49:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM49
   signal: current_setpoint
@@ -22647,6 +23365,8 @@
 - id: SR:MAG:VCM:50:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:50:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM50
   signal: current_setpoint
@@ -22693,6 +23413,8 @@
 - id: SR:MAG:VCM:51:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:51:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM51
   signal: current_setpoint
@@ -22739,6 +23461,8 @@
 - id: SR:MAG:VCM:52:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:52:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM52
   signal: current_setpoint
@@ -22785,6 +23509,8 @@
 - id: SR:MAG:VCM:53:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:53:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM53
   signal: current_setpoint
@@ -22831,6 +23557,8 @@
 - id: SR:MAG:VCM:54:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:54:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM54
   signal: current_setpoint
@@ -22877,6 +23605,8 @@
 - id: SR:MAG:VCM:55:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:55:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM55
   signal: current_setpoint
@@ -22923,6 +23653,8 @@
 - id: SR:MAG:VCM:56:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:56:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM56
   signal: current_setpoint
@@ -22969,6 +23701,8 @@
 - id: SR:MAG:VCM:57:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:57:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM57
   signal: current_setpoint
@@ -23015,6 +23749,8 @@
 - id: SR:MAG:VCM:58:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:58:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM58
   signal: current_setpoint
@@ -23061,6 +23797,8 @@
 - id: SR:MAG:VCM:59:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:59:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM59
   signal: current_setpoint
@@ -23107,6 +23845,8 @@
 - id: SR:MAG:VCM:60:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:60:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM60
   signal: current_setpoint
@@ -23153,6 +23893,8 @@
 - id: SR:MAG:VCM:61:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:61:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM61
   signal: current_setpoint
@@ -23199,6 +23941,8 @@
 - id: SR:MAG:VCM:62:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:62:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM62
   signal: current_setpoint
@@ -23245,6 +23989,8 @@
 - id: SR:MAG:VCM:63:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:63:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM63
   signal: current_setpoint
@@ -23291,6 +24037,8 @@
 - id: SR:MAG:VCM:64:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:64:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM64
   signal: current_setpoint
@@ -23337,6 +24085,8 @@
 - id: SR:MAG:VCM:65:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:65:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM65
   signal: current_setpoint
@@ -23383,6 +24133,8 @@
 - id: SR:MAG:VCM:66:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:66:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM66
   signal: current_setpoint
@@ -23429,6 +24181,8 @@
 - id: SR:MAG:VCM:67:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:67:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM67
   signal: current_setpoint
@@ -23475,6 +24229,8 @@
 - id: SR:MAG:VCM:68:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:68:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM68
   signal: current_setpoint
@@ -23521,6 +24277,8 @@
 - id: SR:MAG:VCM:69:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:69:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM69
   signal: current_setpoint
@@ -23567,6 +24325,8 @@
 - id: SR:MAG:VCM:70:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:70:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM70
   signal: current_setpoint
@@ -23613,6 +24373,8 @@
 - id: SR:MAG:VCM:71:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:71:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM71
   signal: current_setpoint
@@ -23659,6 +24421,8 @@
 - id: SR:MAG:VCM:72:CURRENT:SP
   role: setpoint
   pair: SR:MAG:VCM:72:CURRENT:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/VCM72
   signal: current_setpoint
@@ -23695,6 +24459,8 @@
 - id: SR:RF:CAVITY:01:FREQUENCY:SP
   role: setpoint
   pair: SR:RF:CAVITY:01:FREQUENCY:RB
+  tolerance:
+    absolute: 1.0e-05
   'on':
     device: SR/CAVITY01
   signal: frequency_setpoint
@@ -23769,6 +24535,8 @@
 - id: SR:RF:CAVITY:01:TUNER:SP
   role: setpoint
   pair: SR:RF:CAVITY:01:TUNER:RB
+  tolerance:
+    absolute: 0.01
   'on':
     device: SR/CAVITY01
   signal: tuner_position_setpoint
@@ -23797,6 +24565,8 @@
 - id: SR:RF:CAVITY:01:VOLTAGE:SP
   role: setpoint
   pair: SR:RF:CAVITY:01:VOLTAGE:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/CAVITY01
   signal: voltage_setpoint
@@ -23817,6 +24587,8 @@
 - id: SR:RF:CAVITY:02:FREQUENCY:SP
   role: setpoint
   pair: SR:RF:CAVITY:02:FREQUENCY:RB
+  tolerance:
+    absolute: 1.0e-05
   'on':
     device: SR/CAVITY02
   signal: frequency_setpoint
@@ -23891,6 +24663,8 @@
 - id: SR:RF:CAVITY:02:TUNER:SP
   role: setpoint
   pair: SR:RF:CAVITY:02:TUNER:RB
+  tolerance:
+    absolute: 0.01
   'on':
     device: SR/CAVITY02
   signal: tuner_position_setpoint
@@ -23919,6 +24693,8 @@
 - id: SR:RF:CAVITY:02:VOLTAGE:SP
   role: setpoint
   pair: SR:RF:CAVITY:02:VOLTAGE:RB
+  tolerance:
+    absolute: 0.02
   'on':
     device: SR/CAVITY02
   signal: voltage_setpoint
@@ -23971,6 +24747,8 @@
 - id: SR:RF:KLYSTRON:01:VOLTAGE:SP
   role: setpoint
   pair: SR:RF:KLYSTRON:01:VOLTAGE:RB
+  tolerance:
+    absolute: 1.0
   'on':
     device: SR/KLYSTRON01
   signal: rf_hv_setpoint
@@ -24021,6 +24799,8 @@
 - id: SR:RF:KLYSTRON:02:VOLTAGE:SP
   role: setpoint
   pair: SR:RF:KLYSTRON:02:VOLTAGE:RB
+  tolerance:
+    absolute: 1.0
   'on':
     device: SR/KLYSTRON02
   signal: rf_hv_setpoint
@@ -24383,6 +25163,8 @@
 - id: SR:VAC:ION-PUMP:01:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:01:VOLTAGE:RB
+  tolerance:
+    absolute: 50.0
   'on':
     device: SR/ION-PUMP01
   signal: voltage_setpoint
@@ -24433,6 +25215,8 @@
 - id: SR:VAC:ION-PUMP:02:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:02:VOLTAGE:RB
+  tolerance:
+    absolute: 50.0
   'on':
     device: SR/ION-PUMP02
   signal: voltage_setpoint
@@ -24483,6 +25267,8 @@
 - id: SR:VAC:ION-PUMP:03:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:03:VOLTAGE:RB
+  tolerance:
+    absolute: 50.0
   'on':
     device: SR/ION-PUMP03
   signal: voltage_setpoint
@@ -24533,6 +25319,8 @@
 - id: SR:VAC:ION-PUMP:04:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:04:VOLTAGE:RB
+  tolerance:
+    absolute: 50.0
   'on':
     device: SR/ION-PUMP04
   signal: voltage_setpoint
@@ -24583,6 +25371,8 @@
 - id: SR:VAC:ION-PUMP:05:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:05:VOLTAGE:RB
+  tolerance:
+    absolute: 50.0
   'on':
     device: SR/ION-PUMP05
   signal: voltage_setpoint
@@ -24633,6 +25423,8 @@
 - id: SR:VAC:ION-PUMP:06:VOLTAGE:SP
   role: setpoint
   pair: SR:VAC:ION-PUMP:06:VOLTAGE:RB
+  tolerance:
+    absolute: 50.0
   'on':
     device: SR/ION-PUMP06
   signal: voltage_setpoint

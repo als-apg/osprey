@@ -23,6 +23,8 @@
 - id: SR:MAG:QF:01:CURRENT:SP
   role: setpoint
   pair: SR:MAG:QF:01:CURRENT:RB
+  tolerance:
+    absolute: 0.01
   unit: A
   names:
   - focusing quadrupole current setpoint

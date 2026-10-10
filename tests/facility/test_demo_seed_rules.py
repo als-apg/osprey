@@ -1,10 +1,12 @@
 """The example facility's seed motion against the per-signal rule table.
 
 ``scripts/demo_seeds/rules.yaml`` gives each signal class of the example
-facility a ``noise`` and a ``drift`` with units, and ``scripts/demo_seeds/reseed.py``
-stamps them into ``seeds.yaml``. These tests hold the committed file to the
-generator's output, the table to its grammar, and every other seed key to the
-values the file held before the table owned its motion.
+facility a ``noise`` and a ``drift`` with units, and each setpoint class a
+``tolerance``; ``scripts/demo_seeds/reseed.py`` stamps the motion into
+``seeds.yaml`` and the tolerances into ``records/channels.yaml``. These tests
+hold the committed files to the generator's output, the table to its grammar,
+and every other seed key to the values the file held before the table owned
+its motion.
 """
 
 from __future__ import annotations
@@ -66,7 +68,7 @@ def test_every_rule_row_carries_a_unit_and_a_source() -> None:
     assert rules()
     for row in rules():
         assert isinstance(row["source"], str) and row["source"].strip(), row
-        quantities = [row["noise"]]
+        quantities = [row["noise"] if "noise" in row else row["tolerance"]]
         drift = row.get("drift", "none")
         if drift != "none":
             assert set(drift) == {"amplitude", "period_s"}, row
@@ -122,8 +124,45 @@ def test_a_micrometre_rule_lands_in_each_channels_unit() -> None:
     assert generated()["BR:DIAG:BPM:01:POSITION:X"]["noise"] == {"absolute": 0.005}
 
 
+def test_every_setpoint_carries_a_tolerance() -> None:
+    channels = read_yaml(reseed_module().stamp())
+    setpoints = [channel for channel in channels if channel.get("role") == "setpoint"]
+    assert len(setpoints) == 396
+    for channel in setpoints:
+        assert set(channel["tolerance"]) == {"absolute"}, channel["id"]
+        assert channel["tolerance"]["absolute"] > 0, channel["id"]
+
+
+def test_every_tolerance_holds_its_readbacks_envelope() -> None:
+    from osprey_connectors.simulation.envelope import motion_envelope
+
+    seeds = generated()
+    for channel in read_yaml(reseed_module().stamp()):
+        if "tolerance" in channel:
+            envelope = motion_envelope(seeds.get(channel["pair"]))
+            assert channel["tolerance"]["absolute"] >= envelope, channel["id"]
+
+
+def test_the_committed_channels_are_the_stampers_output() -> None:
+    committed = (TREE / "records/channels.yaml").read_text(encoding="utf-8")
+    assert reseed_module().stamp() == committed
+    assert reseed_module().stamp(committed) == committed
+
+
+def test_a_stamped_tolerance_below_its_readbacks_envelope_stops_the_stamper() -> None:
+    module = reseed_module()
+    table = [
+        {**row, "tolerance": {"value": 1, "unit": "mA"}}
+        if row.get("signal") == "current_setpoint" and row["class"] == "Dipole"
+        else row
+        for row in rules()
+    ]
+    with pytest.raises(module.ReseedError, match="below"):
+        module.stamp(rules=table)
+
+
 def test_a_stored_reference_carries_no_motion() -> None:
-    still = {(row["class"], row["signal"]) for row in rules() if row["noise"] == "none"}
+    still = {(row["class"], row["signal"]) for row in rules() if row.get("noise") == "none"}
     channels, devices = records("channel"), records("device")
     references = [
         address

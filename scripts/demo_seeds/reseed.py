@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-"""Stamp the example facility's simulated motion from the per-signal rule table.
+"""Stamp the example facility's simulated motion and settle tolerances from the rule table.
 
 Every float readback of ``src/osprey/templates/facilities/example`` that carries
 no ``linear`` key gets its ``noise`` and ``drift`` from the one row of
 ``rules.yaml`` that matches its device's class and its signal, converted into the
-channel's unit; ``noise`` is written as ``{absolute: <sigma>}``. A channel no row matches stays still, unless its committed seed
-moves, which is an error. Every other seed key (``nominal``, ``clamp``,
-``linear``) is carried through as data.
+channel's unit; ``noise`` is written as ``{absolute: <sigma>}``. A channel no
+row matches stays still, unless its committed seed moves, which is an error.
+Every other seed key (``nominal``, ``clamp``, ``linear``) is carried through as
+data.
 
-The output is the committed ``seeds.yaml``: addresses sorted, each entry's keys
-in the order nominal, noise, drift, clamp, linear, written with one canonical
-``yaml.safe_dump``.
+Every setpoint gets its ``tolerance`` from the one ``tolerance`` row that
+matches it, converted into its unit and written ``{absolute: <x>}`` directly
+after its ``pair:`` line in ``records/channels.yaml``; every other byte of that
+file stays as it is. A setpoint no row matches, or whose tolerance is below the
+motion envelope of the readback it pairs with, is an error.
+
+The outputs are the committed ``seeds.yaml``, addresses sorted, each entry's
+keys in the order nominal, noise, drift, clamp, linear, written with one
+canonical ``yaml.safe_dump``; and the committed ``records/channels.yaml`` with
+its tolerance lines stamped.
 
 Usage::
 
-    uv run python scripts/demo_seeds/reseed.py           # rewrite seeds.yaml
-    uv run python scripts/demo_seeds/reseed.py --check   # exit 1 if it differs
+    uv run python scripts/demo_seeds/reseed.py           # rewrite both files
+    uv run python scripts/demo_seeds/reseed.py --check   # exit 1 if either differs
 """
 
 from __future__ import annotations
@@ -60,7 +68,12 @@ KEY_ORDER = ("nominal", "noise", "drift", "clamp", "linear")
 MOTION_KEYS = ("noise", "drift")
 
 #: A rule's keys.
-RULE_KEYS = frozenset({"class", "signal", "machine", "device", "noise", "drift", "source"})
+RULE_KEYS = frozenset(
+    {"class", "signal", "machine", "device", "noise", "drift", "tolerance", "source"}
+)
+
+#: The file the setpoints' tolerances are stamped into.
+CHANNELS = "records/channels.yaml"
 
 #: The literal a rule writes for a quantity that is absent.
 NONE = "none"
@@ -76,16 +89,32 @@ def load(path: Path) -> Any:
 
 
 def load_rules(path: Path = RULES) -> list[dict[str, Any]]:
-    """The rule table's rows, each checked for its keys."""
+    """The rule table's rows, each checked for its keys.
+
+    A motion row states ``noise`` and maybe ``drift``; a setpoint row states
+    ``tolerance`` and neither.
+    """
     rows: list[dict[str, Any]] = load(path)
     for row in rows:
         unknown = set(row) - RULE_KEYS
         if unknown:
             raise ReseedError(f"rule {row} has unknown keys {sorted(unknown)}")
-        for key in ("class", "signal", "noise", "source"):
+        for key in ("class", "signal", "source"):
             if key not in row:
                 raise ReseedError(f"rule {row} has no {key!r}")
+        if ("noise" in row) == ("tolerance" in row) or ("drift" in row and "noise" not in row):
+            raise ReseedError(f"rule {row} states neither motion nor a tolerance alone")
     return rows
+
+
+def motion_rules(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The rows that give a readback its motion."""
+    return [row for row in rules if "noise" in row]
+
+
+def tolerance_rules(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The rows that give a setpoint its tolerance."""
+    return [row for row in rules if "tolerance" in row]
 
 
 def convert(quantity: Any, unit: str) -> float | None:
@@ -168,9 +197,11 @@ def moves(channel: dict[str, Any], seed: dict[str, Any]) -> bool:
     )
 
 
-def reseed(tree: Path = TREE, rules_path: Path = RULES) -> dict[str, dict[str, Any]]:
+def reseed(
+    tree: Path = TREE, rules_path: Path = RULES, rules: list[dict[str, Any]] | None = None
+) -> dict[str, dict[str, Any]]:
     """The seeds document with every channel's motion stamped from the rule table."""
-    rules = load_rules(rules_path)
+    rules = motion_rules(load_rules(rules_path) if rules is None else rules)
     channels = {record["id"]: record for record in load(tree / "records/channels.yaml")}
     devices = {record["id"]: record for record in load(tree / "records/devices.yaml")}
     committed: dict[str, dict[str, Any]] = load(tree / "seeds.yaml")
@@ -207,22 +238,105 @@ def render(tree: Path = TREE, rules_path: Path = RULES) -> str:
     return yaml.safe_dump(reseed(tree, rules_path), sort_keys=False)
 
 
+def tolerances(tree: Path = TREE, rules: list[dict[str, Any]] | None = None) -> dict[str, float]:
+    """Each setpoint's tolerance in its unit, by address.
+
+    Raises:
+        ReseedError: A setpoint no row matches, or one whose tolerance is below
+            the motion envelope of the readback it pairs with.
+    """
+    from osprey_connectors.simulation.envelope import motion_envelope
+
+    rules = load_rules() if rules is None else rules
+    seeds = reseed(tree, rules=rules)
+    devices = {record["id"]: record for record in load(tree / "records/devices.yaml")}
+    stamped: dict[str, float] = {}
+    for channel in load(tree / CHANNELS):
+        if channel.get("role") != "setpoint":
+            continue
+        address, device = channel["id"], channel.get("on", {}).get("device")
+        row = None
+        if device is not None and channel.get("signal") is not None:
+            row = match(
+                tolerance_rules(rules),
+                cls=devices[device]["class"],
+                signal=channel["signal"],
+                device=device,
+            )
+        if row is None:
+            raise ReseedError(f"{address}: no tolerance rule matches it")
+        value = convert(row["tolerance"], channel.get("unit", ""))
+        envelope = motion_envelope(seeds.get(channel.get("pair", address)))
+        if value is None or value < envelope:
+            raise ReseedError(
+                f"{address}: tolerance {value} is below its readback's envelope {envelope:g}"
+            )
+        stamped[address] = value
+    return stamped
+
+
+def stamp(
+    text: str | None = None, *, tree: Path = TREE, rules: list[dict[str, Any]] | None = None
+) -> str:
+    """``records/channels.yaml`` with each setpoint's tolerance stamped after its ``pair:``.
+
+    A ``tolerance`` block already in the text is replaced, so stamping is
+    idempotent; every other line is kept byte for byte.
+
+    Args:
+        text: The file's text; the committed file when None.
+        tree: The facility tree.
+        rules: The rule table's rows; the committed table when None.
+
+    Raises:
+        ReseedError: A setpoint has no ``pair:`` line, or :func:`tolerances` refuses.
+    """
+    stamped = tolerances(tree, rules)
+    if text is None:
+        text = (tree / CHANNELS).read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    out: list[str] = []
+    current: str | None = None
+    placed: set[str] = set()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        index += 1
+        if line.startswith("  tolerance:"):
+            while index < len(lines) and lines[index].startswith("    "):
+                index += 1
+            continue
+        if line.startswith("- id: "):
+            current = str(yaml.safe_load(line[len("- id: ") :]))
+        out.append(line)
+        if line.startswith("  pair: ") and current in stamped:
+            block = yaml.safe_dump({"tolerance": {"absolute": stamped[current]}})
+            out.extend(f"  {part}\n" for part in block.splitlines())
+            placed.add(current)
+    missing = sorted(set(stamped) - placed)
+    if missing:
+        raise ReseedError(f"setpoints without a `pair:` line: {missing[:5]}")
+    return "".join(out)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "--check", action="store_true", help="exit 1 if the committed seeds.yaml differs"
-    )
+    parser.add_argument("--check", action="store_true", help="exit 1 if a committed output differs")
     args = parser.parse_args(argv)
-    target = TREE / "seeds.yaml"
-    text = render()
+    outputs = {TREE / "seeds.yaml": render(), TREE / CHANNELS: stamp()}
     if args.check:
-        if target.read_text(encoding="utf-8") != text:
+        differing = [
+            target for target, text in outputs.items() if target.read_text(encoding="utf-8") != text
+        ]
+        for target in differing:
             print(f"{target.relative_to(REPO_ROOT)} differs; run scripts/demo_seeds/reseed.py")
-            return 1
-        print(f"{target.relative_to(REPO_ROOT)} matches")
-        return 0
-    target.write_text(text, encoding="utf-8")
-    print(f"wrote {target.relative_to(REPO_ROOT)}")
+        for target in outputs:
+            if target not in differing:
+                print(f"{target.relative_to(REPO_ROOT)} matches")
+        return 1 if differing else 0
+    for target, text in outputs.items():
+        target.write_text(text, encoding="utf-8")
+        print(f"wrote {target.relative_to(REPO_ROOT)}")
     return 0
 
 
