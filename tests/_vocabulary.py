@@ -84,12 +84,7 @@ PENDING_REWORDING: frozenset[TextKey] = frozenset(
 
 #: Agent-facing texts that still carry ``RATCHET_WORD``, tagged like the file
 #: ratchet's allowlist with the stage that rewords them.
-RATCHET_PENDING: dict[TextKey, str] = {
-    ("rendered", ".claude/agents/channel-finder.md", "text"): "rename:12",
-    ("rendered", ".claude/agents/facility-knowledge-graph.md", "text"): "rename:12",
-    ("rendered", ".claude/agents/pyat-specialist.md", "text"): "rename:12",
-    ("rendered", ".claude/output-styles/control-operator.md", "text"): "rename:12",
-}
+RATCHET_PENDING: dict[TextKey, str] = {}
 
 
 #: Facility vocabulary that a framework prompt may not spell for itself: the

@@ -243,18 +243,18 @@ def _ground_truth(render: Path) -> dict:
     deck = SimulatorView.of_render(render).model("SR").deck
     assert deck is not None, f"the simulator view under {render} holds no deck for SR"
     lattice = at.load_lattice(deck)
-    ring4d = copy.deepcopy(lattice)
-    ring4d.disable_6d()
-    _, ringdata, elemdata = at.get_optics(ring4d, refpts=range(len(ring4d)))
+    lattice4d = copy.deepcopy(lattice)
+    lattice4d.disable_6d()
+    _, ringdata, elemdata = at.get_optics(lattice4d, refpts=range(len(lattice4d)))
 
     def beta_at(name: str) -> list[float]:
-        idx = [i for i, el in enumerate(ring4d) if el.FamName == name]
+        idx = [i for i, el in enumerate(lattice4d) if el.FamName == name]
         assert idx, f"named element {name!r} not present in the lattice"
         return [float(elemdata.beta[idx[0]][0]), float(elemdata.beta[idx[0]][1])]
 
     return {
         "tune": (float(ringdata.tune[0]), float(ringdata.tune[1])),
-        "circumference": float(ring4d.circumference),
+        "circumference": float(lattice4d.circumference),
         "beta": {"BPM01": beta_at("BPM01"), "BPM03": beta_at("BPM03")},
     }
 

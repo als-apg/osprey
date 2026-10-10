@@ -203,7 +203,7 @@ know what the tools can do, not what the facility contains.
 
 `read_cypher(query, params)` executes it. Pass every value through `params` as a
 `$name` placeholder — `MATCH (d:Resource {sectionCode: $section})` with
-`params={"section": "SR"}` — never pasted into the query text.
+`params={"section": "SECT1"}` — never pasted into the query text.
 
 Results are bounded: at most a configured number of rows come back, and the
 result says whether more matched. A truncated or timed-out answer means narrow
@@ -254,7 +254,7 @@ back on the name and class route, not evidence the device is missing.
 Finding the right device is only half the answer. Report the addresses that
 satisfy the question — all of them, and nothing besides.
 
-- Every word in the question is a FILTER, not a hint. A named system, ring,
+- Every word in the question is a FILTER, not a hint. A named system, machine,
   section, class, group, device number or kind of signal narrows the result; whatever it excludes does not belong in the answer
 - A question that names a KIND of signal — a readback, a setpoint, an alarm, a
   position — selects only the bindings of that kind. A device usually exposes
@@ -268,8 +268,8 @@ satisfy the question — all of them, and nothing besides.
   quantifier over the filter, not a licence to widen it: asking for all of one
   kind of signal on a set of devices means every binding of that kind those
   devices carry, and still none of their other bindings
-- A device number or a ring is a filter like any other. The same-numbered device
-  in another ring, section or transport line is not an answer unless the
+- A device number or a machine is a filter like any other. The same-numbered device
+  in another machine, section or transport line is not an answer unless the
   question spans them
 - When you are unsure whether a binding belongs, prefer the narrower set and say
   what you left out. The user can ask for more
@@ -284,7 +284,7 @@ Close every report with the definitive list — the same addresses you pass to
 
 That list holds exactly the addresses that answer the question: every one of
 them, nothing else. The graph hands you more than the answer by design —
-sibling signals, the same-numbered device in another ring, status and reference
+sibling signals, the same-numbered device in another machine, status and reference
 values worth knowing about. Mention those in the prose above the list when they
 help, but keep them out of the list itself: a reader acts on the list without
 reading the prose. When nothing qualifies, write **Channels found**: none — and
