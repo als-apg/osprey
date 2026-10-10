@@ -72,6 +72,18 @@ def test_a_clean_repo_exits_0_and_prints_nothing(repo: Path) -> None:
     assert (result.stdout, result.stderr) == ("", "")
 
 
+def test_a_build_warns_of_a_scenario_beyond_tolerance_and_validate_does_not(repo: Path) -> None:
+    warning = "scenario rf-thermal-live moves"
+
+    built = run_build(repo)
+    validated = _validate(repo)
+
+    assert built.exit_code == 0, built.output
+    assert warning in built.stderr
+    assert validated.exit_code == 0, validated.output
+    assert warning not in validated.stderr
+
+
 def test_a_clean_run_leaves_the_repo_byte_unchanged(repo: Path) -> None:
     before = _snapshot(repo)
 

@@ -51,6 +51,8 @@ class ViewInputs:
             them.
         reported: The notes this build has already printed; ``None`` prints
             every note.
+        tolerance_warnings: Whether the Bluesky view prints its settle
+            tolerance warnings.
     """
 
     doc: FacilityDocument
@@ -58,6 +60,7 @@ class ViewInputs:
     facility_dir: Path
     served: list[str]
     reported: set[str] | None = None
+    tolerance_warnings: bool = True
 
 
 @dataclass(frozen=True)

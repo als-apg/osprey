@@ -176,6 +176,7 @@ def _build_in_memory(
         facility=document,
         facility_sha256=facility_digest(facility_dir),
         profile_overlays=overlays,
+        tolerance_warnings=False,
     )
     # The render narrates what it builds on stdout; that narration is the
     # build's, so it is captured and dropped here and only trouble, which goes

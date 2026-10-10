@@ -130,6 +130,101 @@ def test_a_declared_tolerance_is_written_and_the_band_is_not() -> None:
     assert "motion_band" not in first and "motion_band" not in second
 
 
+def _toleranced(scenarios: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """A setpoint toleranced at 0.05 A, its readback noisy, and an untoleranced pair."""
+    return {
+        "channels": [
+            {
+                **_channel("A:SP", "setpoint", "A:RB"),
+                "unit": "A",
+                "tolerance": {"absolute": 0.05},
+            },
+            {
+                **_channel("A:RB", "readback"),
+                "unit": "A",
+                "simulation": {"nominal": 1.0, "noise": {"absolute": 0.001}},
+            },
+            _channel("B:SP", "setpoint", "B:RB"),
+            _channel("B:RB", "readback"),
+            _channel("C:SP", "setpoint"),
+        ],
+        "scenarios": scenarios or [],
+    }
+
+
+def _rendered(
+    doc: dict[str, Any], services: dict[str, Any], system: str, reported: set[str]
+) -> Any:
+    from osprey.facility.views import ViewInputs
+
+    return ViewInputs(
+        doc=doc,  # type: ignore[arg-type]
+        rendered_config={"services": services, "control_system": {"type": system}},
+        facility_dir=Path("."),
+        served=[],
+        reported=reported,
+    )
+
+
+def test_a_live_lane_warns_once_with_the_count(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reported: set[str] = set()
+    services = {"bluesky": {"settle_tolerance": 0.001}, "bluesky_va": {}}
+    for render in ("one", "two"):
+        root = tmp_path / render
+        write_bluesky_view(root, _rendered(_toleranced(), services, "epics", reported))
+
+    err = capsys.readouterr().err
+    line = "2 setpoints declare no `tolerance`; on lane bluesky they settle within the floor 0.001"
+    assert err.count(line) == 1
+    assert "B:SP" in err and "C:SP" in err
+    assert "bluesky_va" not in err
+
+
+def test_a_simulated_lane_does_not_warn(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    write_bluesky_view(
+        tmp_path, _rendered(_toleranced(), {"bluesky": {}}, "virtual_accelerator", set())
+    )
+
+    assert "tolerance" not in capsys.readouterr().err
+
+
+def test_a_scenario_beyond_tolerance_warns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    scenarios = [
+        {"name": "loud", "noise": {"A:RB": {"absolute": 0.01}}},
+        {"name": "calm", "noise": {"A:RB": {"absolute": 0.005}}},
+    ]
+    write_bluesky_view(
+        tmp_path,
+        _rendered(_toleranced(scenarios), {"bluesky": {}}, "virtual_accelerator", set()),
+    )
+
+    err = capsys.readouterr().err
+    assert (
+        "scenario loud moves A:RB up to 0.06 A, beyond A:SP's tolerance 0.05 A; its moves time "
+        "out while it is active"
+    ) in err
+    assert "scenario calm" not in err
+
+
+def test_a_render_without_tolerance_warnings_prints_none(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from dataclasses import replace
+
+    scenarios = [{"name": "loud", "noise": {"A:RB": {"absolute": 0.01}}}]
+    services = {"bluesky": {"settle_tolerance": 0.001}}
+    inputs = _rendered(_toleranced(scenarios), services, "epics", set())
+
+    write_bluesky_view(tmp_path, replace(inputs, tolerance_warnings=False))
+
+    assert capsys.readouterr().err == ""
+    assert (tmp_path / BLUESKY_DEVICES_FILE).is_file()
+
+
 # --- the file ----------------------------------------------------------------------
 
 
