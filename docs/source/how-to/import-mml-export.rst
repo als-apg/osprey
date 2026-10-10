@@ -203,6 +203,16 @@ files beside them --- ``limits.yaml``, ``seeds.yaml``, ``identity.yaml``,
 ``classes.yaml`` and ``measurement/<model>.yaml`` --- are created only when
 absent and never rewritten, so your edits to them survive a re-import.
 
+A setpoint takes its ``tolerance`` from its write field's
+``Setpoint.Tolerance``, one number per device or one for the family, written
+``{absolute: <x>}`` in the field's ``HWUnits``. A setpoint gets none when the
+field states no unit, or its tolerance is not a finite number above ``1e-12``
+(an ``Inf``, or a machine-epsilon placeholder), and the import prints one line
+counting the setpoint devices that export no usable ``Setpoint.Tolerance``.
+A later importer that reads EPICS records instead takes the default from the
+record: ``MDEL`` when it is above 0, else ``10^-PREC``, and never ``HOPR`` or
+``LOPR``.
+
 The import refuses to run while ``data/facility/`` holds a record source of
 your own that would merge against the imported records. It prints
 ``import mml: authored-present: <n> files`` and one ``rm <path>`` line per
