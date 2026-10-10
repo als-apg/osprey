@@ -1654,11 +1654,13 @@ class CellRenderer:
     refused — is cached under the cell directory.
     """
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, build_env: Mapping[str, str]) -> None:
         """Args:
         root: An existing directory to build the cells under.
+        build_env: Environment additions each cell's ``osprey build`` runs under.
         """
         self._root = root
+        self._build_env = build_env
         self._outcomes: dict[str, Rendered | Refused] = {}
 
     def attempt(self, cell: Cell) -> Rendered | Refused:
@@ -1716,7 +1718,7 @@ class CellRenderer:
             return Refused("init", _failure_reason(result))
 
         project = scratch / PROJECT_NAME
-        result = _run_cli(["build"], cwd=project, env=env)
+        result = _run_cli(["build"], cwd=project, env={**env, **self._build_env})
         if result.returncode != 0:
             return Refused("build", _failure_reason(result))
 
@@ -1726,9 +1728,11 @@ class CellRenderer:
 
 
 @pytest.fixture(scope="session")
-def rendered_cells(tmp_path_factory: pytest.TempPathFactory) -> CellRenderer:
+def rendered_cells(
+    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
+) -> CellRenderer:
     """One renderer for the whole session, so no cell is built twice."""
-    return CellRenderer(tmp_path_factory.mktemp("explicit-config-equivalence"))
+    return CellRenderer(tmp_path_factory.mktemp("explicit-config-equivalence"), offline_build_env)
 
 
 def _fixture_documents(cell: Cell) -> dict[str, dict[str, Any]]:

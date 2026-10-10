@@ -94,7 +94,9 @@ def _forbidden_path_fragments() -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def build_outputs(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
+def build_outputs(
+    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
+) -> dict[str, Path]:
     """Build every preset once per module run; reuse across tests.
 
     Module-scoped because ``osprey build`` is the slow step (uv sync inside
@@ -120,15 +122,11 @@ def build_outputs(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
             cmd,
             capture_output=True,
             text=True,
-            # The build's own dependency install is the long pole: it downloads
-            # osprey's whole tree into the project venv, which on a hosted
-            # runner's cold cache is a multi-minute transfer that macOS runners
-            # have been observed to stretch past five minutes. This budget sits
-            # above the build's internal install cap's realistic range so a slow
-            # download surfaces as the build's own diagnostic rather than as an
-            # opaque timeout here, and fails only on a genuinely stuck build.
+            # The install into the project venv is the long step of a build,
+            # and it is served from uv's cache here. This budget bounds a build
+            # that is stuck.
             timeout=1200,
-            env={**os.environ, "CLAUDECODE": ""},
+            env={**os.environ, "CLAUDECODE": "", **offline_build_env},
         )
         if proc.returncode != 0:
             pytest.fail(

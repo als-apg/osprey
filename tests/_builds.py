@@ -6,6 +6,12 @@ session-scoped, and under xdist the workers of one run share it: the first
 worker to ask builds it under the run's base temp directory, holding a lock, and
 every later worker reads that build, so the build runs once per run whichever
 groups its readers sit in.
+
+``offline_build_env`` is for the tests that run a real ``osprey build`` with its
+install: the environment additions under which that install reads uv's cache
+and needs no index. It shows once per run that the cache holds what a build
+installs, filling it if it does not, and each test passes the additions to its
+own build call.
 """
 
 from __future__ import annotations
@@ -14,8 +20,11 @@ import fcntl
 import json
 import os
 import pickle
+import shutil
+import subprocess
+import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -180,3 +189,94 @@ def built_control_assistant(tmp_path_factory: pytest.TempPathFactory) -> BuiltPr
         built = build_control_assistant(Path(tempfile.mkdtemp(prefix="built-ca-", dir=shared)))
         record.write_bytes(pickle.dumps((built.repo, built.outputs)))
         return built
+
+
+#: What a real ``osprey build`` runs under so its install reads uv's cache alone.
+OFFLINE_BUILD_ENV = {"UV_OFFLINE": "1"}
+
+#: Under xdist, the file in the run's shared base temp directory that says uv's
+#: cache was shown to hold what a build installs.
+SHARED_CACHE_RECORD = "uv-cache-serves-the-build"
+
+# Filling an empty cache downloads osprey's whole dependency tree.
+_CACHE_FILL_TIMEOUT_S = 1800
+
+
+def uv_path() -> str | None:
+    """The uv a build installs with, found as the build finds it."""
+    return os.environ.get("UV") or shutil.which("uv")
+
+
+def install_osprey_into(venv: Path, env: Mapping[str, str]) -> subprocess.CompletedProcess[str]:
+    """Create *venv* afresh and install osprey into it as a build of this tree does.
+
+    The requirement is the one ``osprey build`` resolves for this
+    installation, so what this install needs from uv's cache is what a
+    preset's build needs.
+    """
+    from osprey.cli.build_environment import _pins_prerelease, _resolve_osprey_spec
+
+    uv = uv_path()
+    assert uv is not None
+    spec, _ = _resolve_osprey_spec("local")
+    created = subprocess.run(
+        [uv, "venv", str(venv), "--python", sys.executable, "--quiet", "--clear"],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    command = [uv, "pip", "install", "--quiet", "-p", str(venv / "bin" / "python")]
+    if _pins_prerelease(spec):
+        command += ["--prerelease", "allow"]
+    return subprocess.run(
+        [*command, spec],
+        capture_output=True,
+        text=True,
+        env=dict(env),
+        timeout=_CACHE_FILL_TIMEOUT_S,
+    )
+
+
+def fill_uv_cache(scratch: Path) -> None:
+    """Leave uv's cache able to serve a build's install with the network off.
+
+    A cache that already can is left alone and nothing is fetched. One that
+    cannot is filled by one install with the network on, then shown to serve.
+    """
+    venv = scratch / "venv"
+    offline = {**os.environ, **OFFLINE_BUILD_ENV}
+    if install_osprey_into(venv, offline).returncode == 0:
+        return
+    filled = install_osprey_into(venv, os.environ)
+    assert filled.returncode == 0, (
+        "uv's cache does not hold what an osprey build installs, and it could not be "
+        f"fetched:\n{filled.stdout}{filled.stderr}"
+    )
+    served = install_osprey_into(venv, offline)
+    assert served.returncode == 0, (
+        "uv's cache was filled and still does not serve an osprey build's install:\n"
+        f"{served.stdout}{served.stderr}"
+    )
+
+
+@pytest.fixture(scope="session")
+def offline_build_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+    """Environment additions under which a real ``osprey build`` needs no index.
+
+    The build's install is unchanged; uv reads every package from its cache,
+    which this fixture fills once per run if it has to. Empty when uv is not
+    installed: the build then installs with pip, which has no such mode.
+    """
+    if uv_path() is None:
+        return {}
+    if os.environ.get("PYTEST_XDIST_WORKER") is None:
+        fill_uv_cache(tmp_path_factory.mktemp("uv-cache"))
+        return dict(OFFLINE_BUILD_ENV)
+    shared = tmp_path_factory.getbasetemp().parent
+    record = shared / SHARED_CACHE_RECORD
+    with _exclusive(shared / f"{SHARED_CACHE_RECORD}.lock"):
+        if not record.is_file():
+            fill_uv_cache(Path(tempfile.mkdtemp(prefix="uv-cache-", dir=shared)))
+            record.write_text("served\n")
+    return dict(OFFLINE_BUILD_ENV)
