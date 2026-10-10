@@ -10,6 +10,13 @@ raises ``KeyboardInterrupt``, a write is refused - the setpoints it moved are
 written back before the call returns. A run killed outright leaves its durable
 journal for the next guarded run on the target to restore.
 
+The guarded run is the one place an interrupted run is restored: whatever
+escapes the tool is restored by ``journaled_run`` as it leaves, which prints the
+run's one report line and hangs the report on the exception. ``run_tool``
+restores by itself only a tool that returns ``False``, and only the setpoints
+that call moved. A ``run_tool`` nested in another runs inside the outer guarded
+run, so anything escaping it ends the outer run too, restored and reported once.
+
 The restore never forces anything. Each address is written back through
 ``osprey.runtime.write_channel`` like any other write, so limits, write gates and
 the control-target check apply; an address the connector refuses is reported as
@@ -17,7 +24,7 @@ refused with the value it was left at. When a channel has a ``max_step`` limit a
 the way back is longer, the restore walks back in equal steps no larger than
 ``max_step``.
 
-Every return prints one tagged line, ``OSPREY_PYAML_RESTORE <json>``, so that
+Every run prints one tagged line, ``OSPREY_GUARDED_RUN_RESTORE <json>``, so that
 execution records and the agent both see the outcome.
 
 Inside the python_executor sandbox the executor exports the absolute time at which
@@ -32,11 +39,12 @@ the call and puts the previous one back on exit. The handler sets one abort flag
 that every nested ``run_tool`` shares. A tool method that accepts a ``callback``
 always receives one that returns ``False`` once the flag is set, deadline or not,
 so the tool stops through pyAML's own abort path; for a method that takes none the
-handler raises ``KeyboardInterrupt`` at once. Either way the journal is restored,
-the report is printed to stderr, and ``run_tool`` raises ``KeyboardInterrupt``
-carrying the report, so the script ends and no later statement writes. Once the
-tool has returned or raised, ``SIGINT`` is ignored: the restore always writes every
-journaled address back and prints exactly one tagged line.
+handler raises ``KeyboardInterrupt`` at once. Either way the guarded run is
+restored, the report is printed to stderr, and ``run_tool`` raises
+``KeyboardInterrupt`` carrying the report, so the script ends and no later
+statement writes. Once the tool has returned or raised, ``SIGINT`` is ignored
+until the guarded run has finished: the restore always writes every journaled
+address back and prints exactly one tagged line.
 """
 
 from __future__ import annotations
@@ -55,7 +63,14 @@ from typing import Any, TextIO
 from pyaml.tuning_tools.measurement_tool import MeasurementTool
 
 import osprey.runtime
-from osprey.runtime.guarded_run import RestoreReport, _max_step, _n_steps, _restore, journaled_run
+from osprey.runtime.guarded_run import (
+    RESTORE_REPORT_TAG,
+    RestoreReport,
+    _max_step,
+    _n_steps,
+    _restore,
+    journaled_run,
+)
 from osprey.runtime.journal import Journal, pop_journal, push_journal, read_map
 from osprey_connectors.control_system.base import as_number
 
@@ -67,9 +82,9 @@ __all__ = [
     "run_tool",
 ]
 
-#: Prefix of the one tagged line each ``run_tool`` return prints; the python
-#: executor files every line carrying it.
-REPORT_TAG = "OSPREY_PYAML_RESTORE"
+#: Prefix of the one tagged line each guarded run prints; the python executor
+#: files every line carrying it.
+REPORT_TAG = RESTORE_REPORT_TAG
 
 #: Write latency, in seconds, the deadline guard budgets before a write is timed.
 DEFAULT_WRITE_LATENCY_S = 1.0
@@ -91,10 +106,13 @@ class _Level:
         accepts_callback: The tool method has a ``callback`` parameter, so a Ctrl-C
             stops it through that callback rather than by raising.
         in_tool: The tool method is running (not yet returned or raised).
+        shielded: The tool method has returned or raised, and this call holds one
+            count of the shared ``SIGINT`` shield until its guarded run finishes.
     """
 
     accepts_callback: bool
     in_tool: bool = False
+    shielded: bool = False
 
 
 @dataclass
@@ -103,12 +121,14 @@ class _Interrupt:
 
     Attributes:
         requested: The ``SIGINT`` handler asked the run to abort.
+        stopped: A level's callback asked its tool to stop.
         levels: The ``run_tool`` calls in progress, outermost first.
         shield: How many of them are finishing (restoring, reporting); while any
             is, ``SIGINT`` is ignored.
     """
 
     requested: bool = False
+    stopped: bool = False
     levels: list[_Level] = field(default_factory=list)
     shield: int = 0
 
@@ -335,20 +355,21 @@ def run_tool(
     * The method returns anything but ``False``: the run completed; the machine
       stays as the tool left it and the report is empty with ``aborted=False``.
     * The method returns ``False`` (how a pyAML ``measure()`` reports an
-      interrupted run) or raises ``KeyboardInterrupt`` after the callback
-      returned a falsy value (how pyAML's callback machinery aborts): the
-      journal is restored and the report is returned with ``aborted=True``.
+      interrupted run): what this call moved is restored and the report is
+      returned with ``aborted=True``.
+    * The method raises ``KeyboardInterrupt`` after a callback returned a falsy
+      value (how pyAML's callback machinery aborts): the guarded run is
+      restored and its report is returned with ``aborted=True``.
     * The method raises ``KeyboardInterrupt`` that no callback asked for (a
-      Ctrl-C): the journal is restored, the report is attached as
+      Ctrl-C): the guarded run is restored, the report is attached as
       ``exc.restore_report`` and printed to stderr, and the interrupt propagates.
-    * The method raises any other ``Exception``: the journal is restored, the
-      report is attached as ``exc.restore_report`` and printed to stderr, and
-      the exception propagates.
-    * ``SystemExit`` or ``GeneratorExit``: the journal is restored and the
+    * The method raises any other exception, ``SystemExit`` and
+      ``GeneratorExit`` included: the guarded run is restored, the report is
+      attached as ``exc.restore_report`` and printed to stderr, and the
       exception propagates.
     * A Ctrl-C (``SIGINT``) while the tool runs, in this or any enclosing
       ``run_tool``: the tool is stopped (through its callback when it takes one),
-      the journal is restored, the report is printed to stderr, and
+      the guarded run is restored, the report is printed to stderr, and
       ``KeyboardInterrupt`` is raised carrying the report as ``restore_report``,
       whatever the method returned. ``SIGINT`` is ignored while restoring.
 
@@ -356,9 +377,11 @@ def run_tool(
 
     The run is :func:`osprey.runtime.guarded_run.journaled_run` on the process's
     stamped control target: it holds the target's run lock for the whole call,
-    restores a killed run's journal before the method starts, and journals each
-    address durably before its first write. A ``run_tool`` nested in another
-    runs under the outer one's lock and journal.
+    restores a killed run's journal before the method starts, journals each
+    address durably before its first write, and restores the run when anything
+    escapes it. A ``run_tool`` nested in another, or in a journaled run opened
+    by its caller, runs under the outer run's lock and journal; whatever escapes
+    it is restored and reported once, by the outermost run.
 
     When ``OSPREY_EXECUTION_DEADLINE`` is set and the method has a ``callback``
     parameter, the method receives a chained callback that also stops the tool
@@ -375,7 +398,7 @@ def run_tool(
         **kwargs: Keyword arguments for the method.
 
     Returns:
-        The restore report; its tagged line has been printed to stdout.
+        The restore report; its tagged line has been printed.
 
     Raises:
         osprey.runtime.guarded_run.OspreyRunBusy: Another guarded run holds the
@@ -390,13 +413,27 @@ def run_tool(
         osprey.runtime.journal.OspreyWriteRefused: This is a readonly run; the
             method was not called.
         Exception: Whatever the method raised, carrying the report as
-            ``restore_report``.
+            ``restore_report`` once the outermost guarded run has restored.
         KeyboardInterrupt: The method was interrupted without a callback
             asking it to stop, or the run got a ``SIGINT``; carries the report
-            as ``restore_report``.
+            as ``restore_report`` once the outermost guarded run has restored.
     """
-    with journaled_run(None), _interrupt_scope() as state:
-        return _run_guarded(tool_method, args, kwargs, callback, state)
+    with _interrupt_scope() as state:
+        level = _Level(accepts_callback=_accepts_callback(tool_method))
+        state.levels.append(level)
+        try:
+            try:
+                with journaled_run(None):
+                    return _run_guarded(tool_method, args, kwargs, callback, state, level)
+            except KeyboardInterrupt as stop:
+                report = getattr(stop, "restore_report", None)
+                if not isinstance(report, RestoreReport) or state.requested or not state.stopped:
+                    raise
+                return report
+        finally:
+            if level.shielded:
+                state.shield -= 1
+            state.levels.remove(level)
 
 
 def _run_guarded(
@@ -405,17 +442,23 @@ def _run_guarded(
     kwargs: dict[str, Any],
     callback: Callable[..., Any] | None,
     state: _Interrupt,
+    level: _Level,
 ) -> RestoreReport:
     """:func:`run_tool`'s body, run inside the journaled guarded run.
 
-    ``state`` is the Ctrl-C state shared with every enclosing ``run_tool``.
+    ``state`` is the Ctrl-C state shared with every enclosing ``run_tool`` and
+    ``level`` is this call's entry on its stack. Once the method has returned or
+    raised, ``level`` holds one count of the ``SIGINT`` shield, which
+    :func:`run_tool` gives back after the guarded run has finished.
+
+    An exception escaping here is restored by the guarded run; one escaping a
+    deadline-guarded call carries ``deadline_guard = True`` so its report says so.
     """
     journal = Journal()
     disarm: Callable[[], None] | None = None
     deadline = osprey.runtime.execution_deadline()
-    accepts = _accepts_callback(tool_method)
     chained: Callable[..., Any] | None = callback
-    if deadline is not None and accepts:
+    if deadline is not None and level.accepts_callback:
         chained, disarm = _deadline_callback(
             callback,
             journal,
@@ -423,75 +466,49 @@ def _run_guarded(
             seed_interval=_seed_interval(tool_method, kwargs),
         )
     guarded = disarm is not None
-    stop_requested = False
-    if chained is not None or accepts:
+    if chained is not None or level.accepts_callback:
         inner = chained
 
         def recording(action: Any, data: Any) -> Any:
             """Stop on a Ctrl-C, else pass through to the chain, noting a stop it asks for."""
-            nonlocal stop_requested
             if state.requested:
                 return False
             if inner is None:
                 return True
             result = inner(action, data)
             if not result:
-                stop_requested = True
+                state.stopped = True
             return result
 
         kwargs["callback"] = recording
 
-    def interrupted(report: RestoreReport, interrupt: KeyboardInterrupt) -> KeyboardInterrupt:
-        """``interrupt`` carrying ``report``, which has been printed to stderr."""
-        interrupt.restore_report = report  # type: ignore[attr-defined]
-        _emit(report, sys.stderr)
-        return interrupt
-
-    def finish(*, aborted: bool) -> RestoreReport:
-        """Deactivate this level's journal and restore it when the run did not complete."""
-        pop_journal(journal)
-        if not aborted:
-            return RestoreReport(aborted=False, deadline_guard=guarded)
-        report = _restore(journal, aborted=True)
-        report.deadline_guard = guarded
-        return report
-
-    level = _Level(accepts_callback=accepts)
-    state.levels.append(level)
     push_journal(journal)
-    shielded = False
     try:
         try:
-            try:
-                level.in_tool = True
-                result = tool_method(*args, **kwargs)
-            finally:
-                level.in_tool = False
-                state.shield += 1
-                shielded = True
-        except KeyboardInterrupt as interrupt:
-            report = finish(aborted=True)
-            if state.requested or not stop_requested:
-                interrupted(report, interrupt)
-                raise
-        except Exception as exc:
-            report = finish(aborted=True)
-            exc.restore_report = report  # type: ignore[attr-defined]
-            _emit(report, sys.stderr)
-            raise
-        except BaseException:
-            finish(aborted=True)
-            raise
-        else:
-            report = finish(aborted=result is False or state.requested)
             if state.requested:
-                raise interrupted(report, KeyboardInterrupt())
-        _emit(report, sys.stdout)
-        return report
+                raise KeyboardInterrupt
+            level.in_tool = True
+            result = tool_method(*args, **kwargs)
+        finally:
+            level.in_tool = False
+            state.shield += 1
+            level.shielded = True
+            pop_journal(journal)
+        if state.requested:
+            raise KeyboardInterrupt
+    except BaseException as exc:
+        if guarded:
+            with contextlib.suppress(AttributeError, TypeError):
+                exc.deadline_guard = True  # type: ignore[attr-defined]
+        raise
     finally:
-        if shielded:
-            state.shield -= 1
-        state.levels.remove(level)
         if disarm is not None:
             disarm()
         _clear_owner_callback(tool_method)
+    if result is False:
+        report = _restore(journal, aborted=True)
+    else:
+        report = RestoreReport(aborted=False)
+    report.deadline_guard = guarded
+    _emit(report, sys.stdout)
+    return report

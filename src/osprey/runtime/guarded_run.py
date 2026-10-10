@@ -925,13 +925,16 @@ def _restore_escaped(durable: DurableJournal, journal: Journal, exc: BaseExcepti
     """Restore what a journaled run displaced before *exc* escaped it.
 
     Prints the one :data:`RESTORE_REPORT_TAG` line and hangs the report on
-    *exc* as ``restore_report``. The durable journal is cleared when every
+    *exc* as ``restore_report``. An exception whose ``deadline_guard``
+    attribute is ``True`` was raised by a run guarded by the execution
+    deadline, and its report says so. The durable journal is cleared when every
     entry is back and otherwise rewritten to hold exactly the refused and
     failed entries. Never raises: a restore that cannot finish its bookkeeping
     leaves the durable journal as it is, for the next run to restore.
     """
     try:
         report = _restore(journal, aborted=True)
+        report.deadline_guard = getattr(exc, "deadline_guard", False) is True
         _print_report(report)
         with contextlib.suppress(AttributeError, TypeError):
             exc.restore_report = report  # type: ignore[attr-defined]

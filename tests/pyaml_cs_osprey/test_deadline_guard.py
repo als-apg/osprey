@@ -9,6 +9,7 @@ is below ``2 * (interval + latency * (walk_back_writes + 1) + read_latency)`` pl
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from osprey_connectors.control_system.limits_validator import ChannelLimitsConfi
 from pyaml_cs_osprey.run_tool import (
     DEFAULT_WRITE_LATENCY_S,
     EXIT_RESERVE_S,
+    REPORT_TAG,
     RestoreReport,
     run_tool,
 )
@@ -127,6 +129,29 @@ class TestAbortsInTime:
         assert machine.values == {"A": 1.0, "B": 2.0, "C": 3.0}
         assert tool.returned[-1] is False
         assert clock.now <= deadline - EXIT_RESERVE_S
+
+    def test_the_report_line_of_a_deadline_stop_says_guarded(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        machine: _Machine,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The one tagged line the run prints is the report returned, guard included."""
+        machine.write_s = 0.2
+        tool = _Tool(machine, [(addr, 10.0 + k) for k in range(50) for addr in ("A", "B")])
+        _deadline_in(monkeypatch, 30.0)
+
+        report = run_tool(tool.measure, sleep_between_step=1.0)
+
+        out, err = capsys.readouterr()
+        lines = [
+            json.loads(line[len(REPORT_TAG) + 1 :])
+            for line in (out + err).splitlines()
+            if line.startswith(REPORT_TAG + " ")
+        ]
+        assert report.aborted is True
+        assert report.deadline_guard is True
+        assert lines == [json.loads(report.to_json())]
 
     def test_the_first_step_budgets_the_default_latency_before_any_sample(
         self, monkeypatch: pytest.MonkeyPatch, machine: _Machine
