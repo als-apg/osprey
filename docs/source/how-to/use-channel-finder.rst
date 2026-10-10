@@ -133,13 +133,15 @@ The database follows MATLAB Middle Layer (MML) functional organization
 writes it from the facility description as
 ``data/channel_finder/middle_layer.json``, with the DuckDB copy ``run_sql``
 reads beside it as ``data/channel_finder/middle_layer.duckdb``: a System is a
-top place, a Family is a group (every group of the facility is one), and a
-Field is the longest ``signals`` key a channel's address ends with, else the
-channel's ``signal``, else its address, one channel per member; a channel whose
-Field some member lacks or has twice is keyed by its address instead. A
-channel belongs to every Family whose group holds its device. A channel
+top place; a Family is a group (every group of the facility is one), and the
+devices of a class that no single-class group holds form a Family named by the
+class under their top place; a Field is a channel's signal, one channel per
+member, described by the vocabulary's sentence for that signal. A channel whose
+signal some member lacks or has twice, or that has no signal, is keyed by its
+address. A channel belongs to every Family that holds its device. A channel
 listed under several Fields of one Family is found under each of them. A
-facility description with no group stops the build with ``view-unsupported``.
+facility description with no group and no classed device stops the build with
+``view-unsupported``.
 A facility that runs a Middle Layer
 already has that structure: ``osprey facility import mml``
 (:doc:`/how-to/import-mml-export`) brings it into the facility description.
