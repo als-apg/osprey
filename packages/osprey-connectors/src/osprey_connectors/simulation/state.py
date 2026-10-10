@@ -7,7 +7,9 @@ it here too, with :func:`write_active_state`.
 
 Scenarios compose only when they write disjoint targets: two scenarios writing
 one target would apply in an order-dependent way, so such a set is refused as
-an :class:`Overlap` naming the target. A process that serves without a
+an :class:`Overlap` naming the target. A scenario's ``still`` meets only the
+motion other scenarios set: it overlaps the ``noise`` or ``couple`` of the
+readings it stills, never another target and never another ``still``. A process that serves without a
 scenario because of an overlap logs one :func:`overlap_record`, and readers
 print it with :func:`format_overlap_record`.
 
@@ -30,6 +32,7 @@ __all__ = [
     "ACTIVE_SCENARIOS_FILENAME",
     "DEFAULT_SCENARIO",
     "OVERLAP_EVENT",
+    "STILL_SCENARIO",
     "Overlap",
     "composed_set",
     "format_overlap_record",
@@ -48,10 +51,22 @@ ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
 #: The baseline scenario, active in every set.
 DEFAULT_SCENARIO = "nominal"
 
+#: The scenario every view lists, which stills every reading.
+STILL_SCENARIO = "still"
+
 #: The ``event`` an overlap record carries in a simulator log.
 OVERLAP_EVENT = "scenario-overlap"
 
 logger = get_logger("simulation_state")
+
+#: The ``still`` value that stills every reading.
+_STILL_ALL = "all"
+#: Marks a target of the motion namespace, which ``noise``, ``couple`` and
+#: ``still`` share; no address holds the character.
+_MOTION_MARK = "\x00"
+_SETS_MOTION = _MOTION_MARK + "sets:"
+_STILLS = _MOTION_MARK + "stills:"
+_STILLS_ALL = _MOTION_MARK + "stills-all"
 
 
 def parse_active_state(text: str) -> tuple[list[str], float | None]:
@@ -178,13 +193,21 @@ class Overlap:
         target: The address or variable both scenarios write.
         first: The scenario that claimed the target first, in set order.
         second: The scenario that writes it again.
+        motion: True when one scenario stills the reading at ``target`` and
+            the other sets its motion.
     """
 
     target: str
     first: str
     second: str
+    motion: bool = False
 
     def __str__(self) -> str:
+        if self.motion:
+            return (
+                f"Scenarios {self.first!r} and {self.second!r} both set the motion of "
+                f"{self.target!r}; active scenarios must not"
+            )
         return (
             f"Channel {self.target!r} is touched by both {self.first!r} and {self.second!r}; "
             f"active scenarios must touch disjoint channel sets"
@@ -201,14 +224,23 @@ def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
         The keys of its ``overrides``, the keys of every fault's ``writes``,
         each ``archiver`` entry's channel, and the keys of ``couple`` and
         ``noise``; a block the scenario does not state contributes nothing.
+        The ``couple`` and ``noise`` keys and the ``still`` readings are also
+        targets of the motion namespace, which :func:`validate_composition`
+        reads apart.
     """
     targets: set[str] = set(scenario.get("overrides") or {})
     for fault in (scenario.get("faults") or {}).values():
         targets.update(fault.get("writes") or {})
     for entry in scenario.get("archiver") or []:
         targets.add(str(entry["channel"]))
-    targets.update(scenario.get("couple") or {})
-    targets.update(scenario.get("noise") or {})
+    moved = {str(address) for slot in ("couple", "noise") for address in scenario.get(slot) or {}}
+    targets.update(moved)
+    targets.update(_SETS_MOTION + address for address in moved)
+    still = scenario.get("still")
+    if still == _STILL_ALL:
+        targets.add(_STILLS_ALL)
+    elif isinstance(still, list):
+        targets.update(_STILLS + str(address) for address in still)
     return targets
 
 
@@ -226,7 +258,8 @@ def validate_composition(
 
     Returns:
         One :class:`Overlap` per target a later scenario writes again, sorted
-        by target within each scenario.
+        by target within each scenario, then one per reading and scenario pair
+        where one scenario stills the reading and the other sets its motion.
 
     Raises:
         ValueError: If a name is not in ``scenarios_view``.
@@ -238,11 +271,43 @@ def validate_composition(
     owner: dict[str, str] = {}
     for name in names:
         for target in sorted(scenarios_view.get(name, ())):
+            if target.startswith(_MOTION_MARK):
+                continue
             if target in owner and owner[target] != name:
                 overlaps.append(Overlap(target=target, first=owner[target], second=name))
             else:
                 owner[target] = name
-    return overlaps
+    return overlaps + _motion_overlaps(scenarios_view, names)
+
+
+def _motion_overlaps(
+    scenarios_view: Mapping[str, Collection[str]], names: Sequence[str]
+) -> list[Overlap]:
+    """One motion :class:`Overlap` per reading one scenario stills and another moves."""
+    movers: list[tuple[str, set[str]]] = []
+    stillers: list[tuple[str, set[str] | None]] = []
+    for name in names:
+        targets = scenarios_view.get(name, ())
+        moved = {t.removeprefix(_SETS_MOTION) for t in targets if t.startswith(_SETS_MOTION)}
+        if moved:
+            movers.append((name, moved))
+        if _STILLS_ALL in targets:
+            stillers.append((name, None))
+        elif stilled := {t.removeprefix(_STILLS) for t in targets if t.startswith(_STILLS)}:
+            stillers.append((name, stilled))
+    order = {name: index for index, name in enumerate(names)}
+    found: dict[tuple[str, str, str], Overlap] = {}
+    for mover, addresses in movers:
+        for stiller, readings in stillers:
+            if stiller == mover:
+                continue
+            first, second = sorted((mover, stiller), key=order.__getitem__)
+            for address in sorted(addresses if readings is None else addresses & readings):
+                found.setdefault(
+                    (first, second, address),
+                    Overlap(target=address, first=first, second=second, motion=True),
+                )
+    return sorted(found.values(), key=lambda o: (order[o.second], order[o.first], o.target))
 
 
 def composed_set(
