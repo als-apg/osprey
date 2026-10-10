@@ -80,12 +80,10 @@ PERFECT_THRESHOLD = 0.80
 JUDGE_MODEL = "claude-sonnet-5"
 
 #: Channel bindings in the shipped demo corpus — what ``osprey up`` puts in
-#: the store and what the graph lane's census must find.
-#: The same 2,908 addresses the facility file's channels hold, which is what makes
-#: the four lanes comparable: one corpus, four ways of searching it.
-#: ``tests/templates/test_control_assistant_demo_ttl.py`` owns the corpus-side
-#: pin; this is the benchmark-side one.
-GRAPH_CHANNEL_COUNT = 2908
+#: the store and what the graph lane's census must find. It equals
+#: ``EXPECTED_BINDINGS`` in ``tests/templates/test_control_assistant_demo_ttl.py``,
+#: which owns the corpus-side pin; this is the benchmark-side one.
+GRAPH_CHANNEL_COUNT = 2952
 
 
 def perfect_match_rate(run: BenchmarkRun) -> float:

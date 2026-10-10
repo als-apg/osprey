@@ -201,7 +201,7 @@
     "category": "cross-ring"
   },
   {
-    "user_query": "Show me the transfer line corrector setpoints for both planes",
+    "user_query": "Show me the booster-to-storage transfer line corrector setpoints for both planes",
     "targeted_pv": [
       "BTS:MAG:HCM:01:CURRENT:SP",
       "BTS:MAG:HCM:02:CURRENT:SP",
