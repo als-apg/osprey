@@ -12,8 +12,9 @@ computed device slots in place on the document:
   stated slot must agree with the computed one (``place-conflict``), and an
   agreeing stated value stands as stated. On a periodic deck of length L a
   stated s is read modulo L (L + d is the same point as d), and the device is
-  placed, compared and numbered at that point; on a single-pass deck a stated
-  s outside [0, L] stops (``place-conflict``).
+  placed, compared and numbered at that point, and the build warns once per
+  such device (``place-wrapped``), naming the stated s, L and the point; on a
+  single-pass deck a stated s outside [0, L] stops (``place-conflict``).
 * ``place``: when no source states one, the deepest span of the device's model
   that contains its s, computed or stated; ``provenance.place_from`` says
   where the place came from.
@@ -51,7 +52,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import TEXTURE
-from osprey.facility.errors import FacilityBuildError
+from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey.facility.provenance import add_defaults, set_place_from
 from osprey.facility.scenarios import (
     check_scenario_attachments,
@@ -118,12 +119,13 @@ class _Position:
 
 @dataclass
 class _Run:
-    """The document being computed and the stops found so far."""
+    """The document being computed and the stops and warnings found so far."""
 
     document: dict[str, Any]
     facility_dir: Path
     fixes: list[Mapping[str, Any]]
     errors: list[FacilityBuildError] = field(default_factory=list)
+    warnings: list[FacilityBuildWarning] = field(default_factory=list)
 
     def stop(
         self,
@@ -140,13 +142,29 @@ class _Run:
             )
         )
 
+    def wrapped(self, device: Mapping[str, Any], deck: _Deck, stated: float) -> None:
+        """Warn that a periodic deck places a device's stated s modulo its length."""
+        point = stated % deck.length_m
+        self.warnings.append(
+            FacilityBuildWarning(
+                "place-wrapped",
+                "device",
+                device["id"],
+                f"layer {_stating_layers(device, 's')} states s {stated:.9g} in periodic model "
+                f"{deck.name}, outside its deck of length {deck.length_m:.9g}; the device is "
+                f"placed at s {point:.9g}",
+                f"state s {point:.9g}, or drop it",
+            )
+        )
+
 
 def check_compute(validated: Validated) -> list[FacilityBuildError]:
     """Compute positions, places, ordinals and groups, and run the deck checks (S6).
 
     Every computed slot is written in place on ``validated.document``; the
     stage runs after the wiring slots are filled, so each wired record
-    carries its ``default``.
+    carries its ``default``. A stated s a periodic deck wraps is appended to
+    ``validated.warnings`` (``place-wrapped``), one per device.
 
     Args:
         validated: What the earlier stages produced.
@@ -165,6 +183,14 @@ def check_compute(validated: Validated) -> list[FacilityBuildError]:
         validated.facility_dir,
         [e for e in entries or [] if isinstance(e, dict)],
     )
+    try:
+        return _compute(run, validated)
+    finally:
+        validated.warnings.extend(run.warnings)
+
+
+def _compute(run: _Run, validated: Validated) -> list[FacilityBuildError]:
+    document = run.document
     _model_conflicts(run)
     twice = _addresses_wired_twice(run)
     decks = _prepare_decks(run)
@@ -369,6 +395,11 @@ def _arc(elements: Sequence[tuple[float, float]], length_m: float) -> tuple[floa
 _POSITION_TOLERANCE_M = 1e-6
 
 
+def _outside(s: float, deck: _Deck) -> bool:
+    """Whether s lies outside [0, L] of the deck, beyond the position tolerance."""
+    return not -_POSITION_TOLERANCE_M <= s <= deck.length_m + _POSITION_TOLERANCE_M
+
+
 def _stating_layers(device: Mapping[str, Any], slot: str) -> str:
     """The layers whose sources state ``slot`` of a device, joined."""
     return ", ".join(
@@ -386,7 +417,8 @@ def _stated_positions(
     """Each unwired device that states ``s`` in a deck-bearing ``model``.
 
     A periodic deck's s is cyclic, so a stated s is placed modulo the deck's
-    length; on a single-pass deck an s outside the deck stops.
+    length, with a ``place-wrapped`` warning when it lay outside the deck; on a
+    single-pass deck an s outside the deck stops.
     """
     positions: dict[str, _Position] = {}
     for device in run.document.get("devices", []):
@@ -395,8 +427,10 @@ def _stated_positions(
             continue
         s = float(device["s"])
         if deck.periodic:
+            if _outside(s, deck):
+                run.wrapped(device, deck, s)
             s %= deck.length_m
-        elif not -_POSITION_TOLERANCE_M <= s <= deck.length_m + _POSITION_TOLERANCE_M:
+        elif _outside(s, deck):
             run.stop(
                 "place-conflict",
                 "device",
@@ -412,7 +446,10 @@ def _stated_positions(
 
 
 def _agree(run: _Run, computed: Mapping[str, _Position], decks: Mapping[str, _Deck]) -> None:
-    """Stop on a wired device whose stated ``model``, ``s`` or ``length`` is not the deck's."""
+    """Stop on a wired device whose stated ``model``, ``s`` or ``length`` is not the deck's.
+
+    An agreeing s a periodic deck wraps warns (``place-wrapped``).
+    """
     for device in run.document.get("devices", []):
         position = computed.get(device["id"])
         if position is None:
@@ -434,6 +471,8 @@ def _agree(run: _Run, computed: Mapping[str, _Position], decks: Mapping[str, _De
                     delta %= deck.length_m
                     delta = min(delta, deck.length_m - delta)
                 if delta <= _POSITION_TOLERANCE_M:
+                    if slot == "s" and deck.periodic and _outside(float(stated), deck):
+                        run.wrapped(device, deck, float(stated))
                     continue
                 said = f"{slot} {float(stated):g} in model {position.model}"
                 found = f"puts the device at {slot} {value:g}"

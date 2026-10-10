@@ -255,7 +255,8 @@ classes:
           The entrance of the device in metres along its model; computed from the
           deck when the device is wired, and a source may state it when not. On a
           periodic deck of length L a stated s is read modulo L, and the device is
-          placed and numbered there; on a single-pass deck it lies in [0, L].
+          placed and numbered there; a stated s outside [0, L] builds with one
+          warning per device. On a single-pass deck it lies in [0, L].
       length:
         range: float
         description: In metres; computed when the device is wired, and a source may state it when not.

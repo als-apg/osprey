@@ -5,18 +5,26 @@ Every stop is a single line on stderr::
     facility: <kind>: <record kind> <id> — <detail>; fix: <remedy>
 
 A schema failure names its location as record kind ``path`` and the dotted path
-as the id. The exit code is 1; click keeps 2 for usage errors.
+as the id. The exit code is 1; click keeps 2 for usage errors. A warning shares
+the line shape, prints after a clean build, and leaves the exit code at 0.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
 import click
 
-__all__ = ["KINDS", "FacilityBuildError", "quoted_slots"]
+__all__ = [
+    "KINDS",
+    "WARNING_KINDS",
+    "FacilityBuildError",
+    "FacilityBuildWarning",
+    "quoted_slots",
+]
 
 #: Every error kind, each ``<thing>-<problem>``.
 KINDS: tuple[str, ...] = (
@@ -45,6 +53,9 @@ KINDS: tuple[str, ...] = (
     "view-unsupported",
     "profile-invalid",
 )
+
+#: Every warning kind, each ``<thing>-<problem>``.
+WARNING_KINDS: tuple[str, ...] = ("place-wrapped",)
 
 
 def quoted_slots(slots: Iterable[str]) -> str:
@@ -106,3 +117,39 @@ class FacilityBuildError(click.ClickException):
             click.echo(self.format_message(), err=True, color=self.show_color)
         else:
             click.echo(self.format_message(), file=file, color=self.show_color)
+
+
+@dataclass(frozen=True)
+class FacilityBuildWarning:
+    """A fact of a clean facility build its author should read.
+
+    A warning never stops the build and never changes the exit code; its line
+    has the shape of a stop's line.
+
+    Attributes:
+        kind: The warning kind, one of ``WARNING_KINDS``.
+        record_kind: The kind of record the id names (``device``, ...).
+        record_id: The id of the record the warning is about.
+        detail: What the build did with the record.
+        remedy: What the author changes to clear the warning.
+    """
+
+    kind: str
+    record_kind: str
+    record_id: str
+    detail: str
+    remedy: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in WARNING_KINDS:
+            raise ValueError(f"unknown facility warning kind {self.kind!r}")
+
+    @property
+    def summary(self) -> str:
+        """The line without its remedy."""
+        return f"facility: {self.kind}: {self.record_kind} {self.record_id} — {self.detail}"
+
+    @property
+    def line(self) -> str:
+        """The whole line, remedy included."""
+        return f"{self.summary}; fix: {self.remedy}"
