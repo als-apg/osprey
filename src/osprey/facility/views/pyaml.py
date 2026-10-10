@@ -8,8 +8,11 @@ that names a deck and has a ``measurement/<model>.yaml``::
                          BPM and instrument the measurement file's groups and
                          instruments name, one array per group and one tool per
                          measurement kind
-    lattice.json         a byte copy of the model's deck, the design simulator's
-                         lattice, referenced as ``${path:lattice.json}``
+    lattice.json         the design simulator's lattice, referenced as
+                         ``${path:lattice.json}``: the model's deck with each
+                         corrector the view drives carrying its kick as the
+                         dipole polynomials pyAML reads, as the model's engine
+                         writes it
     trm.json, crm.json   the tune and chromaticity response matrices of the
                          design optics, each with the correction tool that
                          loads it, for a periodic model whose measurement file
@@ -17,7 +20,9 @@ that names a deck and has a ``measurement/<model>.yaml``::
 
 A model solved ``single_pass`` has no design simulator (``simulators: []``):
 pyAML's design simulator solves a periodic orbit. Every other model the render
-serves names a note on stderr saying why it has no view.
+serves names a note on stderr saying why it has no view. A setpoint pyAML cannot
+convert, or a corrector whose element the engine cannot give its kick as
+polynomials, is left out of the view and named in a note.
 
 Every name the configuration holds comes from :mod:`pyaml_cs_osprey.names`, so
 the view, the measurement tools and a reader of the configuration cannot spell
@@ -753,16 +758,18 @@ def _measurement_value(measurement: Mapping[str, Any], key: str) -> float | int:
 
 def _configuration(
     inputs: ViewInputs, model: str
-) -> tuple[dict[str, Any], dict[str, str], list[str]]:
+) -> tuple[dict[str, Any], dict[str, str], list[str], list[str]]:
     """One model's pyAML configuration, the extra files it references and what it leaves out.
 
     A setpoint whose calibration pyAML cannot represent has no magnet and is in
     no array.
 
     Returns:
-        ``(configuration, files, unmodelled)``: the configuration as a mapping,
-        each file beside it by name with its text (the deck excepted), and the
-        setpoints left out for want of a pyAML magnet model, in group order.
+        ``(configuration, files, unmodelled, unkicked)``: the configuration as
+        a mapping, each file beside it by name with its text, the setpoints
+        left out for want of a pyAML magnet model and the corrector setpoints
+        left out for want of an element that carries their kick as
+        polynomials, each in group order.
     """
     from pyaml_cs_osprey.names import (
         CHROMATICITY_MONITOR_NAME,
@@ -789,9 +796,21 @@ def _configuration(
     names = _names(magnets, bpms, groups_named, rf)
     models = {magnet.address: _magnet_model(magnet, deck, limits) for magnet in magnets}
     unmodelled = [address for address, found in models.items() if found is None]
-    magnets = [magnet for magnet in magnets if models[magnet.address] is not None]
+    files: dict[str, str] = {}
+    unkicked: list[str] = []
+    if periodic:
+        files[LATTICE_FILE], refused = _design_lattice(inputs, record, magnets)
+        unkicked = [
+            magnet.address
+            for magnet in magnets
+            if magnet.role in ROLE_PLANES
+            and models[magnet.address] is not None
+            and any(element in refused for element, _ in _slice_elements(magnet.entry))
+        ]
+    left_out = set(unmodelled) | set(unkicked)
+    magnets = [magnet for magnet in magnets if magnet.address not in left_out]
     groups = {
-        role: [address for address in addresses if models.get(address, True) is not None]
+        role: [address for address in addresses if address not in left_out]
         for role, addresses in groups.items()
     }
 
@@ -880,7 +899,6 @@ def _configuration(
             monitor["rf_plant_name"] = RF_PLANT_NAME
         devices.append(monitor)
 
-    files: dict[str, str] = {}
     array_of = {role: names.array_name(str(group)) for role, group in groups_named.items()}
     for kind in kinds:
         tool_type, tool_name = KIND_TOOLS[kind]
@@ -983,7 +1001,42 @@ def _configuration(
                     }
                 )
     configuration["devices"] = devices
-    return configuration, files, unmodelled
+    return configuration, files, unmodelled, unkicked
+
+
+def _design_lattice(
+    inputs: ViewInputs, record: Mapping[str, Any], magnets: Sequence[_Magnet]
+) -> tuple[str, frozenset[str]]:
+    """The design simulator's lattice text and the corrector elements it could not convert.
+
+    The model's engine copies the deck with the elements the view's correctors
+    drive carrying their kicks as polynomials (``polynomial_kicks``); an engine
+    without that function gives the deck as it is.
+    """
+    from importlib import metadata
+
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+
+    deck = inputs.facility_dir / str(record["deck"])
+    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    engine = str(record["engine"])
+    convert = (
+        getattr(engines[engine].load(), "polynomial_kicks", None)
+        if engine in engines.names
+        else None
+    )
+    if convert is None:
+        return deck.read_bytes().decode("utf-8"), frozenset()
+    elements = sorted(
+        {
+            element
+            for magnet in magnets
+            if magnet.role in ROLE_PLANES
+            for element, _ in _slice_elements(magnet.entry)
+        }
+    )
+    copy = convert(deck, elements)
+    return str(copy.text), frozenset(copy.refused)
 
 
 def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
@@ -1003,8 +1056,15 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
         report_note(inputs, _omitted_note(model, reason))
     written: list[Path] = []
     for model in written_models:
-        record = _model_record(inputs.doc, model)
-        configuration, files, unmodelled = _configuration(inputs, model)
+        configuration, files, unmodelled, unkicked = _configuration(inputs, model)
+        if unkicked:
+            shown = ", ".join(unkicked[:3]) + (", …" if len(unkicked) > 3 else "")
+            report_note(
+                inputs,
+                f"view pyaml: {model} leaves out {len(unkicked)} "
+                f"setpoint{'' if len(unkicked) == 1 else 's'} whose element has no length "
+                f"to carry a kick: {shown}",
+            )
         if unmodelled:
             shown = ", ".join(unmodelled[:3]) + (", …" if len(unmodelled) > 3 else "")
             report_note(
@@ -1018,10 +1078,6 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
         target = directory / CONFIGURATION_FILE
         target.write_text(_yaml_text(configuration), encoding="utf-8")
         written.append(target)
-        if configuration["simulators"]:
-            lattice = directory / LATTICE_FILE
-            lattice.write_bytes((inputs.facility_dir / str(record["deck"])).read_bytes())
-            written.append(lattice)
         for name, text in sorted(files.items()):
             path = directory / name
             path.write_text(text, encoding="utf-8")
