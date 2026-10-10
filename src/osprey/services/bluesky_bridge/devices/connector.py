@@ -50,14 +50,16 @@ from .specs import ReadableSpec, SettableSpec
 #: Env var carrying the floor on how close a readback must come to the demand
 #: before ``ConnectorSettable.set()`` calls a move settled. Authored per
 #: facility in the build profile and rendered into the compose file; the
-#: container cannot read `config.yml`, so the env var is the whole channel. A
-#: device whose readback declares motion settles within that motion's band
-#: when the band is wider than this floor.
+#: container cannot read `config.yml`, so the env var is the whole channel. The
+#: floor is never a ceiling: a device's declared tolerance applies on every
+#: lane when it is wider, and its readback's motion band does on a simulated
+#: lane.
 SETTLE_TOLERANCE_ENV = "BLUESKY_SETTLE_TOLERANCE"
 
 #: Used when the variable is unset. A float-noise bound: the floor for a
-#: setpoint/readback pair kept in exact software sync. A device whose readback
-#: moves on its own carries its own band in the device file.
+#: setpoint/readback pair kept in exact software sync. A device that settles
+#: wider carries its tolerance, or its readback's motion band, in the device
+#: file.
 DEFAULT_SETTLE_TOLERANCE = 1e-9
 
 #: Env var bounding how long ``ConnectorSettable.set()`` polls the readback
@@ -133,9 +135,12 @@ class ConnectorSettable(StandardReadable):
     ``connector.read_channel`` until it settles within its tolerance of the
     demanded value, or raises ``TimeoutError`` once the
     :func:`settle_timeout_s` budget runs out. The tolerance is the larger of
-    :func:`settle_tolerance`, the profile's floor, and ``settle_tolerance``,
-    the band of the motion the device's readback declares: a device can only
-    be looser than the floor where its facility declares motion, never tighter.
+    :func:`settle_tolerance`, the profile's floor, and the device's own
+    bound: its declared ``settle_tolerance``, else ``settle_relative`` times
+    the demand's magnitude, else, on a ``simulated`` lane only, the
+    ``motion_band`` of its readback's simulated motion. The floor is never a
+    ceiling, a declared tolerance applies on every lane, and a device is never
+    tighter than the floor.
     ``read()``/``describe()`` are overridden
     to return the *live* readback via the connector on every call — never a
     cached/soft value — so a plan's ``trigger_and_read`` document always
@@ -179,12 +184,28 @@ class ConnectorSettable(StandardReadable):
         readback_pv: str | None = None,
         name: str = "",
         settle_tolerance: float | None = None,
+        settle_relative: float | None = None,
+        motion_band: float | None = None,
+        simulated: bool = False,
     ) -> None:
         self._osprey_connector = connector
         self._setpoint_pv = setpoint_pv
         self._readback_pv = readback_pv or setpoint_pv
         self._settle_tolerance = settle_tolerance
+        self._settle_relative = settle_relative
+        self._motion_band = motion_band
+        self._simulated = simulated
         super().__init__(name=name)
+
+    def _declared(self, value: float) -> float:
+        """The device's own settle bound for a move to ``value``; 0.0 for none."""
+        if self._settle_tolerance is not None:
+            return self._settle_tolerance
+        if self._settle_relative is not None:
+            return self._settle_relative * abs(value)
+        if self._simulated and self._motion_band is not None:
+            return self._motion_band
+        return 0.0
 
     @AsyncStatus.wrap
     async def set(self, value: float) -> None:
@@ -236,7 +257,7 @@ class ConnectorSettable(StandardReadable):
         # defaults: the facility authors them in its profile and they reach the
         # container as env vars, so the value in force is whatever the process
         # environment says at the moment the move starts.
-        tolerance = max(settle_tolerance(), self._settle_tolerance or 0.0)
+        tolerance = max(settle_tolerance(), self._declared(value))
         timeout_s = settle_timeout_s()
         deadline = time.monotonic() + timeout_s
         while True:
@@ -387,6 +408,8 @@ async def build_devices(
     settables: Sequence[SettableSpec] = (),
     readables: Sequence[ReadableSpec] = (),
     connector: Any = None,
+    *,
+    simulated: bool = False,
 ) -> dict[str, Any]:
     """Build and connect connector-mediated settable/readable devices, keyed by name.
 
@@ -405,6 +428,10 @@ async def build_devices(
         connector: The OSPREY control-system connector every built device
             delegates its reads/writes to. Every device shares this same
             connector instance.
+        simulated: Whether the connector serves the simulator, so a device
+            without a declared tolerance settles within its readback's
+            motion band. False, the fail-safe toward hardware, leaves such a
+            device on the profile's floor.
 
     Returns:
         Mapping of device name to connected device instance.
@@ -427,6 +454,9 @@ async def build_devices(
             settable_spec.readback_pv,
             name=settable_spec.name,
             settle_tolerance=settable_spec.settle_tolerance,
+            settle_relative=settable_spec.settle_relative,
+            motion_band=settable_spec.motion_band,
+            simulated=simulated,
         )
     for readable_spec in readables:
         devices[readable_spec.name] = ConnectorReadable(

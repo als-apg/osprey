@@ -348,7 +348,16 @@ async def build_devices(
     if connector is None:
         connector = await create_connector()
 
-    devices = dict(await connector_devices.build_devices(setpoints, readbacks, connector))
+    from osprey_connectors.types import is_simulated
+
+    devices = dict(
+        await connector_devices.build_devices(
+            setpoints,
+            readbacks,
+            connector,
+            simulated=is_simulated(resolve_control_system_type()),
+        )
+    )
     logger.info(
         "qserver_startup: built %d connector-mediated device(s) (%d setpoint(s), %d readback(s))",
         len(devices),

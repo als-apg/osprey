@@ -355,6 +355,21 @@ def test_build_devices_builds_connector_mediated_devices_from_the_device_file(
     assert devices["bpm_01"]._osprey_connector is connector
 
 
+@pytest.mark.parametrize(
+    ("control_system_type", "simulated"),
+    [("virtual_accelerator", True), ("epics", False), ("live_standin", False)],
+)
+def test_the_worker_passes_its_lane_kind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, control_system_type: str, simulated: bool
+) -> None:
+    monkeypatch.setattr(qserver_startup, "resolve_control_system_type", lambda: control_system_type)
+    env = _stock_devices_env(tmp_path)
+
+    devices = asyncio.run(qserver_startup.build_devices(env=env, connector=FakeConnector()))
+
+    assert devices["corrector_01"]._simulated is simulated
+
+
 def test_address_named_devices_build_and_stay_visible_to_queueserver(tmp_path: Path) -> None:
     """A device named by its own channel address survives the whole worker path.
 
