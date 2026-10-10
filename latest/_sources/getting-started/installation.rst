@@ -1,7 +1,8 @@
-Installation & Setup
-====================
+Installation
+============
 
-Get OSPREY running in five steps. The whole process takes about 10 minutes.
+Get OSPREY running in six steps; the last one, a container runtime, is optional. The
+whole process takes about 10 minutes.
 
 .. dropdown:: **What you'll have when done**
    :color: info
@@ -11,6 +12,7 @@ Get OSPREY running in five steps. The whole process takes about 10 minutes.
    - An API key configured for your AI provider
    - The ``osprey`` CLI installed and on your ``PATH``
    - The ability to create projects with ``osprey build``
+   - Optionally, Docker or Podman for ``osprey deploy``
 
 
 Step 1: Install Node.js
@@ -262,6 +264,47 @@ scheme (e.g. ``2026.5.1``; git tags carry a ``v`` prefix, e.g. ``v2026.5.1``)
 — the first two segments identify the release window and the patch segment
 increments for hotfixes. See ``CHANGELOG.md`` for details.
 
+Step 6: Install a container runtime (optional)
+------------------------------------------------
+
+``osprey deploy`` runs a project and its services (simulation IOCs, databases, the
+observability stack) in containers, and needs Docker or Podman for that. The core
+agent workflow does not require containers, so you can skip this step and come back
+to it when you deploy.
+
+.. tab-set::
+
+   .. tab-item:: Docker Desktop
+
+      Download from the `Docker website <https://www.docker.com/products/docker-desktop/>`_
+      and verify:
+
+      .. code-block:: bash
+
+         docker --version
+         docker compose version
+         docker buildx version
+
+      OSPREY's service images need BuildKit: Docker Desktop includes it; on a
+      Linux Docker Engine install the ``docker-buildx-plugin`` package. Podman
+      needs nothing extra.
+
+   .. tab-item:: Podman
+
+      Install from the `Podman website <https://podman.io/docs/installation>`_
+      and verify:
+
+      .. code-block:: bash
+
+         podman --version
+
+      On macOS/Windows, also run:
+
+      .. code-block:: bash
+
+         podman machine init
+         podman machine start
+
 You're done! 🎉
 -----------------
 
@@ -277,7 +320,7 @@ OSPREY is installed and ready to use. Here's what to do next:
       Build your first agent with a mock control system. One MCP server, zero
       complexity. Takes about five minutes.
 
-   .. grid-item-card:: **Install and Set Up**
+   .. grid-item-card:: **Guided Facility Setup**
       :link: osprey-install
       :link-type: doc
 
@@ -286,46 +329,12 @@ OSPREY is installed and ready to use. Here's what to do next:
       to your system. Takes about 10--15 minutes.
 
 
-.. dropdown:: **Advanced: Container runtime, services & detailed configuration**
+.. dropdown:: **Advanced: Services & detailed configuration**
    :color: secondary
    :icon: gear
 
    The steps above cover the core installation. The following are only needed for
    specific use cases.
-
-   **Container Runtime (Docker or Podman)**
-
-   A container runtime is only required if you plan to deploy containerized services
-   (simulation IOCs, databases, the observability stack). The core agent workflow does not require
-   containers.
-
-   .. tab-set::
-
-      .. tab-item:: Docker Desktop
-
-         Download from the `Docker website <https://www.docker.com/products/docker-desktop/>`_
-         and verify:
-
-         .. code-block:: bash
-
-            docker --version
-            docker compose version
-
-      .. tab-item:: Podman
-
-         Install from the `Podman website <https://podman.io/docs/installation>`_
-         and verify:
-
-         .. code-block:: bash
-
-            podman --version
-
-         On macOS/Windows, also run:
-
-         .. code-block:: bash
-
-            podman machine init
-            podman machine start
 
    **Deploying Services**
 

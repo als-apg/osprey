@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Install and Set Up &#8212; Osprey Framework dev documentation</title>
+    <title>Guided Facility Setup &#8212; Osprey Framework dev documentation</title>
   
   
   
@@ -383,10 +383,10 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation &amp; Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">Conceptual Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hello-world-tutorial.html">Hello World Tutorial</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Install and Set Up</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Guided Facility Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
 </ul>
 </div>
@@ -431,7 +431,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Getting Started</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Install and Set Up</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Guided Facility Setup</span></li>
   </ul>
 </nav>
 </div>
@@ -448,27 +448,27 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="install-and-set-up">
-<h1>Install and Set Up<a class="headerlink" href="#install-and-set-up" title="Link to this heading">#</a></h1>
-<p>The <code class="docutils literal notranslate"><span class="pre">/osprey:install</span></code> skill is OSPREY’s installer, run as a conversation with a
+  <section id="guided-facility-setup">
+<h1>Guided Facility Setup<a class="headerlink" href="#guided-facility-setup" title="Link to this heading">#</a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">/osprey:install</span></code> skill is OSPREY’s guided setup: a conversation with a
 coding agent you bring — Claude Code in the commands below. That agent is not the
-OSPREY agent: the installer builds the deployment the OSPREY agent later runs
-from. It installs OSPREY if it is missing, starts from what you already
-have, agrees each step with you, and ends on a deployment repository for your
+OSPREY agent: the setup builds the deployment the OSPREY agent later runs
+from. It starts from what you already have, installs OSPREY if it is missing,
+agrees each step with you, and ends on a deployment repository for your
 accelerator, beamline, or detector that validates and builds. You can stop and
 resume at any point.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p class="sd-card-text"><strong>A coding-agent CLI</strong> — the installer runs inside a coding-agent session;
+<li><p class="sd-card-text"><strong>A coding-agent CLI</strong> — the setup runs inside a coding-agent session;
 the commands here use Claude Code. Install it from
 <a class="reference external" href="https://claude.ai/code">claude.ai/code</a> and make sure
 <code class="docutils literal notranslate"><span class="pre">claude</span> <span class="pre">--version</span></code> works in your terminal.</p></li>
-<li><p class="sd-card-text"><strong>uv</strong> — the installer puts OSPREY on your <code class="docutils literal notranslate"><span class="pre">PATH</span></code> with <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">tool</span> <span class="pre">install</span></code>.
-<a class="reference internal" href="installation.html"><span class="doc">Installation &amp; Setup</span></a> covers installing <code class="docutils literal notranslate"><span class="pre">uv</span></code>; OSPREY itself can wait for the
+<li><p class="sd-card-text"><strong>uv</strong> — the setup puts OSPREY on your <code class="docutils literal notranslate"><span class="pre">PATH</span></code> with <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">tool</span> <span class="pre">install</span></code>.
+<a class="reference internal" href="installation.html"><span class="doc">Installation</span></a> covers installing <code class="docutils literal notranslate"><span class="pre">uv</span></code>; OSPREY itself can wait for the
 conversation.</p></li>
-<li><p class="sd-card-text"><strong>A provider API key</strong> — the installer is a live conversation with an AI
+<li><p class="sd-card-text"><strong>A provider API key</strong> — the setup is a live conversation with an AI
 service, usually whichever one your lab provides.</p></li>
 <li><p class="sd-card-text"><strong>Recommended:</strong> a container runtime (Docker or Podman) so that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
 works on the result, and a list of your channel names if you have one.</p></li>
@@ -501,7 +501,7 @@ claude
 <section id="what-happens">
 <h2>What happens<a class="headerlink" href="#what-happens" title="Link to this heading">#</a></h2>
 <figure class="only-light align-default" id="id1">
-<a class="only-light reference internal image-reference" href="../_images/install_flow_light.png"><img alt="The install flow: two opening questions, then DISCOVER, MAP, BUILD and CLOSE, each ending on a card you confirm, with the upstream scout running in the background." class="only-light" src="../_images/install_flow_light.png" style="width: 100%;" />
+<a class="only-light reference internal image-reference" href="../_images/install_flow_light.png"><img alt="The setup flow: two opening questions, then DISCOVER, MAP, BUILD and CLOSE, each ending on a card you confirm, with the upstream scout running in the background." class="only-light" src="../_images/install_flow_light.png" style="width: 100%;" />
 </a>
 <figcaption>
 <p><span class="caption-text">Two questions, four phases, a card to confirm at the end of each. The
@@ -509,7 +509,7 @@ upstream scout runs beside the conversation, not in it.</span><a class="headerli
 </figcaption>
 </figure>
 <figure class="only-dark align-default" id="id2">
-<a class="only-dark reference internal image-reference" href="../_images/install_flow_dark.png"><img alt="The install flow: two opening questions, then DISCOVER, MAP, BUILD and CLOSE, each ending on a card you confirm, with the upstream scout running in the background." class="only-dark" src="../_images/install_flow_dark.png" style="width: 100%;" />
+<a class="only-dark reference internal image-reference" href="../_images/install_flow_dark.png"><img alt="The setup flow: two opening questions, then DISCOVER, MAP, BUILD and CLOSE, each ending on a card you confirm, with the upstream scout running in the background." class="only-dark" src="../_images/install_flow_dark.png" style="width: 100%;" />
 </a>
 <figcaption>
 <p><span class="caption-text">Two questions, four phases, a card to confirm at the end of each. The
@@ -519,7 +519,7 @@ upstream scout runs beside the conversation, not in it.</span><a class="headerli
 <p>It opens with two questions: what already exists (an OSPREY deployment, a facility
 without one, or nothing yet), and whether OSPREY is installed on this machine. If it
 is not, you choose the latest release or the development version from <code class="docutils literal notranslate"><span class="pre">main</span></code>, and
-the installer runs the install for you.</p>
+the setup installs it for you.</p>
 <p>Then four phases, each ending on a card and one question: confirm, or say what should
 change. A confirmed card is written into <code class="docutils literal notranslate"><span class="pre">INTERVIEW.md</span></code> and is not reopened.</p>
 <p><strong>DISCOVER</strong> reads your repository, files and command output, writes nothing, and
@@ -534,7 +534,7 @@ whenever your facility has the source it consumes. A logbook means the ARIEL log
 search is recommended on, with your logbook ingested. Documentation, an IOC database or
 a channel list mean the knowledge bundle, the facility graph and the graph channel
 finder are recommended on, seeded from those sources when you say so. A MATLAB Middle
-Layer export is the one source that carries all of them at once: the installer reads it
+Layer export is the one source that carries all of them at once: the setup reads it
 in with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">mml</span></code>, has you review what each device family means, and emits the
 channel database, the knowledge pages and the facility graph from that one review
 (<a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>). An export that also carries its simulator model
@@ -548,7 +548,7 @@ provenance ledger.</p>
 facility, a skeleton, or a reason; then a second agent argues against the setup; then a
 final validate and build.</p>
 <p>When the conversation hits something OSPREY cannot express for your facility, the
-installer offers to investigate it in the background while you continue. The result
+setup offers to investigate it in the background while you continue. The result
 comes back as a write-up with a verdict, mechanical or architectural, and a
 recommendation: fix it on a branch and build your deployment against that branch, or
 file an issue with the OSPREY team. Nothing is sent without you seeing it.</p>
@@ -571,7 +571,7 @@ build at any pause.</p></li>
 </section>
 <section id="build-and-run">
 <h2>Build and run<a class="headerlink" href="#build-and-run" title="Link to this heading">#</a></h2>
-<p>The installer leaves you inside a deployment repository:</p>
+<p>The setup leaves you inside a deployment repository:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
 <span class="nb">cd</span><span class="w"> </span>my-project
 osprey<span class="w"> </span>build<span class="w">     </span><span class="c1"># render build/ from the profile</span>

@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Installation &amp; Setup &#8212; Osprey Framework dev documentation</title>
+    <title>Installation &#8212; Osprey Framework dev documentation</title>
   
   
   
@@ -383,10 +383,10 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Installation &amp; Setup</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">Conceptual Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hello-world-tutorial.html">Hello World Tutorial</a></li>
-<li class="toctree-l1"><a class="reference internal" href="osprey-install.html">Install and Set Up</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osprey-install.html">Guided Facility Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
 </ul>
 </div>
@@ -431,7 +431,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Getting Started</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Installation &amp; Setup</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Installation</span></li>
   </ul>
 </nav>
 </div>
@@ -448,9 +448,10 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="installation-setup">
-<h1>Installation &amp; Setup<a class="headerlink" href="#installation-setup" title="Link to this heading">#</a></h1>
-<p>Get OSPREY running in five steps. The whole process takes about 10 minutes.</p>
+  <section id="installation">
+<h1>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h1>
+<p>Get OSPREY running in six steps; the last one, a container runtime, is optional. The
+whole process takes about 10 minutes.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-check-circle" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm1.5 0a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm10.28-1.72-4.5 4.5a.75.75 0 0 1-1.06 0l-2-2a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l1.47 1.47 3.97-3.97a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"></path></svg></span><span class="sd-summary-text"><strong>What you’ll have when done</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -459,6 +460,7 @@
 <li><p class="sd-card-text">An API key configured for your AI provider</p></li>
 <li><p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">osprey</span></code> CLI installed and on your <code class="docutils literal notranslate"><span class="pre">PATH</span></code></p></li>
 <li><p class="sd-card-text">The ability to create projects with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code></p></li>
+<li><p class="sd-card-text">Optionally, Docker or Podman for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code></p></li>
 </ul>
 </div>
 </details><section id="step-1-install-node-js">
@@ -678,6 +680,43 @@ scheme (e.g. <code class="docutils literal notranslate"><span class="pre">2026.5
 — the first two segments identify the release window and the patch segment
 increments for hotfixes. See <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code> for details.</p>
 </section>
+<section id="step-6-install-a-container-runtime-optional">
+<h2>Step 6: Install a container runtime (optional)<a class="headerlink" href="#step-6-install-a-container-runtime-optional" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> runs a project and its services (simulation IOCs, databases, the
+observability stack) in containers, and needs Docker or Podman for that. The core
+agent workflow does not require containers, so you can skip this step and come back
+to it when you deploy.</p>
+<div class="sd-tab-set docutils">
+<input checked="checked" id="sd-tab-item-10" name="sd-tab-set-4" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-10">
+Docker Desktop</label><div class="sd-tab-content docutils">
+<p>Download from the <a class="reference external" href="https://www.docker.com/products/docker-desktop/">Docker website</a>
+and verify:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>--version
+docker<span class="w"> </span>compose<span class="w"> </span>version
+docker<span class="w"> </span>buildx<span class="w"> </span>version
+</pre></div>
+</div>
+<p>OSPREY’s service images need BuildKit: Docker Desktop includes it; on a
+Linux Docker Engine install the <code class="docutils literal notranslate"><span class="pre">docker-buildx-plugin</span></code> package. Podman
+needs nothing extra.</p>
+</div>
+<input id="sd-tab-item-11" name="sd-tab-set-4" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-11">
+Podman</label><div class="sd-tab-content docutils">
+<p>Install from the <a class="reference external" href="https://podman.io/docs/installation">Podman website</a>
+and verify:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>--version
+</pre></div>
+</div>
+<p>On macOS/Windows, also run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>machine<span class="w"> </span>init
+podman<span class="w"> </span>machine<span class="w"> </span>start
+</pre></div>
+</div>
+</div>
+</div>
+</section>
 <section id="you-re-done">
 <h2>You’re done! 🎉<a class="headerlink" href="#you-re-done" title="Link to this heading">#</a></h2>
 <p>OSPREY is installed and ready to use. Here’s what to do next:</p>
@@ -697,50 +736,20 @@ complexity. Takes about five minutes.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-<strong>Install and Set Up</strong></div>
+<strong>Guided Facility Setup</strong></div>
 <p class="sd-card-text">Set OSPREY up for your own detector, beamline, or accelerator subsystem.
 A guided conversation generates a ready-to-build project profile tailored
 to your system. Takes about 10–15 minutes.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="osprey-install.html"><span class="doc">Install and Set Up</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="osprey-install.html"><span class="doc">Guided Facility Setup</span></a></div>
 </div>
 </div>
 </div>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-secondary sd-bg-text-secondary">
-<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-gear" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg></span><span class="sd-summary-text"><strong>Advanced: Container runtime, services &amp; detailed configuration</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-gear" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg></span><span class="sd-summary-text"><strong>Advanced: Services &amp; detailed configuration</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <p class="sd-card-text">The steps above cover the core installation. The following are only needed for
 specific use cases.</p>
-<p class="sd-card-text"><strong>Container Runtime (Docker or Podman)</strong></p>
-<p class="sd-card-text">A container runtime is only required if you plan to deploy containerized services
-(simulation IOCs, databases, the observability stack). The core agent workflow does not require
-containers.</p>
-<div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-10" name="sd-tab-set-4" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-10">
-Docker Desktop</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">Download from the <a class="reference external" href="https://www.docker.com/products/docker-desktop/">Docker website</a>
-and verify:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>--version
-docker<span class="w"> </span>compose<span class="w"> </span>version
-</pre></div>
-</div>
-</div>
-<input id="sd-tab-item-11" name="sd-tab-set-4" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-11">
-Podman</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">Install from the <a class="reference external" href="https://podman.io/docs/installation">Podman website</a>
-and verify:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>--version
-</pre></div>
-</div>
-<p class="sd-card-text">On macOS/Windows, also run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>podman<span class="w"> </span>machine<span class="w"> </span>init
-podman<span class="w"> </span>machine<span class="w"> </span>start
-</pre></div>
-</div>
-</div>
-</div>
 <p class="sd-card-text"><strong>Deploying Services</strong></p>
 <p class="sd-card-text">See <a class="reference internal" href="../how-to/deploy-project/index.html"><span class="doc">Container Deployment</span></a> for setting up containerized services like
 databases, simulation IOCs, or the observability stack.</p>
@@ -838,6 +847,7 @@ osprey<span class="w"> </span>--version<span class="w">     </span><span class="
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-install-python-tools">Step 3: Install Python tools</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-set-up-your-api-key">Step 4: Set up your API key</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-install-osprey">Step 5: Install OSPREY</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-6-install-a-container-runtime-optional">Step 6: Install a container runtime (optional)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#you-re-done">You’re done! 🎉</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
 </ul>
