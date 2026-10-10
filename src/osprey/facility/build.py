@@ -2,8 +2,9 @@
 
 ``build_facility`` runs S1 to S5 and the stages after them, in order::
 
-    wiring    the computed slots of every wiring record    (wiring.py)
-    compute   positions, places, ordinals, deck checks     (compute.py)
+    wiring       the computed slots of every wiring record    (wiring.py)
+    compute      positions, places, ordinals, deck checks     (compute.py)
+    measurement  each measurement file against its model      (validate.py)
 
 and returns the facility file, or raises the first error of the first stage
 that fails. Nothing is written to disk.
@@ -15,7 +16,7 @@ from pathlib import Path
 from typing import Any, TypeAlias
 
 from osprey.facility.compute import check_compute
-from osprey.facility.validate import Stage, run_stages
+from osprey.facility.validate import Stage, check_measurement, run_stages
 from osprey.facility.wiring import fill_wiring_slots
 
 __all__ = ["LATER_STAGES", "FacilityDocument", "build_facility"]
@@ -27,6 +28,7 @@ FacilityDocument: TypeAlias = dict[str, Any]
 LATER_STAGES: tuple[tuple[str, Stage], ...] = (
     ("wiring", fill_wiring_slots),
     ("compute", check_compute),
+    ("measurement", check_measurement),
 )
 
 
