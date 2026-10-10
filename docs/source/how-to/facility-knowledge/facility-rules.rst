@@ -22,8 +22,8 @@ What the ``control-assistant`` preset ships
      - Holds
      - Facility-specific
    * - ``facility.md``
-     - Facility identity (name, type, mission) and a pointer to the on-demand
-       knowledge tools.
+     - Facility identity (name, type, mission), a pointer to the on-demand
+       knowledge tools, and where to read the facts the build generates.
      - Yes
    * - ``control-system-safety.md``
      - Which control protocol the facility runs (EPICS, Tango, OPC-UA, LabVIEW)
