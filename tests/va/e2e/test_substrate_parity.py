@@ -1,7 +1,7 @@
-"""The virtual accelerator serves what the mock serves, channel for channel.
+"""The virtual accelerator serves the same values in both venues, channel for channel.
 
-Both substrates serve one simulator view through one composite: the mock
-in-process, the virtual accelerator over Channel Access from its container.
+Both venues serve one simulator view through one composite: in process, and
+over Channel Access from the container.
 This module holds the container to the in-process composite over the same
 rendered view, on every served channel:
 
