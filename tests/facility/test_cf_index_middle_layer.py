@@ -106,7 +106,7 @@ SYNTHETIC: dict[str, Any] = {
 def test_a_family_is_filed_under_each_system_of_its_members() -> None:
     document, _left_out, _by_address = _document(SYNTHETIC)
 
-    assert sorted(document) == ["M", "N", "schema"]
+    assert sorted(document) == ["M", "N", "count", "schema"]
     assert sorted(document["M"]) == ["ALL", "Gauge", "QUAD", "_description"]
     assert sorted(document["N"]) == ["M/QUAD", "_description"]
     assert _fields(document["N"]["M/QUAD"])["current_setpoint"]["ChannelNames"] == [
@@ -416,11 +416,13 @@ def test_a_derived_family_name_colliding_with_a_group_keeps_the_group_s_id() -> 
 
 
 def test_a_channel_in_no_family_is_left_out_and_counted() -> None:
+    from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
+
     document, left_out, by_address = _document(SYNTHETIC)
     addresses = {
         address
         for system, families in document.items()
-        if system != "schema"
+        if system not in DOCUMENT_KEYS
         for family in families.values()
         if isinstance(family, dict)
         for field in _fields(family).values()
@@ -430,6 +432,14 @@ def test_a_channel_in_no_family_is_left_out_and_counted() -> None:
     assert "M:G1:P" in addresses
     assert "M:TUNE" not in addresses
     assert (left_out, by_address) == (1, 5)
+
+
+def test_the_count_is_the_distinct_addresses_the_fields_list() -> None:
+    document, left_out, _by_address = _document(SYNTHETIC)
+
+    assert len(SYNTHETIC["channels"]) == 7
+    assert document["count"] == 6
+    assert left_out == 1
 
 
 def test_a_field_a_member_lacks_or_repeats_is_keyed_by_address() -> None:
@@ -573,15 +583,16 @@ def test_a_system_beginning_with_an_underscore_stops_with_view_unsupported() -> 
     )
 
 
-def test_a_system_named_schema_stops_with_view_unsupported() -> None:
+@pytest.mark.parametrize("key", ["count", "schema"])
+def test_a_system_named_by_a_document_key_stops_with_view_unsupported(key: str) -> None:
     from osprey.facility.errors import FacilityBuildError
 
     with pytest.raises(FacilityBuildError) as caught:
-        _document(_one_family("schema", "F"))
+        _document(_one_family(key, "F"))
 
     assert caught.value.format_message() == (
-        "facility: view-unsupported: place schema — its System key `schema` is the document key "
-        "of the middle-layer index; fix: give the place an id other than `schema`, or select "
+        f"facility: view-unsupported: place {key} — its System key `{key}` is a document key "
+        f"of the middle-layer index; fix: give the place an id other than `{key}`, or select "
         "another channel_finder_mode"
     )
 
@@ -589,11 +600,11 @@ def test_a_system_named_schema_stops_with_view_unsupported() -> None:
 def test_keys_not_beginning_with_an_underscore_are_unchanged() -> None:
     document, _left_out, _by_address = _document(_one_family("M_", "M_/X_"))
 
-    assert sorted(document) == ["M_", "schema"]
+    assert sorted(document) == ["M_", "count", "schema"]
     assert sorted(document["M_"]) == ["X_"]
 
 
-def test_the_loader_reads_the_index_back_and_skips_its_schema(tmp_path: Path) -> None:
+def test_the_loader_reads_the_index_back_and_skips_its_document_keys(tmp_path: Path) -> None:
     from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 
     (index, _database) = _write(tmp_path, SYNTHETIC)
@@ -607,6 +618,7 @@ def test_the_loader_reads_the_index_back_and_skips_its_schema(tmp_path: Path) ->
         "M:Q2:TEMP",
         "N:Q1:CURRENT:SP",
     ]
+    assert len(loaded.channel_map) == json.loads(index.read_bytes())["count"] == 6
     assert [system["name"] for system in loaded.list_systems()] == ["M", "N"]
     assert loaded.list_channel_names("M", "QUAD", "current_setpoint", place="M/S1") == [
         "M:Q1:CURRENT:SP",
@@ -837,10 +849,12 @@ def _group(doc: dict[str, Any], group_id: str) -> dict[str, Any]:
 
 
 def _families(document: dict[str, Any]) -> dict[str, list[str]]:
+    from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
+
     return {
         system: sorted(key for key in families if not key.startswith("_"))
         for system, families in document.items()
-        if system != "schema"
+        if system not in DOCUMENT_KEYS
     }
 
 
@@ -871,6 +885,8 @@ DEMO_DERIVED = {
 def test_every_demo_group_and_ungrouped_class_is_a_family(
     built_control_assistant: BuiltProject,
 ) -> None:
+    from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
+
     document, left_out, by_address = _document(built_control_assistant.facility)
 
     assert _families(document) == {
@@ -880,7 +896,7 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
     fields = [
         field
         for system, families in document.items()
-        if system != "schema"
+        if system not in DOCUMENT_KEYS
         for key, family in families.items()
         if not key.startswith("_")
         for field in _fields(family)
@@ -888,6 +904,7 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
     assert len(fields) == 1538
     assert by_address == 1387
     assert left_out == 4
+    assert document["count"] == len(built_control_assistant.facility["channels"]) - left_out
     assert left_out == sum(
         1
         for channel in built_control_assistant.facility["channels"]

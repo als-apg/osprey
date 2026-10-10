@@ -4,6 +4,7 @@ The in_context index is written to ``<render>/data/channel_finder/in_context.jso
 
     {
       "schema": "osprey.facility.channel_finder/1",
+      "count": <rows>,
       "channels": [
         {"channel": <name>, "address": <address>, "description": <text>},
         ...
@@ -13,8 +14,8 @@ The in_context index is written to ``<render>/data/channel_finder/in_context.jso
 One row per channel, sorted by address; a facility that tags channels
 ``in_context`` narrows the index to those channels. A row's ``channel`` is the
 channel's ``label``, else its address; its ``description`` is the channel's
-own. A render carries the index when its ``channel_finder.pipeline_mode`` is
-``in_context``; a facility with no channel then stops the build with
+own. ``count`` is the number of rows. A render carries the index when its
+``channel_finder.pipeline_mode`` is ``in_context``; a facility with no channel then stops the build with
 ``view-unsupported``.
 
 The hierarchical index is written to
@@ -22,6 +23,7 @@ The hierarchical index is written to
 
     {
       "schema": "osprey.facility.channel_finder/1",
+      "count": <rows>,
       "hierarchy": {
         "levels": [{"name": <level>, "type": "tree"}, ...],
         "naming_pattern": "{<level>}{<level>}..."
@@ -43,8 +45,8 @@ shares it, else by ``<signal>:<role>`` when that is unique, else by its address;
 a channel with no signal is keyed by its address. A leaf's ``_description`` is
 its channel's description. A place node is described by its place, a class
 node by its class (the facility's class row, else the vocabulary's), and a
-device node by its device. A render carries the index
-when its ``channel_finder.pipeline_mode`` is ``hierarchical``; a facility
+device node by its device. ``count`` is the number of leaves. A render carries
+the index when its ``channel_finder.pipeline_mode`` is ``hierarchical``; a facility
 with no channel writes an empty tree. The build stops with
 ``view-unsupported`` when two place level words first appear at one depth, and
 when a tree key (a place or device id, a class, a signal, or an address used as
@@ -56,6 +58,7 @@ The middle-layer index is written to
 
     {
       "schema": "osprey.facility.channel_finder/1",
+      "count": <rows>,
       <System>: {
         "_description": <text>,
         <Family>: {
@@ -92,12 +95,13 @@ member's position in member order. No record carries a ``DeviceList``, a
 described by its place's description, a group's Family by the group's
 description, else its label. A channel of no family is left out; the build
 names how many channels it left out and how many it keyed by address in one
-note. A render carries the index when its ``channel_finder.pipeline_mode`` is
-``middle_layer``; a facility with no device in a group or with a class stops
+note. ``count`` is the number of distinct addresses the Fields list; a channel
+of no family is not counted. A render carries the index when its
+``channel_finder.pipeline_mode`` is ``middle_layer``; a facility with no device in a group or with a class stops
 the build with ``view-unsupported``, as does a host where DuckDB cannot load
 its full-text-search extension, which the database's search index needs, and a
 System or Family key the loader would not read back: one beginning with
-``_``, or a System ``schema``.
+``_``, or a System ``schema`` or ``count``.
 """
 
 from __future__ import annotations
@@ -171,14 +175,15 @@ def in_context_document(doc: Mapping[str, Any]) -> dict[str, Any]:
         doc: The facility file.
 
     Returns:
-        ``{schema, channels}``, one row per channel tagged ``in_context`` when
-        any is, else one per channel, sorted by address.
+        ``{schema, count, channels}``, one row per channel tagged
+        ``in_context`` when any is, else one per channel, sorted by address;
+        ``count`` is the number of rows.
     """
     channels = list(doc.get("channels", []))
     tagged = [channel for channel in channels if IN_CONTEXT_TAG in (channel.get("tags") or [])]
     rows = [_row(channel) for channel in tagged or channels]
     rows.sort(key=lambda row: row["address"])
-    return {"schema": CHANNEL_FINDER_SCHEMA, "channels": rows}
+    return {"schema": CHANNEL_FINDER_SCHEMA, "count": len(rows), "channels": rows}
 
 
 def in_context_selected(inputs: ViewInputs) -> bool:
@@ -430,7 +435,8 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
         doc: The facility file.
 
     Returns:
-        ``{schema, hierarchy, tree}``.
+        ``{schema, count, hierarchy, tree}``; ``count`` is the number of
+        leaves the tree holds.
 
     Raises:
         FacilityBuildError: ``view-unsupported`` when two place level words
@@ -481,6 +487,7 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
             descriptions[class_node] = class_texts.get(class_node[-1])
 
     tree: dict[str, Any] = {}
+    count = 0
     for device_node, channels in leaves.items():
         node = tree
         for depth in range(len(device_node)):
@@ -497,10 +504,12 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
             leaf: dict[str, Any] = {"_channel_part": str(channel["id"])}
             if channel.get("description"):
                 leaf["_description"] = channel["description"]
+            count += key not in node
             node[key] = leaf
 
     return {
         "schema": CHANNEL_FINDER_SCHEMA,
+        "count": count,
         "hierarchy": {
             "levels": [{"name": level, "type": "tree"} for level in levels],
             "naming_pattern": "".join(f"{{{level}}}" for level in levels),
@@ -834,7 +843,7 @@ def _checked_system(system: str, place: Mapping[str, Any]) -> None:
         raise _unsupported(
             place,
             "place",
-            f"its System key `{system}` is the document key of the middle-layer index",
+            f"its System key `{system}` is a document key of the middle-layer index",
             f"give the place an id other than `{system}`, or select another channel_finder_mode",
         )
     _checked_key(system, place, "place", _MIDDLE_LAYER_INDEX)
@@ -847,13 +856,15 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
         doc: The facility file.
 
     Returns:
-        ``{schema, <System>: {<Family>: {...}}}``; the number of channels in no
-        family, which the index leaves out; and the number of channels the
-        index keys by their address.
+        ``{schema, count, <System>: {<Family>: {...}}}``; the number of
+        channels in no family, which the index leaves out; and the number of
+        channels the index keys by their address. ``count`` is the number of
+        distinct addresses its Fields list.
 
     Raises:
         FacilityBuildError: ``view-unsupported`` when a System or Family key
-            begins with ``_``, or a System key is ``schema``.
+            begins with ``_``, or a System key is a document key of the index
+            (``schema``, ``count``).
     """
     places = {str(place["id"]): place for place in doc.get("places", [])}
     indices = _place_indices(doc)
@@ -866,6 +877,7 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
 
     signal_texts = _signal_descriptions()
     in_family: set[str] = set()
+    listed: set[str] = set()
     document: dict[str, Any] = {"schema": CHANNEL_FINDER_SCHEMA}
     by_address = 0
     for system, families in _families_by_system(doc).items():
@@ -882,12 +894,14 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
             for member in entry.members:
                 in_family.update(str(c["id"]) for c in channels_of.get(str(member["id"]), ()))
             fields, keyed = _family_fields(entry.members, channels_of, signal_texts)
+            listed.update(address for field in fields.values() for address in field["ChannelNames"])
             by_address += keyed
             family: dict[str, Any] = {"_setup": _setup(entry.members, indices), **fields}
             if entry.description:
                 family["_description"] = entry.description
             node[entry.name] = family
         document[system] = node
+    document["count"] = len(listed)
 
     left_out = sum(1 for channel in doc.get("channels", []) if str(channel["id"]) not in in_family)
     return document, left_out, by_address
@@ -912,9 +926,10 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
             full-text-search extension is neither installed nor reachable).
     """
     from osprey.facility.views import report_note, view_bytes
+    from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
 
     document, left_out, by_address = middle_layer_document(inputs.doc)
-    if len(document) == 1:
+    if not document.keys() - DOCUMENT_KEYS:
         raise _mode_unsupported(
             f"selects {MIDDLE_LAYER_MODE} and no device of the facility is in a group "
             "or has a class",

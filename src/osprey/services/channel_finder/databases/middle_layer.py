@@ -47,8 +47,8 @@ from ..core.base_database import BaseDatabase
 #: ``TangoNames`` Tango device attributes; a field may carry either or both.
 CHANNEL_KEYS: tuple[str, ...] = ("ChannelNames", "TangoNames")
 
-#: Top-level keys of an index that name the document, not a system.
-DOCUMENT_KEYS = frozenset({"schema"})
+#: Top-level keys of an index that describe the document, not a system.
+DOCUMENT_KEYS = frozenset({"schema", "count"})
 
 # Metadata keys to skip during tree traversal (not navigable families/fields)
 _ML_META_KEYS = frozenset(
@@ -172,8 +172,8 @@ class MiddleLayerDatabase(BaseDatabase):
         Flatten MML hierarchy into channel map for O(1) validation.
 
         Keys starting with ``_`` are metadata (``_description``, ``_meta``) at
-        any level and are skipped, as is the top-level ``schema`` key that
-        names the index's document. Any other value that is not a mapping is a
+        any level and are skipped, as are the top-level document keys
+        (``schema``, ``count``). Any other value that is not a mapping is a
         shape error, and is named rather than skipped: a system or family that
         silently contributed nothing would read as a facility with fewer
         channels, not as a broken file.

@@ -2243,7 +2243,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             ),
         ),
         (
-            "facility: view-unsupported: place schema — its System key `schema` is the document "
+            "facility: view-unsupported: place schema — its System key `schema` is a document "
             "key of the middle-layer index; fix: give the place an id other than `schema`, or "
             "select another channel_finder_mode"
         ),
